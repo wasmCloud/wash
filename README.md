@@ -14,13 +14,7 @@
 ## Why wash
 `wash` is a bundle of command line tools that, together, form a comprehensive CLI for [wasmcloud](https://github.com/wasmcloud/wasmcloud) development. Everything from generating signing keys to a fully interactive REPL environment is contained within the subcommands of `wash`. Our goal with `wash` is to encapsulate our tools into a single binary to make developing WebAssembly with wasmcloud painless and simple.
 
-## Installing wash
-### Cargo
-```
-cargo install wash-cli
-```
-### Linux (deb/rpm + apt)
-```
+## Installing washasd
 # Debian / Ubuntu (deb)
 curl -s https://packagecloud.io/install/repositories/wasmcloud/core/script.deb.sh | sudo bash
 # Fedora (rpm)
