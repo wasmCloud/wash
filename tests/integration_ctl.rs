@@ -250,7 +250,7 @@ async fn integration_ctl_actor_provider_roundtrip() -> Result<()> {
         assert!(link_echo_httpserver.status.success());
     }
 
-    let resp = reqwest::get("http://localhost:8090/echotest")
+    let resp = reqwest::get("http://0.0.0.0:8090/echotest")
         .await?
         .text()
         .await?;
@@ -258,7 +258,7 @@ async fn integration_ctl_actor_provider_roundtrip() -> Result<()> {
     assert!(resp.contains("\"method\":\"GET\""));
     assert!(resp.contains("\"path\":\"/echotest\""));
     assert!(resp.contains("\"query_string\":\"\""));
-    assert!(resp.contains("\"host\":\"localhost:8090\""));
+    assert!(resp.contains("\"host\":\"0.0.0.0:8090\""));
     assert!(resp.contains("\"body\":[]"));
 
     let stop_actor = wash()
@@ -291,7 +291,7 @@ async fn integration_ctl_actor_provider_roundtrip() -> Result<()> {
     assert!(wait_for_stop(&host_id, NS, HTTPSERVER_PKEY, 30).await);
 
     // Now that actor and provider aren't running, this request should fail
-    let resp = reqwest::get("http://localhost:8090/echotest").await;
+    let resp = reqwest::get("http://0.0.0.0:8090/echotest").await;
     assert!(resp.is_err());
 
     Ok(())
@@ -347,7 +347,7 @@ async fn create_host(namespace: String) -> Result<String> {
                 .with_control_client(nats_conn)
                 .with_label("test_mode", "true")
                 .oci_allow_latest()
-                .oci_allow_insecure(vec!["localhost:5000".to_string()])
+                .oci_allow_insecure(vec!["0.0.0.0:5000".to_string()])
                 .enable_live_updates()
                 .build();
             host.start().await.unwrap();
