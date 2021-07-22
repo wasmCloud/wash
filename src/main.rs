@@ -60,7 +60,7 @@ enum CliCommand {
     /// Interact with OCI compliant registries
     #[structopt(name = "reg")]
     Reg(RegCli),
-    /// Launch wasmcloud REPL environment
+    /// Launch wasmcloud REPL environment (DEPRECATED, WILL BE REMOVED IN 0.6.0)
     #[structopt(name = "up")]
     #[cfg(feature = "termion")]
     Up(UpCli),

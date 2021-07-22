@@ -255,6 +255,7 @@ async fn handle_up(cmd: UpCliCommand) -> Result<()> {
     std::thread::spawn(move || {
         let rt = actix_rt::System::new();
         rt.block_on(async move {
+            host_output_sender.send("WARNING: The wash REPL is deprecated and will be removed in 0.6.0".to_string()).unwrap();
             if let Err(e) = host.start().await.map_err(convert_error) {
                 error!(target: WASH_LOG_INFO, "Error launching REPL host: {}", e);
             } else {
