@@ -90,6 +90,7 @@ impl fmt::Display for OutputParseErr {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn set_max_text_output_width(width: usize) {
     MAX_TEXT_OUTPUT_WIDTH.with(|output_width| {
         output_width.set(width);
@@ -144,7 +145,12 @@ pub(crate) fn extract_arg_value(arg: &str) -> Result<String> {
 pub(crate) fn convert_error(
     e: Box<dyn ::std::error::Error + Send + Sync>,
 ) -> Box<dyn ::std::error::Error> {
-    Box::<dyn std::error::Error>::from(format!("{}", e))
+    Box::<dyn std::error::Error>::from(e.to_string())
+}
+
+/// Converts error from RpcError
+pub(crate) fn convert_rpc_error(e: wasmbus_rpc::RpcError) -> Box<dyn ::std::error::Error> {
+    Box::<dyn std::error::Error>::from(e.to_string())
 }
 
 /// Transforms a list of labels in the form of (label=value) to a hashmap
@@ -165,8 +171,8 @@ pub(crate) fn labels_vec_to_hashmap(constraints: Vec<String>) -> Result<HashMap<
 
 /// Transform a json str (e.g. "{"hello": "world"}") into msgpack bytes
 pub(crate) fn json_str_to_msgpack_bytes(payload: Vec<String>) -> Result<Vec<u8>> {
-    let json: serde_json::value::Value = serde_json::from_str(&payload.join(""))?;
-    let payload = serdeconv::to_msgpack_vec(&json)?;
+    let json = serde_json::from_str::<serde_json::Value>(&payload.join(""))?;
+    let payload = wasmbus_rpc::serialize(&json)?;
     Ok(payload)
 }
 

@@ -12,7 +12,7 @@ pub(crate) fn call_output(error: Option<String>, msg: Vec<u8>, output_kind: &Out
         Some(e) => format_output(
             format!("\nError invoking actor: {}", e),
             json!({ "error": e }),
-            &output_kind,
+            output_kind,
         ),
         None => {
             //TODO(issue #32): String::from_utf8_lossy should be decoder only if one is not available
@@ -20,7 +20,7 @@ pub(crate) fn call_output(error: Option<String>, msg: Vec<u8>, output_kind: &Out
             format_output(
                 format!("\nCall response (raw): {}", call_response),
                 json!({ "response": call_response }),
-                &output_kind,
+                output_kind,
             )
         }
     }
@@ -39,7 +39,7 @@ pub(crate) fn get_host_inventory_output(inv: HostInventory, output_kind: &Output
         OutputKind::Json => format!("{}", json!({ "inventory": inv })),
     }
 }
-pub(crate) fn get_claims_output(claims: ClaimsList, output_kind: &OutputKind) -> String {
+pub(crate) fn get_claims_output(claims: GetClaimsResponse, output_kind: &OutputKind) -> String {
     debug!(target: WASH_CMD_INFO, "Claims:{:?}", claims);
     match *output_kind {
         OutputKind::Text { max_width } => claims_table(claims, max_width),
@@ -86,12 +86,12 @@ pub(crate) fn start_actor_output(
         None => format_output(
             format!("\nActor starting on host {}", host_id),
             json!({ "actor_ref": actor_ref, "host_id": host_id }),
-            &output_kind,
+            output_kind,
         ),
         Some(f) => format_output(
             format!("\nError starting actor: {}", f),
             json!({ "error": f }),
-            &output_kind,
+            output_kind,
         ),
     }
 }
@@ -127,12 +127,12 @@ pub(crate) fn stop_actor_output(
         Some(f) => format_output(
             format!("\nError stopping actor: {}", f),
             json!({ "error": f }),
-            &output_kind,
+            output_kind,
         ),
         None => format_output(
             format!("\nStopping actor: {}", actor_ref),
             json!({ "actor_ref": actor_ref }),
-            &output_kind,
+            output_kind,
         ),
     }
 }
@@ -297,7 +297,7 @@ pub(crate) fn host_inventory_table(inv: HostInventory, max_width: usize) -> Stri
 }
 
 /// Helper function to print a ClaimsList to stdout as a table
-pub(crate) fn claims_table(list: ClaimsList, max_width: usize) -> String {
+pub(crate) fn claims_table(list: GetClaimsResponse, max_width: usize) -> String {
     let mut table = Table::new();
     crate::util::configure_table_style(&mut table, 2, max_width);
 

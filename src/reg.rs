@@ -243,7 +243,7 @@ pub(crate) fn write_artifact(
     image: &Reference,
     output: Option<String>,
 ) -> Result<String, Box<dyn ::std::error::Error>> {
-    let file_extension = match validate_artifact(&artifact, image.repository())? {
+    let file_extension = match validate_artifact(artifact, image.repository())? {
         SupportedArtifacts::Par => PROVIDER_ARCHIVE_FILE_EXTENSION,
         SupportedArtifacts::Wasm => WASM_FILE_EXTENSION,
     };
@@ -261,7 +261,7 @@ pub(crate) fn write_artifact(
         file_extension
     ));
     let mut f = File::create(outfile.clone())?;
-    f.write_all(&artifact)?;
+    f.write_all(artifact)?;
     Ok(outfile)
 }
 

@@ -13,15 +13,15 @@ mod par;
 use par::ParCli;
 mod reg;
 use reg::RegCli;
-#[cfg(feature = "termion")]
-mod up;
-#[cfg(feature = "termion")]
-use up::UpCli;
+//#[cfg(feature = "termion")]
+//mod up;
+//#[cfg(feature = "termion")]
+//use up::UpCli;
 mod util;
 
 /// This renders appropriately with escape characters
 const ASCII: &str = "
-                               _____ _                 _    _____ _          _ _ 
+                               _____ _                 _    _____ _          _ _
                               / ____| |               | |  / ____| |        | | |
  __      ____ _ ___ _ __ ___ | |    | | ___  _   _  __| | | (___ | |__   ___| | |
  \\ \\ /\\ / / _` / __| '_ ` _ \\| |    | |/ _ \\| | | |/ _` |  \\___ \\| '_ \\ / _ \\ | |
@@ -40,6 +40,7 @@ struct Cli {
     command: CliCommand,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, StructOpt)]
 enum CliCommand {
     /// Manage contents of local wasmcloud cache
@@ -68,6 +69,7 @@ enum CliCommand {
 
 #[actix_rt::main]
 async fn main() {
+    if let Err(_) = env_logger::try_init() {}
     let cli = Cli::from_args();
 
     let res = match cli.command {

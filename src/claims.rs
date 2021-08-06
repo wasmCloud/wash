@@ -744,7 +744,7 @@ pub(crate) fn render_actor_claims(
     };
 
     let friendly_caps: Vec<String> = if let Some(caps) = &claims.metadata.as_ref().unwrap().caps {
-        caps.iter().map(|c| capability_name(&c)).collect()
+        caps.iter().map(|c| capability_name(c)).collect()
     } else {
         vec![]
     };

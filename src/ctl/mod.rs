@@ -1,15 +1,24 @@
 extern crate wasmcloud_control_interface;
 use crate::util::{
-    convert_error, extract_arg_value, json_str_to_msgpack_bytes, labels_vec_to_hashmap,
-    output_destination, Output, OutputDestination, OutputKind, Result, WASH_CMD_INFO,
+    convert_error, convert_rpc_error, extract_arg_value, json_str_to_msgpack_bytes,
+    labels_vec_to_hashmap, output_destination, Output, OutputDestination, OutputKind, Result,
+    WASH_CMD_INFO,
 };
 use log::debug;
 use spinners::{Spinner, Spinners};
 use std::time::Duration;
 use structopt::StructOpt;
-use wasmcloud_control_interface::*;
+use wasmbus_rpc::RpcClient;
+use wasmcloud_control_interface::{
+    Client as CtlClient, GetClaimsResponse, Host, HostInventory, StartActorAck, StartProviderAck,
+    StopActorAck, StopProviderAck, UpdateActorAck,
+};
 mod output;
 pub(crate) use output::*;
+use wasmbus_rpc::core::WasmCloudEntity;
+
+/// fake key used to construct origin for invoking actors
+const FAKE_WASH_KEY: &str = "__WASH__";
 
 #[derive(Debug, Clone, StructOpt)]
 pub(crate) struct CtlCli {
@@ -264,26 +273,6 @@ pub(crate) struct StartActorCommand {
     timeout: u64,
 }
 
-impl StartActorCommand {
-    pub(crate) fn new(
-        opts: ConnectionOpts,
-        output: Output,
-        host_id: Option<String>,
-        actor_ref: String,
-        constraints: Option<Vec<String>>,
-        timeout: u64,
-    ) -> Self {
-        StartActorCommand {
-            opts,
-            output,
-            host_id,
-            actor_ref,
-            constraints,
-            timeout,
-        }
-    }
-}
-
 #[derive(Debug, Clone, StructOpt)]
 pub(crate) struct StartProviderCommand {
     #[structopt(flatten)]
@@ -374,24 +363,6 @@ pub(crate) struct UpdateActorCommand {
     /// Actor reference, e.g. the OCI URL for the actor. This can also be a signed local wasm file when using the REPL host
     #[structopt(name = "new-actor-ref")]
     pub(crate) new_actor_ref: String,
-}
-
-impl UpdateActorCommand {
-    pub(crate) fn new(
-        opts: ConnectionOpts,
-        output: Output,
-        host_id: String,
-        actor_id: String,
-        new_actor_ref: String,
-    ) -> Self {
-        UpdateActorCommand {
-            opts,
-            output,
-            host_id,
-            actor_id,
-            new_actor_ref,
-        }
-    }
 }
 
 pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
@@ -516,80 +487,128 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
     Ok(out)
 }
 
-pub(crate) async fn new_ctl_client(
-    host: &str,
-    port: &str,
-    jwt: Option<String>,
-    seed: Option<String>,
-    credsfile: Option<String>,
-    ns_prefix: String,
-    timeout: Duration,
-) -> Result<Client> {
-    let nats_url = format!("{}:{}", host, port);
-    let nc = if let (Some(jwt_file), Some(seed_val)) = (jwt, seed) {
-        let kp = nkeys::KeyPair::from_seed(&extract_arg_value(&seed_val)?)?;
-        let jwt_contents = extract_arg_value(&jwt_file)?;
-        // You must provide the JWT via a closure
-        nats::Options::with_jwt(
-            move || Ok(jwt_contents.clone()),
-            move |nonce| kp.sign(nonce).unwrap(),
-        )
-        .connect_async(&nats_url)
-        .await?
-    } else if let Some(credsfile_path) = credsfile {
-        nats::Options::with_credentials(credsfile_path)
-            .connect_async(&nats_url)
+struct LatticeClient {
+    rpc_client: RpcClient,
+    ctl_client: CtlClient,
+}
+
+impl LatticeClient {
+    pub(crate) async fn init(
+        host: &str,
+        port: &str,
+        jwt: Option<String>,
+        seed: Option<String>,
+        credsfile: Option<String>,
+        ns_prefix: String,
+        timeout: Duration,
+    ) -> Result<LatticeClient> {
+        let nats_url = format!("{}:{}", host, port);
+        let kp = if let Some(seed) = seed {
+            nkeys::KeyPair::from_seed(&extract_arg_value(&seed)?)?
+        } else {
+            nkeys::KeyPair::new_user()
+        };
+        // The closure below takes ownership of kp, and a copy
+        // is needed to sign rpc invocations.
+        let seed = kp.seed()?;
+        let invocation_kp = nkeys::KeyPair::from_seed(&seed)?;
+        let nc = if let Some(jwt_file) = jwt {
+            let jwt_contents = extract_arg_value(&jwt_file)?;
+            // You must provide the JWT via a closure
+            nats::asynk::Options::with_jwt(
+                move || Ok(jwt_contents.clone()),
+                move |nonce| kp.sign(nonce).unwrap(),
+            )
+            .connect(&nats_url)
             .await?
-    } else {
-        nats::asynk::connect(&nats_url).await?
-    };
-    Ok(Client::new(nc, Some(ns_prefix), timeout))
-}
+        } else if let Some(credsfile_path) = credsfile {
+            nats::asynk::Options::with_credentials(credsfile_path)
+                .connect(&nats_url)
+                .await?
+        } else {
+            nats::asynk::connect(&nats_url).await?
+        };
+        let rpc_client = RpcClient::new_asynk(nc.clone(), &ns_prefix, invocation_kp);
+        let ctl_client = CtlClient::new(nc, Some(ns_prefix.clone()), timeout);
 
-async fn client_from_opts(opts: ConnectionOpts) -> Result<Client> {
-    new_ctl_client(
-        &opts.rpc_host,
-        &opts.rpc_port,
-        opts.rpc_jwt,
-        opts.rpc_seed,
-        opts.rpc_credsfile,
-        opts.ns_prefix,
-        Duration::from_secs(opts.rpc_timeout),
-    )
-    .await
-}
+        Ok(LatticeClient {
+            rpc_client,
+            ctl_client,
+        })
+    }
 
-pub(crate) async fn call_actor(cmd: CallCommand) -> Result<InvocationResponse> {
-    let client = client_from_opts(cmd.opts).await?;
-    let bytes = json_str_to_msgpack_bytes(cmd.data)?;
-    client
-        .call_actor(&cmd.actor_id, &cmd.operation, &bytes)
+    async fn from_opts(opts: ConnectionOpts) -> Result<LatticeClient> {
+        Self::init(
+            &opts.rpc_host,
+            &opts.rpc_port,
+            opts.rpc_jwt,
+            opts.rpc_seed,
+            opts.rpc_credsfile,
+            opts.ns_prefix,
+            Duration::from_secs(opts.rpc_timeout),
+        )
         .await
-        .map_err(convert_error)
+    }
+
+    fn rpc(&self) -> &RpcClient {
+        &self.rpc_client
+    }
+
+    fn ctl(&self) -> &CtlClient {
+        &self.ctl_client
+    }
+}
+
+pub(crate) async fn call_actor(cmd: CallCommand) -> Result<wasmbus_rpc::core::InvocationResponse> {
+    use wasmbus_rpc::Message;
+
+    let origin = WasmCloudEntity::new_actor(FAKE_WASH_KEY);
+    let target = WasmCloudEntity::new_actor(&cmd.actor_id);
+    //debug!(
+    //    "calling actor with operation: {}, data: {}",
+    //    &cmd.operation,
+    //    cmd.data.join("")
+    //);
+    let bytes = json_str_to_msgpack_bytes(cmd.data)?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
+    client
+        .rpc()
+        .send(
+            origin,
+            target,
+            Message {
+                method: &cmd.operation,
+                arg: bytes.into(),
+            },
+        )
+        .await
+        .map_err(convert_rpc_error)
 }
 
 pub(crate) async fn get_hosts(cmd: GetHostsCommand) -> Result<Vec<Host>> {
     let timeout = Duration::from_secs(cmd.timeout);
-    let client = client_from_opts(cmd.opts).await?;
-    client.get_hosts(timeout).await.map_err(convert_error)
+    let client = LatticeClient::from_opts(cmd.opts).await?;
+    client.ctl().get_hosts(timeout).await.map_err(convert_error)
 }
 
 pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<HostInventory> {
-    let client = client_from_opts(cmd.opts).await?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
     client
+        .ctl()
         .get_host_inventory(&cmd.host_id)
         .await
         .map_err(convert_error)
 }
 
-pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<ClaimsList> {
-    let client = client_from_opts(cmd.opts).await?;
-    client.get_claims().await.map_err(convert_error)
+pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsResponse> {
+    let client = LatticeClient::from_opts(cmd.opts).await?;
+    client.ctl().get_claims().await.map_err(convert_error)
 }
 
 pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<()> {
-    let client = client_from_opts(cmd.opts).await?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
     client
+        .ctl()
         .advertise_link(
             &cmd.actor_id,
             &cmd.provider_id,
@@ -602,12 +621,13 @@ pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<()> {
 }
 
 pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<StartActorAck> {
-    let client = client_from_opts(cmd.opts.clone()).await?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
 
     let host = match cmd.host_id {
         Some(host) => host,
         None => {
             let suitable_hosts = client
+                .ctl()
                 .perform_actor_auction(
                     &cmd.actor_ref,
                     labels_vec_to_hashmap(cmd.constraints.unwrap_or_default())?,
@@ -624,18 +644,20 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<StartActorAck>
     };
 
     client
+        .ctl()
         .start_actor(&host, &cmd.actor_ref)
         .await
         .map_err(convert_error)
 }
 
 pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<StartProviderAck> {
-    let client = client_from_opts(cmd.opts.clone()).await?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
 
     let host = match cmd.host_id {
         Some(host) => host,
         None => {
             let suitable_hosts = client
+                .ctl()
                 .perform_provider_auction(
                     &cmd.provider_ref,
                     &cmd.link_name,
@@ -655,14 +677,16 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<StartPro
     };
 
     client
+        .ctl()
         .start_provider(&host, &cmd.provider_ref, Some(cmd.link_name))
         .await
         .map_err(convert_error)
 }
 
 pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<StopProviderAck> {
-    let client = client_from_opts(cmd.opts).await?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
     client
+        .ctl()
         .stop_provider(
             &cmd.host_id,
             &cmd.provider_id,
@@ -674,16 +698,19 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<StopProvid
 }
 
 pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<StopActorAck> {
-    let client = client_from_opts(cmd.opts).await?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
+    // TODO: value for count arg
     client
-        .stop_actor(&cmd.host_id, &cmd.actor_id)
+        .ctl()
+        .stop_actor(&cmd.host_id, &cmd.actor_id, 1)
         .await
         .map_err(convert_error)
 }
 
 pub(crate) async fn update_actor(cmd: UpdateActorCommand) -> Result<UpdateActorAck> {
-    let client = client_from_opts(cmd.opts).await?;
+    let client = LatticeClient::from_opts(cmd.opts).await?;
     client
+        .ctl()
         .update_actor(&cmd.host_id, &cmd.actor_id, &cmd.new_actor_ref)
         .await
         .map_err(convert_error)
