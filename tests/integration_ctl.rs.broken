@@ -1,7 +1,7 @@
 mod common;
 use common::{output_to_string, wash, Result};
 use crossbeam_channel::unbounded;
-use wasmcloud_host::HostBuilder;
+//use wasmcloud_host::HostBuilder;
 
 #[actix_rt::test]
 async fn integration_ctl_get_comprehensive() -> Result<()> {
@@ -327,6 +327,7 @@ async fn integration_ctl_update_actor() -> Result<()> {
     Ok(())
 }
 
+/*
 /// Helper function to initialize a host in a separate thread
 /// and return its ID. We create a host in a separate thread because
 /// issuing control interface commands to a host in the same thread
@@ -360,6 +361,7 @@ async fn create_host(namespace: String) -> Result<String> {
     rx.recv_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| e.into())
 }
+*/
 
 /// Helper function to query host inventory for a specific resource.
 /// This can be used to ensure that a resource is present in a host,
