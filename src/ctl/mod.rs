@@ -17,8 +17,8 @@ mod output;
 pub(crate) use output::*;
 use wasmbus_rpc::core::WasmCloudEntity;
 
-/// fake key used to construct origin for invoking actors
-const FAKE_WASH_KEY: &str = "__WASH__";
+/// fake key (not a real public key)  used to construct origin for invoking actors
+const WASH_ORIGIN_KEY: &str = "__WASH__";
 
 #[derive(Debug, Clone, StructOpt)]
 pub(crate) struct CtlCli {
@@ -374,9 +374,8 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
             sp =
                 update_spinner_message(sp, format!("Calling actor {} ... ", cmd.actor_id), &output);
             debug!(target: WASH_CMD_INFO, "Calling actor {}", cmd.actor_id);
-            let ir = call_actor(cmd).await?;
-            debug!(target: WASH_CMD_INFO, "Invocation response {:?}", ir);
-            call_output(ir.error, ir.msg, &output.kind)
+            let bytes = call_actor(cmd).await?;
+            call_output(None, bytes, &output.kind)
         }
         Get(GetCommand::Hosts(cmd)) => {
             let output = cmd.output;
@@ -559,11 +558,11 @@ impl LatticeClient {
     }
 }
 
-pub(crate) async fn call_actor(cmd: CallCommand) -> Result<wasmbus_rpc::core::InvocationResponse> {
+pub(crate) async fn call_actor(cmd: CallCommand) -> Result<Vec<u8>> {
     use wasmbus_rpc::Message;
 
-    let origin = WasmCloudEntity::new_actor(FAKE_WASH_KEY);
-    let target = WasmCloudEntity::new_actor(&cmd.actor_id);
+    let origin = WasmCloudEntity::new_actor(WASH_ORIGIN_KEY)?;
+    let target = WasmCloudEntity::new_actor(&cmd.actor_id)?;
     //debug!(
     //    "calling actor with operation: {}, data: {}",
     //    &cmd.operation,

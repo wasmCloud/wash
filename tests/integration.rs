@@ -12,7 +12,7 @@ fn integration_help_subcommand_check() {
     println!("output: {}", output);
 
     assert!(output.contains("claims"));
-    //assert!(output.contains("ctl"));
+    assert!(output.contains("ctl"));
     assert!(output.contains("drain"));
     assert!(output.contains("keys"));
     assert!(output.contains("par"));

@@ -69,7 +69,7 @@ enum CliCommand {
 
 #[actix_rt::main]
 async fn main() {
-    if let Err(_) = env_logger::try_init() {}
+    if env_logger::try_init().is_err() {}
     let cli = Cli::from_args();
 
     let res = match cli.command {
