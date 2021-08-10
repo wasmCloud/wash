@@ -1,7 +1,6 @@
 extern crate wasmcloud_control_interface;
 use crate::util::{
-    convert_error, labels_vec_to_hashmap, output_destination, Output, OutputDestination,
-    OutputKind, Result, WASH_CMD_INFO,
+    convert_error, labels_vec_to_hashmap, Output, OutputKind, Result, WASH_CMD_INFO,
 };
 use log::debug;
 use spinners::{Spinner, Spinners};
@@ -595,9 +594,7 @@ fn update_spinner_message(
     if let Some(sp) = spinner {
         sp.message(msg);
         Some(sp)
-    } else if matches!(output.kind, OutputKind::Text { .. })
-        && output_destination() == OutputDestination::Cli
-    {
+    } else if matches!(output.kind, OutputKind::Text) {
         Some(Spinner::new(Spinners::Dots12, msg))
     } else {
         None

@@ -1,5 +1,5 @@
 extern crate wasmcloud_control_interface;
-use crate::util::{format_ellipsis, format_optional, format_output, OutputKind, WASH_CMD_INFO};
+use crate::util::{format_optional, format_output, OutputKind, WASH_CMD_INFO};
 use log::debug;
 use serde_json::json;
 use term_table::{row::Row, table_cell::*, Table};
@@ -8,21 +8,21 @@ use wasmcloud_control_interface::*;
 pub(crate) fn get_hosts_output(hosts: Vec<Host>, output_kind: &OutputKind) -> String {
     debug!(target: WASH_CMD_INFO, "Hosts:{:?}", hosts);
     match *output_kind {
-        OutputKind::Text { max_width } => hosts_table(hosts, max_width),
+        OutputKind::Text => hosts_table(hosts),
         OutputKind::Json => format!("{}", json!({ "hosts": hosts })),
     }
 }
 pub(crate) fn get_host_inventory_output(inv: HostInventory, output_kind: &OutputKind) -> String {
     debug!(target: WASH_CMD_INFO, "Inventory:{:?}", inv);
     match *output_kind {
-        OutputKind::Text { max_width } => host_inventory_table(inv, max_width),
+        OutputKind::Text => host_inventory_table(inv),
         OutputKind::Json => format!("{}", json!({ "inventory": inv })),
     }
 }
 pub(crate) fn get_claims_output(claims: GetClaimsResponse, output_kind: &OutputKind) -> String {
     debug!(target: WASH_CMD_INFO, "Claims:{:?}", claims);
     match *output_kind {
-        OutputKind::Text { max_width } => claims_table(claims, max_width),
+        OutputKind::Text => claims_table(claims),
         OutputKind::Json => format!("{}", json!({ "claims": claims })),
     }
 }
@@ -156,9 +156,9 @@ pub(crate) fn update_actor_output(
 }
 
 /// Helper function to print a Host list to stdout as a table
-pub(crate) fn hosts_table(hosts: Vec<Host>, max_width: usize) -> String {
+pub(crate) fn hosts_table(hosts: Vec<Host>) -> String {
     let mut table = Table::new();
-    crate::util::configure_table_style(&mut table, 2, max_width);
+    crate::util::configure_table_style(&mut table);
 
     table.add_row(Row::new(vec![
         TableCell::new_with_alignment("Host ID", 1, Alignment::Left),
@@ -175,13 +175,9 @@ pub(crate) fn hosts_table(hosts: Vec<Host>, max_width: usize) -> String {
 }
 
 /// Helper function to print a HostInventory to stdout as a table
-pub(crate) fn host_inventory_table(inv: HostInventory, max_width: usize) -> String {
+pub(crate) fn host_inventory_table(inv: HostInventory) -> String {
     let mut table = Table::new();
-    crate::util::configure_table_style(&mut table, 4, max_width);
-
-    // TableCells have 1 char padding left and right. See [TableCell::pad_content].
-    let content_padding_width = 2;
-    let max_id_width = crate::util::get_max_column_width(&table, 0) - content_padding_width;
+    crate::util::configure_table_style(&mut table);
 
     table.add_row(Row::new(vec![TableCell::new_with_alignment(
         format!("Host Inventory ({})", inv.host_id),
@@ -223,11 +219,7 @@ pub(crate) fn host_inventory_table(inv: HostInventory, max_width: usize) -> Stri
         inv.actors.iter().for_each(|a| {
             let a = a.clone();
             table.add_row(Row::new(vec![
-                TableCell::new_with_alignment(
-                    format_ellipsis(a.id, max_id_width),
-                    1,
-                    Alignment::Left,
-                ),
+                TableCell::new_with_alignment(a.id, 1, Alignment::Left),
                 TableCell::new_with_alignment(format_optional(a.name), 1, Alignment::Left),
                 TableCell::new_with_alignment(format_optional(a.image_ref), 2, Alignment::Left),
             ]))
@@ -255,11 +247,7 @@ pub(crate) fn host_inventory_table(inv: HostInventory, max_width: usize) -> Stri
         inv.providers.iter().for_each(|p| {
             let p = p.clone();
             table.add_row(Row::new(vec![
-                TableCell::new_with_alignment(
-                    format_ellipsis(p.id, max_id_width),
-                    1,
-                    Alignment::Left,
-                ),
+                TableCell::new_with_alignment(p.id, 1, Alignment::Left),
                 TableCell::new_with_alignment(format_optional(p.name), 1, Alignment::Left),
                 TableCell::new_with_alignment(p.link_name, 1, Alignment::Left),
                 TableCell::new_with_alignment(format_optional(p.image_ref), 1, Alignment::Left),
@@ -277,9 +265,9 @@ pub(crate) fn host_inventory_table(inv: HostInventory, max_width: usize) -> Stri
 }
 
 /// Helper function to print a ClaimsList to stdout as a table
-pub(crate) fn claims_table(list: GetClaimsResponse, max_width: usize) -> String {
+pub(crate) fn claims_table(list: GetClaimsResponse) -> String {
     let mut table = Table::new();
-    crate::util::configure_table_style(&mut table, 2, max_width);
+    crate::util::configure_table_style(&mut table);
 
     table.add_row(Row::new(vec![TableCell::new_with_alignment(
         "Claims",
