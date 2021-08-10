@@ -13,10 +13,8 @@ mod par;
 use par::ParCli;
 mod reg;
 use reg::RegCli;
-//#[cfg(feature = "termion")]
-//mod up;
-//#[cfg(feature = "termion")]
-//use up::UpCli;
+mod call;
+use call::CallCli;
 mod util;
 
 /// This renders appropriately with escape characters
@@ -43,28 +41,27 @@ struct Cli {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, StructOpt)]
 enum CliCommand {
-    /// Manage contents of local wasmcloud cache
-    #[structopt(name = "drain")]
-    Drain(DrainCli),
+    /// TODO: Description
+    #[structopt(name = "call")]
+    Call(CallCli),
     /// Generate and manage JWTs for wasmcloud Actors
     #[structopt(name = "claims")]
     Claims(Box<ClaimsCli>),
-    /// Utilities for generating and managing keys
-    #[structopt(name = "keys", aliases = &["key"])]
-    Keys(KeysCli),
     /// Interact with a wasmcloud control interface
     #[structopt(name = "ctl")]
     Ctl(CtlCli),
+    /// Manage contents of local wasmcloud cache
+    #[structopt(name = "drain")]
+    Drain(DrainCli),
+    /// Utilities for generating and managing keys
+    #[structopt(name = "keys", aliases = &["key"])]
+    Keys(KeysCli),
     /// Create, inspect, and modify capability provider archive files
     #[structopt(name = "par")]
     Par(ParCli),
     /// Interact with OCI compliant registries
     #[structopt(name = "reg")]
     Reg(RegCli),
-    /// Launch wasmcloud REPL environment (DEPRECATED, WILL BE REMOVED IN 0.6.0)
-    #[structopt(name = "up")]
-    #[cfg(feature = "termion")]
-    Up(UpCli),
 }
 
 #[actix_rt::main]
@@ -73,16 +70,13 @@ async fn main() {
     let cli = Cli::from_args();
 
     let res = match cli.command {
-        CliCommand::Drain(draincmd) => drain::handle_command(draincmd.command()),
-        CliCommand::Keys(keyscli) => keys::handle_command(keyscli.command()),
+        CliCommand::Call(callcli) => call::handle_command(callcli.command()).await,
         CliCommand::Claims(claimscli) => claims::handle_command(claimscli.command()).await,
         CliCommand::Ctl(ctlcli) => ctl::handle_command(ctlcli.command()).await,
+        CliCommand::Drain(draincmd) => drain::handle_command(draincmd.command()),
+        CliCommand::Keys(keyscli) => keys::handle_command(keyscli.command()),
         CliCommand::Par(parcli) => par::handle_command(parcli.command()).await,
         CliCommand::Reg(regcli) => reg::handle_command(regcli.command()).await,
-        #[cfg(feature = "termion")]
-        CliCommand::Up(upcli) => up::handle_command(upcli.command())
-            .await
-            .map(|_s| "Exiting REPL".to_string()),
     };
 
     std::process::exit(match res {

@@ -5,26 +5,6 @@ use serde_json::json;
 use term_table::{row::Row, table_cell::*, Table};
 use wasmcloud_control_interface::*;
 
-// Helper output functions, used to ensure consistent output between ctl & standalone commands
-
-pub(crate) fn call_output(error: Option<String>, msg: Vec<u8>, output_kind: &OutputKind) -> String {
-    match error {
-        Some(e) => format_output(
-            format!("\nError invoking actor: {}", e),
-            json!({ "error": e }),
-            output_kind,
-        ),
-        None => {
-            //TODO(issue #32): String::from_utf8_lossy should be decoder only if one is not available
-            let call_response = String::from_utf8_lossy(&msg);
-            format_output(
-                format!("\nCall response (raw): {}", call_response),
-                json!({ "response": call_response }),
-                output_kind,
-            )
-        }
-    }
-}
 pub(crate) fn get_hosts_output(hosts: Vec<Host>, output_kind: &OutputKind) -> String {
     debug!(target: WASH_CMD_INFO, "Hosts:{:?}", hosts);
     match *output_kind {

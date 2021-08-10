@@ -1,4 +1,5 @@
 use log::info;
+use nats::asynk::Connection;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use std::cell::Cell;
@@ -225,6 +226,39 @@ fn empty_table_style() -> TableStyle {
         vertical: ' ',
         horizontal: ' ',
     }
+}
+
+pub(crate) async fn nats_client_from_opts(
+    host: &str,
+    port: &str,
+    jwt: Option<String>,
+    seed: Option<String>,
+    credsfile: Option<String>,
+) -> Result<Connection> {
+    let nats_url = format!("{}:{}", host, port);
+
+    let nc = if let Some(jwt_file) = jwt {
+        let jwt_contents = extract_arg_value(&jwt_file)?;
+        let kp = if let Some(seed) = seed {
+            nkeys::KeyPair::from_seed(&extract_arg_value(&seed)?)?
+        } else {
+            nkeys::KeyPair::new_user()
+        };
+        // You must provide the JWT via a closure
+        nats::asynk::Options::with_jwt(
+            move || Ok(jwt_contents.clone()),
+            move |nonce| kp.sign(nonce).unwrap(),
+        )
+        .connect(&nats_url)
+        .await?
+    } else if let Some(credsfile_path) = credsfile {
+        nats::asynk::Options::with_credentials(credsfile_path)
+            .connect(&nats_url)
+            .await?
+    } else {
+        nats::asynk::connect(&nats_url).await?
+    };
+    Ok(nc)
 }
 
 #[cfg(test)]

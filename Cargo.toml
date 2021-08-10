@@ -46,7 +46,7 @@ version = "0.3"
 
 [dependencies.wasmcloud-control-interface]
 #version = "0.4"
-path = "../interfaces/control/rust"
+path = "../control-interface/rust"
 
 [dev-dependencies]
 test_bin = "0.3.0"

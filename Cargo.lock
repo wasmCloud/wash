@@ -3249,7 +3249,7 @@ dependencies = [
  "term-table",
  "test_bin",
  "wascap",
- "wasmbus-rpc 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "wasmbus-rpc",
  "wasmcloud-control-interface",
 ]
 
@@ -3348,36 +3348,6 @@ dependencies = [
 [[package]]
 name = "wasmbus-rpc"
 version = "0.3.0"
-dependencies = [
- "async-trait",
- "base64 0.13.0",
- "cfg-if 1.0.0",
- "chrono",
- "crossbeam",
- "data-encoding",
- "futures",
- "log",
- "nats",
- "once_cell",
- "pin-utils",
- "ratsio",
- "ring",
- "rmp-serde",
- "serde",
- "serde_bytes",
- "serde_json",
- "thiserror",
- "tokio",
- "toml",
- "uuid",
- "wascap",
- "wasmbus-macros",
- "weld-codegen 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
-name = "wasmbus-rpc"
-version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b3c735547ccfa3c5770850359140f221643fac60a50c060592dd35f3e9a9a03a"
 dependencies = [
@@ -3404,7 +3374,7 @@ dependencies = [
  "uuid",
  "wascap",
  "wasmbus-macros",
- "weld-codegen 0.1.8 (registry+https://github.com/rust-lang/crates.io-index)",
+ "weld-codegen",
 ]
 
 [[package]]
@@ -3425,8 +3395,8 @@ dependencies = [
  "tokio",
  "uuid",
  "wascap",
- "wasmbus-rpc 0.3.0",
- "weld-codegen 0.1.8",
+ "wasmbus-rpc",
+ "weld-codegen",
 ]
 
 [[package]]
@@ -3447,31 +3417,6 @@ checksum = "b8e38c0608262c46d4a56202ebabdeb094cef7e560ca7a226c6bf055188aa4ea"
 dependencies = [
  "ring",
  "untrusted",
-]
-
-[[package]]
-name = "weld-codegen"
-version = "0.1.8"
-dependencies = [
- "Inflector",
- "atelier_assembler",
- "atelier_core",
- "atelier_json",
- "atelier_smithy",
- "bytes 1.0.1",
- "cfg-if 1.0.0",
- "directories",
- "downloader",
- "handlebars",
- "lazy_static",
- "lexical-sort",
- "reqwest",
- "rustc-hash",
- "serde",
- "serde_json",
- "tempfile",
- "thiserror",
- "toml",
 ]
 
 [[package]]
