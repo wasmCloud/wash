@@ -205,12 +205,12 @@ pub(crate) fn host_inventory_table(inv: HostInventory) -> String {
         )]));
     }
 
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        "",
+        4,
+        Alignment::Center,
+    )]));
     if !inv.actors.is_empty() {
-        table.add_row(Row::new(vec![TableCell::new_with_alignment(
-            "",
-            4,
-            Alignment::Center,
-        )]));
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Actor ID", 1, Alignment::Left),
             TableCell::new_with_alignment("Name", 1, Alignment::Left),
@@ -228,16 +228,15 @@ pub(crate) fn host_inventory_table(inv: HostInventory) -> String {
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             "No actors found",
             4,
-            Alignment::Center,
+            Alignment::Left,
         )]));
     }
-
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        "",
+        4,
+        Alignment::Left,
+    )]));
     if !inv.providers.is_empty() {
-        table.add_row(Row::new(vec![TableCell::new_with_alignment(
-            "",
-            4,
-            Alignment::Center,
-        )]));
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Provider ID", 1, Alignment::Left),
             TableCell::new_with_alignment("Name", 1, Alignment::Left),
@@ -279,7 +278,7 @@ pub(crate) fn claims_table(list: GetClaimsResponse) -> String {
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Issuer", 1, Alignment::Left),
             TableCell::new_with_alignment(
-                c.values.get("iss").unwrap_or(&"".to_string()),
+                c.get("iss").unwrap_or(&"".to_string()),
                 1,
                 Alignment::Left,
             ),
@@ -287,7 +286,7 @@ pub(crate) fn claims_table(list: GetClaimsResponse) -> String {
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Subject", 1, Alignment::Left),
             TableCell::new_with_alignment(
-                c.values.get("sub").unwrap_or(&"".to_string()),
+                c.get("sub").unwrap_or(&"".to_string()),
                 1,
                 Alignment::Left,
             ),
@@ -295,7 +294,7 @@ pub(crate) fn claims_table(list: GetClaimsResponse) -> String {
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Capabilities", 1, Alignment::Left),
             TableCell::new_with_alignment(
-                c.values.get("caps").unwrap_or(&"".to_string()),
+                c.get("caps").unwrap_or(&"".to_string()),
                 1,
                 Alignment::Left,
             ),
@@ -303,7 +302,7 @@ pub(crate) fn claims_table(list: GetClaimsResponse) -> String {
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Version", 1, Alignment::Left),
             TableCell::new_with_alignment(
-                c.values.get("version").unwrap_or(&"".to_string()),
+                c.get("version").unwrap_or(&"".to_string()),
                 1,
                 Alignment::Left,
             ),
@@ -311,7 +310,7 @@ pub(crate) fn claims_table(list: GetClaimsResponse) -> String {
         table.add_row(Row::new(vec![
             TableCell::new_with_alignment("Revision", 1, Alignment::Left),
             TableCell::new_with_alignment(
-                c.values.get("rev").unwrap_or(&"".to_string()),
+                c.get("rev").unwrap_or(&"".to_string()),
                 1,
                 Alignment::Left,
             ),

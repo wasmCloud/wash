@@ -7,8 +7,8 @@ use spinners::{Spinner, Spinners};
 use std::time::Duration;
 use structopt::StructOpt;
 use wasmcloud_control_interface::{
-    Client as CtlClient, GetClaimsResponse, Host, HostInventory, StartActorAck, StartProviderAck,
-    StopActorAck, StopProviderAck, UpdateActorAck,
+    CacheAck, Client as CtlClient, GetClaimsResponse, Host, HostInventory, StartActorAck,
+    StartProviderAck, StopActorAck, StopProviderAck, UpdateActorAck,
 };
 mod output;
 pub(crate) use output::*;
@@ -275,7 +275,7 @@ pub(crate) struct StopActorCommand {
     pub(crate) actor_id: String,
 
     /// Number of actors to stop
-    #[structopt(long = "count")]
+    #[structopt(long = "count", default_value = "1")]
     pub(crate) count: u16,
 }
 
@@ -465,7 +465,7 @@ pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsRespons
     client.get_claims().await.map_err(convert_error)
 }
 
-pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<()> {
+pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<CacheAck> {
     let client = ctl_client_from_opts(cmd.opts).await?;
     client
         .advertise_link(

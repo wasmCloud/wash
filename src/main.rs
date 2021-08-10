@@ -41,16 +41,16 @@ struct Cli {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, StructOpt)]
 enum CliCommand {
-    /// TODO: Description
+    /// Invoke a wasmCloud actor
     #[structopt(name = "call")]
     Call(CallCli),
-    /// Generate and manage JWTs for wasmcloud Actors
+    /// Generate and manage JWTs for wasmCloud actors
     #[structopt(name = "claims")]
     Claims(Box<ClaimsCli>),
-    /// Interact with a wasmcloud control interface
+    /// Interact with a wasmCloud control interface
     #[structopt(name = "ctl")]
     Ctl(CtlCli),
-    /// Manage contents of local wasmcloud cache
+    /// Manage contents of local wasmCloud cache
     #[structopt(name = "drain")]
     Drain(DrainCli),
     /// Utilities for generating and managing keys
