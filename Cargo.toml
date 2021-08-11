@@ -32,7 +32,7 @@ nkeys = "0.1.0"
 wascap = "0.6.0"
 provider-archive = "0.4.0"
 wasmbus-rpc = "0.3"
-wasmcloud-control-interface = { path = "../control-interface/rust", version = "0.4.0" }
+wasmcloud-control-interface = { git = "https://github.com/wasmCloud/control-interface", version = "0.4.0" }
 
 [dev-dependencies]
 test_bin = "0.3.0"

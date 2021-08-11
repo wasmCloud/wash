@@ -3204,6 +3204,7 @@ dependencies = [
 [[package]]
 name = "wasmcloud-control-interface"
 version = "0.4.0"
+source = "git+https://github.com/wasmCloud/control-interface#e402b3c403bc696ac47aa9f383ae187d70306596"
 dependencies = [
  "async-trait",
  "chrono",
