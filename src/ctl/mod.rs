@@ -1,14 +1,10 @@
 extern crate wasmcloud_control_interface;
-use crate::util::{
-    convert_error, labels_vec_to_hashmap, Output, OutputKind, Result, WASH_CMD_INFO,
-};
-use log::debug;
+use crate::util::{convert_error, labels_vec_to_hashmap, Output, OutputKind, Result};
 use spinners::{Spinner, Spinners};
 use std::time::Duration;
 use structopt::StructOpt;
 use wasmcloud_control_interface::{
-    CacheAck, Client as CtlClient, GetClaimsResponse, Host, HostInventory, StartActorAck,
-    StartProviderAck, StopActorAck, StopProviderAck, UpdateActorAck,
+    Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
 };
 mod output;
 pub(crate) use output::*;
@@ -329,14 +325,6 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
     use CtlCliCommand::*;
     let mut sp: Option<Spinner> = None;
     let out = match command {
-        // Call(cmd) => {
-        //     let output = cmd.output;
-        //     sp =
-        //         update_spinner_message(sp, format!("Calling actor {} ... ", cmd.actor_id), &output);
-        //     debug!(target: WASH_CMD_INFO, "Calling actor {}", cmd.actor_id);
-        //     let bytes = call_actor(cmd).await?;
-        //     call_output(None, bytes, &output.kind)
-        // }
         Get(GetCommand::Hosts(cmd)) => {
             let output = cmd.output;
             sp = update_spinner_message(sp, " Retrieving Hosts ...".to_string(), &output);
@@ -375,23 +363,31 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
         }
         Start(StartCommand::Actor(cmd)) => {
             let output = cmd.output;
-            sp = update_spinner_message(
-                sp,
-                format!(" Starting actor {} ... ", cmd.actor_ref),
-                &output,
-            );
+            let actor_ref = &cmd.actor_ref.to_string();
+            sp = update_spinner_message(sp, format!(" Starting actor {} ... ", actor_ref), &output);
             let ack = start_actor(cmd).await?;
-            start_actor_output(&ack.actor_ref, &ack.host_id, ack.failure, &output.kind)
+            ctl_operation_output(
+                ack.accepted,
+                &format!("Actor {} started successfully", actor_ref),
+                &ack.error,
+                &output.kind,
+            )
         }
         Start(StartCommand::Provider(cmd)) => {
             let output = cmd.output;
+            let provider_ref = &cmd.provider_ref.to_string();
             sp = update_spinner_message(
                 sp,
-                format!(" Starting provider {} ... ", cmd.provider_ref),
+                format!(" Starting provider {} ... ", provider_ref),
                 &output,
             );
             let ack = start_provider(cmd).await?;
-            start_provider_output(&ack.provider_ref, &ack.host_id, ack.failure, &output.kind)
+            ctl_operation_output(
+                ack.accepted,
+                &format!("Provider {} started successfully", provider_ref),
+                &ack.error,
+                &output.kind,
+            )
         }
         Stop(StopCommand::Actor(cmd)) => {
             let output = cmd.output;
@@ -401,8 +397,12 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
                 &output,
             );
             let ack = stop_actor(cmd.clone()).await?;
-            debug!(target: WASH_CMD_INFO, "Stop actor ack: {:?}", ack);
-            stop_actor_output(&cmd.actor_id, ack.failure, &cmd.output.kind)
+            ctl_operation_output(
+                ack.accepted,
+                &format!("Actor {} stopped successfully", cmd.actor_id),
+                &ack.error,
+                &output.kind,
+            )
         }
         Stop(StopCommand::Provider(cmd)) => {
             let output = cmd.output;
@@ -412,8 +412,12 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
                 &output,
             );
             let ack = stop_provider(cmd.clone()).await?;
-            debug!(target: WASH_CMD_INFO, "Stop provider ack: {:?}", ack);
-            stop_provider_output(&cmd.provider_id, ack.failure, &cmd.output.kind)
+            ctl_operation_output(
+                ack.accepted,
+                &format!("Provider {} stopped successfully", cmd.provider_id),
+                &ack.error,
+                &output.kind,
+            )
         }
         Update(UpdateCommand::Actor(cmd)) => {
             let output = cmd.output;
@@ -425,16 +429,12 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
                 ),
                 &output,
             );
-            debug!(
-                "Sending request to update actor {} to {}",
-                cmd.actor_id, cmd.new_actor_ref
-            );
-            let ack = update_actor(cmd.clone()).await;
-            update_actor_output(
-                &cmd.actor_id,
-                &cmd.new_actor_ref,
-                ack.map_or_else(|e| Some(format!("{}", e)), |_| None),
-                &cmd.output.kind,
+            let ack = update_actor(cmd.clone()).await?;
+            ctl_operation_output(
+                ack.accepted,
+                &format!("Actor {} updated to {}", cmd.actor_id, cmd.new_actor_ref),
+                &ack.error,
+                &output.kind,
             )
         }
     };
@@ -465,7 +465,7 @@ pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsRespons
     client.get_claims().await.map_err(convert_error)
 }
 
-pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<CacheAck> {
+pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts).await?;
     client
         .advertise_link(
@@ -479,7 +479,7 @@ pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<CacheAck> {
         .map_err(convert_error)
 }
 
-pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<StartActorAck> {
+pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAck> {
     let timeout = Duration::from_secs(cmd.opts.timeout);
     let client = ctl_client_from_opts(cmd.opts).await?;
 
@@ -508,7 +508,7 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<StartActorAck>
         .map_err(convert_error)
 }
 
-pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<StartProviderAck> {
+pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOperationAck> {
     let timeout = Duration::from_secs(cmd.opts.timeout);
     let client = ctl_client_from_opts(cmd.opts).await?;
 
@@ -540,7 +540,7 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<StartPro
         .map_err(convert_error)
 }
 
-pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<StopProviderAck> {
+pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts).await?;
     client
         .stop_provider(
@@ -553,7 +553,7 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<StopProvid
         .map_err(convert_error)
 }
 
-pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<StopActorAck> {
+pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts).await?;
     client
         .stop_actor(&cmd.host_id, &cmd.actor_id, cmd.count)
@@ -561,7 +561,7 @@ pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<StopActorAck> {
         .map_err(convert_error)
 }
 
-pub(crate) async fn update_actor(cmd: UpdateActorCommand) -> Result<UpdateActorAck> {
+pub(crate) async fn update_actor(cmd: UpdateActorCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts).await?;
     client
         .update_actor(&cmd.host_id, &cmd.actor_id, &cmd.new_actor_ref)

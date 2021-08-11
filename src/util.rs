@@ -11,8 +11,6 @@ use term_table::{Table, TableStyle};
 
 pub(crate) type Result<T> = ::std::result::Result<T, Box<dyn ::std::error::Error>>;
 
-pub(crate) const WASH_CMD_INFO: &str = "WASH_CMD";
-
 #[derive(StructOpt, Debug, Copy, Clone, Deserialize, Serialize)]
 pub(crate) struct Output {
     #[structopt(

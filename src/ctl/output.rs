@@ -1,26 +1,22 @@
 extern crate wasmcloud_control_interface;
-use crate::util::{format_optional, format_output, OutputKind, WASH_CMD_INFO};
-use log::debug;
+use crate::util::{format_optional, format_output, OutputKind};
 use serde_json::json;
 use term_table::{row::Row, table_cell::*, Table};
 use wasmcloud_control_interface::*;
 
 pub(crate) fn get_hosts_output(hosts: Vec<Host>, output_kind: &OutputKind) -> String {
-    debug!(target: WASH_CMD_INFO, "Hosts:{:?}", hosts);
     match *output_kind {
         OutputKind::Text => hosts_table(hosts),
         OutputKind::Json => format!("{}", json!({ "hosts": hosts })),
     }
 }
 pub(crate) fn get_host_inventory_output(inv: HostInventory, output_kind: &OutputKind) -> String {
-    debug!(target: WASH_CMD_INFO, "Inventory:{:?}", inv);
     match *output_kind {
         OutputKind::Text => host_inventory_table(inv),
         OutputKind::Json => format!("{}", json!({ "inventory": inv })),
     }
 }
 pub(crate) fn get_claims_output(claims: GetClaimsResponse, output_kind: &OutputKind) -> String {
-    debug!(target: WASH_CMD_INFO, "Claims:{:?}", claims);
     match *output_kind {
         OutputKind::Text => claims_table(claims),
         OutputKind::Json => format!("{}", json!({ "claims": claims })),
@@ -32,10 +28,6 @@ pub(crate) fn link_output(
     failure: Option<String>,
     output_kind: &OutputKind,
 ) -> String {
-    debug!(
-        target: WASH_CMD_INFO,
-        "Publishing link between {} and {}", actor_id, provider_id
-    );
     match failure {
         None => format_output(
             format!(
@@ -52,104 +44,23 @@ pub(crate) fn link_output(
         ),
     }
 }
-pub(crate) fn start_actor_output(
-    actor_ref: &str,
-    host_id: &str,
-    failure: Option<String>,
+
+pub(crate) fn ctl_operation_output(
+    accepted: bool,
+    success: &str,
+    error: &str,
     output_kind: &OutputKind,
 ) -> String {
-    debug!(
-        target: WASH_CMD_INFO,
-        "Sending request to start actor {}", actor_ref
-    );
-    match failure {
-        None => format_output(
-            format!("\nActor starting on host {}", host_id),
-            json!({ "actor_ref": actor_ref, "host_id": host_id }),
-            output_kind,
-        ),
-        Some(f) => format_output(
-            format!("\nError starting actor: {}", f),
-            json!({ "error": f }),
-            output_kind,
-        ),
-    }
-}
-pub(crate) fn start_provider_output(
-    provider_ref: &str,
-    host_id: &str,
-    failure: Option<String>,
-    output_kind: &OutputKind,
-) -> String {
-    debug!(
-        target: WASH_CMD_INFO,
-        "Sending request to start provider {}", provider_ref
-    );
-    match failure {
-        None => format_output(
-            format!("\nProvider starting on host {}", host_id),
-            json!({ "provider_ref": provider_ref, "host_id": host_id}),
-            output_kind,
-        ),
-        Some(e) => format_output(
-            format!("\nError starting provider: {}", e),
-            json!({ "error": e }),
-            output_kind,
-        ),
-    }
-}
-pub(crate) fn stop_actor_output(
-    actor_ref: &str,
-    failure: Option<String>,
-    output_kind: &OutputKind,
-) -> String {
-    match failure {
-        Some(f) => format_output(
-            format!("\nError stopping actor: {}", f),
-            json!({ "error": f }),
-            output_kind,
-        ),
-        None => format_output(
-            format!("\nStopping actor: {}", actor_ref),
-            json!({ "actor_ref": actor_ref }),
-            output_kind,
-        ),
-    }
-}
-pub(crate) fn stop_provider_output(
-    provider_ref: &str,
-    failure: Option<String>,
-    output_kind: &OutputKind,
-) -> String {
-    match failure {
-        Some(f) => format_output(
-            format!("\nError stopping provider: {}", f),
-            json!({ "error": f }),
-            output_kind,
-        ),
-        None => format_output(
-            format!("\nStopping provider: {}", provider_ref),
-            json!({ "provider_ref": provider_ref }),
-            output_kind,
-        ),
-    }
-}
-pub(crate) fn update_actor_output(
-    actor_id: &str,
-    new_actor_ref: &str,
-    error: Option<String>,
-    output_kind: &OutputKind,
-) -> String {
-    if let Some(e) = error {
+    if accepted {
         format_output(
-            format!("\nError updating actor: {}", e),
-            json!({ "error": e }),
+            format!("\n{}", success),
+            json!({ "accepted": accepted, "error": ""}),
             output_kind,
         )
     } else {
         format_output(
-            format!("\nActor {} updated to {}", actor_id, new_actor_ref),
-            json!({ "accepted": error.is_none() }),
+            format!("\n{}", error),
+            json!({ "accepted": accepted, "error": error}),
             output_kind,
         )
     }
