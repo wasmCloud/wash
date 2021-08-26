@@ -148,8 +148,32 @@ pub(crate) enum GetCommand {
     Claims(GetClaimsCommand),
 }
 
+#[derive(Debug, Clone, StructOpt)]
+pub(crate) enum LinkCommand {
+    /// Query established links
+    #[structopt(name = "query")]
+    Query(LinkQueryCommand),
+
+    /// Establish a link definition
+    #[structopt(name = "put")]
+    Put(LinkPutCommand),
+
+    /// Delete a link definition
+    #[structopt(name = "del")]
+    Del(LinkDelCommand),
+}
+
 #[derive(StructOpt, Debug, Clone)]
-pub(crate) struct LinkCommand {
+pub(crate) struct LinkQueryCommand {
+    #[structopt(flatten)]
+    opts: ConnectionOpts,
+
+    #[structopt(flatten)]
+    pub(crate) output: Output,
+}
+
+#[derive(StructOpt, Debug, Clone)]
+pub(crate) struct LinkDelCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
 
@@ -160,9 +184,26 @@ pub(crate) struct LinkCommand {
     #[structopt(name = "actor-id")]
     pub(crate) actor_id: String,
 
-    /// Public key ID of provider
-    #[structopt(name = "provider-id")]
-    pub(crate) provider_id: String,
+    /// Capability contract ID between actor and provider
+    #[structopt(name = "contract-id")]
+    pub(crate) contract_id: String,
+
+    /// Link name, defaults to "default"
+    #[structopt(short = "l", long = "link-name")]
+    pub(crate) link_name: Option<String>,
+}
+
+#[derive(StructOpt, Debug, Clone)]
+pub(crate) struct LinkPutCommand {
+    #[structopt(flatten)]
+    opts: ConnectionOpts,
+
+    #[structopt(flatten)]
+    pub(crate) output: Output,
+
+    /// Public key ID of actor
+    #[structopt(name = "actor-id")]
+    pub(crate) actor_id: String,
 
     /// Capability contract ID between actor and provider
     #[structopt(name = "contract-id")]
@@ -171,6 +212,10 @@ pub(crate) struct LinkCommand {
     /// Link name, defaults to "default"
     #[structopt(short = "l", long = "link-name")]
     pub(crate) link_name: Option<String>,
+
+    /// Public key ID of provider
+    #[structopt(name = "provider-id")]
+    pub(crate) provider_id: String,
 
     /// Environment values to provide alongside link
     #[structopt(name = "values")]
@@ -382,19 +427,35 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
             let claims = get_claims(cmd).await?;
             get_claims_output(claims, &output.kind)
         }
+        Link(LinkCommand::Del(cmd)) => {
+            println!("del");
+        }
+        Link(LinkCommand::Put(cmd)) => {
+            println!("del");
+        }
+
+        Link(LinkCommand::Query(cmd)) => {
+            println!("del");
+        }
         Link(cmd) => {
             sp = update_spinner_message(
                 sp,
                 format!(
-                    " Advertising link between {} and {} ... ",
-                    cmd.actor_id, cmd.provider_id
+                    " Link {} between {} and {} ... ",
+                    cmd.operation, cmd.actor_id, cmd.provider_id
                 ),
                 &cmd.output,
             );
-            let failure = advertise_link(cmd.clone())
+            let failure = link_operation(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
-            link_output(&cmd.actor_id, &cmd.provider_id, failure, &cmd.output.kind)
+            link_output(
+                &cmd.operation,
+                &cmd.actor_id,
+                &cmd.provider_id,
+                failure,
+                &cmd.output.kind,
+            )
         }
         Start(StartCommand::Actor(cmd)) => {
             let output = cmd.output;
@@ -500,18 +561,29 @@ pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsRespons
     client.get_claims().await.map_err(convert_error)
 }
 
-pub(crate) async fn advertise_link(cmd: LinkCommand) -> Result<CtlOperationAck> {
+pub(crate) async fn link_operation(cmd: LinkCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts).await?;
-    client
-        .advertise_link(
-            &cmd.actor_id,
-            &cmd.provider_id,
-            &cmd.contract_id,
-            &cmd.link_name.unwrap_or_else(|| "default".to_string()),
-            labels_vec_to_hashmap(cmd.values)?,
-        )
-        .await
-        .map_err(convert_error)
+    match &*cmd.operation {
+        "put" => client
+            .advertise_link(
+                &cmd.actor_id,
+                &cmd.provider_id,
+                &cmd.contract_id,
+                &cmd.link_name.unwrap_or_else(|| "default".to_string()),
+                labels_vec_to_hashmap(cmd.values)?,
+            )
+            .await
+            .map_err(convert_error),
+        "del" => client
+            .remove_link(
+                &cmd.actor_id,
+                &cmd.contract_id,
+                &cmd.link_name.unwrap_or_else(|| "default".to_string()),
+            )
+            .await
+            .map_err(convert_error),
+        _ => Err(format!("Unsupported link operation {}", cmd.operation).into()),
+    }
 }
 
 pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAck> {
@@ -1005,6 +1077,7 @@ mod test {
         let link_all = CtlCli::from_iter_safe(&[
             "ctl",
             "link",
+            "put",
             "-o",
             "json",
             "--ns-prefix",
@@ -1026,6 +1099,7 @@ mod test {
             CtlCliCommand::Link(LinkCommand {
                 opts,
                 output,
+                operation,
                 actor_id,
                 provider_id,
                 contract_id,
@@ -1037,6 +1111,7 @@ mod test {
                 assert_eq!(opts.ns_prefix, NS_PREFIX);
                 assert_eq!(opts.timeout, 1);
                 assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(operation, "put".to_string());
                 assert_eq!(actor_id, ACTOR_ID.to_string());
                 assert_eq!(provider_id, PROVIDER_ID.to_string());
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());

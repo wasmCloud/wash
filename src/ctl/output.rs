@@ -23,6 +23,7 @@ pub(crate) fn get_claims_output(claims: GetClaimsResponse, output_kind: &OutputK
     }
 }
 pub(crate) fn link_output(
+    operation: &str,
     actor_id: &str,
     provider_id: &str,
     failure: Option<String>,
@@ -31,8 +32,8 @@ pub(crate) fn link_output(
     match failure {
         None => format_output(
             format!(
-                "\nAdvertised link ({}) <-> ({}) successfully",
-                actor_id, provider_id
+                "\nLink {} ({}) <-> ({}) successfully",
+                operation, actor_id, provider_id
             ),
             json!({"actor_id": actor_id, "provider_id": provider_id, "result": "published"}),
             output_kind,
