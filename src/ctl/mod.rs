@@ -1116,29 +1116,27 @@ mod test {
             "THING=foo",
         ])?;
         match link_all.command {
-            CtlCliCommand::Link(LinkCommand {
+            CtlCliCommand::Link(LinkCommand::Put(LinkPutCommand {
                 opts,
                 output,
-                operation,
                 actor_id,
                 provider_id,
                 contract_id,
                 link_name,
                 values,
-            }) => {
+            })) => {
                 assert_eq!(opts.ctl_host, CTL_HOST);
                 assert_eq!(opts.ctl_port, CTL_PORT);
                 assert_eq!(opts.ns_prefix, NS_PREFIX);
                 assert_eq!(opts.timeout, 1);
                 assert_eq!(output.kind, OutputKind::Json);
-                assert_eq!(operation, "put".to_string());
                 assert_eq!(actor_id, ACTOR_ID.to_string());
                 assert_eq!(provider_id, PROVIDER_ID.to_string());
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
                 assert_eq!(link_name.unwrap(), "default".to_string());
                 assert_eq!(values, vec!["THING=foo".to_string()]);
             }
-            cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl link put constructed incorrect command {:?}", cmd),
         }
         let update_all = CtlCli::from_iter_safe(&[
             "ctl",
