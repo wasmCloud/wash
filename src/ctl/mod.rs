@@ -8,6 +8,7 @@ use std::{path::Path, time::Duration};
 use structopt::StructOpt;
 use wasmcloud_control_interface::{
     Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
+    LinkDefinitionList,
 };
 mod manifest;
 mod output;
@@ -205,6 +206,10 @@ pub(crate) struct LinkPutCommand {
     #[structopt(name = "actor-id")]
     pub(crate) actor_id: String,
 
+    /// Public key ID of provider
+    #[structopt(name = "provider-id")]
+    pub(crate) provider_id: String,
+
     /// Capability contract ID between actor and provider
     #[structopt(name = "contract-id")]
     pub(crate) contract_id: String,
@@ -212,10 +217,6 @@ pub(crate) struct LinkPutCommand {
     /// Link name, defaults to "default"
     #[structopt(short = "l", long = "link-name")]
     pub(crate) link_name: Option<String>,
-
-    /// Public key ID of provider
-    #[structopt(name = "provider-id")]
-    pub(crate) provider_id: String,
 
     /// Environment values to provide alongside link
     #[structopt(name = "values")]
@@ -428,34 +429,47 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
             get_claims_output(claims, &output.kind)
         }
         Link(LinkCommand::Del(cmd)) => {
-            println!("del");
-        }
-        Link(LinkCommand::Put(cmd)) => {
-            println!("del");
-        }
-
-        Link(LinkCommand::Query(cmd)) => {
-            println!("del");
-        }
-        Link(cmd) => {
+            let link_name = &cmd
+                .link_name
+                .clone()
+                .unwrap_or_else(|| "default".to_string());
             sp = update_spinner_message(
                 sp,
                 format!(
-                    " Link {} between {} and {} ... ",
-                    cmd.operation, cmd.actor_id, cmd.provider_id
+                    "Deleting link for {} on {} ({}) ... ",
+                    cmd.actor_id, cmd.contract_id, link_name,
                 ),
                 &cmd.output,
             );
-            let failure = link_operation(cmd.clone())
+            let failure = link_del(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
-            link_output(
-                &cmd.operation,
+            link_del_output(
                 &cmd.actor_id,
-                &cmd.provider_id,
+                &cmd.contract_id,
+                link_name,
                 failure,
                 &cmd.output.kind,
             )
+        }
+        Link(LinkCommand::Put(cmd)) => {
+            sp = update_spinner_message(
+                sp,
+                format!(
+                    "Defining link between {} and {} ... ",
+                    cmd.actor_id, cmd.provider_id
+                ),
+                &cmd.output,
+            );
+            let failure = link_put(cmd.clone())
+                .await
+                .map_or_else(|e| Some(format!("{}", e)), |_| None);
+            link_put_output(&cmd.actor_id, &cmd.provider_id, failure, &cmd.output.kind)
+        }
+        Link(LinkCommand::Query(cmd)) => {
+            sp = update_spinner_message(sp, "Querying Links ... ".to_string(), &cmd.output);
+            let result = link_query(cmd.clone()).await?;
+            link_query_output(result, &cmd.output.kind)
         }
         Start(StartCommand::Actor(cmd)) => {
             let output = cmd.output;
@@ -561,29 +575,35 @@ pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsRespons
     client.get_claims().await.map_err(convert_error)
 }
 
-pub(crate) async fn link_operation(cmd: LinkCommand) -> Result<CtlOperationAck> {
+pub(crate) async fn link_del(cmd: LinkDelCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts).await?;
-    match &*cmd.operation {
-        "put" => client
-            .advertise_link(
-                &cmd.actor_id,
-                &cmd.provider_id,
-                &cmd.contract_id,
-                &cmd.link_name.unwrap_or_else(|| "default".to_string()),
-                labels_vec_to_hashmap(cmd.values)?,
-            )
-            .await
-            .map_err(convert_error),
-        "del" => client
-            .remove_link(
-                &cmd.actor_id,
-                &cmd.contract_id,
-                &cmd.link_name.unwrap_or_else(|| "default".to_string()),
-            )
-            .await
-            .map_err(convert_error),
-        _ => Err(format!("Unsupported link operation {}", cmd.operation).into()),
-    }
+    client
+        .remove_link(
+            &cmd.actor_id,
+            &cmd.contract_id,
+            &cmd.link_name.unwrap_or_else(|| "default".to_string()),
+        )
+        .await
+        .map_err(convert_error)
+}
+
+pub(crate) async fn link_put(cmd: LinkPutCommand) -> Result<CtlOperationAck> {
+    let client = ctl_client_from_opts(cmd.opts).await?;
+    client
+        .advertise_link(
+            &cmd.actor_id,
+            &cmd.provider_id,
+            &cmd.contract_id,
+            &cmd.link_name.unwrap_or_else(|| "default".to_string()),
+            labels_vec_to_hashmap(cmd.values)?,
+        )
+        .await
+        .map_err(convert_error)
+}
+
+pub(crate) async fn link_query(cmd: LinkQueryCommand) -> Result<LinkDefinitionList> {
+    let client = ctl_client_from_opts(cmd.opts).await?;
+    client.query_links().await.map_err(convert_error)
 }
 
 pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAck> {
