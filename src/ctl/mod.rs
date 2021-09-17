@@ -950,7 +950,7 @@ mod test {
                 provider_ref,
                 link_name,
                 constraints,
-                auction_timeout
+                auction_timeout,
             })) => {
                 assert_eq!(opts.ctl_host, CTL_HOST);
                 assert_eq!(opts.ctl_port, CTL_PORT);
