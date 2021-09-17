@@ -889,6 +889,8 @@ mod test {
             CTL_PORT,
             "--timeout",
             "1",
+            "--auction-timeout",
+            "1",
             "--constraint",
             "arch=x86_64",
             "--host-id",
@@ -902,11 +904,13 @@ mod test {
                 host_id,
                 actor_ref,
                 constraints,
+                auction_timeout,
             })) => {
                 assert_eq!(opts.ctl_host, CTL_HOST);
                 assert_eq!(opts.ctl_port, CTL_PORT);
                 assert_eq!(opts.ns_prefix, NS_PREFIX);
                 assert_eq!(opts.timeout, 1);
+                assert_eq!(auction_timeout, 1);
                 assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(host_id.unwrap(), HOST_ID.to_string());
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v1".to_string());
@@ -928,6 +932,8 @@ mod test {
             CTL_PORT,
             "--timeout",
             "1",
+            "--auction-timeout",
+            "1",
             "--constraint",
             "arch=x86_64",
             "--host-id",
@@ -944,11 +950,13 @@ mod test {
                 provider_ref,
                 link_name,
                 constraints,
+                auction_timeout
             })) => {
                 assert_eq!(opts.ctl_host, CTL_HOST);
                 assert_eq!(opts.ctl_port, CTL_PORT);
                 assert_eq!(opts.ns_prefix, NS_PREFIX);
                 assert_eq!(opts.timeout, 1);
+                assert_eq!(auction_timeout, 1);
                 assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(link_name, "default".to_string());
                 assert_eq!(constraints.unwrap(), vec!["arch=x86_64".to_string()]);
