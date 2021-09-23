@@ -315,13 +315,13 @@ pub(crate) fn make_project(
 
     // read configuration file `project-generate.toml` from template.
     let project_config_path =
-        locate_project_config_file(CONFIG_FILE_NAME, &template_base_dir, &args.subfolder)
+        fs::canonicalize(locate_project_config_file(CONFIG_FILE_NAME, &template_base_dir, &args.subfolder)
             .with_context(|| {
                 format!(
                     "Invalid template folder: Required configuration file `{}` is missing.",
                     CONFIG_FILE_NAME
                 )
-            })?;
+            })?)?;
     let mut config = Config::from_path(&project_config_path)?;
     // prevent copying config file to project dir by adding it to the exclude list
     config.exclude(
