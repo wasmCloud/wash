@@ -274,6 +274,8 @@ mod test {
             SAVE_FNAME,
             "--bin",
             "2",
+            "--cluster-seed",
+            "SCASDASDASD",
             "--ns-prefix",
             NS_PREFIX,
             "--rpc-host",
@@ -297,6 +299,7 @@ mod test {
                 actor_id,
                 operation,
                 payload,
+                cluster_seed,
             } => {
                 assert_eq!(opts.rpc_host, RPC_HOST);
                 assert_eq!(opts.rpc_port, RPC_PORT);
@@ -305,6 +308,7 @@ mod test {
                 assert_eq!(output.kind, crate::util::OutputKind::Json);
                 assert_eq!(data, Some(PathBuf::from(DATA_FNAME)));
                 assert_eq!(save, Some(PathBuf::from(SAVE_FNAME)));
+                assert_eq!(cluster_seed, "SCASDASDASD");
                 assert_eq!(test, true);
                 assert_eq!(bin, '2');
                 assert_eq!(actor_id, ACTOR_ID);
