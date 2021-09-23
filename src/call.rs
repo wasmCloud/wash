@@ -115,7 +115,7 @@ pub(crate) struct CallCommand {
     #[structopt(long)]
     pub(crate) test: bool,
 
-    /// wasmCloud host cluster seed. This cluster seed must match the cluster seed used to 
+    /// wasmCloud host cluster seed. This cluster seed must match the cluster seed used to
     /// launch the wasmCloud host in order to pass antiforgery checks made by the host
     #[structopt(short = "c", long = "cluster-seed", env = "WASMCLOUD_CLUSTER_SEED")]
     pub(crate) cluster_seed: String,
