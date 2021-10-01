@@ -20,37 +20,132 @@ jobs:
   clippy_check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
-      - run: rustup component add clippy
-      - uses: actions-rs/clippy-check@v1
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all-features
+    - uses: actions/checkout@v1
+    - run: rustup component add clippy
+    - uses: actions-rs/clippy-check@v1
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        args: --all-features
 
-  release:
+  artifact_linux:
     needs: [cargo_check, clippy_check]
     runs-on: ubuntu-latest
     steps:
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
       with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: true
+        toolchain: stable
+        target: x86_64-unknown-linux-gnu
+        override: true
+    - name: Build
+      run: cargo build -q --release --bin wash
+    - name: Get binary hash
+      run: sha256sum target/release/wash | cut -d " " -f 1 | (read; echo WASHBIN_LINUX_SHA256=$REPLY) >> $GITHUB_ENV 
+    - name: Create tar
+      run: tar czf x86_64-linux.tar.gz target/release/wash
+    - name: Upload linux artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: x86_64-linux
+        path: x86_64-linux.tar.gz
 
-  crates:
-    needs: release
+  artifact_macos:
+    needs: [cargo_check, clippy_check]
+    runs-on: macos-10.15
+    steps:
+    - uses: actions/checkout@v2
+    - uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        target: x86_64-apple-darwin
+        override: true
+    - name: Build
+      run: cargo build --release --bin wash --target x86_64-apple-darwin
+    - name: Get binary hash
+      run: shasum -a 256 target/x86_64-apple-darwin/release/wash | cut -d " " -f 1 | (read; echo WASHBIN_MACOS_SHA256=$REPLY) >> $GITHUB_ENV 
+    - name: Set binary hash file
+      run: echo ${{ env.WASHBIN_MACOS_SHA256 }} > target/x86_64-apple-darwin/release/wash.sha256
+    - name: Create tar
+      run: |
+        mkdir ./release 
+        tar czf ./release/x86_64-macos.tar.gz target/x86_64-apple-darwin/release/wash target/x86_64-apple-darwin/release/wash.sha256
+    - name: Get release hash
+      run: shasum -a 256 ./release/x86_64-macos.tar.gz | cut -d " " -f 1 | (read; echo WASHRELEASE_MACOS_SHA256=$REPLY) >> $GITHUB_ENV 
+    - name: Set release hash file
+      run: echo ${{ env.WASHRELEASE_MACOS_SHA256 }} > ./release/x86_64-macos.tar.gz.sha256
+    - name: Upload macos artifact
+      uses: actions/upload-artifact@v2
+      with:
+        name: x86_64-macos
+        path: ./release/*
+
+  update_brew_fomula:
+    name: "Update wash brew formula"
+    needs: github-release
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v1
-      - name: Cargo login
-        env:
-          CRATES_TOKEN: ${{ secrets.CRATES_PUBLISH_TOKEN }}
-        run: cargo login ${{ env.CRATES_TOKEN }}
-      - name: Cargo publish
-        run: cargo publish --no-verify
+    - name: Checkout formula repo
+      uses: actions/checkout@v2
+      with:
+        repository: jordan-rash/homebrew-wasmcloud
+        path: wcbrew
+        token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Get release artifact
+      uses: actions/download-artifact@v2
+      with:
+        name: x86_64-macos
+        path: artifacts
+    - name: Get release hash
+      run: |
+        ls -lah artifacts
+        cat artifacts/x86_64-macos.tar.gz.sha256 | (read; echo WASHRELEASE_MACOS_SHA256=$REPLY) >> $GITHUB_ENV 
+    - name: Get the version
+      id: get_version
+      run: echo ::set-output name=VERSION::${GITHUB_REF/refs\/tags\//}
+    - name: Update brew formula
+      uses: wasmcloud/homebrew-wasmcloud@main
+      with:
+        repo: wash
+        releasetag: ${{ steps.get_version.outputs.VERSION }}
+        releasesha: ${{ env.WASHRELEASE_MACOS_SHA256 }}
+    - name: Replace old formula with new
+      run: |
+        mv wash.rb.new ./wcbrew/Formula/wash.rb
+    - name: Create PR
+      uses: peter-evans/create-pull-request@v3
+      with:
+        branch: releasebump/${{ steps.get_version.outputs.VERSION }}
+        title: "Automated PR - version bump"
+        path: wcbrew
+        token: ${{ secrets.HOMEBREW_TOKEN }}
+
+  github-release:
+    needs: [artifact_linux, artifact_macos]
+    runs-on: ubuntu-latest
+    steps:
+    - name: Download Release Tarballs
+      uses: actions/download-artifact@v2
+      with:
+        path: release
+    - name: Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          release/**/*.tar.gz
+          release/**/*.sha256
+        token: ${{ secrets.GITHUB_TOKEN }}
+        prerelease: false
+        draft: false
+
+  #crates:
+    #needs: release
+    #runs-on: ubuntu-latest
+    #steps:
+      #- name: Checkout
+        #uses: actions/checkout@v1
+      #- name: Cargo login
+        #env:
+          #CRATES_TOKEN: ${{ secrets.CRATES_PUBLISH_TOKEN }}
+        #run: cargo login ${{ env.CRATES_TOKEN }}
+      #- name: Cargo publish
+        #run: cargo publish --no-verify
