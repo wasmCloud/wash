@@ -3100,6 +3100,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sanitize-filename"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf18934a12018228c5b55a6dae9df5d0641e3566b3630cb46cc55564068e7c2f"
+dependencies = [
+ "lazy_static",
+ "regex",
+]
+
+[[package]]
 name = "schannel"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3973,7 +3983,7 @@ dependencies = [
 
 [[package]]
 name = "wash-cli"
-version = "0.6.7"
+version = "0.6.6"
 dependencies = [
  "anyhow",
  "atelier_core 0.2.22",
@@ -4001,6 +4011,7 @@ dependencies = [
  "reqwest",
  "rmp-serde",
  "rmpv",
+ "sanitize-filename",
  "semver",
  "serde",
  "serde_json",
@@ -4019,6 +4030,7 @@ dependencies = [
  "wasmcloud-control-interface",
  "wasmcloud-test-util",
  "weld-codegen 0.1.18",
+ "which",
 ]
 
 [[package]]

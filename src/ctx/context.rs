@@ -1,20 +1,15 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-//TODO: consider naming the default context `default.json`
 #[derive(Clone, Deserialize, Serialize, Debug)]
-pub(crate) struct IndexJson {
+pub(crate) struct DefaultContext {
     /// Name of the default context
-    default: String,
+    pub name: String,
 }
 
-impl IndexJson {
-    pub fn new(default: String) -> Self {
-        IndexJson { default }
-    }
-
-    pub fn default(&self) -> &String {
-        &self.default
+impl DefaultContext {
+    pub fn new(name: String) -> Self {
+        DefaultContext { name }
     }
 }
 
@@ -67,18 +62,23 @@ impl Default for WashContext {
     }
 }
 
+const DEFAULT_NATS_HOST: &str = "127.0.0.1";
+const DEFAULT_NATS_PORT: u16 = 4222;
+const DEFAULT_LATTICE_PREFIX: &str = "default";
+const DEFAULT_TIMEOUT: u64 = 2_000;
+
 fn default_nats_host() -> String {
-    "127.0.0.1".to_string()
+    DEFAULT_NATS_HOST.to_string()
 }
 
 fn default_nats_port() -> u16 {
-    4222
+    DEFAULT_NATS_PORT
 }
 
 fn default_lattice_prefix() -> String {
-    "default".to_string()
+    DEFAULT_LATTICE_PREFIX.to_string()
 }
 
 fn default_timeout() -> u64 {
-    2_000
+    DEFAULT_TIMEOUT
 }
