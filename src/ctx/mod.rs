@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
-mod context;
+pub mod context;
 use context::{DefaultContext, WashContext};
 
 const INDEX_JSON: &str = "index.json";
@@ -204,7 +204,7 @@ fn handle_del(cmd: DelCommand) -> Result<String> {
     } else {
         Err(Error::new(
             ErrorKind::NotFound,
-            "Failed to delete, context supplied was not found".to_string(),
+            "Failed to delete, no context found".to_string(),
         )
         .into())
     }
@@ -358,8 +358,8 @@ fn context_filestems_from_path(contexts: Vec<PathBuf>) -> Vec<String> {
 
 /// Given an optional supplied directory, determine the context directory either from the supplied
 /// directory or using the home directory and the predefined `.wash/contexts` folder.
-fn context_dir(cmd_dir: Option<PathBuf>) -> Result<PathBuf> {
-    Ok(if let Some(dir) = cmd_dir {
+pub(crate) fn context_dir(cmd_dir: Option<PathBuf>) -> Result<PathBuf> {
+    let dir = if let Some(dir) = cmd_dir {
         dir
     } else {
         dirs::home_dir()
@@ -370,7 +370,12 @@ fn context_dir(cmd_dir: Option<PathBuf>) -> Result<PathBuf> {
                 )
             })?
             .join(CTX_DIR)
-    })
+    };
+    // Ensure user supplied context exists
+    if std::fs::metadata(&dir).is_err() {
+        let _ = std::fs::create_dir(&dir);
+    }
+    Ok(dir)
 }
 
 /// Helper function to properly format the path to a context JSON file
