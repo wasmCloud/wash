@@ -249,7 +249,7 @@ async fn rpc_client_from_opts(
 
     let lattice_prefix = opts.lattice_prefix.unwrap_or(
         ctx.as_ref()
-            .map(|c| c.lattice_prefix.clone())
+            .map(|c| c.rpc_lattice_prefix.clone())
             .unwrap_or(DEFAULT_LATTICE_PREFIX.to_string()),
     );
 
@@ -322,7 +322,7 @@ mod test {
     use std::path::PathBuf;
     use structopt::StructOpt;
 
-    const RPC_HOST: &str = "0.0.0.0";
+    const RPC_HOST: &str = "127.0.0.1";
     const RPC_PORT: &str = "4222";
     const LATTICE_PREFIX: &str = "default";
     const SAVE_FNAME: &str = "/dev/null";

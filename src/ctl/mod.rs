@@ -908,7 +908,7 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
 
     let lattice_prefix = opts.lattice_prefix.unwrap_or(
         ctx.as_ref()
-            .map(|c| c.lattice_prefix.clone())
+            .map(|c| c.ctl_lattice_prefix.clone())
             .unwrap_or(DEFAULT_LATTICE_PREFIX.to_string()),
     );
 

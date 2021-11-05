@@ -18,6 +18,7 @@ impl DefaultContext {
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub(crate) struct WashContext {
+    pub name: String,
     pub cluster_seed: Option<String>,
 
     #[serde(default = "default_nats_host")]
@@ -31,7 +32,7 @@ pub(crate) struct WashContext {
     pub ctl_timeout: u64,
 
     #[serde(default = "default_lattice_prefix")]
-    pub lattice_prefix: String,
+    pub ctl_lattice_prefix: String,
 
     #[serde(default = "default_nats_host")]
     pub rpc_host: String,
@@ -42,11 +43,62 @@ pub(crate) struct WashContext {
     pub rpc_credsfile: Option<PathBuf>,
     #[serde(default = "default_timeout")]
     pub rpc_timeout: u64,
+
+    #[serde(default = "default_lattice_prefix")]
+    pub rpc_lattice_prefix: String,
+}
+
+impl WashContext {
+    pub(crate) fn named(name: String) -> Self {
+        WashContext {
+            name,
+            ..Self::default()
+        }
+    }
+
+    pub(crate) fn new(
+        name: String,
+        cluster_seed: Option<String>,
+        ctl_host: String,
+        ctl_port: String,
+        ctl_jwt: Option<String>,
+        ctl_seed: Option<String>,
+        ctl_credsfile: Option<PathBuf>,
+        ctl_timeout: u64,
+        ctl_lattice_prefix: String,
+        rpc_host: String,
+        rpc_port: String,
+        rpc_jwt: Option<String>,
+        rpc_seed: Option<String>,
+        rpc_credsfile: Option<PathBuf>,
+        rpc_timeout: u64,
+        rpc_lattice_prefix: String,
+    ) -> Self {
+        WashContext {
+            name,
+            cluster_seed,
+            ctl_host,
+            ctl_port,
+            ctl_jwt,
+            ctl_seed,
+            ctl_credsfile,
+            ctl_timeout,
+            ctl_lattice_prefix,
+            rpc_host,
+            rpc_port,
+            rpc_jwt,
+            rpc_seed,
+            rpc_credsfile,
+            rpc_timeout,
+            rpc_lattice_prefix,
+        }
+    }
 }
 
 impl Default for WashContext {
     fn default() -> Self {
         WashContext {
+            name: "default".to_string(),
             cluster_seed: None,
             ctl_host: DEFAULT_NATS_HOST.to_string(),
             ctl_port: DEFAULT_NATS_PORT.to_string(),
@@ -54,13 +106,14 @@ impl Default for WashContext {
             ctl_seed: None,
             ctl_credsfile: None,
             ctl_timeout: DEFAULT_NATS_TIMEOUT,
-            lattice_prefix: DEFAULT_LATTICE_PREFIX.to_string(),
+            ctl_lattice_prefix: DEFAULT_LATTICE_PREFIX.to_string(),
             rpc_host: DEFAULT_NATS_HOST.to_string(),
             rpc_port: DEFAULT_NATS_PORT.to_string(),
             rpc_jwt: None,
             rpc_seed: None,
             rpc_credsfile: None,
             rpc_timeout: DEFAULT_NATS_TIMEOUT,
+            rpc_lattice_prefix: DEFAULT_LATTICE_PREFIX.to_string(),
         }
     }
 }
