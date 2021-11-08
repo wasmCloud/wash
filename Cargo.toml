@@ -47,6 +47,7 @@ semver = "1.0"
 serde_json = { version = "1.0", features = ["raw_value"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_yaml = "0.8.17"
+serde_with = "1.11.0"
 spinners = "2.0"
 structopt = "0.3.21"
 tempfile = "3.2"

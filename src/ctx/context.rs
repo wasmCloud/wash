@@ -20,13 +20,16 @@ impl DefaultContext {
 pub(crate) struct WashContext {
     #[serde(default)]
     pub name: String,
+    #[serde(with = "serde_with::rust::string_empty_as_none")]
     pub cluster_seed: Option<String>,
 
     #[serde(default = "default_nats_host")]
     pub ctl_host: String,
     #[serde(default = "default_nats_port")]
     pub ctl_port: u16,
+    #[serde(with = "serde_with::rust::string_empty_as_none")]
     pub ctl_jwt: Option<String>,
+    #[serde(with = "serde_with::rust::string_empty_as_none")]
     pub ctl_seed: Option<String>,
     pub ctl_credsfile: Option<PathBuf>,
     #[serde(default = "default_timeout")]
@@ -39,7 +42,9 @@ pub(crate) struct WashContext {
     pub rpc_host: String,
     #[serde(default = "default_nats_port")]
     pub rpc_port: u16,
+    #[serde(with = "serde_with::rust::string_empty_as_none")]
     pub rpc_jwt: Option<String>,
+    #[serde(with = "serde_with::rust::string_empty_as_none")]
     pub rpc_seed: Option<String>,
     pub rpc_credsfile: Option<PathBuf>,
     #[serde(default = "default_timeout")]

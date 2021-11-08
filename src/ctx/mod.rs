@@ -307,12 +307,17 @@ fn set_default_context(context_dir: &Path, default_context: String) -> Result<()
 
 /// Loads the default context, according to index.json, into a WashContext object
 pub(crate) fn get_default_context(context_dir: &Path) -> Result<WashContext> {
-    if let Ok(index) = get_index(context_dir) {
-        load_context(&context_path_from_name(context_dir, &index.name))
-    } else {
-        set_default_context(context_dir, HOST_CONFIG_NAME.to_string())?;
-        ensure_host_config_context(context_dir)?;
-        load_context(&context_dir.join(HOST_CONFIG_PATH))
+    match get_index(context_dir) {
+        Ok(index) if index.name == HOST_CONFIG_NAME => {
+            create_host_config_context(context_dir)?;
+            load_context(&context_path_from_name(context_dir, HOST_CONFIG_NAME))
+        }
+        Ok(index) => load_context(&context_path_from_name(context_dir, &index.name)),
+        _ => {
+            create_host_config_context(context_dir)?;
+            set_default_context(context_dir, HOST_CONFIG_NAME.to_string())?;
+            load_context(&context_path_from_name(context_dir, HOST_CONFIG_NAME))
+        }
     }
 }
 
@@ -325,23 +330,27 @@ pub(crate) fn load_context(context_path: &Path) -> Result<WashContext> {
 }
 
 /// Ensures the host config context exists, setting it as a default if a default context
-/// is not configured. If `update` is set to `true`, the `host_config` context will be
-/// overwritten with the values found in the `~/.wash/host_config.json` file.
+/// is not configured. The `host_config` context will be overwritten with the values found
+/// in the `~/.wash/host_config.json` file.
 fn ensure_host_config_context(context_dir: &Path) -> Result<()> {
-    let host_config_path = home_dir()?.join(HOST_CONFIG_PATH);
-    let host_config_ctx = WashContext {
-        name: HOST_CONFIG_NAME.to_string(),
-        ..load_context(&host_config_path)?
-    };
-    let output_ctx_path = context_dir.join(format!("{}.json", HOST_CONFIG_NAME));
-    serde_json::to_writer(&File::create(output_ctx_path)?, &host_config_ctx)
-        .map(|_| "updated host_config context".to_string())?;
+    create_host_config_context(context_dir)?;
 
     // No default context is set, set to `host_config` context
     if get_default_context(context_dir).is_err() {
         set_default_context(context_dir, HOST_CONFIG_NAME.to_string())?;
     }
     Ok(())
+}
+
+/// Load the host configuration file and create a context called `host_config` from it
+fn create_host_config_context(context_dir: &Path) -> Result<()> {
+    let host_config_path = home_dir()?.join(HOST_CONFIG_PATH);
+    let host_config_ctx = WashContext {
+        name: HOST_CONFIG_NAME.to_string(),
+        ..load_context(&host_config_path)?
+    };
+    let output_ctx_path = context_path_from_name(context_dir, HOST_CONFIG_NAME);
+    serde_json::to_writer(&File::create(output_ctx_path)?, &host_config_ctx).map_err(|e| e.into())
 }
 
 /// Given a context directory, retrieve all contexts in the form of their absolute paths
