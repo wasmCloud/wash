@@ -6,6 +6,7 @@ use crate::util::{
     format_output, Output, OutputKind, Result, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST,
     DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
 };
+use log::warn;
 use serde_json::json;
 use std::fs::File;
 use std::io::{BufReader, Error, ErrorKind};
@@ -16,8 +17,10 @@ use structopt::StructOpt;
 pub mod context;
 use context::{DefaultContext, WashContext};
 
-const INDEX_JSON: &str = "index.json";
 const CTX_DIR: &str = ".wash/contexts";
+const INDEX_JSON: &str = "index.json";
+const HOST_CONFIG_PATH: &str = ".wash/host_config.json";
+const HOST_CONFIG_NAME: &str = "host_config";
 
 #[derive(Debug, StructOpt, Clone)]
 #[structopt(
@@ -139,6 +142,8 @@ pub(crate) struct EditCommand {
 /// Being present in this list does not guarantee a valid context
 fn handle_list(cmd: ListCommand) -> Result<String> {
     let dir = context_dir(cmd.directory)?;
+    let _ = ensure_host_config_context(&dir);
+
     let index = get_index(&dir).ok();
     let contexts = context_filestems_from_path(get_contexts(&dir)?);
 
@@ -158,7 +163,7 @@ fn handle_list(cmd: ListCommand) -> Result<String> {
 
     Ok(format_output(
         format!(
-            "====== Contexts found in {} ======\n{}",
+            "== Contexts found in {} ==\n{}",
             dir.display(),
             output_contexts.join("\n")
         ),
@@ -170,6 +175,7 @@ fn handle_list(cmd: ListCommand) -> Result<String> {
 /// Handles selecting a default context, which can be selected in the terminal or provided as an argument
 fn handle_default(cmd: DefaultCommand) -> Result<String> {
     let dir = context_dir(cmd.directory)?;
+    let _ = ensure_host_config_context(&dir);
     let contexts = get_contexts(&dir)?;
 
     let new_default = cmd.name.unwrap_or_else(|| {
@@ -254,6 +260,8 @@ fn handle_edit(cmd: EditCommand) -> Result<String> {
     let dir = context_dir(cmd.directory.clone())?;
     let editor = which::which(cmd.editor)?;
 
+    let _ = ensure_host_config_context(&dir);
+
     let ctx = if let Some(ctx) = cmd.name {
         // Ensure user supplied context exists
         std::fs::metadata(context_path_from_name(&dir, &ctx))
@@ -265,6 +273,9 @@ fn handle_edit(cmd: EditCommand) -> Result<String> {
     };
 
     if let Some(ctx_name) = ctx {
+        if ctx_name == HOST_CONFIG_NAME {
+            warn!("Edits to the host_config context will be overwritten, make changes to the host config instead");
+        }
         Command::new(editor)
             .arg(&context_path_from_name(&dir, &ctx_name))
             .status()
@@ -296,8 +307,13 @@ fn set_default_context(context_dir: &Path, default_context: String) -> Result<()
 
 /// Loads the default context, according to index.json, into a WashContext object
 pub(crate) fn get_default_context(context_dir: &Path) -> Result<WashContext> {
-    let index = get_index(context_dir)?;
-    load_context(&context_path_from_name(context_dir, &index.name))
+    if let Ok(index) = get_index(context_dir) {
+        load_context(&context_path_from_name(context_dir, &index.name))
+    } else {
+        set_default_context(context_dir, HOST_CONFIG_NAME.to_string())?;
+        ensure_host_config_context(context_dir)?;
+        load_context(&context_dir.join(HOST_CONFIG_PATH))
+    }
 }
 
 /// Load a file and return a Result containing the WashContext object.
@@ -306,6 +322,27 @@ pub(crate) fn load_context(context_path: &Path) -> Result<WashContext> {
     let reader = BufReader::new(file);
     let ctx = serde_json::from_reader(reader)?;
     Ok(ctx)
+}
+
+/// Ensures the host config context exists, setting it as a default if a default context
+/// is not configured. If `update` is set to `true`, the `host_config` context will be
+/// overwritten with the values found in the `~/.wash/host_config.json` file.
+fn ensure_host_config_context(context_dir: &Path) -> Result<()> {
+    //TODO: get rid of the hardcoded stuff
+    let host_config_path = home_dir()?.join(HOST_CONFIG_PATH);
+    let host_config_ctx = WashContext {
+        name: HOST_CONFIG_NAME.to_string(),
+        ..load_context(&host_config_path)?
+    };
+    let output_ctx_path = context_dir.join("host_config.json");
+    serde_json::to_writer(&File::create(output_ctx_path)?, &host_config_ctx)
+        .map(|_| "updated host_config context".to_string())?;
+
+    // No default context is set, set to `host_config` context
+    if get_default_context(context_dir).is_err() {
+        set_default_context(context_dir, HOST_CONFIG_NAME.to_string())?;
+    }
+    Ok(())
 }
 
 /// Given a context directory, retrieve all contexts in the form of their absolute paths
@@ -357,20 +394,22 @@ pub(crate) fn context_dir(cmd_dir: Option<PathBuf>) -> Result<PathBuf> {
     let dir = if let Some(dir) = cmd_dir {
         dir
     } else {
-        dirs::home_dir()
-            .ok_or_else(|| {
-                Error::new(
-                    ErrorKind::NotFound,
-                    "Context directory not found, please set $HOME or $WASH_CONTEXTS for managed contexts",
-                )
-            })?
-            .join(CTX_DIR)
+        home_dir()?.join(CTX_DIR)
     };
     // Ensure user supplied context exists
     if std::fs::metadata(&dir).is_err() {
         let _ = std::fs::create_dir(&dir);
     }
     Ok(dir)
+}
+
+fn home_dir() -> Result<PathBuf> {
+    Ok(dirs::home_dir().ok_or_else(|| {
+        Error::new(
+            ErrorKind::NotFound,
+            "Context directory not found, please set $HOME or $WASH_CONTEXTS for managed contexts",
+        )
+    })?)
 }
 
 /// Helper function to properly format the path to a context JSON file
@@ -494,18 +533,19 @@ fn prompt_for_context() -> Result<WashContext> {
         &Some(DEFAULT_LATTICE_PREFIX.to_string()),
     )?;
 
+    //TODO: gracefully handle parse with an error message
     Ok(WashContext::new(
         name,
         cluster_seed,
         ctl_host,
-        ctl_port,
+        ctl_port.parse().unwrap(),
         ctl_jwt,
         ctl_seed,
         ctl_credsfile.map(PathBuf::from),
         ctl_timeout.parse()?,
         ctl_lattice_prefix,
         rpc_host,
-        rpc_port,
+        rpc_port.parse().unwrap(),
         rpc_jwt,
         rpc_seed,
         rpc_credsfile.map(PathBuf::from),

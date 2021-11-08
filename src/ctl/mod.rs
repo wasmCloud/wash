@@ -918,10 +918,10 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
             .unwrap_or(DEFAULT_NATS_HOST.to_string()),
     );
 
-    let ctl_port = opts.ctl_port.unwrap_or(
+    let ctl_port = opts.ctl_port.unwrap_or_else(|| 
         ctx.as_ref()
-            .map(|c| c.ctl_port.clone())
-            .unwrap_or(DEFAULT_NATS_PORT.to_string()),
+            .map(|c| c.ctl_port.to_string())
+            .unwrap_or_else(|| DEFAULT_NATS_PORT.to_string()),
     );
 
     let ctl_jwt = if opts.ctl_jwt.is_some() {

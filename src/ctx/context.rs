@@ -18,13 +18,14 @@ impl DefaultContext {
 
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub(crate) struct WashContext {
+    #[serde(default)]
     pub name: String,
     pub cluster_seed: Option<String>,
 
     #[serde(default = "default_nats_host")]
     pub ctl_host: String,
     #[serde(default = "default_nats_port")]
-    pub ctl_port: String,
+    pub ctl_port: u16,
     pub ctl_jwt: Option<String>,
     pub ctl_seed: Option<String>,
     pub ctl_credsfile: Option<PathBuf>,
@@ -37,7 +38,7 @@ pub(crate) struct WashContext {
     #[serde(default = "default_nats_host")]
     pub rpc_host: String,
     #[serde(default = "default_nats_port")]
-    pub rpc_port: String,
+    pub rpc_port: u16,
     pub rpc_jwt: Option<String>,
     pub rpc_seed: Option<String>,
     pub rpc_credsfile: Option<PathBuf>,
@@ -56,18 +57,19 @@ impl WashContext {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
         name: String,
         cluster_seed: Option<String>,
         ctl_host: String,
-        ctl_port: String,
+        ctl_port: u16,
         ctl_jwt: Option<String>,
         ctl_seed: Option<String>,
         ctl_credsfile: Option<PathBuf>,
         ctl_timeout: u64,
         ctl_lattice_prefix: String,
         rpc_host: String,
-        rpc_port: String,
+        rpc_port: u16,
         rpc_jwt: Option<String>,
         rpc_seed: Option<String>,
         rpc_credsfile: Option<PathBuf>,
@@ -101,14 +103,14 @@ impl Default for WashContext {
             name: "default".to_string(),
             cluster_seed: None,
             ctl_host: DEFAULT_NATS_HOST.to_string(),
-            ctl_port: DEFAULT_NATS_PORT.to_string(),
+            ctl_port: DEFAULT_NATS_PORT.parse().unwrap(),
             ctl_jwt: None,
             ctl_seed: None,
             ctl_credsfile: None,
             ctl_timeout: DEFAULT_NATS_TIMEOUT,
             ctl_lattice_prefix: DEFAULT_LATTICE_PREFIX.to_string(),
             rpc_host: DEFAULT_NATS_HOST.to_string(),
-            rpc_port: DEFAULT_NATS_PORT.to_string(),
+            rpc_port: DEFAULT_NATS_PORT.parse().unwrap(),
             rpc_jwt: None,
             rpc_seed: None,
             rpc_credsfile: None,
@@ -118,14 +120,15 @@ impl Default for WashContext {
     }
 }
 
+
 // Below are required functions for serde default derive with WashContext
 
 fn default_nats_host() -> String {
     DEFAULT_NATS_HOST.to_string()
 }
 
-fn default_nats_port() -> String {
-    DEFAULT_NATS_PORT.to_string()
+fn default_nats_port() -> u16 {
+    DEFAULT_NATS_PORT.parse().unwrap()
 }
 
 fn default_lattice_prefix() -> String {
