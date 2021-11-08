@@ -120,7 +120,6 @@ impl Default for WashContext {
     }
 }
 
-
 // Below are required functions for serde default derive with WashContext
 
 fn default_nats_host() -> String {

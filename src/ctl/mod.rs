@@ -900,29 +900,29 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
     // Determine connection parameters, taking explicitly provided flags,
     // then provided context values, lastly using defaults
 
-    let timeout = opts.timeout_ms.unwrap_or(
+    let timeout = opts.timeout_ms.unwrap_or_else(|| {
         ctx.as_ref()
-            .map(|c| c.ctl_timeout.clone())
-            .unwrap_or(DEFAULT_NATS_TIMEOUT),
-    );
+            .map(|c| c.ctl_timeout)
+            .unwrap_or(DEFAULT_NATS_TIMEOUT)
+    });
 
-    let lattice_prefix = opts.lattice_prefix.unwrap_or(
+    let lattice_prefix = opts.lattice_prefix.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| c.ctl_lattice_prefix.clone())
-            .unwrap_or(DEFAULT_LATTICE_PREFIX.to_string()),
-    );
+            .unwrap_or_else(|| DEFAULT_LATTICE_PREFIX.to_string())
+    });
 
-    let ctl_host = opts.ctl_host.unwrap_or(
+    let ctl_host = opts.ctl_host.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| c.ctl_host.clone())
-            .unwrap_or(DEFAULT_NATS_HOST.to_string()),
-    );
+            .unwrap_or_else(|| DEFAULT_NATS_HOST.to_string())
+    });
 
-    let ctl_port = opts.ctl_port.unwrap_or_else(|| 
+    let ctl_port = opts.ctl_port.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| c.ctl_port.to_string())
-            .unwrap_or_else(|| DEFAULT_NATS_PORT.to_string()),
-    );
+            .unwrap_or_else(|| DEFAULT_NATS_PORT.to_string())
+    });
 
     let ctl_jwt = if opts.ctl_jwt.is_some() {
         opts.ctl_jwt

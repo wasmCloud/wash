@@ -241,29 +241,29 @@ async fn rpc_client_from_opts(
 
     // Determine connection parameters, taking explicitly provided flags,
     // then provided context values, lastly using defaults
-    let timeout = opts.timeout_ms.unwrap_or_else(||
+    let timeout = opts.timeout_ms.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| c.rpc_timeout)
-            .unwrap_or(DEFAULT_NATS_TIMEOUT),
-    );
+            .unwrap_or(DEFAULT_NATS_TIMEOUT)
+    });
 
-    let lattice_prefix = opts.lattice_prefix.unwrap_or_else(|| 
+    let lattice_prefix = opts.lattice_prefix.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| c.rpc_lattice_prefix.clone())
-            .unwrap_or_else(|| DEFAULT_LATTICE_PREFIX.to_string()),
-    );
+            .unwrap_or_else(|| DEFAULT_LATTICE_PREFIX.to_string())
+    });
 
-    let rpc_host = opts.rpc_host.unwrap_or_else(|| 
+    let rpc_host = opts.rpc_host.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| c.rpc_host.clone())
-            .unwrap_or_else(|| DEFAULT_NATS_HOST.to_string()),
-    );
+            .unwrap_or_else(|| DEFAULT_NATS_HOST.to_string())
+    });
 
-    let rpc_port = opts.rpc_port.unwrap_or_else(||
+    let rpc_port = opts.rpc_port.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| c.rpc_port.to_string())
-            .unwrap_or_else(|| DEFAULT_NATS_PORT.to_string()),
-    );
+            .unwrap_or_else(|| DEFAULT_NATS_PORT.to_string())
+    });
 
     let rpc_jwt = if opts.rpc_jwt.is_some() {
         opts.rpc_jwt
@@ -289,7 +289,7 @@ async fn rpc_client_from_opts(
     // If no context is supplied, and there is no default context, then the cluster seed
     // cannot be determined and the RPC will almost certainly fail, unless the antiforgery
     // check allows the invocation to be unsigned.
-    let cluster_seed = cmd_cluster_seed.unwrap_or_else(|| 
+    let cluster_seed = cmd_cluster_seed.unwrap_or_else(|| {
         ctx.as_ref()
             .map(|c| {
                 c.cluster_seed.clone().unwrap_or_else(|| {
@@ -299,8 +299,8 @@ async fn rpc_client_from_opts(
                     "".to_string()
                 })
             })
-            .unwrap_or_default(),
-    );
+            .unwrap_or_default()
+    });
 
     let nc = nats_client_from_opts(&rpc_host, &rpc_port, rpc_jwt, rpc_seed, rpc_credsfile).await?;
     Ok((
