@@ -234,6 +234,11 @@ pub(crate) async fn nats_client_from_opts(
         )
         .connect(&nats_url)
         .await?
+    } else if let Some(seed) = seed {
+        let kp = nkeys::KeyPair::from_seed(&extract_arg_value(&seed)?)?;
+        nats::asynk::Options::with_nkey(&kp.public_key(), move |nonce| kp.sign(nonce).unwrap())
+            .connect(&nats_url)
+            .await?
     } else if let Some(credsfile_path) = credsfile {
         nats::asynk::Options::with_credentials(credsfile_path)
             .connect(&nats_url)
