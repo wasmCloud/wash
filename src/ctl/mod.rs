@@ -56,19 +56,11 @@ pub(crate) struct ConnectionOpts {
     ctl_credsfile: Option<PathBuf>,
 
     /// Lattice prefix for wasmcloud control interface, defaults to "default"
-    #[structopt(
-        short = "x",
-        long = "lattice-prefix",
-        env = "WASMCLOUD_LATTICE_PREFIX"
-    )]
+    #[structopt(short = "x", long = "lattice-prefix", env = "WASMCLOUD_LATTICE_PREFIX")]
     lattice_prefix: Option<String>,
 
     /// Timeout length to await a control interface response, defaults to 2000 milliseconds
-    #[structopt(
-        short = "t",
-        long = "timeout-ms",
-        env = "WASMCLOUD_CTL_TIMEOUT_MS"
-    )]
+    #[structopt(short = "t", long = "timeout-ms", env = "WASMCLOUD_CTL_TIMEOUT_MS")]
     timeout_ms: Option<u64>,
 
     /// Path to a context with values to use for CTL connection and authentication
@@ -878,16 +870,6 @@ async fn apply_manifest_providers(
 }
 
 async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
-    // let timeout = Duration::from_millis(opts.timeout_ms);
-    // let nc = crate::util::nats_client_from_opts(
-    //     &opts.ctl_host,
-    //     &opts.ctl_port,
-    //     opts.ctl_jwt,
-    //     opts.ctl_seed,
-    //     opts.ctl_credsfile,
-    // )
-    // .await?;
-    // let ctl_client = CtlClient::new(nc, Some(opts.lattice_prefix.clone()), timeout);
     // Attempt to load a context, falling back on the default if not supplied
     let ctx = if let Some(context) = opts.context {
         load_context(&context).ok()

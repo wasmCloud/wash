@@ -68,19 +68,11 @@ pub(crate) struct ConnectionOpts {
     rpc_credsfile: Option<PathBuf>,
 
     /// Lattice prefix for wasmcloud command interface, defaults to "default"
-    #[structopt(
-        short = "x",
-        long = "lattice-prefix",
-        env = "WASMCLOUD_LATTICE_PREFIX"
-    )]
+    #[structopt(short = "x", long = "lattice-prefix", env = "WASMCLOUD_LATTICE_PREFIX")]
     lattice_prefix: Option<String>,
 
     /// Timeout length for RPC, defaults to 2000 milliseconds
-    #[structopt(
-        short = "t",
-        long = "rpc-timeout-ms",
-        env = "WASMCLOUD_RPC_TIMEOUT_MS"
-    )]
+    #[structopt(short = "t", long = "rpc-timeout-ms", env = "WASMCLOUD_RPC_TIMEOUT_MS")]
     timeout_ms: Option<u64>,
 
     /// Path to a context with values to use for RPC connection, authentication, and cluster seed invocation signing
@@ -309,7 +301,7 @@ async fn rpc_client_from_opts(
             &lattice_prefix,
             nkeys::KeyPair::from_seed(&extract_arg_value(&cluster_seed)?)?,
             WASH_HOST_ID.to_string(),
-            Some(Duration::from_millis(timeout))
+            Some(Duration::from_millis(timeout)),
         ),
         timeout,
     ))
