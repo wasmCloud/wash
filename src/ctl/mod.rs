@@ -7,6 +7,8 @@ use crate::{
         DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
     },
 };
+use id::HostId;
+pub(crate) use output::*;
 use spinners::{Spinner, Spinners};
 use std::{
     path::{Path, PathBuf},
@@ -17,9 +19,11 @@ use wasmcloud_control_interface::{
     Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
     LinkDefinitionList,
 };
+
+mod id;
 mod manifest;
 mod output;
-pub(crate) use output::*;
+
 #[derive(Debug, Clone, StructOpt)]
 pub(crate) struct CtlCli {
     #[structopt(flatten)]
@@ -105,7 +109,7 @@ pub(crate) enum CtlCliCommand {
     #[structopt(name = "update")]
     Update(UpdateCommand),
 
-    /// Apply a manifest file to a target hsot
+    /// Apply a manifest file to a target host
     #[structopt(name = "apply")]
     Apply(ApplyCommand),
 }
@@ -271,8 +275,8 @@ pub(crate) struct GetHostInventoryCommand {
     pub(crate) output: Output,
 
     /// Id of host
-    #[structopt(name = "host-id")]
-    pub(crate) host_id: String,
+    #[structopt(name = "host-id", parse(try_from_str))]
+    pub(crate) host_id: HostId,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -603,7 +607,7 @@ pub(crate) async fn get_hosts(cmd: GetHostsCommand) -> Result<Vec<Host>> {
 pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<HostInventory> {
     let client = ctl_client_from_opts(cmd.opts).await?;
     client
-        .get_host_inventory(&cmd.host_id)
+        .get_host_inventory(&cmd.host_id.to_string())
         .await
         .map_err(convert_error)
 }
@@ -1188,7 +1192,7 @@ mod test {
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
                 assert_eq!(output.kind, OutputKind::Json);
-                assert_eq!(host_id, HOST_ID.to_string());
+                assert_eq!(host_id, HOST_ID.parse()?);
             }
             cmd => panic!("ctl get inventory constructed incorrect command {:?}", cmd),
         }

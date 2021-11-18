@@ -1,0 +1,42 @@
+use derive_more::{Display, From, Into};
+use std::str::FromStr;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum IdParseError {
+    #[error(r#"found the prefix "{found}", but expected "{expected}""#)]
+    WrongKeyType { found: char, expected: char },
+    #[error("found length {0}, but should be 56 chars")]
+    WrongLength(usize),
+    #[error("unknown parse error")]
+    Unknown,
+}
+
+#[derive(Clone, Debug, Display, PartialEq, From, Into)]
+pub struct Id<const PREFIX: char>(String);
+
+impl<const PREFIX: char> FromStr for Id<PREFIX> {
+    type Err = IdParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let count = s.chars().count();
+        if count != 56 {
+            return Err(IdParseError::WrongLength(count));
+        }
+        let prefix = s
+            .chars()
+            .next()
+            .expect("we already know it's the right length");
+
+        if s.starts_with(PREFIX) {
+            Ok(Self(s.to_string()))
+        } else {
+            Err(IdParseError::WrongKeyType {
+                found: prefix,
+                expected: PREFIX,
+            })
+        }
+    }
+}
+
+pub type HostId = Id<'N'>;
