@@ -24,14 +24,14 @@ impl<const PREFIX: char> FromStr for Id<PREFIX> {
         if count != 56 {
             return Err(IdParseError::WrongLength(count));
         }
-        let prefix = s
-            .chars()
-            .next()
-            .expect("we already know it's the right length");
 
         if s.starts_with(PREFIX) {
             Ok(Self(s.to_string()))
         } else {
+            let prefix = s
+                .chars()
+                .next()
+                .expect("we already know it's the right length");
             Err(IdParseError::WrongKeyType {
                 found: prefix,
                 expected: PREFIX,
