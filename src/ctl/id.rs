@@ -1,4 +1,5 @@
 use derive_more::{Display, From, Into};
+use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 use thiserror::Error;
 
@@ -12,7 +13,7 @@ pub enum IdParseError {
     Unknown,
 }
 
-#[derive(Clone, Debug, Display, PartialEq, From, Into)]
+#[derive(Clone, Debug, Display, PartialEq, From, Into, Serialize, Deserialize)]
 pub struct Id<const PREFIX: char>(String);
 
 impl<const PREFIX: char> FromStr for Id<PREFIX> {
@@ -39,4 +40,6 @@ impl<const PREFIX: char> FromStr for Id<PREFIX> {
     }
 }
 
-pub type HostId = Id<'N'>;
+pub type ModuleId = Id<'M'>;
+pub type ServerId = Id<'N'>;
+pub type ServiceId = Id<'V'>;
