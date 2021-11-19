@@ -5,8 +5,9 @@
 //
 use crate::generate::{
     project_variables::{StringEntry, TemplateSlots, VarInfo},
-    PROJECT_NAME_REGEX, {any_msg, emoji},
+    PROJECT_NAME_REGEX, any_msg,
 };
+use crate::appearance::emoji;
 use anyhow::{anyhow, Result};
 use console::{style, Term};
 use dialoguer::{theme::ColorfulTheme, Input};

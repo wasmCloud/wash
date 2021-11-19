@@ -28,6 +28,10 @@ pub(crate) struct Output {
     pub(crate) kind: OutputKind,
 }
 
+pub trait HasOutputKind {
+    fn output_kind(&self) -> &OutputKind;
+}
+
 /// Used for displaying human-readable output vs JSON format
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) enum OutputKind {

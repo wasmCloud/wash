@@ -22,6 +22,7 @@ use call::CallCli;
 mod ctx;
 use ctx::CtxCli;
 mod util;
+mod appearance;
 
 const ASCII: &str = r#"
                                _____ _                 _    _____ _          _ _

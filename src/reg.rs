@@ -6,11 +6,11 @@ use oci_distribution::secrets::RegistryAuth;
 use oci_distribution::Reference;
 use provider_archive::ProviderArchive;
 use serde_json::json;
-use spinners::{Spinner, Spinners};
 use std::fs::File;
 use std::io::prelude::*;
 use structopt::clap::AppSettings;
 use structopt::StructOpt;
+use crate::appearance::spinner::Spinner;
 
 const PROVIDER_ARCHIVE_MEDIA_TYPE: &str = "application/vnd.wasmcloud.provider.archive.layer.v1+par";
 const PROVIDER_ARCHIVE_CONFIG_MEDIA_TYPE: &str =
@@ -153,13 +153,10 @@ pub(crate) async fn handle_command(
 
 pub(crate) async fn handle_pull(cmd: PullCommand) -> Result<String, Box<dyn ::std::error::Error>> {
     let image: Reference = cmd.url.parse().unwrap();
-    let spinner = match cmd.output.kind {
-        OutputKind::Text => Some(Spinner::new(
-            &Spinners::Dots12,
-            format!(" Downloading {} ...", image.whole()),
-        )),
-        _ => None,
-    };
+
+    let spinner = Spinner::new(&cmd.output.kind);
+    spinner.update_spinner_message(format!(" Downloading {} ...", image.whole()));
+
     info!("Downloading {}", image.whole());
     let artifact = pull_artifact(
         cmd.url,
@@ -173,9 +170,7 @@ pub(crate) async fn handle_pull(cmd: PullCommand) -> Result<String, Box<dyn ::st
 
     let outfile = write_artifact(&artifact, &image, cmd.destination)?;
 
-    if spinner.is_some() {
-        spinner.unwrap().stop();
-    }
+    spinner.finish_and_clear();
 
     Ok(format_output(
         format!(
@@ -341,14 +336,10 @@ pub(crate) async fn handle_push(cmd: PushCommand) -> Result<String, Box<dyn ::st
         warn!(" Unless an SSL certificate has been installed, pushing to localhost without the --insecure option will fail")
     }
 
-    let spinner = match cmd.output.kind {
-        OutputKind::Text => Some(Spinner::new(
-            &Spinners::Dots12,
-            format!(" Pushing {} to {} ...", cmd.artifact, cmd.url),
-        )),
-        _ => None,
-    };
-    info!(" Pushing {} to {} ...", cmd.artifact, cmd.url);
+    let spinner = Spinner::new(&cmd.output.kind);
+    let msg = format!(" Pushing {} to {} ...", cmd.artifact, cmd.url);
+    spinner.update_spinner_message(msg.clone());
+    info!("{}", msg);
 
     push_artifact(
         cmd.url.clone(),
@@ -361,9 +352,8 @@ pub(crate) async fn handle_push(cmd: PushCommand) -> Result<String, Box<dyn ::st
     )
     .await?;
 
-    if spinner.is_some() {
-        spinner.unwrap().stop();
-    }
+    spinner.finish_and_clear();
+
     Ok(format_output(
         format!(
             "\n{} Successfully validated and pushed to {}",

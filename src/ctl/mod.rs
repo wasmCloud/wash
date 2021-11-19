@@ -3,13 +3,12 @@ use crate::ctx::{context_dir, get_default_context, load_context};
 use crate::{
     ctl::manifest::HostManifest,
     util::{
-        convert_error, labels_vec_to_hashmap, Output, OutputKind, Result, DEFAULT_LATTICE_PREFIX,
+        convert_error, labels_vec_to_hashmap, HasOutputKind, Output, OutputKind, Result, DEFAULT_LATTICE_PREFIX,
         DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
     },
 };
 use id::{ModuleId, ServerId, ServiceId};
 pub(crate) use output::*;
-use spinners::{Spinner, Spinners};
 use std::{
     path::{Path, PathBuf},
     time::Duration,
@@ -19,6 +18,7 @@ use wasmcloud_control_interface::{
     Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
     LinkDefinitionList,
 };
+use crate::appearance::spinner::Spinner;
 
 mod id;
 mod manifest;
@@ -114,7 +114,47 @@ pub(crate) enum CtlCliCommand {
     Apply(ApplyCommand),
 }
 
-#[derive(StructOpt, Debug, Clone)]
+impl HasOutputKind for CtlCliCommand {
+    fn output_kind(&self) -> &OutputKind {
+        &match self {
+            CtlCliCommand::Get(a) => {
+                match a {
+                    GetCommand::Claims(c) => c.output.kind,
+                    GetCommand::Hosts(h) => h.output.kind,
+                    GetCommand::HostInventory(i) => i.output.kind,
+                }
+            }
+            CtlCliCommand::Link(a) => {
+                match a {
+                    LinkCommand::Query(q) => q.output.kind,
+                    LinkCommand::Put(p) => p.output.kind,
+                    LinkCommand::Del(d) => d.output.kind,
+                }
+            }
+            CtlCliCommand::Start(a) => {
+                match a {
+                    StartCommand::Actor(x) => x.output.kind,
+                    StartCommand::Provider(p) => p.output.kind,
+                }
+            }
+            CtlCliCommand::Stop(a) => {
+                match a {
+                    StopCommand::Actor(s) => s.output.kind,
+                    StopCommand::Provider(s) => s.output.kind,
+                    StopCommand::Host(s) => s.output.kind,
+                }
+            }
+            CtlCliCommand::Update(a) => {
+                match a {
+                    UpdateCommand::Actor(u) => u.output.kind,
+                }
+            }
+            CtlCliCommand::Apply(a) => a.output.kind,
+        }
+    }
+}
+
+#[derive(StructOpt, Debug, Clone, HasOutput)]
 pub(crate) struct ApplyCommand {
     /// Public key of the target host for the manifest application
     #[structopt(name = "host-key", parse(try_from_str))]
@@ -428,49 +468,39 @@ pub(crate) struct UpdateActorCommand {
 
 pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
     use CtlCliCommand::*;
-    let mut sp: Option<Spinner> = None;
+    let output_kind = command.output_kind();
+    let sp: Spinner = Spinner::new(output_kind);
     let out = match command {
         Apply(cmd) => {
-            let output = cmd.output;
-            sp = update_spinner_message(sp, " Applying manifest ...".to_string(), &output);
+            sp.update_spinner_message(" Applying manifest ...".to_string());
             let results = apply_manifest(cmd).await?;
-            apply_manifest_output(results, &output.kind)
+            apply_manifest_output(results, output_kind)
         }
         Get(GetCommand::Hosts(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(sp, " Retrieving Hosts ...".to_string(), &output);
+            sp.update_spinner_message(" Retrieving Hosts ...".to_string());
             let hosts = get_hosts(cmd).await?;
-            get_hosts_output(hosts, &output.kind)
+            get_hosts_output(hosts, output_kind)
         }
         Get(GetCommand::HostInventory(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(
-                sp,
-                format!(" Retrieving inventory for host {} ...", cmd.host_id),
-                &output,
-            );
+            sp.update_spinner_message(format!(" Retrieving inventory for host {} ...", cmd.host_id));
             let inv = get_host_inventory(cmd).await?;
-            get_host_inventory_output(inv, &output.kind)
+            get_host_inventory_output(inv, output_kind)
         }
         Get(GetCommand::Claims(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(sp, " Retrieving claims ... ".to_string(), &output);
+            sp.update_spinner_message(" Retrieving claims ... ".to_string());
             let claims = get_claims(cmd).await?;
-            get_claims_output(claims, &output.kind)
+            get_claims_output(claims, output_kind)
         }
         Link(LinkCommand::Del(cmd)) => {
             let link_name = &cmd
                 .link_name
                 .clone()
                 .unwrap_or_else(|| "default".to_string());
-            sp = update_spinner_message(
-                sp,
+            sp.update_spinner_message(
                 format!(
                     "Deleting link for {} on {} ({}) ... ",
-                    cmd.actor_id, cmd.contract_id, link_name,
-                ),
-                &cmd.output,
-            );
+                    cmd.actor_id, cmd.contract_id, link_name
+                ));
             let failure = link_del(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
@@ -479,121 +509,95 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
                 &cmd.contract_id,
                 link_name,
                 failure,
-                &cmd.output.kind,
+                output_kind,
             )
         }
         Link(LinkCommand::Put(cmd)) => {
-            sp = update_spinner_message(
-                sp,
+            sp.update_spinner_message(
                 format!(
                     "Defining link between {} and {} ... ",
                     cmd.actor_id, cmd.provider_id
-                ),
-                &cmd.output,
+                )
             );
             let failure = link_put(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
-            link_put_output(&cmd.actor_id, &cmd.provider_id, failure, &cmd.output.kind)
+            link_put_output(&cmd.actor_id, &cmd.provider_id, failure, output_kind)
         }
         Link(LinkCommand::Query(cmd)) => {
-            sp = update_spinner_message(sp, "Querying Links ... ".to_string(), &cmd.output);
+            sp.update_spinner_message("Querying Links ... ".to_string());
             let result = link_query(cmd.clone()).await?;
-            link_query_output(result, &cmd.output.kind)
+            link_query_output(result, output_kind)
         }
         Start(StartCommand::Actor(cmd)) => {
-            let output = cmd.output;
             let actor_ref = &cmd.actor_ref.to_string();
-            sp = update_spinner_message(sp, format!(" Starting actor {} ... ", actor_ref), &output);
+            sp.update_spinner_message(format!(" Starting actor {} ... ", actor_ref));
             let ack = start_actor(cmd).await?;
             ctl_operation_output(
                 ack.accepted,
                 &format!("Actor {} started successfully", actor_ref),
                 &ack.error,
-                &output.kind,
+                output_kind,
             )
         }
         Start(StartCommand::Provider(cmd)) => {
-            let output = cmd.output;
             let provider_ref = &cmd.provider_ref.to_string();
-            sp = update_spinner_message(
-                sp,
-                format!(" Starting provider {} ... ", provider_ref),
-                &output,
-            );
+            sp.update_spinner_message(format!(" Starting provider {} ... ", provider_ref));
             let ack = start_provider(cmd).await?;
             ctl_operation_output(
                 ack.accepted,
                 &format!("Provider {} started successfully", provider_ref),
                 &ack.error,
-                &output.kind,
+                output_kind,
             )
         }
         Stop(StopCommand::Actor(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(
-                sp,
-                format!(" Stopping actor {} ... ", cmd.actor_id),
-                &output,
-            );
+            sp.update_spinner_message(format!(" Stopping actor {} ... ", cmd.actor_id));
             let ack = stop_actor(cmd.clone()).await?;
             ctl_operation_output(
                 ack.accepted,
                 &format!("Actor {} stopped successfully", cmd.actor_id),
                 &ack.error,
-                &output.kind,
+                output_kind,
             )
         }
         Stop(StopCommand::Provider(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(
-                sp,
-                format!(" Stopping provider {} ... ", cmd.provider_id),
-                &output,
-            );
+            sp.update_spinner_message(format!(" Stopping provider {} ... ", cmd.provider_id));
             let ack = stop_provider(cmd.clone()).await?;
             ctl_operation_output(
                 ack.accepted,
                 &format!("Provider {} stopped successfully", cmd.provider_id),
                 &ack.error,
-                &output.kind,
+                output_kind,
             )
         }
         Stop(StopCommand::Host(cmd)) => {
-            let output = cmd.output;
-            sp =
-                update_spinner_message(sp, format!(" Stopping host {} ... ", cmd.host_id), &output);
+            sp.update_spinner_message(format!(" Stopping host {} ... ", cmd.host_id));
             let ack = stop_host(cmd.clone()).await?;
             ctl_operation_output(
                 ack.accepted,
                 &format!("Host {} acknowledged stop request", cmd.host_id),
                 &ack.error,
-                &output.kind,
+                output_kind,
             )
         }
         Update(UpdateCommand::Actor(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(
-                sp,
+            sp.update_spinner_message(
                 format!(
                     " Updating Actor {} to {} ... ",
                     cmd.actor_id, cmd.new_actor_ref
-                ),
-                &output,
-            );
+                ));
             let ack = update_actor(cmd.clone()).await?;
             ctl_operation_output(
                 ack.accepted,
                 &format!("Actor {} updated to {}", cmd.actor_id, cmd.new_actor_ref),
                 &ack.error,
-                &output.kind,
+                output_kind,
             )
         }
     };
 
-    if sp.is_some() {
-        sp.unwrap().stop()
-    }
+    sp.finish_and_clear();
 
     Ok(out)
 }
@@ -958,23 +962,6 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
     let ctl_client = CtlClient::new(nc, Some(lattice_prefix), Duration::from_secs(timeout));
 
     Ok(ctl_client)
-}
-
-/// Handles updating the spinner for text output
-/// JSON output will be corrupted with a spinner
-fn update_spinner_message(
-    spinner: Option<Spinner>,
-    msg: String,
-    output: &Output,
-) -> Option<Spinner> {
-    if let Some(sp) = spinner {
-        sp.message(msg);
-        Some(sp)
-    } else if matches!(output.kind, OutputKind::Text) {
-        Some(Spinner::new(&Spinners::Dots12, msg))
-    } else {
-        None
-    }
 }
 
 #[cfg(test)]

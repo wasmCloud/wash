@@ -52,9 +52,9 @@ use std::{
 use structopt::StructOpt;
 use tempfile::TempDir;
 use weld_codegen::render::Renderer;
+use crate::appearance::emoji;
 
 mod config;
-pub(crate) mod emoji;
 mod favorites;
 mod git;
 pub(crate) mod interactive;

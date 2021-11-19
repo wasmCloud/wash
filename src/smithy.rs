@@ -1,6 +1,6 @@
 //! smithy model lint and validation
 //!
-use crate::generate::emoji;
+use crate::appearance::emoji;
 use anyhow::anyhow;
 use atelier_core::model::Model;
 use console::style;

@@ -4,8 +4,9 @@
 use crate::generate::{
     any_msg,
     config::{RenameConfig, TemplateConfig},
-    emoji, ParamMap,
+    ParamMap,
 };
+use crate::appearance::emoji;
 use anyhow::{anyhow, Context, Result};
 use console::style;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
