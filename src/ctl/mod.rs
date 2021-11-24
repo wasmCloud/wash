@@ -721,13 +721,19 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAc
 pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOperationAck> {
     // If timeout isn't supplied, override with a reasonably long timeout to account for
     // OCI downloads and response
-    let opts = if cmd.opts.timeout_ms.is_none() {
-        ConnectionOpts {
-            timeout_ms: Some(60000),
-            ..cmd.opts
+    let opts = match (cmd.opts.timeout_ms, cmd.opts.timeout) {
+        (Some(_t), _) => cmd.opts,
+        (None, Some(t)) => {
+            log::warn!("--timeout is deprecated and will be removed in v0.8.0");
+            ConnectionOpts {
+                timeout_ms: Some(t * 1_000),
+                ..cmd.opts
+            }
         }
-    } else {
-        cmd.opts
+        (None, None) => ConnectionOpts {
+            timeout_ms: Some(60_000),
+            ..cmd.opts
+        },
     };
     let client = ctl_client_from_opts(opts).await?;
 
