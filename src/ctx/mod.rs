@@ -1,4 +1,5 @@
 use crate::{
+    cfg::cfg_dir,
     generate::{
         interactive::{prompt_for_choice, user_question},
         project_variables::StringEntry,
@@ -21,7 +22,7 @@ use structopt::{clap::AppSettings, StructOpt};
 pub mod context;
 use context::{DefaultContext, WashContext};
 
-const CTX_DIR: &str = ".wash/contexts";
+const CTX_DIR: &str = "contexts";
 const INDEX_JSON: &str = "index.json";
 const HOST_CONFIG_PATH: &str = ".wash/host_config.json";
 const HOST_CONFIG_NAME: &str = "host_config";
@@ -406,11 +407,12 @@ pub(crate) fn context_dir(cmd_dir: Option<PathBuf>) -> Result<PathBuf> {
     let dir = if let Some(dir) = cmd_dir {
         dir
     } else {
-        home_dir()?.join(CTX_DIR)
+        cfg_dir()?.join(CTX_DIR)
     };
+
     // Ensure user supplied context exists
     if std::fs::metadata(&dir).is_err() {
-        let _ = std::fs::create_dir(&dir);
+        let _ = std::fs::create_dir_all(&dir);
     }
     Ok(dir)
 }
