@@ -7,8 +7,12 @@ use generate::NewCli;
 use keys::KeysCli;
 use par::ParCli;
 use reg::RegCli;
+use serde_json::json;
 use smithy::{GenerateCli, LintCli, ValidateCli};
 use structopt::{clap::AppSettings, StructOpt};
+use util::Output;
+
+use crate::util::OutputKind;
 
 mod call;
 mod cfg;
@@ -40,6 +44,9 @@ A single CLI to handle all of your wasmCloud tooling needs
             name = "wash",
             about = ASCII)]
 struct Cli {
+    #[structopt(flatten)]
+    output: Output,
+
     #[structopt(flatten)]
     command: CliCommand,
 }
@@ -90,6 +97,8 @@ async fn main() {
     if env_logger::try_init().is_err() {}
     let cli = Cli::from_args();
 
+    let output = cli.output.kind;
+
     let res = match cli.command {
         CliCommand::Call(call_cli) => call::handle_command(call_cli.command()).await,
         CliCommand::Claims(claims_cli) => claims::handle_command(claims_cli.command()).await,
@@ -107,11 +116,32 @@ async fn main() {
 
     std::process::exit(match res {
         Ok(out) => {
-            println!("{}", out);
+            match output {
+                OutputKind::Json => {
+                    let json = out.json.clone();
+                    json.insert("success", true);
+                    println!("{}", serde_json::to_string_pretty(&json).unwrap());
+                }
+                OutputKind::Text => {
+                    println!("{}", out.text);
+                }
+            }
+
             0
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            match output {
+                OutputKind::Json => {
+                    let json = json!({
+                        "success": false,
+                        "error": e.to_string(),
+                    });
+                    eprintln!("{}", serde_json::to_string_pretty(&json).unwrap());
+                }
+                OutputKind::Text => {
+                    eprintln!("{}", e);
+                }
+            }
             1
         }
     })

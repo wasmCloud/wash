@@ -4,13 +4,13 @@ use crate::{
     id::ModuleId,
     util::{
         convert_rpc_error, extract_arg_value, format_output, json_str_to_msgpack_bytes,
-        msgpack_to_json_val, nats_client_from_opts, Output, OutputKind, Result,
+        msgpack_to_json_val, nats_client_from_opts, CommandOutput, Output, OutputKind, Result,
         DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
     },
 };
 use log::{debug, error};
 use serde_json::json;
-use std::{path::PathBuf, time::Duration};
+use std::{error::Error, path::PathBuf, time::Duration};
 use structopt::{clap::AppSettings, StructOpt};
 use wasmbus_rpc::{core::WasmCloudEntity, Message, RpcClient};
 use wasmcloud_test_util::testing::TestResults;
@@ -36,13 +36,13 @@ impl CallCli {
     }
 }
 
-pub(crate) async fn handle_command(cmd: CallCommand) -> Result<String> {
+pub(crate) async fn handle_command(cmd: CallCommand) -> Result<CommandOutput> {
     let output_kind = cmd.output.kind;
     let is_test = cmd.test;
     let save_output = cmd.save.clone();
     let bin = cmd.bin;
-    let res = handle_call(cmd).await;
-    Ok(call_output(res, save_output, bin, is_test, &output_kind))
+    let res = handle_call(cmd).await?;
+    call_output(res, save_output, bin, is_test)
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -181,48 +181,47 @@ pub(crate) async fn handle_call(cmd: CallCommand) -> Result<Vec<u8>> {
 
 // Helper output functions, used to ensure consistent output between call & standalone commands
 pub(crate) fn call_output(
-    response: Result<Vec<u8>>,
+    response: Vec<u8>,
     save_output: Option<PathBuf>,
     bin: char,
     is_test: bool,
-    output_kind: &OutputKind,
-) -> String {
-    match response {
-        Ok(msg) => {
-            if let Some(ref save_path) = save_output {
-                return match std::fs::write(save_path, msg) {
-                    Ok(_) => String::new(),
-                    Err(e) => format!("Error saving results to {}: {}", &save_path.display(), e),
-                };
-            }
-            if is_test {
-                // try to decode it as TestResults, otherwise dump as text
-                return match wasmbus_rpc::deserialize::<TestResults>(&msg) {
-                    Ok(tr) => {
-                        wasmcloud_test_util::cli::print_test_results(&tr);
-                        String::default()
-                    }
-                    Err(e) => {
-                        format!(
-                            "Error interpreting response as TestResults: {}. (raw): {}",
-                            e,
-                            String::from_utf8_lossy(&msg)
-                        )
-                    }
-                };
-            }
-            format_output(
-                format!("\nCall response (raw): {}", String::from_utf8_lossy(&msg)),
-                msgpack_to_json_val(msg, bin),
-                output_kind,
-            )
-        }
-        Err(e) => format_output(
-            format!("\nError invoking actor: {}", e),
-            json!({ "error": format!("{}", e) }),
-            output_kind,
-        ),
+) -> Result<CommandOutput> {
+    if let Some(ref save_path) = save_output {
+        std::fs::write(save_path, response)
+            .map_err(|e| format!("Error saving results to {}: {}", &save_path.display(), e))?;
+
+        return Ok(CommandOutput::new(
+            String::new(),
+            serde_json::Map::<String, serde_json::Value>::new(),
+        ));
     }
+    if is_test {
+        // try to decode it as TestResults, otherwise dump as text
+        let test_results = wasmbus_rpc::deserialize::<TestResults>(&response).map_err(|e| {
+            format!(
+                "Error interpreting response as TestResults: {}. (raw): {}",
+                e,
+                String::from_utf8_lossy(&response)
+            )
+        })?;
+
+        wasmcloud_test_util::cli::print_test_results(&test_results);
+        return Ok(CommandOutput::new(
+            String::new(),
+            serde_json::Map::<String, serde_json::Value>::new(),
+        ));
+    }
+
+    let json = serde_json::Map::<String, serde_json::Value>::new();
+    json.insert("response".to_string(), msgpack_to_json_val(response, bin));
+
+    Ok(CommandOutput::new(
+        format!(
+            "\nCall response (raw): {}",
+            String::from_utf8_lossy(&response)
+        ),
+        json,
+    ))
 }
 
 async fn rpc_client_from_opts(

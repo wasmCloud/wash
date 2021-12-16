@@ -20,7 +20,7 @@ pub(crate) struct Output {
         short = "o",
         long = "output",
         default_value = "text",
-        help = "Specify output format (text, json or wide)"
+        help = "Specify output format (text or json)"
     )]
     pub(crate) kind: OutputKind,
 }
@@ -47,7 +47,6 @@ impl FromStr for OutputKind {
         match s {
             "json" => Ok(OutputKind::Json),
             "text" => Ok(OutputKind::Text),
-            "wide" => Ok(OutputKind::Text),
             _ => Err(OutputParseErr),
         }
     }
@@ -92,6 +91,17 @@ pub(crate) fn extract_arg_value(arg: &str) -> Result<String> {
             Ok(value)
         }
         Err(_) => Ok(arg.to_string()),
+    }
+}
+
+pub(crate) struct CommandOutput {
+    pub json: serde_json::Map<String, serde_json::Value>,
+    pub text: String,
+}
+
+impl CommandOutput {
+    pub(crate) fn new(text: String, json: serde_json::Map<String, serde_json::Value>) -> Self {
+        CommandOutput { json, text }
     }
 }
 
