@@ -1,3 +1,4 @@
+use anyhow::{anyhow, bail, Result};
 use nats::asynk::Connection;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -6,8 +7,6 @@ use std::{
 };
 use structopt::StructOpt;
 use term_table::{Table, TableStyle};
-
-pub(crate) type Result<T> = ::std::result::Result<T, Box<dyn ::std::error::Error>>;
 
 pub const DEFAULT_NATS_HOST: &str = "127.0.0.1";
 pub const DEFAULT_NATS_PORT: &str = "4222";
@@ -105,16 +104,14 @@ impl CommandOutput {
     }
 }
 
-/// Converts error from Send + Sync error to standard error
-pub(crate) fn convert_error(
-    e: Box<dyn ::std::error::Error + Send + Sync>,
-) -> Box<dyn ::std::error::Error> {
-    Box::<dyn std::error::Error>::from(e.to_string())
+/// Converts error from Send + Sync error to standard anyhow error
+pub(crate) fn convert_error(e: Box<dyn ::std::error::Error + Send + Sync>) -> anyhow::Error {
+    anyhow!(e.to_string())
 }
 
 /// Converts error from RpcError
-pub(crate) fn convert_rpc_error(e: wasmbus_rpc::RpcError) -> Box<dyn ::std::error::Error> {
-    Box::<dyn std::error::Error>::from(e.to_string())
+pub(crate) fn convert_rpc_error(e: wasmbus_rpc::RpcError) -> anyhow::Error {
+    anyhow!(e.to_string())
 }
 
 /// Transforms a list of labels in the form of (label=value) to a hashmap
@@ -123,9 +120,8 @@ pub(crate) fn labels_vec_to_hashmap(constraints: Vec<String>) -> Result<HashMap<
     for constraint in constraints {
         let key_value = constraint.split('=').collect::<Vec<_>>();
         if key_value.len() < 2 {
-            return Err(
-                "Constraints were not properly formatted. Ensure they are formatted as label=value"
-                    .into(),
+            bail!(
+                "Constraints were not properly formatted. Ensure they are formatted as label=value",
             );
         }
         hm.insert(key_value[0].to_string(), key_value[1].to_string()); // [0] key, [1] value

@@ -3,6 +3,7 @@ use crate::{
     id::{ModuleId, ServiceId},
     util::{format_optional, format_output, OutputKind},
 };
+use anyhow::{anyhow, Result};
 use serde_json::json;
 use term_table::{row::Row, table_cell::*, Table};
 use wasmcloud_control_interface::*;
@@ -34,7 +35,7 @@ pub(crate) fn link_del_output(
     link_name: &str,
     failure: Option<String>,
     output_kind: &OutputKind,
-) -> std::result::Result<String, String> {
+) -> Result<String> {
     match failure {
         None => Ok(format_output(
             format!(
@@ -44,11 +45,11 @@ pub(crate) fn link_del_output(
             json!({"actor_id": actor_id, "contract_id": contract_id, "link_name": link_name, "result": "published"}),
             output_kind,
         )),
-        Some(f) => Err(format_output(
+        Some(f) => Err(anyhow!(format_output(
             format!("\nError deleting link: {}", f),
             json!({ "error": f }),
             output_kind,
-        )),
+        ))),
     }
 }
 

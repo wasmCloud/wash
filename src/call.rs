@@ -3,14 +3,14 @@ use crate::{
     id::ClusterSeed,
     id::ModuleId,
     util::{
-        convert_rpc_error, extract_arg_value, format_output, json_str_to_msgpack_bytes,
-        msgpack_to_json_val, nats_client_from_opts, CommandOutput, Output, OutputKind, Result,
-        DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
+        extract_arg_value, json_str_to_msgpack_bytes, msgpack_to_json_val, nats_client_from_opts,
+        CommandOutput, Output, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT,
+        DEFAULT_NATS_TIMEOUT,
     },
 };
+use anyhow::{bail, Context, Result};
 use log::{debug, error};
-use serde_json::json;
-use std::{error::Error, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
 use structopt::{clap::AppSettings, StructOpt};
 use wasmbus_rpc::{core::WasmCloudEntity, Message, RpcClient};
 use wasmcloud_test_util::testing::TestResults;
@@ -140,18 +140,14 @@ pub(crate) async fn handle_call(cmd: CallCommand) -> Result<Vec<u8>> {
         cmd.payload.join("")
     );
     if !"bs2".contains(cmd.bin) {
-        return Err(Box::<dyn std::error::Error>::from(
-            "'bin' parameter must be 'b', 's', or '2'",
-        ));
+        bail!("'bin' parameter must be 'b', 's', or '2'");
     }
 
     let origin = WasmCloudEntity::new_actor(WASH_ORIGIN_KEY)?;
     let target = WasmCloudEntity::new_actor(&cmd.actor_id)?;
 
     if cmd.data.is_some() && !cmd.payload.is_empty() {
-        return Err(Box::<dyn std::error::Error>::from(
-            "you can use either -d/--data or the payload args, but not both.".to_string(),
-        ));
+        bail!("you can use either -d/--data or the payload args, but not both.");
     }
     let payload = if let Some(fname) = cmd.data {
         std::fs::read_to_string(fname)?
@@ -165,7 +161,7 @@ pub(crate) async fn handle_call(cmd: CallCommand) -> Result<Vec<u8>> {
     let bytes = json_str_to_msgpack_bytes(&payload)?;
 
     let (client, timeout) = rpc_client_from_opts(cmd.opts, cmd.cluster_seed).await?;
-    client
+    Ok(client
         .send_timeout(
             origin,
             target,
@@ -175,8 +171,7 @@ pub(crate) async fn handle_call(cmd: CallCommand) -> Result<Vec<u8>> {
             },
             Duration::from_millis(timeout),
         )
-        .await
-        .map_err(convert_rpc_error)
+        .await?)
 }
 
 // Helper output functions, used to ensure consistent output between call & standalone commands
@@ -188,7 +183,7 @@ pub(crate) fn call_output(
 ) -> Result<CommandOutput> {
     if let Some(ref save_path) = save_output {
         std::fs::write(save_path, response)
-            .map_err(|e| format!("Error saving results to {}: {}", &save_path.display(), e))?;
+            .with_context(|| format!("Error saving results to {}", &save_path.display()))?;
 
         return Ok(CommandOutput::new(
             String::new(),
@@ -197,13 +192,13 @@ pub(crate) fn call_output(
     }
     if is_test {
         // try to decode it as TestResults, otherwise dump as text
-        let test_results = wasmbus_rpc::deserialize::<TestResults>(&response).map_err(|e| {
-            format!(
-                "Error interpreting response as TestResults: {}. (raw): {}",
-                e,
-                String::from_utf8_lossy(&response)
-            )
-        })?;
+        let test_results =
+            wasmbus_rpc::deserialize::<TestResults>(&response).with_context(|| {
+                format!(
+                    "Error interpreting response as TestResults. Response: {}",
+                    String::from_utf8_lossy(&response)
+                )
+            })?;
 
         wasmcloud_test_util::cli::print_test_results(&test_results);
         return Ok(CommandOutput::new(
@@ -231,7 +226,7 @@ async fn rpc_client_from_opts(
     let ctx = if let Some(context) = opts.context {
         load_context(&context).ok()
     } else if let Ok(ctx_dir) = context_dir(None) {
-        get_default_context(&ctx_dir).ok()
+        get_default_context(&ctx_dir.into()).ok()
     } else {
         None
     };
@@ -323,7 +318,7 @@ async fn rpc_client_from_opts(
 mod test {
     use super::{CallCli, CallCommand};
     use crate::id::ModuleId;
-    use crate::util::Result;
+    use anyhow::Result;
     use std::path::PathBuf;
     use std::str::FromStr;
     use structopt::StructOpt;

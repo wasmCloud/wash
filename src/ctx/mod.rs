@@ -6,7 +6,7 @@ use crate::{
     },
     id::ClusterSeed,
     util::{
-        format_output, Output, OutputKind, Result, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST,
+        format_output, Output, OutputKind, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST,
         DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
     },
 };
@@ -20,6 +20,7 @@ use std::{
 };
 use structopt::{clap::AppSettings, StructOpt};
 pub mod context;
+use anyhow::{Context, Result};
 use context::{DefaultContext, WashContext};
 
 const CTX_DIR_NAME: &str = "contexts";
@@ -360,13 +361,8 @@ fn create_host_config_context(context_dir: &Path) -> Result<()> {
 
 /// Given a context directory, retrieve all contexts in the form of their absolute paths
 fn get_contexts(context_dir: &Path) -> Result<Vec<PathBuf>> {
-    let paths = std::fs::read_dir(context_dir).map_err(|e| {
-        format!(
-            "Error: {}, please ensure directory {} exists",
-            e,
-            context_dir.display()
-        )
-    })?;
+    let paths = std::fs::read_dir(context_dir)
+        .with_context(|| format!("please ensure directory {} exists", context_dir.display()))?;
 
     let index = std::ffi::OsString::from(INDEX_JSON);
     Ok(paths

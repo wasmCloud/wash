@@ -1,27 +1,25 @@
 extern crate wasmcloud_control_interface;
 
-use std::{
-    path::{Path, PathBuf},
-    time::Duration,
-};
-
-use spinners::{Spinner, Spinners};
-use structopt::StructOpt;
-use wasmcloud_control_interface::{
-    Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
-    LinkDefinitionList,
-};
-
-pub(crate) use output::*;
-
 use crate::{
     ctl::manifest::HostManifest,
     ctx::{context_dir, get_default_context, load_context},
     id::{ModuleId, ServerId, ServiceId},
     util::{
-        convert_error, labels_vec_to_hashmap, validate_contract_id, Output, OutputKind, Result,
+        convert_error, labels_vec_to_hashmap, validate_contract_id, Output, OutputKind,
         DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
     },
+};
+use anyhow::{bail, Result};
+pub(crate) use output::*;
+use spinners::{Spinner, Spinners};
+use std::{
+    path::{Path, PathBuf},
+    time::Duration,
+};
+use structopt::StructOpt;
+use wasmcloud_control_interface::{
+    Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
+    LinkDefinitionList,
 };
 
 mod manifest;
@@ -630,7 +628,9 @@ pub(crate) async fn get_hosts(cmd: GetHostsCommand) -> Result<Vec<Host>> {
         (None, None) => Duration::from_millis(DEFAULT_NATS_TIMEOUT),
     };
     let client = ctl_client_from_opts(cmd.opts).await?;
-    client.get_hosts(timeout).await.map_err(convert_error)
+    Ok(client.get_hosts(timeout).await.map_err(convert_error)?)
+    // .map_err(convert_error)
+    // .into()
 }
 
 pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<HostInventory> {
@@ -716,7 +716,7 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAc
                 .await
                 .map_err(convert_error)?;
             if suitable_hosts.is_empty() {
-                return Err(format!("No suitable hosts found for actor {}", cmd.actor_ref).into());
+                bail!("No suitable hosts found for actor {}", cmd.actor_ref);
             } else {
                 suitable_hosts[0].host_id.parse()?
             }
@@ -769,9 +769,7 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOpera
                 .await
                 .map_err(convert_error)?;
             if suitable_hosts.is_empty() {
-                return Err(
-                    format!("No suitable hosts found for provider {}", cmd.provider_ref).into(),
-                );
+                bail!("No suitable hosts found for provider {}", cmd.provider_ref);
             } else {
                 suitable_hosts[0].host_id.parse()?
             }
@@ -843,7 +841,7 @@ pub(crate) async fn apply_manifest(cmd: ApplyCommand) -> Result<Vec<String>> {
     let client = ctl_client_from_opts(cmd.opts).await?;
     let hm = match HostManifest::from_path(Path::new(&cmd.path), cmd.expand_env) {
         Ok(hm) => hm,
-        Err(e) => return Err(format!("Failed to load manifest: {}", e).into()),
+        Err(e) => bail!("Failed to load manifest: {}", e),
     };
     let mut results = vec![];
     results.extend_from_slice(&apply_manifest_actors(&cmd.host_key, &client, &hm).await?);
