@@ -94,13 +94,39 @@ pub(crate) fn extract_arg_value(arg: &str) -> Result<String> {
 }
 
 pub(crate) struct CommandOutput {
-    pub json: serde_json::Map<String, serde_json::Value>,
+    pub map: std::collections::HashMap<String, serde_json::Value>,
     pub text: String,
 }
 
 impl CommandOutput {
-    pub(crate) fn new(text: String, json: serde_json::Map<String, serde_json::Value>) -> Self {
-        CommandOutput { json, text }
+    pub(crate) fn new(
+        text: String,
+        map: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        CommandOutput { map, text }
+    }
+
+    /// shorthand to create a new CommandOutput with a single key-value pair for JSON, and simply the text for text output.
+    pub fn from_key_and_text(key: &str, text: String) -> Self {
+        let mut map = std::collections::HashMap::new();
+        map.insert(key.to_string(), serde_json::Value::String(text));
+        CommandOutput { map, text }
+    }
+}
+
+impl From<String> for CommandOutput {
+    /// Create a basic CommandOutput from a String. Puts the string a a "result" key in the JSON output.
+    fn from(text: String) -> Self {
+        let mut map = std::collections::HashMap::new();
+        map.insert("result".to_string(), serde_json::Value::String(text));
+        CommandOutput { map, text }
+    }
+}
+
+impl From<&str> for CommandOutput {
+    /// Create a basic CommandOutput from a &str. Puts the string a a "result" key in the JSON output.
+    fn from(text: &str) -> Self {
+        CommandOutput::from(text.to_string())
     }
 }
 

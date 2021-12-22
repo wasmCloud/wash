@@ -1,6 +1,7 @@
 extern crate oci_distribution;
 
 use crate::util::{cached_file, format_output, Output, OutputKind};
+use anyhow::{anyhow, bail, Result};
 use log::{debug, info, warn};
 use oci_distribution::{client::*, secrets::RegistryAuth, Reference};
 use provider_archive::ProviderArchive;
@@ -194,7 +195,7 @@ pub(crate) async fn get_artifact(
     password: Option<String>,
     insecure: bool,
     no_cache: bool,
-) -> Result<Vec<u8>, Box<dyn ::std::error::Error>> {
+) -> Result<Vec<u8>> {
     if let Ok(mut local_artifact) = File::open(url.clone()) {
         let mut buf = Vec::new();
         local_artifact.read_to_end(&mut buf)?;
@@ -215,13 +216,12 @@ pub(crate) async fn pull_artifact(
     user: Option<String>,
     password: Option<String>,
     insecure: bool,
-) -> Result<Vec<u8>, Box<dyn ::std::error::Error>> {
+) -> Result<Vec<u8>> {
     let image: Reference = url.parse()?;
 
     if image.tag().unwrap_or("latest") == "latest" && !allow_latest {
-        return Err(
+        bail!(
             "Pulling artifacts with tag 'latest' is prohibited. This can be overriden with a flag"
-                .into(),
         );
     };
 
@@ -255,9 +255,9 @@ pub(crate) async fn pull_artifact(
     };
 
     match (digest, image_data.digest) {
-        (Some(digest), Some(image_digest)) if digest != image_digest => {
-            Err("Image digest did not match provided digest, aborting")
-        }
+        (Some(digest), Some(image_digest)) if digest != image_digest => Err(anyhow!(
+            "Image digest did not match provided digest, aborting"
+        )),
         _ => {
             debug!("Image digest validated against provided digest");
             Ok(())

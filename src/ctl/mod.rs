@@ -5,7 +5,7 @@ use crate::{
     ctx::{context_dir, get_default_context, load_context},
     id::{ModuleId, ServerId, ServiceId},
     util::{
-        convert_error, labels_vec_to_hashmap, validate_contract_id, Output, OutputKind,
+        convert_error, labels_vec_to_hashmap, validate_contract_id, CommandOutput, OutputKind,
         DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
     },
 };
@@ -140,9 +140,6 @@ pub(crate) struct ApplyCommand {
 
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -179,18 +176,12 @@ pub(crate) enum LinkCommand {
 pub(crate) struct LinkQueryCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
 #[derive(StructOpt, Debug, Clone)]
 pub(crate) struct LinkDelCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     /// Public key ID of actor
     #[structopt(name = "actor-id", parse(try_from_str))]
@@ -209,9 +200,6 @@ pub(crate) struct LinkDelCommand {
 pub(crate) struct LinkPutCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     /// Public key ID of actor
     #[structopt(name = "actor-id", parse(try_from_str))]
@@ -271,18 +259,12 @@ pub(crate) enum UpdateCommand {
 pub(crate) struct GetHostsCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
 #[derive(Debug, Clone, StructOpt)]
 pub(crate) struct GetHostInventoryCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     /// Id of host
     #[structopt(name = "host-id", parse(try_from_str))]
@@ -293,18 +275,12 @@ pub(crate) struct GetHostInventoryCommand {
 pub(crate) struct GetClaimsCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
 #[derive(Debug, Clone, StructOpt)]
 pub(crate) struct StartActorCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     /// Id of host, if omitted the actor will be auctioned in the lattice to find a suitable host
     #[structopt(short = "h", long = "host-id", name = "host-id", parse(try_from_str))]
@@ -331,9 +307,6 @@ pub(crate) struct StartActorCommand {
 pub(crate) struct StartProviderCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     /// Id of host, if omitted the provider will be auctioned in the lattice to find a suitable host
     #[structopt(short = "h", long = "host-id", name = "host-id", parse(try_from_str))]
@@ -365,9 +338,6 @@ pub(crate) struct StopActorCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host
     #[structopt(name = "host-id", parse(try_from_str))]
     pub(crate) host_id: ServerId,
@@ -385,9 +355,6 @@ pub(crate) struct StopActorCommand {
 pub(crate) struct StopProviderCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     /// Id of host
     #[structopt(name = "host-id", parse(try_from_str))]
@@ -411,9 +378,6 @@ pub(crate) struct StopHostCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host
     #[structopt(name = "host-id", parse(try_from_str))]
     host_id: ServerId,
@@ -428,9 +392,6 @@ pub(crate) struct UpdateActorCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host
     #[structopt(name = "host-id", parse(try_from_str))]
     pub(crate) host_id: ServerId,
@@ -444,37 +405,36 @@ pub(crate) struct UpdateActorCommand {
     pub(crate) new_actor_ref: String,
 }
 
-pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
+pub(crate) async fn handle_command(
+    command: CtlCliCommand,
+    output_kind: OutputKind,
+) -> Result<CommandOutput> {
     use CtlCliCommand::*;
     let mut sp: Option<Spinner> = None;
-    let out = match command {
+    let out: CommandOutput = match command {
         Apply(cmd) => {
-            let output = cmd.output;
-            sp = update_spinner_message(sp, " Applying manifest ...".to_string(), &output);
+            sp = update_spinner_message(sp, " Applying manifest ...".to_string(), &output_kind);
             let results = apply_manifest(cmd).await?;
-            apply_manifest_output(results, &output.kind)
+            apply_manifest_output(results)
         }
         Get(GetCommand::Hosts(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(sp, " Retrieving Hosts ...".to_string(), &output);
+            sp = update_spinner_message(sp, " Retrieving Hosts ...".to_string(), &output_kind);
             let hosts = get_hosts(cmd).await?;
-            get_hosts_output(hosts, &output.kind)
+            get_hosts_output(hosts)
         }
         Get(GetCommand::HostInventory(cmd)) => {
-            let output = cmd.output;
             sp = update_spinner_message(
                 sp,
                 format!(" Retrieving inventory for host {} ...", cmd.host_id),
-                &output,
+                &output_kind,
             );
             let inv = get_host_inventory(cmd).await?;
-            get_host_inventory_output(inv, &output.kind)
+            get_host_inventory_output(inv)
         }
         Get(GetCommand::Claims(cmd)) => {
-            let output = cmd.output;
-            sp = update_spinner_message(sp, " Retrieving claims ... ".to_string(), &output);
+            sp = update_spinner_message(sp, " Retrieving claims ... ".to_string(), &output_kind);
             let claims = get_claims(cmd).await?;
-            get_claims_output(claims, &output.kind)
+            get_claims_output(claims)
         }
         Link(LinkCommand::Del(cmd)) => {
             let link_name = &cmd
@@ -490,18 +450,12 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
                     "Deleting link for {} on {} ({}) ... ",
                     cmd.actor_id, cmd.contract_id, link_name,
                 ),
-                &cmd.output,
+                &output_kind,
             );
             let failure = link_del(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
-            link_del_output(
-                &cmd.actor_id,
-                &cmd.contract_id,
-                link_name,
-                failure,
-                &cmd.output.kind,
-            )?
+            link_del_output(&cmd.actor_id, &cmd.contract_id, link_name, failure)?
         }
         Link(LinkCommand::Put(cmd)) => {
             validate_contract_id(&cmd.contract_id)?;
@@ -512,104 +466,117 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
                     "Defining link between {} and {} ... ",
                     cmd.actor_id, cmd.provider_id
                 ),
-                &cmd.output,
+                &output_kind,
             );
             let failure = link_put(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
-            link_put_output(&cmd.actor_id, &cmd.provider_id, failure, &cmd.output.kind)
+            link_put_output(&cmd.actor_id, &cmd.provider_id, failure)?
         }
         Link(LinkCommand::Query(cmd)) => {
-            sp = update_spinner_message(sp, "Querying Links ... ".to_string(), &cmd.output);
+            sp = update_spinner_message(sp, "Querying Links ... ".to_string(), &output_kind);
             let result = link_query(cmd.clone()).await?;
-            link_query_output(result, &cmd.output.kind)
+            link_query_output(result)
         }
         Start(StartCommand::Actor(cmd)) => {
-            let output = cmd.output;
             let actor_ref = &cmd.actor_ref.to_string();
-            sp = update_spinner_message(sp, format!(" Starting actor {} ... ", actor_ref), &output);
+            sp = update_spinner_message(
+                sp,
+                format!(" Starting actor {} ... ", actor_ref),
+                &output_kind,
+            );
             let ack = start_actor(cmd).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Start actor request received: {}", actor_ref),
-                &ack.error,
-                &output.kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Start actor request received: {}", actor_ref),
             )
         }
         Start(StartCommand::Provider(cmd)) => {
-            let output = cmd.output;
             let provider_ref = &cmd.provider_ref.to_string();
             sp = update_spinner_message(
                 sp,
                 format!(" Starting provider {} ... ", provider_ref),
-                &output,
+                &output_kind,
             );
             let ack = start_provider(cmd).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Start provider request received: {}", provider_ref),
-                &ack.error,
-                &output.kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Start provider request received: {}", provider_ref),
             )
         }
         Stop(StopCommand::Actor(cmd)) => {
-            let output = cmd.output;
             sp = update_spinner_message(
                 sp,
                 format!(" Stopping actor {} ... ", cmd.actor_id),
-                &output,
+                &output_kind,
             );
             let ack = stop_actor(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Actor {} stopped successfully", cmd.actor_id),
-                &ack.error,
-                &output.kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Actor {} stopped successfully", cmd.actor_id),
             )
         }
         Stop(StopCommand::Provider(cmd)) => {
-            let output = cmd.output;
             sp = update_spinner_message(
                 sp,
                 format!(" Stopping provider {} ... ", cmd.provider_id),
-                &output,
+                &output_kind,
             );
             let ack = stop_provider(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Provider {} stopped successfully", cmd.provider_id),
-                &ack.error,
-                &output.kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Provider {} stopped successfully", cmd.provider_id),
             )
         }
         Stop(StopCommand::Host(cmd)) => {
-            let output = cmd.output;
-            sp =
-                update_spinner_message(sp, format!(" Stopping host {} ... ", cmd.host_id), &output);
+            sp = update_spinner_message(
+                sp,
+                format!(" Stopping host {} ... ", cmd.host_id),
+                &output_kind,
+            );
             let ack = stop_host(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Host {} acknowledged stop request", cmd.host_id),
-                &ack.error,
-                &output.kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Host {} acknowledged stop request", cmd.host_id),
             )
         }
         Update(UpdateCommand::Actor(cmd)) => {
-            let output = cmd.output;
             sp = update_spinner_message(
                 sp,
                 format!(
                     " Updating Actor {} to {} ... ",
                     cmd.actor_id, cmd.new_actor_ref
                 ),
-                &output,
+                &output_kind,
             );
             let ack = update_actor(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Actor {} updated to {}", cmd.actor_id, cmd.new_actor_ref),
-                &ack.error,
-                &output.kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Actor {} updated to {}", cmd.actor_id, cmd.new_actor_ref),
             )
         }
     };
@@ -1030,12 +997,12 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
 fn update_spinner_message(
     spinner: Option<Spinner>,
     msg: String,
-    output: &Output,
+    output_kind: &OutputKind,
 ) -> Option<Spinner> {
     if let Some(sp) = spinner {
         sp.message(msg);
         Some(sp)
-    } else if matches!(output.kind, OutputKind::Text) {
+    } else if matches!(output_kind, OutputKind::Text) {
         Some(Spinner::new(&Spinners::Dots12, msg))
     } else {
         None
@@ -1084,7 +1051,6 @@ mod test {
         match start_actor_all.command {
             CtlCliCommand::Start(StartCommand::Actor(super::StartActorCommand {
                 opts,
-                output,
                 host_id,
                 actor_ref,
                 constraints,
@@ -1096,7 +1062,6 @@ mod test {
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
                 assert_eq!(auction_timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v1".to_string());
                 assert_eq!(constraints.unwrap(), vec!["arch=x86_64".to_string()]);
@@ -1107,8 +1072,6 @@ mod test {
             "ctl",
             "start",
             "provider",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1130,7 +1093,6 @@ mod test {
         match start_provider_all.command {
             CtlCliCommand::Start(StartCommand::Provider(super::StartProviderCommand {
                 opts,
-                output,
                 host_id,
                 provider_ref,
                 link_name,
@@ -1143,7 +1105,6 @@ mod test {
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
                 assert_eq!(auction_timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(link_name, "default".to_string());
                 assert_eq!(constraints.unwrap(), vec!["arch=x86_64".to_string()]);
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
@@ -1155,8 +1116,6 @@ mod test {
             "ctl",
             "stop",
             "actor",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1173,7 +1132,6 @@ mod test {
         match stop_actor_all.command {
             CtlCliCommand::Stop(StopCommand::Actor(super::StopActorCommand {
                 opts,
-                output,
                 host_id,
                 actor_id,
                 count,
@@ -1182,7 +1140,6 @@ mod test {
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(count, 2);
@@ -1193,8 +1150,6 @@ mod test {
             "ctl",
             "stop",
             "provider",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1211,7 +1166,6 @@ mod test {
         match stop_provider_all.command {
             CtlCliCommand::Stop(StopCommand::Provider(super::StopProviderCommand {
                 opts,
-                output,
                 host_id,
                 provider_id,
                 link_name,
@@ -1221,7 +1175,6 @@ mod test {
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(provider_id, PROVIDER_ID.parse()?);
                 assert_eq!(link_name, "default".to_string());
@@ -1233,8 +1186,6 @@ mod test {
             "ctl",
             "get",
             "hosts",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1245,12 +1196,11 @@ mod test {
             "2000",
         ])?;
         match get_hosts_all.command {
-            CtlCliCommand::Get(GetCommand::Hosts(GetHostsCommand { opts, output })) => {
+            CtlCliCommand::Get(GetCommand::Hosts(GetHostsCommand { opts })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
             }
             cmd => panic!("ctl get hosts constructed incorrect command {:?}", cmd),
         }
@@ -1258,8 +1208,6 @@ mod test {
             "ctl",
             "get",
             "inventory",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1273,14 +1221,12 @@ mod test {
         match get_host_inventory_all.command {
             CtlCliCommand::Get(GetCommand::HostInventory(GetHostInventoryCommand {
                 opts,
-                output,
                 host_id,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(host_id, HOST_ID.parse()?);
             }
             cmd => panic!("ctl get inventory constructed incorrect command {:?}", cmd),
@@ -1289,8 +1235,6 @@ mod test {
             "ctl",
             "get",
             "claims",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1301,12 +1245,11 @@ mod test {
             "2000",
         ])?;
         match get_claims_all.command {
-            CtlCliCommand::Get(GetCommand::Claims(GetClaimsCommand { opts, output })) => {
+            CtlCliCommand::Get(GetCommand::Claims(GetClaimsCommand { opts })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
             }
             cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
         }
@@ -1314,8 +1257,6 @@ mod test {
             "ctl",
             "link",
             "put",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1334,7 +1275,6 @@ mod test {
         match link_all.command {
             CtlCliCommand::Link(LinkCommand::Put(LinkPutCommand {
                 opts,
-                output,
                 actor_id,
                 provider_id,
                 contract_id,
@@ -1345,7 +1285,6 @@ mod test {
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(provider_id, PROVIDER_ID.parse()?);
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
@@ -1375,7 +1314,6 @@ mod test {
         match update_all.command {
             CtlCliCommand::Update(UpdateCommand::Actor(super::UpdateActorCommand {
                 opts,
-                output,
                 host_id,
                 actor_id,
                 new_actor_ref,
@@ -1384,7 +1322,6 @@ mod test {
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(new_actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());

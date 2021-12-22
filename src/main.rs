@@ -1,3 +1,4 @@
+use anyhow::Result;
 use call::CallCli;
 use claims::ClaimsCli;
 use ctl::CtlCli;
@@ -10,7 +11,7 @@ use reg::RegCli;
 use serde_json::json;
 use smithy::{GenerateCli, LintCli, ValidateCli};
 use structopt::{clap::AppSettings, StructOpt};
-use util::Output;
+use util::{CommandOutput, Output};
 
 use crate::util::OutputKind;
 
@@ -97,12 +98,14 @@ async fn main() {
     if env_logger::try_init().is_err() {}
     let cli = Cli::from_args();
 
-    let output = cli.output.kind;
+    let output_kind = cli.output.kind;
 
-    let res = match cli.command {
+    let res: Result<CommandOutput> = match cli.command {
         CliCommand::Call(call_cli) => call::handle_command(call_cli.command()).await,
-        CliCommand::Claims(claims_cli) => claims::handle_command(claims_cli.command()).await,
-        CliCommand::Ctl(ctl_cli) => ctl::handle_command(ctl_cli.command()).await,
+        CliCommand::Claims(claims_cli) => {
+            claims::handle_command(claims_cli.command(), output_kind).await
+        }
+        CliCommand::Ctl(ctl_cli) => ctl::handle_command(ctl_cli.command(), output_kind).await,
         CliCommand::Ctx(ctx_cli) => ctx::handle_command(ctx_cli.command()).await,
         CliCommand::Drain(drain_cmd) => drain::handle_command(drain_cmd.command()),
         CliCommand::Gen(generate_cli) => smithy::handle_gen_command(generate_cli),
@@ -116,11 +119,11 @@ async fn main() {
 
     std::process::exit(match res {
         Ok(out) => {
-            match output {
+            match output_kind {
                 OutputKind::Json => {
-                    let json = out.json.clone();
-                    json.insert("success", true);
-                    println!("{}", serde_json::to_string_pretty(&json).unwrap());
+                    let map = out.map.clone();
+                    map.insert("success".to_string(), json!(true));
+                    println!("{}", serde_json::to_string_pretty(&map).unwrap());
                 }
                 OutputKind::Text => {
                     println!("{}", out.text);
@@ -130,7 +133,7 @@ async fn main() {
             0
         }
         Err(e) => {
-            match output {
+            match output_kind {
                 OutputKind::Json => {
                     let json = json!({
                         "success": false,

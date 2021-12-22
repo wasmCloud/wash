@@ -10,7 +10,7 @@ use crate::{
 };
 use anyhow::{bail, Context, Result};
 use log::{debug, error};
-use std::{path::PathBuf, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 use structopt::{clap::AppSettings, StructOpt};
 use wasmbus_rpc::{core::WasmCloudEntity, Message, RpcClient};
 use wasmcloud_test_util::testing::TestResults;
@@ -187,7 +187,7 @@ pub(crate) fn call_output(
 
         return Ok(CommandOutput::new(
             String::new(),
-            serde_json::Map::<String, serde_json::Value>::new(),
+            HashMap::<String, serde_json::Value>::new(),
         ));
     }
     if is_test {
@@ -203,11 +203,11 @@ pub(crate) fn call_output(
         wasmcloud_test_util::cli::print_test_results(&test_results);
         return Ok(CommandOutput::new(
             String::new(),
-            serde_json::Map::<String, serde_json::Value>::new(),
+            HashMap::<String, serde_json::Value>::new(),
         ));
     }
 
-    let json = serde_json::Map::<String, serde_json::Value>::new();
+    let json = HashMap::<String, serde_json::Value>::new();
     json.insert("response".to_string(), msgpack_to_json_val(response, bin));
 
     Ok(CommandOutput::new(
@@ -226,7 +226,7 @@ async fn rpc_client_from_opts(
     let ctx = if let Some(context) = opts.context {
         load_context(&context).ok()
     } else if let Ok(ctx_dir) = context_dir(None) {
-        get_default_context(&ctx_dir.into()).ok()
+        get_default_context(&ctx_dir.as_path()).ok()
     } else {
         None
     };

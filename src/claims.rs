@@ -14,8 +14,9 @@
 
 use crate::{
     keys::extract_keypair,
-    util::{format_output, Output, OutputKind},
+    util::{CommandOutput, Output, OutputKind},
 };
+use anyhow::{bail, Context, Result};
 use nkeys::{KeyPair, KeyPairType};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
@@ -110,9 +111,6 @@ pub(crate) struct InspectCommand {
     /// skip the local OCI cache
     #[structopt(long = "no-cache")]
     no_cache: bool,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
 #[derive(StructOpt, Debug, Clone)]
@@ -339,15 +337,16 @@ pub(crate) struct ActorMetadata {
 
 pub(crate) async fn handle_command(
     command: ClaimsCliCommand,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+    output_kind: OutputKind,
+) -> Result<CommandOutput> {
     match command {
-        ClaimsCliCommand::Inspect(inspectcmd) => render_caps(inspectcmd).await,
+        ClaimsCliCommand::Inspect(inspectcmd) => render_caps(inspectcmd, output_kind).await,
         ClaimsCliCommand::Sign(signcmd) => sign_file(signcmd),
         ClaimsCliCommand::Token(gencmd) => generate_token(gencmd),
     }
 }
 
-fn generate_token(cmd: TokenCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+fn generate_token(cmd: TokenCommand) -> Result<CommandOutput> {
     match cmd {
         TokenCommand::Actor(actor) => generate_actor(actor),
         TokenCommand::Operator(operator) => generate_operator(operator),
@@ -376,7 +375,7 @@ fn get_keypair_vec(
         .collect()
 }
 
-fn generate_actor(actor: ActorMetadata) -> Result<String, Box<dyn ::std::error::Error>> {
+fn generate_actor(actor: ActorMetadata) -> Result<CommandOutput> {
     let issuer = extract_keypair(
         actor.issuer.clone(),
         Some(actor.name.clone()),
@@ -420,7 +419,7 @@ fn generate_actor(actor: ActorMetadata) -> Result<String, Box<dyn ::std::error::
     caps_list.extend(actor.custom_caps.iter().cloned());
 
     if actor.provider && caps_list.len() > 1 {
-        return Err("Capability providers cannot provide multiple capabilities at once.".into());
+        bail!("Capability providers cannot provide multiple capabilities at once.");
     }
     let claims: Claims<Actor> = Claims::<Actor>::with_dates(
         actor.name.clone(),
@@ -437,16 +436,11 @@ fn generate_actor(actor: ActorMetadata) -> Result<String, Box<dyn ::std::error::
     );
 
     let jwt = claims.encode(&issuer)?;
-    let out = format_output(
-        jwt.clone(),
-        json!({ "token": jwt }),
-        &actor.common.output.kind,
-    );
 
-    Ok(out)
+    Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn generate_operator(operator: OperatorMetadata) -> Result<String, Box<dyn ::std::error::Error>> {
+fn generate_operator(operator: OperatorMetadata) -> Result<CommandOutput> {
     let self_sign_key = extract_keypair(
         operator.issuer.clone(),
         Some(operator.name.clone()),
@@ -479,15 +473,11 @@ fn generate_operator(operator: OperatorMetadata) -> Result<String, Box<dyn ::std
     );
 
     let jwt = claims.encode(&self_sign_key)?;
-    let out = format_output(
-        jwt.clone(),
-        json!({ "token": jwt }),
-        &operator.common.output.kind,
-    );
-    Ok(out)
+
+    Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn generate_account(account: AccountMetadata) -> Result<String, Box<dyn ::std::error::Error>> {
+fn generate_account(account: AccountMetadata) -> Result<CommandOutput> {
     let issuer = extract_keypair(
         account.issuer.clone(),
         Some(account.name.clone()),
@@ -525,15 +515,10 @@ fn generate_account(account: AccountMetadata) -> Result<String, Box<dyn ::std::e
         },
     );
     let jwt = claims.encode(&issuer)?;
-    let out = format_output(
-        jwt.clone(),
-        json!({ "token": jwt }),
-        &account.common.output.kind,
-    );
-    Ok(out)
+    Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn generate_provider(provider: ProviderMetadata) -> Result<String, Box<dyn ::std::error::Error>> {
+fn generate_provider(provider: ProviderMetadata) -> Result<CommandOutput> {
     let issuer = extract_keypair(
         provider.issuer.clone(),
         Some(provider.name.clone()),
@@ -562,17 +547,12 @@ fn generate_provider(provider: ProviderMetadata) -> Result<String, Box<dyn ::std
         days_from_now_to_jwt_time(provider.common.expires_in_days),
     );
     let jwt = claims.encode(&issuer)?;
-    let out = format_output(
-        jwt.clone(),
-        json!({ "token": jwt }),
-        &provider.common.output.kind,
-    );
-    Ok(out)
+    Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn sign_file(cmd: SignCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+fn sign_file(cmd: SignCommand) -> Result<CommandOutput> {
     let mut sfile = File::open(&cmd.source)
-        .map_err(|e| format!("Failed to open file for signing '{}': {}", &cmd.source, e))?;
+        .with_context(|| format!("Failed to open file for signing '{}'", &cmd.source))?;
     let mut buf = Vec::new();
     sfile.read_to_end(&mut buf).unwrap();
 
@@ -619,7 +599,7 @@ fn sign_file(cmd: SignCommand) -> Result<String, Box<dyn ::std::error::Error>> {
     caps_list.extend(cmd.metadata.custom_caps.iter().cloned());
 
     if cmd.metadata.provider && caps_list.len() > 1 {
-        return Err("Capability providers cannot provide multiple capabilities at once.".into());
+        bail!("Capability providers cannot provide multiple capabilities at once.");
     }
 
     let signed = sign_buffer_with_claims(
@@ -662,25 +642,29 @@ fn sign_file(cmd: SignCommand) -> Result<String, Box<dyn ::std::error::Error>> {
     };
 
     let mut outfile = File::create(&destination).unwrap();
+
     let output = match outfile.write(&signed) {
-        Ok(_) => Ok(format_output(
-            format!(
-                "Successfully signed {} with capabilities: {}",
-                destination,
-                caps_list.join(",")
-            ),
-            json!({"result": "success", "destination": destination, "capabilities": caps_list}),
-            &cmd.metadata.common.output.kind,
-        )),
-        Err(e) => Err(Box::new(e)),
+        Ok(_) => {
+            let mut map = HashMap::new();
+            map.insert("destination".to_string(), json!(destination));
+            map.insert("capabilities".to_string(), json!(caps_list));
+            Ok(CommandOutput::new(
+                format!(
+                    "Successfully signed {} with capabilities: {}",
+                    destination,
+                    caps_list.join(",")
+                ),
+                map,
+            ))
+        }
+
+        Err(e) => Err(e),
     }?;
 
     Ok(output)
 }
 
-async fn get_caps(
-    cmd: &InspectCommand,
-) -> Result<Option<Token<Actor>>, Box<dyn ::std::error::Error>> {
+async fn get_caps(cmd: &InspectCommand) -> Result<Option<Token<Actor>>> {
     let artifact_bytes = crate::reg::get_artifact(
         cmd.module.to_string(),
         cmd.digest.clone(),
@@ -693,26 +677,23 @@ async fn get_caps(
     .await?;
 
     // Extract will return an error if it encounters an invalid hash in the claims
-    let claims = wascap::wasm::extract_claims(&artifact_bytes);
-    match claims {
-        Ok(token) => Ok(token),
-        Err(e) => Err(Box::new(e)),
-    }
+    Ok(wascap::wasm::extract_claims(&artifact_bytes)?)
 }
 
-async fn render_caps(cmd: InspectCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+async fn render_caps(cmd: InspectCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let caps = get_caps(&cmd).await?;
 
     let out = match caps {
         Some(token) => {
             if cmd.jwt_only {
-                token.jwt
+                CommandOutput::from_key_and_text("token", token.jwt)
             } else {
                 let validation = wascap::jwt::validate_token::<Actor>(&token.jwt)?;
-                render_actor_claims(token.claims, validation, &cmd.output)
+                let claims = render_actor_claims(token.claims, validation, output_kind);
+                CommandOutput::from_key_and_text("claims", claims)
             }
         }
-        None => format!("No capabilities discovered in : {}", &cmd.module),
+        None => bail!("No capabilities discovered in : {}", &cmd.module),
     };
     Ok(out)
 }
@@ -721,7 +702,7 @@ async fn render_caps(cmd: InspectCommand) -> Result<String, Box<dyn ::std::error
 pub(crate) fn render_actor_claims(
     claims: Claims<Actor>,
     validation: TokenValidation,
-    output: &Output,
+    output_kind: OutputKind,
 ) -> String {
     let md = claims.metadata.clone().unwrap();
     let friendly_rev = md.rev.unwrap_or(0);
@@ -757,7 +738,7 @@ pub(crate) fn render_actor_claims(
         .clone()
         .unwrap_or_else(|| "(Not set)".to_string());
 
-    match output.kind {
+    match output_kind {
         OutputKind::Json => {
             let iss_label = token_label(&claims.issuer).to_ascii_lowercase();
             let sub_label = token_label(&claims.subject).to_ascii_lowercase();
@@ -868,19 +849,17 @@ where
     table
 }
 
-fn sanitize_alias(
-    call_alias: Option<String>,
-) -> Result<Option<String>, Box<dyn ::std::error::Error>> {
+fn sanitize_alias(call_alias: Option<String>) -> Result<Option<String>> {
     if let Some(alias) = call_alias {
         // Alias cannot be a public key to ensure best practices
         if alias.is_empty() {
-            Err("Call alias cannot be empty".into())
+            bail!("Call alias cannot be empty")
         } else if alias.len() == 56
             && alias
                 .chars()
                 .all(|c| c.is_ascii_digit() || c.is_ascii_uppercase())
         {
-            Err("Public key cannot be used as a call alias".into())
+            bail!("Public key cannot be used as a call alias")
         // Valid aliases contain a combination of lowercase alphanumeric characters, dashes, and slashes
         } else if alias
             .chars()
@@ -888,7 +867,7 @@ fn sanitize_alias(
         {
             Ok(Some(alias))
         } else {
-            Err("Call alias contained invalid characters.\nValid aliases are lowercase alphanumeric and can contain underscores and slashes".into())
+            bail!("Call alias contained invalid characters.\nValid aliases are lowercase alphanumeric and can contain underscores and slashes")
         }
     } else {
         Ok(None)
@@ -983,7 +962,6 @@ mod test {
                 user,
                 password,
                 insecure,
-                output,
                 no_cache,
             }) => {
                 assert_eq!(module, SUBSCRIBER_OCI);
@@ -991,7 +969,6 @@ mod test {
                     digest.unwrap(),
                     "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8"
                 );
-                assert_eq!(output.kind, OutputKind::Text);
                 assert_eq!(user.unwrap(), "name");
                 assert_eq!(password.unwrap(), "opensesame");
                 assert!(allow_latest);
@@ -1030,7 +1007,6 @@ mod test {
                 user,
                 password,
                 insecure,
-                output,
                 no_cache,
             }) => {
                 assert_eq!(module, SUBSCRIBER_OCI);
@@ -1038,7 +1014,6 @@ mod test {
                     digest.unwrap(),
                     "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8"
                 );
-                assert_eq!(output.kind, OutputKind::Text);
                 assert_eq!(user.unwrap(), "name");
                 assert_eq!(password.unwrap(), "opensesame");
                 assert!(allow_latest);
