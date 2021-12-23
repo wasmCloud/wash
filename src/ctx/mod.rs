@@ -6,8 +6,8 @@ use crate::{
     },
     id::ClusterSeed,
     util::{
-        format_output, CommandOutput, Output, OutputKind, DEFAULT_LATTICE_PREFIX,
-        DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
+        CommandOutput, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT,
+        DEFAULT_NATS_TIMEOUT,
     },
 };
 use log::warn;
@@ -557,8 +557,6 @@ mod test {
             "new",
             "my_name",
             "--interactive",
-            "--output",
-            "json",
             "--directory",
             "./contexts",
         ])
@@ -567,7 +565,6 @@ mod test {
             CtxCommand::New(cmd) => {
                 assert_eq!(cmd.directory.unwrap(), PathBuf::from("./contexts"));
                 assert!(cmd.interactive);
-                assert_eq!(cmd.output.kind, OutputKind::Json);
                 assert_eq!(cmd.name.unwrap(), "my_name");
             }
             _ => panic!("ctx constructed incorrect command"),
@@ -592,56 +589,31 @@ mod test {
             _ => panic!("ctx constructed incorrect command"),
         }
 
-        let del = CtxCli::from_iter_safe(&[
-            "ctx",
-            "del",
-            "my_context",
-            "--output",
-            "text",
-            "--directory",
-            "./contexts",
-        ])
-        .unwrap();
+        let del =
+            CtxCli::from_iter_safe(&["ctx", "del", "my_context", "--directory", "./contexts"])
+                .unwrap();
         match del.command {
             CtxCommand::Del(cmd) => {
                 assert_eq!(cmd.directory.unwrap(), PathBuf::from("./contexts"));
-                assert_eq!(cmd.output.kind, OutputKind::Text);
                 assert_eq!(cmd.name.unwrap(), "my_context");
             }
             _ => panic!("ctx constructed incorrect command"),
         }
 
-        let list = CtxCli::from_iter_safe(&[
-            "ctx",
-            "list",
-            "--output",
-            "json",
-            "--directory",
-            "./contexts",
-        ])
-        .unwrap();
+        let list = CtxCli::from_iter_safe(&["ctx", "list", "--directory", "./contexts"]).unwrap();
         match list.command {
             CtxCommand::List(cmd) => {
                 assert_eq!(cmd.directory.unwrap(), PathBuf::from("./contexts"));
-                assert_eq!(cmd.output.kind, OutputKind::Json);
             }
             _ => panic!("ctx constructed incorrect command"),
         }
 
-        let default = CtxCli::from_iter_safe(&[
-            "ctx",
-            "default",
-            "host_config",
-            "--output",
-            "text",
-            "--directory",
-            "./contexts",
-        ])
-        .unwrap();
+        let default =
+            CtxCli::from_iter_safe(&["ctx", "default", "host_config", "--directory", "./contexts"])
+                .unwrap();
         match default.command {
             CtxCommand::Default(cmd) => {
                 assert_eq!(cmd.directory.unwrap(), PathBuf::from("./contexts"));
-                assert_eq!(cmd.output.kind, OutputKind::Text);
                 assert_eq!(cmd.name.unwrap(), "host_config");
             }
             _ => panic!("ctx constructed incorrect command"),

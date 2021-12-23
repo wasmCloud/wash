@@ -1,7 +1,10 @@
 //! smithy model lint and validation
 //!
 use crate::generate::emoji;
+use crate::util::CommandOutput;
 use anyhow::anyhow;
+use anyhow::bail;
+use anyhow::Result;
 use atelier_core::model::Model;
 use console::style;
 use std::path::PathBuf;
@@ -234,13 +237,11 @@ fn select_config(opt_config: &Option<PathBuf>) -> Result<CodegenConfig, anyhow::
     Ok(config)
 }
 
-pub(crate) fn handle_gen_command(
-    command: GenerateCli,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) fn handle_gen_command(command: GenerateCli) -> Result<CommandOutput> {
     let opt = command.opt;
     if let Some(ref tdir) = opt.template_dir {
         if !tdir.is_dir() {
-            return Err("template_dir parameter must be an existing directory".into());
+            bail!("template_dir parameter must be an existing directory");
         }
     }
     let output_dir = match &opt.output_dir {
@@ -274,7 +275,7 @@ pub(crate) fn handle_gen_command(
     let g = weld_codegen::Generator::default();
     g.gen(Some(&model), config, templates, &output_dir, opt.defines)?;
 
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
 /// Parse a single key-value pair into (String,TomlValue)

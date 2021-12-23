@@ -1,10 +1,12 @@
 use crate::{
     cfg::cfg_dir,
-    util::{format_output, Output, OutputKind, Result},
+    util::{format_output, CommandOutput, Output, OutputKind},
 };
+use anyhow::Result;
 use nkeys::{KeyPair, KeyPairType};
 use serde_json::json;
 use std::{
+    collections::HashMap,
     fs,
     fs::File,
     io::prelude::*,
@@ -65,9 +67,9 @@ pub(crate) enum KeysCliCommand {
     },
 }
 
-pub(crate) fn handle_command(command: KeysCliCommand) -> Result<String> {
+pub(crate) fn handle_command(command: KeysCliCommand) -> Result<CommandOutput> {
     match command {
-        KeysCliCommand::GenCommand { keytype, output } => Ok(generate(&keytype, &output.kind)),
+        KeysCliCommand::GenCommand { keytype, output } => generate(&keytype, &output.kind),
         KeysCliCommand::GetCommand {
             keyname,
             directory,
@@ -77,21 +79,22 @@ pub(crate) fn handle_command(command: KeysCliCommand) -> Result<String> {
     }
 }
 
-/// Generates a keypair of the specified KeyPairType, as either Text or JSON
-pub(crate) fn generate(kt: &KeyPairType, output: &OutputKind) -> String {
+/// Generates a keypair of the specified KeyPairType
+pub(crate) fn generate(kt: &KeyPairType, output: &OutputKind) -> Result<CommandOutput> {
     let kp = KeyPair::new(kt.clone());
-    format_output(
+    let seed = kp.seed()?;
+
+    let mut map = HashMap::new();
+    map.insert("public_key".to_string(), json!(kp.public_key()));
+    map.insert("seed".to_string(), json!(seed));
+    Ok(CommandOutput::new(
         format!(
             "Public Key: {}\nSeed: {}\n\nRemember that the seed is private, treat it as a secret.",
             kp.public_key(),
-            kp.seed().unwrap()
+            seed,
         ),
-        json!({
-            "public_key": kp.public_key(),
-            "seed": kp.seed().unwrap(),
-        }),
-        output,
-    )
+        map,
+    ))
 }
 
 /// Retrieves a keypair by name in a specified directory, or $WASH_KEYS ($HOME/.wash/keys) if directory is not specified

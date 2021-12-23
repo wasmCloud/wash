@@ -111,7 +111,7 @@ async fn main() {
         CliCommand::Gen(generate_cli) => smithy::handle_gen_command(generate_cli),
         CliCommand::Keys(keys_cli) => keys::handle_command(keys_cli.command()),
         CliCommand::New(new_cli) => generate::handle_command(new_cli.command()),
-        CliCommand::Par(par_cli) => par::handle_command(par_cli.command()).await,
+        CliCommand::Par(par_cli) => par::handle_command(par_cli.command(), output_kind).await,
         CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli.command()).await,
         CliCommand::Lint(lint_cli) => smithy::handle_lint_command(lint_cli).await,
         CliCommand::Validate(validate_cli) => smithy::handle_validate_command(validate_cli).await,

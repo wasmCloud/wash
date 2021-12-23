@@ -130,6 +130,15 @@ impl From<&str> for CommandOutput {
     }
 }
 
+impl Default for CommandOutput {
+    fn default() -> Self {
+        CommandOutput {
+            map: std::collections::HashMap::new(),
+            text: "".to_string(),
+        }
+    }
+}
+
 /// Converts error from Send + Sync error to standard anyhow error
 pub(crate) fn convert_error(e: Box<dyn ::std::error::Error + Send + Sync>) -> anyhow::Error {
     anyhow!(e.to_string())

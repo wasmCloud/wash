@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::{
     id::{ModuleId, ServiceId},
-    util::{format_optional, format_output, CommandOutput, OutputKind},
+    util::{format_optional, CommandOutput},
 };
 use anyhow::{anyhow, bail, Result};
 use serde_json::json;

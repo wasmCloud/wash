@@ -1,6 +1,8 @@
-use crate::util::{format_output, Output, OutputKind};
+use crate::util::{CommandOutput, Output, OutputKind};
+use anyhow::Result;
 use serde_json::json;
 use std::{
+    collections::HashMap,
     env, fs,
     path::{Path, PathBuf},
 };
@@ -78,26 +80,28 @@ fn model_cache_dir() -> PathBuf {
 }
 
 impl DrainCliCommand {
-    fn drain(&self) -> Result<String, Box<dyn ::std::error::Error>> {
+    fn drain(&self) -> Result<CommandOutput> {
         let cleared = self
             .selection
             .into_iter()
             .filter(|path| path.exists())
             .map(remove_dir_contents)
-            .collect::<Result<Vec<String>, Box<dyn ::std::error::Error>>>()?;
-        Ok(format_output(
+            .collect::<Result<Vec<String>>>()?;
+
+        let mut map = HashMap::new();
+        map.insert("cleared".to_string(), json!(cleared));
+        Ok(CommandOutput::new(
             format!("Successfully cleared caches at: {:?}", cleared),
-            json!({ "drained": cleared }),
-            &self.output_kind(),
+            map,
         ))
     }
 }
 
-pub(crate) fn handle_command(cmd: DrainCliCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) fn handle_command(cmd: DrainCliCommand) -> Result<CommandOutput> {
     cmd.drain()
 }
 
-fn remove_dir_contents<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn ::std::error::Error>> {
+fn remove_dir_contents<P: AsRef<Path>>(path: P) -> Result<String> {
     for entry in fs::read_dir(&path)? {
         let path = entry?.path();
         if path.is_dir() {

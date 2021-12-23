@@ -171,9 +171,7 @@ pub(crate) struct NewProjectArgs {
     pub(crate) template_name: Option<String>,
 }
 
-pub(crate) fn handle_command(
-    command: NewCliCommand,
-) -> std::result::Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
     validate(&command)?;
 
     let kind = ProjectKind::from(&command);
@@ -202,7 +200,7 @@ pub(crate) fn handle_command(
     };
 
     make_project(kind, cmd)?;
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
 fn validate(command: &NewCliCommand) -> Result<()> {

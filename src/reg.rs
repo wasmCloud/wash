@@ -1,13 +1,13 @@
 extern crate oci_distribution;
 
-use crate::util::{cached_file, format_output, Output, OutputKind};
+use crate::util::{cached_file, format_output, CommandOutput, Output, OutputKind};
 use anyhow::{anyhow, bail, Result};
 use log::{debug, info, warn};
 use oci_distribution::{client::*, secrets::RegistryAuth, Reference};
 use provider_archive::ProviderArchive;
 use serde_json::json;
 use spinners::{Spinner, Spinners};
-use std::{fs::File, io::prelude::*};
+use std::{collections::HashMap, fs::File, io::prelude::*};
 use structopt::{clap::AppSettings, StructOpt};
 
 const PROVIDER_ARCHIVE_MEDIA_TYPE: &str = "application/vnd.wasmcloud.provider.archive.layer.v1+par";
@@ -139,9 +139,7 @@ pub(crate) struct AuthOpts {
     pub(crate) insecure: bool,
 }
 
-pub(crate) async fn handle_command(
-    command: RegCliCommand,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_command(command: RegCliCommand) -> Result<CommandOutput> {
     match command {
         RegCliCommand::Pull(cmd) => handle_pull(cmd).await,
         RegCliCommand::Push(cmd) => handle_push(cmd).await,
@@ -149,7 +147,7 @@ pub(crate) async fn handle_command(
     }
 }
 
-pub(crate) async fn handle_pull(cmd: PullCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_pull(cmd: PullCommand) -> Result<CommandOutput> {
     let image: Reference = cmd.url.parse()?;
     let spinner = match cmd.output.kind {
         OutputKind::Text => Some(Spinner::new(
@@ -174,14 +172,14 @@ pub(crate) async fn handle_pull(cmd: PullCommand) -> Result<String, Box<dyn ::st
     if spinner.is_some() {
         spinner.unwrap().stop();
     }
-
-    Ok(format_output(
+    let mut map = HashMap::new();
+    map.insert("file", json!(outfile));
+    Ok(CommandOutput::new(
         format!(
             "\n{} Successfully pulled and validated {}",
             SHOWER_EMOJI, outfile
         ),
-        json!({"result": "success", "file": outfile}),
-        &cmd.output.kind,
+        map,
     ))
 }
 
