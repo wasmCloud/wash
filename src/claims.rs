@@ -14,7 +14,7 @@
 
 use crate::{
     keys::extract_keypair,
-    util::{CommandOutput, Output, OutputKind},
+    util::{CommandOutput, OutputKind},
 };
 use anyhow::{bail, Context, Result};
 use nkeys::{KeyPair, KeyPairType};
@@ -159,9 +159,6 @@ struct GenerateCommon {
     /// Disables autogeneration of keys if seed(s) are not provided
     #[structopt(long = "disable-keygen")]
     disable_keygen: bool,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
 #[derive(Debug, Clone, StructOpt)]
@@ -341,17 +338,17 @@ pub(crate) async fn handle_command(
 ) -> Result<CommandOutput> {
     match command {
         ClaimsCliCommand::Inspect(inspectcmd) => render_caps(inspectcmd, output_kind).await,
-        ClaimsCliCommand::Sign(signcmd) => sign_file(signcmd),
-        ClaimsCliCommand::Token(gencmd) => generate_token(gencmd),
+        ClaimsCliCommand::Sign(signcmd) => sign_file(signcmd, output_kind),
+        ClaimsCliCommand::Token(gencmd) => generate_token(gencmd, output_kind),
     }
 }
 
-fn generate_token(cmd: TokenCommand) -> Result<CommandOutput> {
+fn generate_token(cmd: TokenCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     match cmd {
-        TokenCommand::Actor(actor) => generate_actor(actor),
-        TokenCommand::Operator(operator) => generate_operator(operator),
-        TokenCommand::Account(account) => generate_account(account),
-        TokenCommand::Provider(provider) => generate_provider(provider),
+        TokenCommand::Actor(actor) => generate_actor(actor, output_kind),
+        TokenCommand::Operator(operator) => generate_operator(operator, output_kind),
+        TokenCommand::Account(account) => generate_account(account, output_kind),
+        TokenCommand::Provider(provider) => generate_provider(provider, output_kind),
     }
 }
 
@@ -360,6 +357,7 @@ fn get_keypair_vec(
     keys_dir: Option<PathBuf>,
     keypair_type: KeyPairType,
     disable_keygen: bool,
+    output_kind: OutputKind,
 ) -> Vec<KeyPair> {
     keys.iter()
         .map(|k| {
@@ -369,19 +367,21 @@ fn get_keypair_vec(
                 keys_dir.clone(),
                 keypair_type.clone(),
                 disable_keygen,
+                output_kind,
             )
             .unwrap()
         })
         .collect()
 }
 
-fn generate_actor(actor: ActorMetadata) -> Result<CommandOutput> {
+fn generate_actor(actor: ActorMetadata, output_kind: OutputKind) -> Result<CommandOutput> {
     let issuer = extract_keypair(
         actor.issuer.clone(),
         Some(actor.name.clone()),
         actor.common.directory.clone(),
         KeyPairType::Account,
         actor.common.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         actor.subject.clone(),
@@ -389,6 +389,7 @@ fn generate_actor(actor: ActorMetadata) -> Result<CommandOutput> {
         actor.common.directory.clone(),
         KeyPairType::Module,
         actor.common.disable_keygen,
+        output_kind,
     )?;
 
     let mut caps_list = vec![];
@@ -440,13 +441,14 @@ fn generate_actor(actor: ActorMetadata) -> Result<CommandOutput> {
     Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn generate_operator(operator: OperatorMetadata) -> Result<CommandOutput> {
+fn generate_operator(operator: OperatorMetadata, output_kind: OutputKind) -> Result<CommandOutput> {
     let self_sign_key = extract_keypair(
         operator.issuer.clone(),
         Some(operator.name.clone()),
         operator.common.directory.clone(),
         KeyPairType::Operator,
         operator.common.disable_keygen,
+        output_kind,
     )?;
 
     let additional_keys = match operator.additional_signing_keys.clone() {
@@ -455,6 +457,7 @@ fn generate_operator(operator: OperatorMetadata) -> Result<CommandOutput> {
             operator.common.directory.clone(),
             KeyPairType::Operator,
             true,
+            output_kind,
         ),
         None => vec![],
     };
@@ -477,13 +480,14 @@ fn generate_operator(operator: OperatorMetadata) -> Result<CommandOutput> {
     Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn generate_account(account: AccountMetadata) -> Result<CommandOutput> {
+fn generate_account(account: AccountMetadata, output_kind: OutputKind) -> Result<CommandOutput> {
     let issuer = extract_keypair(
         account.issuer.clone(),
         Some(account.name.clone()),
         account.common.directory.clone(),
         KeyPairType::Operator,
         account.common.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         account.subject.clone(),
@@ -491,6 +495,7 @@ fn generate_account(account: AccountMetadata) -> Result<CommandOutput> {
         account.common.directory.clone(),
         KeyPairType::Account,
         account.common.disable_keygen,
+        output_kind,
     )?;
     let additional_keys = match account.additional_signing_keys.clone() {
         Some(keys) => get_keypair_vec(
@@ -498,6 +503,7 @@ fn generate_account(account: AccountMetadata) -> Result<CommandOutput> {
             account.common.directory.clone(),
             KeyPairType::Account,
             true,
+            output_kind,
         ),
         None => vec![],
     };
@@ -518,13 +524,14 @@ fn generate_account(account: AccountMetadata) -> Result<CommandOutput> {
     Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn generate_provider(provider: ProviderMetadata) -> Result<CommandOutput> {
+fn generate_provider(provider: ProviderMetadata, output_kind: OutputKind) -> Result<CommandOutput> {
     let issuer = extract_keypair(
         provider.issuer.clone(),
         Some(provider.name.clone()),
         provider.common.directory.clone(),
         KeyPairType::Account,
         provider.common.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         provider.subject.clone(),
@@ -532,6 +539,7 @@ fn generate_provider(provider: ProviderMetadata) -> Result<CommandOutput> {
         provider.common.directory.clone(),
         KeyPairType::Service,
         provider.common.disable_keygen,
+        output_kind,
     )?;
 
     let claims: Claims<CapabilityProvider> = Claims::<CapabilityProvider>::with_dates(
@@ -550,7 +558,7 @@ fn generate_provider(provider: ProviderMetadata) -> Result<CommandOutput> {
     Ok(CommandOutput::from_key_and_text("token", jwt))
 }
 
-fn sign_file(cmd: SignCommand) -> Result<CommandOutput> {
+fn sign_file(cmd: SignCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let mut sfile = File::open(&cmd.source)
         .with_context(|| format!("Failed to open file for signing '{}'", &cmd.source))?;
     let mut buf = Vec::new();
@@ -562,6 +570,7 @@ fn sign_file(cmd: SignCommand) -> Result<CommandOutput> {
         cmd.metadata.common.directory.clone(),
         KeyPairType::Account,
         cmd.metadata.common.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         cmd.metadata.subject.clone(),
@@ -569,6 +578,7 @@ fn sign_file(cmd: SignCommand) -> Result<CommandOutput> {
         cmd.metadata.common.directory.clone(),
         KeyPairType::Module,
         cmd.metadata.common.disable_keygen,
+        output_kind,
     )?;
 
     let mut caps_list = vec![];
@@ -940,8 +950,6 @@ mod test {
             SUBSCRIBER_OCI,
             "--digest",
             "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8",
-            "--output",
-            "text",
             "--user",
             "name",
             "--password",
@@ -985,8 +993,6 @@ mod test {
             SUBSCRIBER_OCI,
             "-d",
             "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8",
-            "-o",
-            "text",
             "-u",
             "name",
             "-p",
@@ -1050,8 +1056,6 @@ mod test {
             ISSUER_KEY,
             "--subject",
             SUBJECT_KEY,
-            "--output",
-            "json",
             "--nbf",
             "1",
             "--rev",
@@ -1085,7 +1089,6 @@ mod test {
                 assert_eq!(metadata.common.expires_in_days.unwrap(), 3);
                 assert_eq!(metadata.common.not_before_days.unwrap(), 1);
                 assert!(metadata.common.disable_keygen);
-                assert_eq!(metadata.common.output.kind, OutputKind::Json);
                 assert!(metadata.keyvalue);
                 assert!(metadata.msg_broker);
                 assert!(metadata.http_server);
@@ -1123,8 +1126,6 @@ mod test {
             ISSUER_KEY,
             "-s",
             SUBJECT_KEY,
-            "-o",
-            "json",
             "-b",
             "1",
             "-r",
@@ -1158,7 +1159,6 @@ mod test {
                 assert_eq!(metadata.common.expires_in_days.unwrap(), 3);
                 assert_eq!(metadata.common.not_before_days.unwrap(), 1);
                 assert!(metadata.common.disable_keygen);
-                assert_eq!(metadata.common.output.kind, OutputKind::Json);
                 assert!(metadata.keyvalue);
                 assert!(metadata.msg_broker);
                 assert!(metadata.http_server);
@@ -1187,7 +1187,6 @@ mod test {
         const DIR: &str = "./tests/fixtures";
         const EXPR: &str = "10";
         const NBFR: &str = "12";
-        const OUT: &str = "json";
         const OPERATOR_KEY: &str = "SOALSFXSHRVKCNOP2JSOVOU267XMF2ZMLF627OM6ZPS6WMKVS6HKQGU7QM";
         const OPERATOR_TWO_KEY: &str = "SOAC7EGQIMNPUF3XBSWR2IQIX7ITDNRYZZ4PN3ZZTFEVHPMG7BFOJMGPW4";
         const ACCOUNT_KEY: &str = "SAAH3WW3NDAT7GQOO5IHPHNIGS5JNFQN2F72P6QBSHCOKPBLEEDXQUWI4Q";
@@ -1207,8 +1206,6 @@ mod test {
             "--nbf",
             NBFR,
             "--disable-keygen",
-            "--output",
-            OUT,
             "--issuer",
             OPERATOR_KEY,
             "--subject",
@@ -1237,7 +1234,6 @@ mod test {
                     NBFR.parse::<u64>().unwrap()
                 );
                 assert!(common.disable_keygen);
-                assert_eq!(common.output.kind, OutputKind::Json);
                 assert_eq!(issuer.unwrap(), OPERATOR_KEY);
                 assert_eq!(subject.unwrap(), ACCOUNT_KEY);
                 let adds = additional_signing_keys.unwrap();
@@ -1259,8 +1255,6 @@ mod test {
             "--nbf",
             NBFR,
             "--disable-keygen",
-            "--output",
-            OUT,
             "--issuer",
             ACCOUNT_KEY,
             "--subject",
@@ -1314,7 +1308,6 @@ mod test {
                     NBFR.parse::<u64>().unwrap()
                 );
                 assert!(common.disable_keygen);
-                assert_eq!(common.output.kind, OutputKind::Json);
                 assert_eq!(issuer.unwrap(), ACCOUNT_KEY);
                 assert_eq!(subject.unwrap(), ACTOR_KEY);
                 assert!(keyvalue);
@@ -1347,8 +1340,6 @@ mod test {
             "--nbf",
             NBFR,
             "--disable-keygen",
-            "--output",
-            OUT,
             "--issuer",
             OPERATOR_KEY,
             "--additional-key",
@@ -1374,7 +1365,6 @@ mod test {
                     NBFR.parse::<u64>().unwrap()
                 );
                 assert!(common.disable_keygen);
-                assert_eq!(common.output.kind, OutputKind::Json);
                 assert_eq!(issuer.unwrap(), OPERATOR_KEY);
                 let adds = additional_signing_keys.unwrap();
                 assert_eq!(adds.len(), 1);
@@ -1395,8 +1385,6 @@ mod test {
             "--nbf",
             NBFR,
             "--disable-keygen",
-            "--output",
-            OUT,
             "--issuer",
             ACCOUNT_KEY,
             "--subject",
@@ -1434,7 +1422,6 @@ mod test {
                     NBFR.parse::<u64>().unwrap()
                 );
                 assert!(common.disable_keygen);
-                assert_eq!(common.output.kind, OutputKind::Json);
                 assert_eq!(issuer.unwrap(), ACCOUNT_KEY);
                 assert_eq!(subject.unwrap(), PROVIDER_KEY);
                 assert_eq!(capid, "wasmcloud:test");

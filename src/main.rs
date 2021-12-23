@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use anyhow::Result;
 use call::CallCli;
 use claims::ClaimsCli;
@@ -11,7 +13,7 @@ use reg::RegCli;
 use serde_json::json;
 use smithy::{GenerateCli, LintCli, ValidateCli};
 use structopt::{clap::AppSettings, StructOpt};
-use util::{CommandOutput, Output};
+use util::CommandOutput;
 
 use crate::util::OutputKind;
 
@@ -45,8 +47,14 @@ A single CLI to handle all of your wasmCloud tooling needs
             name = "wash",
             about = ASCII)]
 struct Cli {
-    #[structopt(flatten)]
-    output: Output,
+    #[structopt(
+        short = "o",
+        long = "output",
+        default_value = "text",
+        help = "Specify output format (text or json)",
+        global = true
+    )]
+    pub(crate) output: OutputKind,
 
     #[structopt(flatten)]
     command: CliCommand,
@@ -98,7 +106,7 @@ async fn main() {
     if env_logger::try_init().is_err() {}
     let cli = Cli::from_args();
 
-    let output_kind = cli.output.kind;
+    let output_kind = cli.output;
 
     let res: Result<CommandOutput> = match cli.command {
         CliCommand::Call(call_cli) => call::handle_command(call_cli.command()).await,
@@ -112,7 +120,7 @@ async fn main() {
         CliCommand::Keys(keys_cli) => keys::handle_command(keys_cli.command()),
         CliCommand::New(new_cli) => generate::handle_command(new_cli.command()),
         CliCommand::Par(par_cli) => par::handle_command(par_cli.command(), output_kind).await,
-        CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli.command()).await,
+        CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli.command(), output_kind).await,
         CliCommand::Lint(lint_cli) => smithy::handle_lint_command(lint_cli).await,
         CliCommand::Validate(validate_cli) => smithy::handle_validate_command(validate_cli).await,
     };
@@ -121,7 +129,7 @@ async fn main() {
         Ok(out) => {
             match output_kind {
                 OutputKind::Json => {
-                    let map = out.map.clone();
+                    let mut map = out.map;
                     map.insert("success".to_string(), json!(true));
                     println!("{}", serde_json::to_string_pretty(&map).unwrap());
                 }
@@ -133,16 +141,29 @@ async fn main() {
             0
         }
         Err(e) => {
+            let trace = e
+                .chain()
+                .skip(1)
+                .map(|e| format!("{}", e))
+                .collect::<Vec<String>>();
+
             match output_kind {
                 OutputKind::Json => {
-                    let json = json!({
-                        "success": false,
-                        "error": e.to_string(),
-                    });
-                    eprintln!("{}", serde_json::to_string_pretty(&json).unwrap());
+                    let mut map = HashMap::new();
+                    map.insert("success".to_string(), json!(false));
+                    map.insert("error".to_string(), json!(e.to_string()));
+                    if !trace.is_empty() {
+                        map.insert("trace".to_string(), json!(trace));
+                    }
+
+                    eprintln!("{}", serde_json::to_string_pretty(&map).unwrap());
                 }
                 OutputKind::Text => {
                     eprintln!("{}", e);
+                    if !trace.is_empty() {
+                        eprintln!("Error trace:");
+                        eprintln!("{}", trace.join("\n"));
+                    }
                 }
             }
             1

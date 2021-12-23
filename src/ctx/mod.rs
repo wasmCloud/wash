@@ -142,8 +142,9 @@ fn handle_list(cmd: ListCommand) -> Result<CommandOutput> {
     let index = get_index(&dir);
     let contexts = context_filestems_from_path(get_contexts(&dir)?);
 
-    let text_contexts = match index {
+    let text_contexts = match &index {
         Ok(default_context) => contexts
+            .clone()
             .into_iter()
             .map(|f| {
                 if f == default_context.name {

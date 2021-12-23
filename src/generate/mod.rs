@@ -53,6 +53,8 @@ use structopt::StructOpt;
 use tempfile::TempDir;
 use weld_codegen::render::Renderer;
 
+use crate::util::CommandOutput;
+
 mod config;
 pub(crate) mod emoji;
 mod favorites;

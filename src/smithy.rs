@@ -81,7 +81,7 @@ pub(crate) struct GenerateOptions {
     config: Option<PathBuf>,
 
     /// Output directory, defaults to current directory
-    #[structopt(short, long)]
+    #[structopt(long)]
     output_dir: Option<PathBuf>,
 
     /// Optionally, load templates from this folder.
@@ -110,9 +110,7 @@ pub(crate) struct GenerateOptions {
     input: Vec<String>,
 }
 
-pub(crate) async fn handle_lint_command(
-    command: LintCli,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_lint_command(command: LintCli) -> Result<CommandOutput> {
     let opt = command.opt;
     let verbose = match opt.verbose {
         true => 1u8,
@@ -131,15 +129,14 @@ pub(crate) async fn handle_lint_command(
     )
     .map_err(|e| anyhow!("lint error: {}", e.to_string()))?;
 
+    // TODO: make this return the report instead of printing directly
     cargo_atelier::report::report_action_issues(report, true)
         .map_err(|e| anyhow!("report error: {}", e))?;
 
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
-pub(crate) async fn handle_validate_command(
-    command: ValidateCli,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_validate_command(command: ValidateCli) -> Result<CommandOutput> {
     use atelier_core::action::validate::{
         run_validation_actions, CorrectTypeReferences, NoUnresolvedReferences,
     };
@@ -172,7 +169,7 @@ pub(crate) async fn handle_validate_command(
     cargo_atelier::report::report_action_issues(report, true)
         .map_err(|e| anyhow!("report error: {}", e))?;
 
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
 /// build model from input files and/or files listed in codegen.toml.

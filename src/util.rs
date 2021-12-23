@@ -5,7 +5,6 @@ use std::{
     collections::HashMap, env::temp_dir, error::Error, fmt, fs::File, io::Read, path::PathBuf,
     str::FromStr,
 };
-use structopt::StructOpt;
 use term_table::{Table, TableStyle};
 
 pub const DEFAULT_NATS_HOST: &str = "127.0.0.1";
@@ -13,30 +12,11 @@ pub const DEFAULT_NATS_PORT: &str = "4222";
 pub const DEFAULT_LATTICE_PREFIX: &str = "default";
 pub const DEFAULT_NATS_TIMEOUT: u64 = 2_000;
 
-#[derive(StructOpt, Debug, Copy, Clone, Deserialize, Serialize)]
-pub(crate) struct Output {
-    #[structopt(
-        short = "o",
-        long = "output",
-        default_value = "text",
-        help = "Specify output format (text or json)"
-    )]
-    pub(crate) kind: OutputKind,
-}
-
 /// Used for displaying human-readable output vs JSON format
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) enum OutputKind {
     Text,
     Json,
-}
-
-impl Default for Output {
-    fn default() -> Self {
-        Output {
-            kind: OutputKind::Text,
-        }
-    }
 }
 
 impl FromStr for OutputKind {
@@ -62,18 +42,6 @@ impl fmt::Display for OutputParseErr {
             f,
             "error parsing output type, see help for the list of accepted outputs"
         )
-    }
-}
-
-/// Returns string output for provided output kind
-pub(crate) fn format_output(
-    text: String,
-    json: serde_json::Value,
-    output_kind: &OutputKind,
-) -> String {
-    match output_kind {
-        OutputKind::Text => text,
-        OutputKind::Json => serde_json::to_string(&json).unwrap(),
     }
 }
 
@@ -109,7 +77,7 @@ impl CommandOutput {
     /// shorthand to create a new CommandOutput with a single key-value pair for JSON, and simply the text for text output.
     pub fn from_key_and_text(key: &str, text: String) -> Self {
         let mut map = std::collections::HashMap::new();
-        map.insert(key.to_string(), serde_json::Value::String(text));
+        map.insert(key.to_string(), serde_json::Value::String(text.clone()));
         CommandOutput { map, text }
     }
 }
@@ -118,7 +86,10 @@ impl From<String> for CommandOutput {
     /// Create a basic CommandOutput from a String. Puts the string a a "result" key in the JSON output.
     fn from(text: String) -> Self {
         let mut map = std::collections::HashMap::new();
-        map.insert("result".to_string(), serde_json::Value::String(text));
+        map.insert(
+            "result".to_string(),
+            serde_json::Value::String(text.clone()),
+        );
         CommandOutput { map, text }
     }
 }
@@ -141,11 +112,6 @@ impl Default for CommandOutput {
 
 /// Converts error from Send + Sync error to standard anyhow error
 pub(crate) fn convert_error(e: Box<dyn ::std::error::Error + Send + Sync>) -> anyhow::Error {
-    anyhow!(e.to_string())
-}
-
-/// Converts error from RpcError
-pub(crate) fn convert_rpc_error(e: wasmbus_rpc::RpcError) -> anyhow::Error {
     anyhow!(e.to_string())
 }
 
@@ -315,7 +281,7 @@ pub fn validate_contract_id(contract_id: &str) -> Result<()> {
             .chars()
             .all(|c| c.is_ascii_digit() || c.is_ascii_uppercase())
     {
-        Err(Box::<dyn std::error::Error>::from("It looks like you used an Actor or Provider ID (e.g. VABC...) instead of a contract ID (e.g. wasmcloud:httpserver)"))
+        bail!("It looks like you used an Actor or Provider ID (e.g. VABC...) instead of a contract ID (e.g. wasmcloud:httpserver)")
     } else {
         Ok(())
     }

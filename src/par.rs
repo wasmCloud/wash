@@ -1,7 +1,7 @@
 extern crate provider_archive;
 use crate::{
     keys::extract_keypair,
-    util::{self, convert_error, format_output, CommandOutput, Output, OutputKind},
+    util::{self, convert_error, CommandOutput, OutputKind},
 };
 use anyhow::{anyhow, bail, Context, Result};
 use nkeys::KeyPairType;
@@ -10,7 +10,6 @@ use serde_json::json;
 use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
 use structopt::{clap::AppSettings, StructOpt};
 use term_table::{row::Row, table_cell::*, Table};
-use wascap::{jwt::CapabilityProvider, prelude::Claims};
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
@@ -204,14 +203,14 @@ pub(crate) async fn handle_command(
     output_kind: OutputKind,
 ) -> Result<CommandOutput> {
     match command {
-        ParCliCommand::Create(cmd) => handle_create(cmd),
-        ParCliCommand::Inspect(cmd) => handle_inspect(cmd, output_kind).await,
-        ParCliCommand::Insert(cmd) => handle_insert(cmd),
+        ParCliCommand::Create(cmd) => handle_create(cmd, output_kind),
+        ParCliCommand::Inspect(cmd) => handle_inspect(cmd).await,
+        ParCliCommand::Insert(cmd) => handle_insert(cmd, output_kind),
     }
 }
 
 /// Creates a provider archive using an initial architecture target, provider, and signing keys
-pub(crate) fn handle_create(cmd: CreateCommand) -> Result<CommandOutput> {
+pub(crate) fn handle_create(cmd: CreateCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let mut par = ProviderArchive::new(
         &cmd.capid,
         &cmd.name,
@@ -230,6 +229,7 @@ pub(crate) fn handle_create(cmd: CreateCommand) -> Result<CommandOutput> {
         cmd.directory.clone(),
         KeyPairType::Account,
         cmd.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         cmd.subject,
@@ -237,6 +237,7 @@ pub(crate) fn handle_create(cmd: CreateCommand) -> Result<CommandOutput> {
         cmd.directory,
         KeyPairType::Service,
         cmd.disable_keygen,
+        output_kind,
     )?;
 
     par.add_library(&cmd.arch, &lib).map_err(convert_error)?;
@@ -260,7 +261,7 @@ pub(crate) fn handle_create(cmd: CreateCommand) -> Result<CommandOutput> {
         .with_context(|| {
             format!(
                 "Error writing PAR. Please ensure directory {:?} exists",
-                PathBuf::from(outfile).parent().unwrap(),
+                PathBuf::from(outfile.clone()).parent().unwrap(),
             )
         })?;
 
@@ -273,10 +274,7 @@ pub(crate) fn handle_create(cmd: CreateCommand) -> Result<CommandOutput> {
 }
 
 /// Loads a provider archive and outputs the contents of the claims
-pub(crate) async fn handle_inspect(
-    cmd: InspectCommand,
-    output_kind: OutputKind,
-) -> Result<CommandOutput> {
+pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<CommandOutput> {
     let artifact_bytes = crate::reg::get_artifact(
         cmd.archive,
         cmd.digest,
@@ -298,7 +296,7 @@ pub(crate) async fn handle_inspect(
         None => "None".to_string(),
     };
     let friendly_ver = metadata.ver.unwrap_or_else(|| "None".to_string());
-    let name = metadata.name.unwrap_or("None".to_string());
+    let name = metadata.name.unwrap_or_else(|| "None".to_string());
     let mut map = HashMap::new();
     map.insert("name".to_string(), json!(name));
     map.insert("issuer".to_string(), json!(claims.issuer));
@@ -364,7 +362,7 @@ pub(crate) async fn handle_inspect(
 }
 
 /// Loads a provider archive and attempts to insert an additional provider into it
-pub(crate) fn handle_insert(cmd: InsertCommand) -> Result<CommandOutput> {
+pub(crate) fn handle_insert(cmd: InsertCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let mut buf = Vec::new();
     let mut f = File::open(cmd.archive.clone())?;
     f.read_to_end(&mut buf)?;
@@ -377,6 +375,7 @@ pub(crate) fn handle_insert(cmd: InsertCommand) -> Result<CommandOutput> {
         cmd.directory.clone(),
         KeyPairType::Account,
         cmd.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         cmd.subject,
@@ -384,6 +383,7 @@ pub(crate) fn handle_insert(cmd: InsertCommand) -> Result<CommandOutput> {
         cmd.directory,
         KeyPairType::Service,
         cmd.disable_keygen,
+        output_kind,
     )?;
 
     let mut f = File::open(cmd.binary.clone())?;
@@ -577,7 +577,6 @@ mod test {
                 directory,
                 issuer,
                 subject,
-                output,
                 disable_keygen,
             }) => {
                 assert_eq!(archive, "libtest.par.gz");

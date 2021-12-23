@@ -1,6 +1,6 @@
 extern crate oci_distribution;
 
-use crate::util::{cached_file, format_output, CommandOutput, Output, OutputKind};
+use crate::util::{cached_file, CommandOutput, OutputKind};
 use anyhow::{anyhow, bail, Result};
 use log::{debug, info, warn};
 use oci_distribution::{client::*, secrets::RegistryAuth, Reference};
@@ -73,9 +73,6 @@ pub(crate) struct PullCommand {
     pub(crate) allow_latest: bool,
 
     #[structopt(flatten)]
-    pub(crate) output: Output,
-
-    #[structopt(flatten)]
     pub(crate) opts: AuthOpts,
 }
 
@@ -96,9 +93,6 @@ pub(crate) struct PushCommand {
     /// Allow latest artifact tags
     #[structopt(long = "allow-latest")]
     pub(crate) allow_latest: bool,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     #[structopt(flatten)]
     pub(crate) opts: AuthOpts,
@@ -139,17 +133,23 @@ pub(crate) struct AuthOpts {
     pub(crate) insecure: bool,
 }
 
-pub(crate) async fn handle_command(command: RegCliCommand) -> Result<CommandOutput> {
+pub(crate) async fn handle_command(
+    command: RegCliCommand,
+    output_kind: OutputKind,
+) -> Result<CommandOutput> {
     match command {
-        RegCliCommand::Pull(cmd) => handle_pull(cmd).await,
-        RegCliCommand::Push(cmd) => handle_push(cmd).await,
+        RegCliCommand::Pull(cmd) => handle_pull(cmd, output_kind).await,
+        RegCliCommand::Push(cmd) => handle_push(cmd, output_kind).await,
         RegCliCommand::Ping(cmd) => handle_ping(cmd).await,
     }
 }
 
-pub(crate) async fn handle_pull(cmd: PullCommand) -> Result<CommandOutput> {
+pub(crate) async fn handle_pull(
+    cmd: PullCommand,
+    output_kind: OutputKind,
+) -> Result<CommandOutput> {
     let image: Reference = cmd.url.parse()?;
-    let spinner = match cmd.output.kind {
+    let spinner = match output_kind {
         OutputKind::Text => Some(Spinner::new(
             &Spinners::Dots12,
             format!(" Downloading {} ...", image.whole()),
@@ -173,7 +173,7 @@ pub(crate) async fn handle_pull(cmd: PullCommand) -> Result<CommandOutput> {
         spinner.unwrap().stop();
     }
     let mut map = HashMap::new();
-    map.insert("file", json!(outfile));
+    map.insert("file".to_string(), json!(outfile));
     Ok(CommandOutput::new(
         format!(
             "\n{} Successfully pulled and validated {}",
@@ -270,9 +270,8 @@ pub(crate) async fn pull_artifact(
         .collect::<Vec<_>>())
 }
 
-pub(crate) async fn handle_ping(cmd: PingCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_ping(cmd: PingCommand) -> Result<CommandOutput> {
     let image: Reference = cmd.url.parse()?;
-
     let mut client = Client::new(ClientConfig {
         protocol: if cmd.opts.insecure {
             ClientProtocol::Http
@@ -286,14 +285,14 @@ pub(crate) async fn handle_ping(cmd: PingCommand) -> Result<String, Box<dyn ::st
         _ => RegistryAuth::Anonymous,
     };
     let (_, _) = client.pull_manifest(&image, &auth).await?;
-    Ok("Ok".to_string())
+    Ok(CommandOutput::from("Ok"))
 }
 
 pub(crate) fn write_artifact(
     artifact: &[u8],
     image: &Reference,
     output: Option<String>,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+) -> Result<String> {
     let file_extension = match validate_artifact(artifact, image.repository())? {
         SupportedArtifacts::Par => PROVIDER_ARCHIVE_FILE_EXTENSION,
         SupportedArtifacts::Wasm => WASM_FILE_EXTENSION,
@@ -317,50 +316,44 @@ pub(crate) fn write_artifact(
 
 /// Helper function to determine artifact type and validate that it is
 /// a valid artifact of that type
-pub(crate) fn validate_artifact(
-    artifact: &[u8],
-    name: &str,
-) -> Result<SupportedArtifacts, Box<dyn ::std::error::Error>> {
+pub(crate) fn validate_artifact(artifact: &[u8], name: &str) -> Result<SupportedArtifacts> {
     match validate_actor_module(artifact, name) {
         Ok(_) => Ok(SupportedArtifacts::Wasm),
         Err(_) => match validate_provider_archive(artifact, name) {
             Ok(_) => Ok(SupportedArtifacts::Par),
-            Err(_) => Err("Unsupported artifact type".into()),
+            Err(_) => bail!("Unsupported artifact type"),
         },
     }
 }
 
 /// Attempts to inspect the claims of an actor module
 /// Will fail without actor claims, or if the artifact is invalid
-fn validate_actor_module(
-    artifact: &[u8],
-    module: &str,
-) -> Result<(), Box<dyn ::std::error::Error>> {
+fn validate_actor_module(artifact: &[u8], module: &str) -> Result<()> {
     match wascap::wasm::extract_claims(&artifact) {
         Ok(Some(_token)) => Ok(()),
-        Ok(None) => Err(format!("No capabilities discovered in actor module : {}", &module).into()),
-        Err(e) => Err(Box::new(e)),
+        Ok(None) => bail!("No capabilities discovered in actor module : {}", &module),
+        Err(e) => Err(anyhow!("{}", e)),
     }
 }
 
 /// Attempts to unpack a provider archive
 /// Will fail without claims or if the archive is invalid
-fn validate_provider_archive(
-    artifact: &[u8],
-    archive: &str,
-) -> Result<(), Box<dyn ::std::error::Error>> {
+fn validate_provider_archive(artifact: &[u8], archive: &str) -> Result<()> {
     match ProviderArchive::try_load(artifact) {
         Ok(_par) => Ok(()),
-        Err(_e) => Err(format!("Invalid provider archive : {}", archive).into()),
+        Err(_e) => bail!("Invalid provider archive : {}", archive),
     }
 }
 
-pub(crate) async fn handle_push(cmd: PushCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_push(
+    cmd: PushCommand,
+    output_kind: OutputKind,
+) -> Result<CommandOutput> {
     if cmd.url.starts_with("localhost:") && !cmd.opts.insecure {
         warn!(" Unless an SSL certificate has been installed, pushing to localhost without the --insecure option will fail")
     }
 
-    let spinner = match cmd.output.kind {
+    let spinner = match output_kind {
         OutputKind::Text => Some(Spinner::new(
             &Spinners::Dots12,
             format!(" Pushing {} to {} ...", cmd.artifact, cmd.url),
@@ -383,13 +376,15 @@ pub(crate) async fn handle_push(cmd: PushCommand) -> Result<String, Box<dyn ::st
     if spinner.is_some() {
         spinner.unwrap().stop();
     }
-    Ok(format_output(
+
+    let mut map = HashMap::new();
+    map.insert("url".to_string(), json!(cmd.url));
+    Ok(CommandOutput::new(
         format!(
-            "\n{} Successfully validated and pushed to {}",
+            "{} Successfully validated and pushed to {}",
             SHOWER_EMOJI, cmd.url
         ),
-        json!({"result": "success", "url": cmd.url}),
-        &cmd.output.kind,
+        map,
     ))
 }
 
@@ -401,13 +396,12 @@ pub(crate) async fn push_artifact(
     user: Option<String>,
     password: Option<String>,
     insecure: bool,
-) -> Result<(), Box<dyn ::std::error::Error>> {
+) -> Result<()> {
     let image: Reference = url.parse()?;
 
     if image.tag().unwrap() == "latest" && !allow_latest {
-        return Err(
+        bail!(
             "Pushing artifacts with tag 'latest' is prohibited. This can be overriden with a flag"
-                .into(),
         );
     };
 
@@ -474,7 +468,6 @@ pub(crate) async fn push_artifact(
 #[cfg(test)]
 mod tests {
     use super::{PullCommand, PushCommand, RegCli, RegCliCommand};
-    use crate::util::OutputKind;
     use structopt::StructOpt;
 
     const ECHO_WASM: &str = "wasmcloud.azurecr.io/echo:0.2.0";
@@ -499,8 +492,6 @@ mod tests {
             TESTDIR,
             "--digest",
             "sha256:a17a163afa8447622055deb049587641a9e23243a6cc4411eb33bd4267214cf3",
-            "--output",
-            "text",
             "--password",
             "password",
             "--user",
@@ -532,7 +523,6 @@ mod tests {
                 url,
                 destination,
                 digest,
-                output,
                 opts,
                 ..
             }) => {
@@ -542,7 +532,6 @@ mod tests {
                     digest.unwrap(),
                     "sha256:a17a163afa8447622055deb049587641a9e23243a6cc4411eb33bd4267214cf3"
                 );
-                assert_eq!(output.kind, OutputKind::Text);
                 assert_eq!(opts.user.unwrap(), "user");
                 assert_eq!(opts.password.unwrap(), "password");
             }
@@ -618,8 +607,6 @@ mod tests {
             "--insecure",
             "--config",
             &format!("{}/config.json", TESTDIR),
-            "--output",
-            "json",
             "--password",
             "supers3cr3t",
             "--user",
@@ -632,7 +619,6 @@ mod tests {
                 opts,
                 allow_latest,
                 config,
-                output,
                 ..
             }) => {
                 assert_eq!(&url, logging_push_all_options);
@@ -642,7 +628,6 @@ mod tests {
                 assert_eq!(config.unwrap(), format!("{}/config.json", TESTDIR));
                 assert_eq!(opts.user.unwrap(), "localuser");
                 assert_eq!(opts.password.unwrap(), "supers3cr3t");
-                assert_eq!(output.kind, OutputKind::Json);
             }
             _ => panic!("`reg push` constructed incorrect command"),
         };

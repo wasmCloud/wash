@@ -4,7 +4,7 @@ use crate::{
     id::ModuleId,
     util::{
         extract_arg_value, json_str_to_msgpack_bytes, msgpack_to_json_val, nats_client_from_opts,
-        CommandOutput, Output, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT,
+        CommandOutput, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT,
         DEFAULT_NATS_TIMEOUT,
     },
 };
@@ -37,7 +37,6 @@ impl CallCli {
 }
 
 pub(crate) async fn handle_command(cmd: CallCommand) -> Result<CommandOutput> {
-    let output_kind = cmd.output.kind;
     let is_test = cmd.test;
     let save_output = cmd.save.clone();
     let bin = cmd.bin;
@@ -89,9 +88,6 @@ pub(crate) struct ConnectionOpts {
 pub(crate) struct CallCommand {
     #[structopt(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 
     /// Optional json file to send as the operation payload
     #[structopt(short, long)]
@@ -207,8 +203,11 @@ pub(crate) fn call_output(
         ));
     }
 
-    let json = HashMap::<String, serde_json::Value>::new();
-    json.insert("response".to_string(), msgpack_to_json_val(response, bin));
+    let mut json = HashMap::new();
+    json.insert(
+        "response".to_string(),
+        msgpack_to_json_val(response.clone(), bin),
+    );
 
     Ok(CommandOutput::new(
         format!(
@@ -226,7 +225,7 @@ async fn rpc_client_from_opts(
     let ctx = if let Some(context) = opts.context {
         load_context(&context).ok()
     } else if let Ok(ctx_dir) = context_dir(None) {
-        get_default_context(&ctx_dir.as_path()).ok()
+        get_default_context(ctx_dir.as_path()).ok()
     } else {
         None
     };
@@ -335,8 +334,6 @@ mod test {
     fn test_rpc_comprehensive() -> Result<()> {
         let call_all = CallCli::from_iter_safe(&[
             "call",
-            "-o",
-            "json",
             "--test",
             "--data",
             DATA_FNAME,
@@ -363,7 +360,6 @@ mod test {
         match call_all.command {
             CallCommand {
                 opts,
-                output,
                 data,
                 save,
                 bin,
@@ -381,7 +377,6 @@ mod test {
                     opts.context,
                     Some(PathBuf::from("~/.wash/contexts/default.json"))
                 );
-                assert_eq!(output.kind, crate::util::OutputKind::Json);
                 assert_eq!(data, Some(PathBuf::from(DATA_FNAME)));
                 assert_eq!(save, Some(PathBuf::from(SAVE_FNAME)));
                 assert_eq!(
