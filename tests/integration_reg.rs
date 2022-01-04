@@ -65,7 +65,7 @@ fn integration_pull_comprehensive() {
         "\"file\":\"{}\"",
         comprehensive_echo.to_str().unwrap()
     )));
-    assert!(output.contains("\"result\":\"success\""));
+    assert!(output.contains("\"success\":\"true\""));
 
     let pull_logging_comprehensive = wash()
         .args(&[
@@ -92,7 +92,7 @@ fn integration_pull_comprehensive() {
         "\"file\":\"{}\"",
         comprehensive_logging.to_str().unwrap()
     )));
-    assert!(output.contains("\"result\":\"success\""));
+    assert!(output.contains("\"success\":\"true\""));
 
     remove_dir_all(pull_dir).unwrap();
 }
@@ -204,7 +204,7 @@ fn integration_push_comprehensive() {
         .unwrap_or_else(|_| panic!("failed to push {} for push comprehensive", LOGGING_PAR));
     assert!(push_all_options.status.success());
     let output = output_to_string(push_all_options);
-    assert!(output.contains("\"result\":\"success\""));
+    assert!(output.contains("\"success\":\"true\""));
     assert!(output.contains(&format!("\"url\":\"{}\"", logging_push_all_options)));
 
     remove_dir_all(push_dir).unwrap();
