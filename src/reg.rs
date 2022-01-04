@@ -285,7 +285,7 @@ pub(crate) async fn handle_ping(cmd: PingCommand) -> Result<CommandOutput> {
         _ => RegistryAuth::Anonymous,
     };
     let (_, _) = client.pull_manifest(&image, &auth).await?;
-    Ok(CommandOutput::from("Ok"))
+    Ok(CommandOutput::from("Pong!"))
 }
 
 pub(crate) fn write_artifact(

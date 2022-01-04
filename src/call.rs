@@ -223,7 +223,7 @@ async fn rpc_client_from_opts(
     cmd_cluster_seed: Option<ClusterSeed>,
 ) -> Result<(RpcClient, u64)> {
     let ctx = if let Some(context) = opts.context {
-        load_context(&context).ok()
+        load_context(context.as_path()).ok()
     } else if let Ok(ctx_dir) = context_dir(None) {
         get_default_context(ctx_dir.as_path()).ok()
     } else {

@@ -5,7 +5,7 @@ use crate::{
     id::{ModuleId, ServiceId},
     util::{format_optional, CommandOutput},
 };
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 use serde_json::json;
 use term_table::{row::Row, table_cell::*, Table};
 use wasmcloud_control_interface::*;
@@ -48,7 +48,7 @@ pub(crate) fn link_del_output(
                 map,
             ))
         }
-        Some(f) => Err(anyhow!(format!("Error deleting link: {}", f),)),
+        Some(f) => bail!("Error deleting link: {}", f),
     }
 }
 
