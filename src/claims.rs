@@ -337,7 +337,7 @@ pub(crate) async fn handle_command(
     output_kind: OutputKind,
 ) -> Result<CommandOutput> {
     match command {
-        ClaimsCliCommand::Inspect(inspectcmd) => render_caps(inspectcmd, output_kind).await,
+        ClaimsCliCommand::Inspect(inspectcmd) => render_caps(inspectcmd).await,
         ClaimsCliCommand::Sign(signcmd) => sign_file(signcmd, output_kind),
         ClaimsCliCommand::Token(gencmd) => generate_token(gencmd, output_kind),
     }
@@ -690,7 +690,7 @@ async fn get_caps(cmd: &InspectCommand) -> Result<Option<Token<Actor>>> {
     Ok(wascap::wasm::extract_claims(&artifact_bytes)?)
 }
 
-async fn render_caps(cmd: InspectCommand, output_kind: OutputKind) -> Result<CommandOutput> {
+async fn render_caps(cmd: InspectCommand) -> Result<CommandOutput> {
     let caps = get_caps(&cmd).await?;
 
     let out = match caps {
@@ -699,8 +699,7 @@ async fn render_caps(cmd: InspectCommand, output_kind: OutputKind) -> Result<Com
                 CommandOutput::from_key_and_text("token", token.jwt)
             } else {
                 let validation = wascap::jwt::validate_token::<Actor>(&token.jwt)?;
-                let claims = render_actor_claims(token.claims, validation, output_kind);
-                CommandOutput::from_key_and_text("claims", claims)
+                render_actor_claims(token.claims, validation)
             }
         }
         None => bail!("No capabilities discovered in : {}", &cmd.module),
@@ -712,8 +711,7 @@ async fn render_caps(cmd: InspectCommand, output_kind: OutputKind) -> Result<Com
 pub(crate) fn render_actor_claims(
     claims: Claims<Actor>,
     validation: TokenValidation,
-    output_kind: OutputKind,
-) -> String {
+) -> CommandOutput {
     let md = claims.metadata.clone().unwrap();
     let friendly_rev = md.rev.unwrap_or(0);
     let friendly_ver = md.ver.unwrap_or_else(|| "None".to_string());
@@ -748,65 +746,61 @@ pub(crate) fn render_actor_claims(
         .clone()
         .unwrap_or_else(|| "(Not set)".to_string());
 
-    match output_kind {
-        OutputKind::Json => {
-            let iss_label = token_label(&claims.issuer).to_ascii_lowercase();
-            let sub_label = token_label(&claims.subject).to_ascii_lowercase();
-            let provider_json = provider.replace(" ", "_").to_ascii_lowercase();
-            format!(
-                "{}",
-                json!({ iss_label: claims.issuer,
-                sub_label: claims.subject,
-                "expires": validation.expires_human,
-                "can_be_used": validation.not_before_human,
-                "version": friendly_ver,
-                "revision": friendly_rev,
-                provider_json: friendly_caps,
-                "tags": tags,
-                "call_alias": call_alias,
-                })
-            )
-        }
-        OutputKind::Text => {
-            let mut table = render_core(&claims, validation);
+    let iss_label = token_label(&claims.issuer).to_ascii_lowercase();
+    let sub_label = token_label(&claims.subject).to_ascii_lowercase();
+    let provider_json = provider.replace(" ", "_").to_ascii_lowercase();
 
-            table.add_row(Row::new(vec![
-                TableCell::new("Version"),
-                TableCell::new_with_alignment(friendly, 1, Alignment::Right),
-            ]));
+    let mut map = HashMap::new();
+    map.insert(iss_label, json!(claims.issuer));
+    map.insert(sub_label, json!(claims.subject));
+    map.insert("expires".to_string(), json!(validation.expires_human));
+    map.insert(
+        "can_be_used".to_string(),
+        json!(validation.not_before_human),
+    );
+    map.insert("version".to_string(), json!(friendly_ver));
+    map.insert("revision".to_string(), json!(friendly_rev));
+    map.insert(provider_json, json!(friendly_caps));
+    map.insert("tags".to_string(), json!(tags));
+    map.insert("call_alias".to_string(), json!(call_alias));
 
-            table.add_row(Row::new(vec![
-                TableCell::new("Call Alias"),
-                TableCell::new_with_alignment(call_alias, 1, Alignment::Right),
-            ]));
+    let mut table = render_core(&claims, validation);
 
-            table.add_row(Row::new(vec![TableCell::new_with_alignment(
-                provider,
-                2,
-                Alignment::Center,
-            )]));
+    table.add_row(Row::new(vec![
+        TableCell::new("Version"),
+        TableCell::new_with_alignment(friendly, 1, Alignment::Right),
+    ]));
 
-            table.add_row(Row::new(vec![TableCell::new_with_alignment(
-                friendly_caps.join("\n"),
-                2,
-                Alignment::Left,
-            )]));
+    table.add_row(Row::new(vec![
+        TableCell::new("Call Alias"),
+        TableCell::new_with_alignment(call_alias, 1, Alignment::Right),
+    ]));
 
-            table.add_row(Row::new(vec![TableCell::new_with_alignment(
-                "Tags",
-                2,
-                Alignment::Center,
-            )]));
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        provider,
+        2,
+        Alignment::Center,
+    )]));
 
-            table.add_row(Row::new(vec![TableCell::new_with_alignment(
-                tags,
-                2,
-                Alignment::Left,
-            )]));
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        friendly_caps.join("\n"),
+        2,
+        Alignment::Left,
+    )]));
 
-            table.render()
-        }
-    }
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        "Tags",
+        2,
+        Alignment::Center,
+    )]));
+
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        tags,
+        2,
+        Alignment::Left,
+    )]));
+
+    CommandOutput::new(table.render(), map)
 }
 
 // * - we don't need render impls for Operator or Account because those tokens are never embedded into a module,

@@ -77,7 +77,7 @@ impl DrainCliCommand {
             .collect::<Result<Vec<String>>>()?;
 
         let mut map = HashMap::new();
-        map.insert("cleared".to_string(), json!(cleared));
+        map.insert("drained".to_string(), json!(cleared));
         Ok(CommandOutput::new(
             format!("Successfully cleared caches at: {:?}", cleared),
             map,
