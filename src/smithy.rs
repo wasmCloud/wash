@@ -1,10 +1,7 @@
 //! smithy model lint and validation
 //!
-use crate::generate::emoji;
-use crate::util::CommandOutput;
-use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Result;
+use crate::{generate::emoji, util::CommandOutput};
+use anyhow::{anyhow, bail, Result};
 use atelier_core::model::Model;
 use console::style;
 use std::path::PathBuf;

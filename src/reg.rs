@@ -265,8 +265,7 @@ pub(crate) async fn pull_artifact(
     Ok(image_data
         .layers
         .iter()
-        .map(|l| l.data.clone())
-        .flatten()
+        .flat_map(|l| l.data.clone())
         .collect::<Vec<_>>())
 }
 

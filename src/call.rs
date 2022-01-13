@@ -1,7 +1,6 @@
 use crate::{
     ctx::{context_dir, get_default_context, load_context},
-    id::ClusterSeed,
-    id::ModuleId,
+    id::{ClusterSeed, ModuleId},
     util::{
         extract_arg_value, json_str_to_msgpack_bytes, msgpack_to_json_val, nats_client_from_opts,
         CommandOutput, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT,
@@ -302,7 +301,7 @@ async fn rpc_client_from_opts(
 
     let nc = nats_client_from_opts(&rpc_host, &rpc_port, rpc_jwt, rpc_seed, rpc_credsfile).await?;
     Ok((
-        RpcClient::new_asynk(
+        RpcClient::new(
             nc,
             &lattice_prefix,
             nkeys::KeyPair::from_seed(&extract_arg_value(&cluster_seed.to_string())?)?,
@@ -318,8 +317,7 @@ mod test {
     use super::{CallCli, CallCommand};
     use crate::id::ModuleId;
     use anyhow::Result;
-    use std::path::PathBuf;
-    use std::str::FromStr;
+    use std::{path::PathBuf, str::FromStr};
     use structopt::StructOpt;
 
     const RPC_HOST: &str = "127.0.0.1";

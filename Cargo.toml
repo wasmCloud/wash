@@ -1,6 +1,6 @@
 [package]
 name = "wash-cli"
-version = "0.7.2"
+version = "0.7.3"
 authors = ["wasmCloud Team"]
 categories = ["wasm", "command-line-utilities"]
 description = "wasmcloud Shell (wash) CLI tool"
@@ -55,8 +55,10 @@ tokio = {version = "1", features = ["full"]}
 toml = "0.5"
 walkdir = "2.3"
 wascap = "0.6.0"
-wasmbus-rpc = "0.5"
-wasmcloud-control-interface = "0.7"
+# TODO: change this after control-interface-client is published
+wasmcloud-control-interface = { version="0.10.0", path="../control-interface-client" }
+wasmbus-rpc = "0.7.0-alpha.1"
+
 wasmcloud-test-util = "0.1"
 weld-codegen = "0.2"
 which = "4.2.2"

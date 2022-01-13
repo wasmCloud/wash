@@ -748,7 +748,7 @@ pub(crate) fn render_actor_claims(
 
     let iss_label = token_label(&claims.issuer).to_ascii_lowercase();
     let sub_label = token_label(&claims.subject).to_ascii_lowercase();
-    let provider_json = provider.replace(" ", "_").to_ascii_lowercase();
+    let provider_json = provider.replace(' ', "_").to_ascii_lowercase();
 
     let mut map = HashMap::new();
     map.insert(iss_label, json!(claims.issuer));
