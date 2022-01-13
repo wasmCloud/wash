@@ -589,17 +589,12 @@ pub(crate) async fn handle_command(
 }
 
 pub(crate) async fn get_hosts(cmd: GetHostsCommand) -> Result<Vec<Host>> {
-    let timeout = match (cmd.opts.timeout_ms, cmd.opts.timeout) {
-        (Some(t), _) => Duration::from_millis(t),
-        (None, Some(t)) => Duration::from_secs(t),
-        (None, None) => Duration::from_millis(DEFAULT_NATS_TIMEOUT),
-    };
-    let client = ctl_client_from_opts(cmd.opts).await?;
-    Ok(client.get_hosts(timeout).await.map_err(convert_error)?)
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
+    Ok(client.get_hosts().await.map_err(convert_error)?)
 }
 
 pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<HostInventory> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client
         .get_host_inventory(&cmd.host_id.to_string())
         .await
@@ -607,12 +602,12 @@ pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<H
 }
 
 pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsResponse> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client.get_claims().await.map_err(convert_error)
 }
 
 pub(crate) async fn link_del(cmd: LinkDelCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client
         .remove_link(
             &cmd.actor_id.to_string(),
@@ -624,7 +619,7 @@ pub(crate) async fn link_del(cmd: LinkDelCommand) -> Result<CtlOperationAck> {
 }
 
 pub(crate) async fn link_put(cmd: LinkPutCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client
         .advertise_link(
             &cmd.actor_id.to_string(),
@@ -638,7 +633,7 @@ pub(crate) async fn link_put(cmd: LinkPutCommand) -> Result<CtlOperationAck> {
 }
 
 pub(crate) async fn link_query(cmd: LinkQueryCommand) -> Result<LinkDefinitionList> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client.query_links().await.map_err(convert_error)
 }
 
@@ -659,24 +654,15 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAc
             ..cmd.opts
         },
     };
-    let client = ctl_client_from_opts(opts).await?;
+    let client = ctl_client_from_opts(opts, cmd.auction_timeout_ms, cmd.auction_timeout).await?;
 
     let host = match cmd.host_id {
         Some(host) => host,
         None => {
-            let auction_timeout_ms = match (cmd.auction_timeout_ms, cmd.auction_timeout) {
-                (Some(t), _) => t,
-                (None, Some(t)) => {
-                    log::warn!("--timeout is deprecated and will be removed in v0.8.0");
-                    t * 1_000
-                }
-                (None, None) => DEFAULT_NATS_TIMEOUT,
-            };
             let suitable_hosts = client
                 .perform_actor_auction(
                     &cmd.actor_ref,
                     labels_vec_to_hashmap(cmd.constraints.unwrap_or_default())?,
-                    Duration::from_millis(auction_timeout_ms),
                 )
                 .await
                 .map_err(convert_error)?;
@@ -711,25 +697,16 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOpera
             ..cmd.opts
         },
     };
-    let client = ctl_client_from_opts(opts).await?;
+    let client = ctl_client_from_opts(opts, cmd.auction_timeout_ms, cmd.auction_timeout).await?;
 
     let host = match cmd.host_id {
         Some(host) => host,
         None => {
-            let auction_timeout_ms = match (cmd.auction_timeout_ms, cmd.auction_timeout) {
-                (Some(t), _) => t,
-                (None, Some(t)) => {
-                    log::warn!("--timeout is deprecated and will be removed in v0.8.0");
-                    t * 1_000
-                }
-                (None, None) => DEFAULT_NATS_TIMEOUT,
-            };
             let suitable_hosts = client
                 .perform_provider_auction(
                     &cmd.provider_ref,
                     &cmd.link_name,
                     labels_vec_to_hashmap(cmd.constraints.unwrap_or_default())?,
-                    Duration::from_millis(auction_timeout_ms),
                 )
                 .await
                 .map_err(convert_error)?;
@@ -755,7 +732,7 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOpera
 
 pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperationAck> {
     validate_contract_id(&cmd.contract_id)?;
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client
         .stop_provider(
             &cmd.host_id.to_string(),
@@ -769,7 +746,7 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperati
 }
 
 pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client
         .stop_actor(
             &cmd.host_id.to_string(),
@@ -782,7 +759,7 @@ pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CtlOperationAck>
 }
 
 pub(crate) async fn stop_host(cmd: StopHostCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client
         .stop_host(&cmd.host_id.to_string(), cmd.host_shutdown_timeout)
         .await
@@ -790,7 +767,7 @@ pub(crate) async fn stop_host(cmd: StopHostCommand) -> Result<CtlOperationAck> {
 }
 
 pub(crate) async fn update_actor(cmd: UpdateActorCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     client
         .update_actor(
             &cmd.host_id.to_string(),
@@ -803,7 +780,7 @@ pub(crate) async fn update_actor(cmd: UpdateActorCommand) -> Result<CtlOperation
 }
 
 pub(crate) async fn apply_manifest(cmd: ApplyCommand) -> Result<Vec<String>> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None, None).await?;
     let hm = match HostManifest::from_path(Path::new(&cmd.path), cmd.expand_env) {
         Ok(hm) => hm,
         Err(e) => bail!("Failed to load manifest: {}", e),
@@ -919,7 +896,11 @@ async fn apply_manifest_providers(
     Ok(results)
 }
 
-async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
+async fn ctl_client_from_opts(
+    opts: ConnectionOpts,
+    auction_timeout_ms: Option<u64>,
+    auction_timeout: Option<u64>,
+) -> Result<CtlClient> {
     // Attempt to load a context, falling back on the default if not supplied
     let ctx = if let Some(context) = opts.context {
         load_context(&context).ok()
@@ -932,7 +913,7 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
     // Determine connection parameters, taking explicitly provided flags,
     // then provided context values, lastly using defaults
     //TODO: Deprecate the `opts.timeout` in `v0.8.0`
-    let timeout = match (opts.timeout_ms, opts.timeout) {
+    let timeout_ms = match (opts.timeout_ms, opts.timeout) {
         (Some(t), _) => t,
         (None, Some(t)) => {
             log::warn!("--timeout is deprecated and will be removed in v0.8.0");
@@ -982,10 +963,24 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
             .unwrap_or_default()
     };
 
+    let auction_timeout_ms = match (auction_timeout_ms, auction_timeout) {
+        (Some(t), _) => t,
+        (None, Some(t)) => {
+            log::warn!("--auction-timeout is deprecated and will be removed in v0.8.0");
+            t * 1_000
+        }
+        (None, None) => DEFAULT_NATS_TIMEOUT,
+    };
+
     let nc =
         crate::util::nats_client_from_opts(&ctl_host, &ctl_port, ctl_jwt, ctl_seed, ctl_credsfile)
             .await?;
-    let ctl_client = CtlClient::new(nc, Some(lattice_prefix), Duration::from_secs(timeout));
+    let ctl_client = CtlClient::new(
+        nc,
+        Some(lattice_prefix),
+        Duration::from_millis(timeout_ms),
+        Duration::from_millis(auction_timeout_ms),
+    );
 
     Ok(ctl_client)
 }
@@ -1051,7 +1046,7 @@ mod test {
                 actor_ref,
                 constraints,
                 auction_timeout_ms,
-                auction_timeout: _,
+                ..
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
