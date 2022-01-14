@@ -16,7 +16,8 @@ use wasmbus_rpc::anats;
 pub const DEFAULT_NATS_HOST: &str = "127.0.0.1";
 pub const DEFAULT_NATS_PORT: &str = "4222";
 pub const DEFAULT_LATTICE_PREFIX: &str = "default";
-pub const DEFAULT_NATS_TIMEOUT: u64 = 2_000;
+pub const DEFAULT_NATS_TIMEOUT_MS: u64 = 2_000;
+pub const DEFAULT_START_PROVIDER_TIMEOUT_MS: u64 = 60_000;
 
 /// Used for displaying human-readable output vs JSON format
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
@@ -114,6 +115,10 @@ impl Default for CommandOutput {
             text: "".to_string(),
         }
     }
+}
+
+pub(crate) fn default_timeout_ms() -> u64 {
+    DEFAULT_NATS_TIMEOUT_MS
 }
 
 /// Converts error from Send + Sync error to standard anyhow error
