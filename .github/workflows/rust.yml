@@ -19,10 +19,18 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: run docker-compose
+      if: ${{ startswith(matrix.os, 'ubuntu') }}
       uses: sudo-bot/action-docker-compose@latest
       with:
         cli-args: "-f ./tools/docker-compose.yml up"
     - id: rust-check-action
+      name: Unit tests
       uses: wasmcloud/common-actions/rust-check@main
       with:
-        test-options: '--no-fail-fast --bin wash --test "integration*"'
+        test-options: '--no-fail-fast --bin wash'
+    - id: rust-check-action
+      name: Integration tests
+      if: ${{ startswith(matrix.os, 'ubuntu') }}
+      uses: wasmcloud/common-actions/rust-check@main
+      with:
+        test-options: '--no-fail-fast --test "integration*"'
