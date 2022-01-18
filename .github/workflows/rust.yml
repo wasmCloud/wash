@@ -12,14 +12,17 @@ env:
 jobs:
   rust_check:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-20.04, windows-2019, macos-10.15]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
-    - id: run-nats
-      uses: wasmcloud/common-actions/run-nats@main
+    - name: run docker-compose
+      uses: sudo-bot/action-docker-compose@latest
+      with:
+        cli-args: "-f ./tools/docker-compose.yml up"
     - id: rust-check-action
       uses: wasmcloud/common-actions/rust-check@main
       with:
-        working-directory: ${{ env.working-directory }}
+        test-options: '--no-fail-fast --bin wash --test "integration*"'
