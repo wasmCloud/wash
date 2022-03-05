@@ -3,14 +3,13 @@
 //   version: 0.9.0
 //   license: MIT/Apache-2.0
 //
-use crate::generate::{any_msg, copy_dir_all};
 use crate::appearance::emoji;
+use crate::generate::{any_msg, copy_dir_all};
 use anyhow::{Context, Result};
 use cargo::core::GitReference;
 use console::style;
 use git2::{
-    build::RepoBuilder,
-    ErrorCode, {Cred, FetchOptions, ProxyOptions, RemoteCallbacks, Repository},
+    build::RepoBuilder, Cred, ErrorCode, FetchOptions, ProxyOptions, RemoteCallbacks, Repository,
 };
 use log::warn;
 use remove_dir_all::remove_dir_all;

@@ -1,11 +1,11 @@
 //! smithy model lint and validation
 //!
-use crate::appearance::emoji;
-use anyhow::anyhow;
+use crate::{appearance::emoji, util::CommandOutput};
+use anyhow::{anyhow, bail, Result};
 use atelier_core::model::Model;
+use clap::Parser;
 use console::style;
 use std::path::PathBuf;
-use structopt::StructOpt;
 use weld_codegen::{
     config::{CodegenConfig, ModelSource, OutputLanguage},
     sources_to_model,
@@ -15,101 +15,99 @@ type TomlValue = toml::Value;
 const CODEGEN_CONFIG_FILE: &str = "codegen.toml";
 
 /// Perform lint checks on smithy models
-#[derive(Debug, StructOpt, Clone)]
-#[structopt(name = "lint")]
+#[derive(Debug, Parser, Clone)]
+#[clap(name = "lint")]
 pub(crate) struct LintCli {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opt: LintOptions,
 }
 
 /// Perform validation checks on smithy models
-#[derive(Debug, StructOpt, Clone)]
-#[structopt(name = "validate")]
+#[derive(Debug, Parser, Clone)]
+#[clap(name = "validate")]
 pub(crate) struct ValidateCli {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opt: ValidateOptions,
 }
 
 /// Generate code from smithy IDL files
-#[derive(Debug, StructOpt, Clone)]
-#[structopt(name = "gen")]
+#[derive(Debug, Parser, Clone)]
+#[clap(name = "gen")]
 pub(crate) struct GenerateCli {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opt: GenerateOptions,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct LintOptions {
     /// Configuration file. Defaults to "./codegen.toml".
     /// Used to get model files only if input files are not specified on the command line.
-    #[structopt(short, long)]
+    #[clap(short, long)]
     config: Option<PathBuf>,
 
     /// Enable verbose logging
-    #[structopt(short, long)]
+    #[clap(short, long)]
     verbose: bool,
 
     /// Input files to process (overrides codegen.toml)
-    #[structopt(name = "input")]
+    #[clap(name = "input")]
     input: Vec<String>,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct ValidateOptions {
     /// Configuration file. Defaults to "./codegen.toml".
     /// Used to get model files only if input files are not specified on the command line.
-    #[structopt(short, long)]
+    #[clap(short, long)]
     config: Option<PathBuf>,
 
     /// Enable verbose logging
-    #[structopt(short, long)]
+    #[clap(short, long)]
     verbose: bool,
 
     /// Input files to process (overrides codegen.toml)
-    #[structopt(name = "input")]
+    #[clap(name = "input")]
     input: Vec<String>,
 }
 
 /// Generate code from smithy IDL files
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct GenerateOptions {
     /// Configuration file (toml). Defaults to "./codegen.toml"
-    #[structopt(short, long)]
+    #[clap(short, long)]
     config: Option<PathBuf>,
 
     /// Output directory, defaults to current directory
-    #[structopt(short, long)]
+    #[clap(long)]
     output_dir: Option<PathBuf>,
 
     /// Optionally, load templates from this folder.
     /// Each template file name is its template name, for example, "header.hbs"
     /// is registered with the name "header"
-    #[structopt(short = "T", long)]
+    #[clap(short = 'T', long)]
     template_dir: Option<PathBuf>,
 
     /// Output language(s) to generate. May be specified more than once
     /// If not specified, all languages in config file will be generated (`-l html -l rust`)
     // number_of_values forces the user to use '-l' for each item
-    #[structopt(short, long, number_of_values = 1)]
+    #[clap(short, long, number_of_values = 1)]
     lang: Vec<OutputLanguage>,
 
     /// Additional defines in the form of key=value to be passed to renderer
     /// Use `-D key=value` for each term to be added.
-    #[structopt(short = "D", parse(try_from_str = parse_key_val), number_of_values = 1)]
+    #[clap(short = 'D', parse(try_from_str = parse_key_val), number_of_values = 1)]
     defines: Vec<(String, TomlValue)>,
 
     /// Enable verbose logging
-    #[structopt(short, long)]
+    #[clap(short, long)]
     verbose: bool,
 
     /// model files to process. Must specify either on command line or in 'models' array in codegen.toml
-    #[structopt(name = "input")]
+    #[clap(name = "input")]
     input: Vec<String>,
 }
 
-pub(crate) async fn handle_lint_command(
-    command: LintCli,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_lint_command(command: LintCli) -> Result<CommandOutput> {
     let opt = command.opt;
     let verbose = match opt.verbose {
         true => 1u8,
@@ -128,15 +126,14 @@ pub(crate) async fn handle_lint_command(
     )
     .map_err(|e| anyhow!("lint error: {}", e.to_string()))?;
 
+    // TODO: make this return the report instead of printing directly
     cargo_atelier::report::report_action_issues(report, true)
         .map_err(|e| anyhow!("report error: {}", e))?;
 
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
-pub(crate) async fn handle_validate_command(
-    command: ValidateCli,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) async fn handle_validate_command(command: ValidateCli) -> Result<CommandOutput> {
     use atelier_core::action::validate::{
         run_validation_actions, CorrectTypeReferences, NoUnresolvedReferences,
     };
@@ -169,7 +166,7 @@ pub(crate) async fn handle_validate_command(
     cargo_atelier::report::report_action_issues(report, true)
         .map_err(|e| anyhow!("report error: {}", e))?;
 
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
 /// build model from input files and/or files listed in codegen.toml.
@@ -234,13 +231,11 @@ fn select_config(opt_config: &Option<PathBuf>) -> Result<CodegenConfig, anyhow::
     Ok(config)
 }
 
-pub(crate) fn handle_gen_command(
-    command: GenerateCli,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) fn handle_gen_command(command: GenerateCli) -> Result<CommandOutput> {
     let opt = command.opt;
     if let Some(ref tdir) = opt.template_dir {
         if !tdir.is_dir() {
-            return Err("template_dir parameter must be an existing directory".into());
+            bail!("template_dir parameter must be an existing directory");
         }
     }
     let output_dir = match &opt.output_dir {
@@ -274,7 +269,7 @@ pub(crate) fn handle_gen_command(
     let g = weld_codegen::Generator::default();
     g.gen(Some(&model), config, templates, &output_dir, opt.defines)?;
 
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
 /// Parse a single key-value pair into (String,TomlValue)

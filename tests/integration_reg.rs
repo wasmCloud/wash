@@ -1,7 +1,10 @@
 mod common;
-use common::{output_to_string, test_dir_file, test_dir_with_subfolder, wash};
-use std::fs::{remove_dir_all, File};
-use std::io::prelude::*;
+use common::{get_json_output, output_to_string, test_dir_file, test_dir_with_subfolder, wash};
+use serde_json::json;
+use std::{
+    fs::{remove_dir_all, File},
+    io::prelude::*,
+};
 
 const ECHO_WASM: &str = "wasmcloud.azurecr.io/echo:0.2.0";
 const LOGGING_PAR: &str = "wasmcloud.azurecr.io/logging:0.9.1";
@@ -27,7 +30,7 @@ fn integration_pull_basic() {
         .unwrap_or_else(|_| panic!("failed to pull {}", ECHO_WASM));
     assert!(pull_basic.status.success());
     // Very important
-    assert!(output_to_string(pull_basic).contains('\u{1F6BF}'));
+    assert!(output_to_string(pull_basic).unwrap().contains('\u{1F6BF}'));
 
     remove_dir_all(pull_dir).unwrap();
 }
@@ -60,12 +63,11 @@ fn integration_pull_comprehensive() {
         .unwrap_or_else(|_| panic!("failed to pull {}", ECHO_WASM));
 
     assert!(pull_echo_comprehensive.status.success());
-    let output = output_to_string(pull_echo_comprehensive);
-    assert!(output.contains(&format!(
-        "\"file\":\"{}\"",
-        comprehensive_echo.to_str().unwrap()
-    )));
-    assert!(output.contains("\"result\":\"success\""));
+    let output = get_json_output(pull_echo_comprehensive).unwrap();
+
+    let expected_json = json!({"file": comprehensive_echo.to_str().unwrap(), "success": true});
+
+    assert_eq!(output, expected_json);
 
     let pull_logging_comprehensive = wash()
         .args(&[
@@ -87,12 +89,11 @@ fn integration_pull_comprehensive() {
         .unwrap_or_else(|_| panic!("failed to pull {}", ECHO_WASM));
 
     assert!(pull_logging_comprehensive.status.success());
-    let output = output_to_string(pull_logging_comprehensive);
-    assert!(output.contains(&format!(
-        "\"file\":\"{}\"",
-        comprehensive_logging.to_str().unwrap()
-    )));
-    assert!(output.contains("\"result\":\"success\""));
+    let output = get_json_output(pull_logging_comprehensive).unwrap();
+
+    let expected_json = json!({"file": comprehensive_logging.to_str().unwrap(), "success": true});
+
+    assert_eq!(output, expected_json);
 
     remove_dir_all(pull_dir).unwrap();
 }
@@ -203,9 +204,12 @@ fn integration_push_comprehensive() {
         .output()
         .unwrap_or_else(|_| panic!("failed to push {} for push comprehensive", LOGGING_PAR));
     assert!(push_all_options.status.success());
-    let output = output_to_string(push_all_options);
-    assert!(output.contains("\"result\":\"success\""));
-    assert!(output.contains(&format!("\"url\":\"{}\"", logging_push_all_options)));
+
+    let output = get_json_output(push_all_options).unwrap();
+
+    let expected_json = json!({"url": logging_push_all_options, "success": true});
+
+    assert_eq!(output, expected_json);
 
     remove_dir_all(push_dir).unwrap();
 }

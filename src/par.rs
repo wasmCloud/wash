@@ -1,66 +1,52 @@
 extern crate provider_archive;
-use crate::keys::extract_keypair;
-use crate::util::{convert_error, format_output, Output, OutputKind, Result};
+use crate::{
+    keys::extract_keypair,
+    util::{self, convert_error, CommandOutput, OutputKind},
+};
+use anyhow::{anyhow, bail, Context, Result};
+use clap::{Parser, Subcommand};
 use nkeys::KeyPairType;
 use provider_archive::*;
 use serde_json::json;
-use std::fs::File;
-use std::io::prelude::*;
-use std::path::PathBuf;
-use structopt::clap::AppSettings;
-use structopt::StructOpt;
+use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
+use term_table::{row::Row, table_cell::*, Table};
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
-#[derive(Debug, StructOpt, Clone)]
-#[structopt(
-    global_settings(&[AppSettings::ColoredHelp, AppSettings::VersionlessSubcommands]),
-    name = "par")]
-pub(crate) struct ParCli {
-    #[structopt(flatten)]
-    command: ParCliCommand,
-}
-
-impl ParCli {
-    pub(crate) fn command(self) -> ParCliCommand {
-        self.command
-    }
-}
-
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Subcommand)]
 pub(crate) enum ParCliCommand {
     /// Build a provider archive file
-    #[structopt(name = "create")]
+    #[clap(name = "create")]
     Create(CreateCommand),
     /// Inspect a provider archive file
-    #[structopt(name = "inspect")]
+    #[clap(name = "inspect")]
     Inspect(InspectCommand),
     /// Insert a provider into a provider archive file
-    #[structopt(name = "insert")]
+    #[clap(name = "insert")]
     Insert(InsertCommand),
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub(crate) struct CreateCommand {
     /// Capability contract ID (e.g. wasmcloud:messaging or wasmcloud:keyvalue).
-    #[structopt(short = "c", long = "capid")]
+    #[clap(short = 'c', long = "capid")]
     capid: String,
 
     /// Vendor string to help identify the publisher of the provider (e.g. Redis, Cassandra, wasmcloud, etc). Not unique.
-    #[structopt(short = "v", long = "vendor")]
+    #[clap(short = 'v', long = "vendor")]
     vendor: String,
 
     /// Monotonically increasing revision number
-    #[structopt(short = "r", long = "revision")]
+    #[clap(short = 'r', long = "revision")]
     revision: Option<i32>,
 
     /// Human friendly version string
-    #[structopt(long = "version")]
+    #[clap(long = "version")]
     version: Option<String>,
 
     /// Location of key files for signing. Defaults to $WASH_KEYS ($HOME/.wash/keys)
-    #[structopt(
-        short = "d",
+    #[clap(
+        short = 'd',
         long = "directory",
         env = "WASH_KEYS",
         hide_env_values = true
@@ -68,8 +54,8 @@ pub(crate) struct CreateCommand {
     directory: Option<PathBuf>,
 
     /// Path to issuer seed key (account). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
-    #[structopt(
-        short = "i",
+    #[clap(
+        short = 'i',
         long = "issuer",
         env = "WASH_ISSUER_KEY",
         hide_env_values = true
@@ -77,8 +63,8 @@ pub(crate) struct CreateCommand {
     issuer: Option<String>,
 
     /// Path to subject seed key (service). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
-    #[structopt(
-        short = "s",
+    #[clap(
+        short = 's',
         long = "subject",
         env = "WASH_SUBJECT_KEY",
         hide_env_values = true
@@ -86,50 +72,47 @@ pub(crate) struct CreateCommand {
     subject: Option<String>,
 
     /// Name of the capability provider
-    #[structopt(short = "n", long = "name")]
+    #[clap(short = 'n', long = "name")]
     name: String,
 
     /// Architecture of provider binary in format ARCH-OS (e.g. x86_64-linux)
-    #[structopt(short = "a", long = "arch")]
+    #[clap(short = 'a', long = "arch")]
     arch: String,
 
     /// Path to provider binary for populating the archive
-    #[structopt(short = "b", long = "binary")]
+    #[clap(short = 'b', long = "binary")]
     binary: String,
 
     /// File output destination path
-    #[structopt(long = "destination")]
+    #[clap(long = "destination")]
     destination: Option<String>,
 
     /// Include a compressed provider archive
-    #[structopt(long = "compress")]
+    #[clap(long = "compress")]
     compress: bool,
 
     /// Disables autogeneration of signing keys
-    #[structopt(long = "disable-keygen")]
+    #[clap(long = "disable-keygen")]
     disable_keygen: bool,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub(crate) struct InspectCommand {
     /// Path to provider archive or OCI URL of provider archive
-    #[structopt(name = "archive")]
+    #[clap(name = "archive")]
     archive: String,
 
     /// Digest to verify artifact against (if OCI URL is provided for <archive>)
-    #[structopt(short = "d", long = "digest")]
+    #[clap(short = 'd', long = "digest")]
     digest: Option<String>,
 
     /// Allow latest artifact tags (if OCI URL is provided for <archive>)
-    #[structopt(long = "allow-latest")]
+    #[clap(long = "allow-latest")]
     allow_latest: bool,
 
     /// OCI username, if omitted anonymous authentication will be used
-    #[structopt(
-        short = "u",
+    #[clap(
+        short = 'u',
         long = "user",
         env = "WASH_REG_USER",
         hide_env_values = true
@@ -137,8 +120,8 @@ pub(crate) struct InspectCommand {
     user: Option<String>,
 
     /// OCI password, if omitted anonymous authentication will be used
-    #[structopt(
-        short = "p",
+    #[clap(
+        short = 'p',
         long = "password",
         env = "WASH_REG_PASSWORD",
         hide_env_values = true
@@ -146,30 +129,31 @@ pub(crate) struct InspectCommand {
     password: Option<String>,
 
     /// Allow insecure (HTTP) registry connections
-    #[structopt(long = "insecure")]
+    #[clap(long = "insecure")]
     insecure: bool,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
+    /// skip the local OCI cache
+    #[clap(long = "no-cache")]
+    no_cache: bool,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub(crate) struct InsertCommand {
     /// Path to provider archive
-    #[structopt(name = "archive")]
+    #[clap(name = "archive")]
     archive: String,
 
     /// Architecture of binary in format ARCH-OS (e.g. x86_64-linux)
-    #[structopt(short = "a", long = "arch")]
+    #[clap(short = 'a', long = "arch")]
     arch: String,
 
     /// Path to provider binary to insert into archive
-    #[structopt(short = "b", long = "binary")]
+    #[clap(short = 'b', long = "binary")]
     binary: String,
 
     /// Location of key files for signing. Defaults to $WASH_KEYS ($HOME/.wash/keys)
-    #[structopt(
-        short = "d",
+    #[clap(
+        short = 'd',
         long = "directory",
         env = "WASH_KEYS",
         hide_env_values = true
@@ -177,8 +161,8 @@ pub(crate) struct InsertCommand {
     directory: Option<PathBuf>,
 
     /// Path to issuer seed key (account). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
-    #[structopt(
-        short = "i",
+    #[clap(
+        short = 'i',
         long = "issuer",
         env = "WASH_ISSUER_KEY",
         hide_env_values = true
@@ -186,8 +170,8 @@ pub(crate) struct InsertCommand {
     issuer: Option<String>,
 
     /// Path to subject seed key (service). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
-    #[structopt(
-        short = "s",
+    #[clap(
+        short = 's',
         long = "subject",
         env = "WASH_SUBJECT_KEY",
         hide_env_values = true
@@ -195,23 +179,23 @@ pub(crate) struct InsertCommand {
     subject: Option<String>,
 
     /// Disables autogeneration of signing keys
-    #[structopt(long = "disable-keygen")]
+    #[clap(long = "disable-keygen")]
     disable_keygen: bool,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
-pub(crate) async fn handle_command(command: ParCliCommand) -> Result<String> {
+pub(crate) async fn handle_command(
+    command: ParCliCommand,
+    output_kind: OutputKind,
+) -> Result<CommandOutput> {
     match command {
-        ParCliCommand::Create(cmd) => handle_create(cmd),
+        ParCliCommand::Create(cmd) => handle_create(cmd, output_kind),
         ParCliCommand::Inspect(cmd) => handle_inspect(cmd).await,
-        ParCliCommand::Insert(cmd) => handle_insert(cmd),
+        ParCliCommand::Insert(cmd) => handle_insert(cmd, output_kind),
     }
 }
 
 /// Creates a provider archive using an initial architecture target, provider, and signing keys
-pub(crate) fn handle_create(cmd: CreateCommand) -> Result<String> {
+pub(crate) fn handle_create(cmd: CreateCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let mut par = ProviderArchive::new(
         &cmd.capid,
         &cmd.name,
@@ -230,6 +214,7 @@ pub(crate) fn handle_create(cmd: CreateCommand) -> Result<String> {
         cmd.directory.clone(),
         KeyPairType::Account,
         cmd.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         cmd.subject,
@@ -237,6 +222,7 @@ pub(crate) fn handle_create(cmd: CreateCommand) -> Result<String> {
         cmd.directory,
         KeyPairType::Service,
         cmd.disable_keygen,
+        output_kind,
     )?;
 
     par.add_library(&cmd.arch, &lib).map_err(convert_error)?;
@@ -250,141 +236,118 @@ pub(crate) fn handle_create(cmd: CreateCommand) -> Result<String> {
                 .file_stem()
                 .unwrap()
                 .to_str()
-                .unwrap()
-                .to_string(),
+                .unwrap(),
             extension
         ),
     };
 
-    Ok(
-        if par
-            .write(&outfile, &issuer, &subject, cmd.compress)
-            .is_err()
-        {
+    par.write(&outfile, &issuer, &subject, cmd.compress)
+        .map_err(|e| anyhow!("{}", e))
+        .with_context(|| {
             format!(
                 "Error writing PAR. Please ensure directory {:?} exists",
-                PathBuf::from(outfile).parent().unwrap(),
+                PathBuf::from(outfile.clone()).parent().unwrap(),
             )
-        } else {
-            format_output(
-                format!("Successfully created archive {}", outfile),
-                json!({"result": "success", "file": outfile}),
-                &cmd.output.kind,
-            )
-        },
-    )
+        })?;
+
+    let mut map = HashMap::new();
+    map.insert("file".to_string(), json!(outfile));
+    Ok(CommandOutput::new(
+        format!("Successfully created archive {}", outfile),
+        map,
+    ))
 }
 
 /// Loads a provider archive and outputs the contents of the claims
-pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<String> {
-    let archive = match File::open(&cmd.archive) {
-        Ok(mut f) => {
-            let mut buf = Vec::new();
-            f.read_to_end(&mut buf)?;
-            ProviderArchive::try_load(&buf).map_err(|e| format!("{}", e))?
-        }
-        Err(_) => {
-            let artifact = crate::reg::pull_artifact(
-                cmd.archive,
-                cmd.digest,
-                cmd.allow_latest,
-                cmd.user,
-                cmd.password,
-                cmd.insecure,
-            )
-            .await?;
-            ProviderArchive::try_load(&artifact).map_err(|e| format!("{}", e))?
-        }
+pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<CommandOutput> {
+    let artifact_bytes = crate::reg::get_artifact(
+        cmd.archive,
+        cmd.digest,
+        cmd.allow_latest,
+        cmd.user,
+        cmd.password,
+        cmd.insecure,
+        cmd.no_cache,
+    )
+    .await?;
+    let artifact = ProviderArchive::try_load(&artifact_bytes).map_err(|e| anyhow!("{}", e))?;
+    let claims = artifact
+        .claims()
+        .ok_or(anyhow!("No claims found in artifact"))?;
+    let metadata = claims.metadata.ok_or(anyhow!("No metadata found"))?;
+
+    let friendly_rev = match metadata.rev {
+        Some(rev) => format!("{}", rev),
+        None => "None".to_string(),
     };
-    let claims = archive.claims().unwrap();
-    let metadata = claims.metadata.unwrap();
+    let friendly_ver = metadata.ver.unwrap_or_else(|| "None".to_string());
+    let name = metadata.name.unwrap_or_else(|| "None".to_string());
+    let mut map = HashMap::new();
+    map.insert("name".to_string(), json!(name));
+    map.insert("issuer".to_string(), json!(claims.issuer));
+    map.insert("service".to_string(), json!(claims.subject));
+    map.insert("capability_contract_id".to_string(), json!(metadata.capid));
+    map.insert("vendor".to_string(), json!(metadata.vendor));
+    map.insert("version".to_string(), json!(friendly_ver));
+    map.insert("revision".to_string(), json!(friendly_rev));
+    map.insert("targets".to_string(), json!(artifact.targets()));
+    let text_table = {
+        let mut table = Table::new();
+        util::configure_table_style(&mut table);
 
-    let output = match cmd.output.kind {
-        OutputKind::Json => {
-            let friendly_rev = if metadata.rev.is_some() {
-                format!("{}", metadata.rev.unwrap())
-            } else {
-                "None".to_string()
-            };
-            let friendly_ver = metadata.ver.unwrap_or_else(|| "None".to_string());
-            format!(
-                "{}",
-                json!({"name": metadata.name.unwrap(),
-                    "issuer": claims.issuer,
-                    "service": claims.subject,
-                    "capability_contract_id": metadata.capid,
-                    "vendor": metadata.vendor,
-                    "ver": friendly_ver,
-                    "rev": friendly_rev,
-                    "targets": archive.targets()})
-            )
-        }
-        OutputKind::Text => {
-            use term_table::row::Row;
-            use term_table::table_cell::*;
-            use term_table::Table;
+        table.add_row(Row::new(vec![TableCell::new_with_alignment(
+            format!("{} - Provider Archive", name),
+            2,
+            Alignment::Center,
+        )]));
 
-            let mut table = Table::new();
-            crate::util::configure_table_style(&mut table);
+        table.add_row(Row::new(vec![
+            TableCell::new("Account"),
+            TableCell::new_with_alignment(claims.issuer, 1, Alignment::Right),
+        ]));
+        table.add_row(Row::new(vec![
+            TableCell::new("Service"),
+            TableCell::new_with_alignment(claims.subject, 1, Alignment::Right),
+        ]));
+        table.add_row(Row::new(vec![
+            TableCell::new("Capability Contract ID"),
+            TableCell::new_with_alignment(metadata.capid, 1, Alignment::Right),
+        ]));
+        table.add_row(Row::new(vec![
+            TableCell::new("Vendor"),
+            TableCell::new_with_alignment(metadata.vendor, 1, Alignment::Right),
+        ]));
 
-            table.add_row(Row::new(vec![TableCell::new_with_alignment(
-                format!("{} - Provider Archive", metadata.name.unwrap()),
-                2,
-                Alignment::Center,
-            )]));
+        table.add_row(Row::new(vec![
+            TableCell::new("Version"),
+            TableCell::new_with_alignment(friendly_ver, 1, Alignment::Right),
+        ]));
 
-            table.add_row(Row::new(vec![
-                TableCell::new("Account"),
-                TableCell::new_with_alignment(claims.issuer, 1, Alignment::Right),
-            ]));
-            table.add_row(Row::new(vec![
-                TableCell::new("Service"),
-                TableCell::new_with_alignment(claims.subject, 1, Alignment::Right),
-            ]));
-            table.add_row(Row::new(vec![
-                TableCell::new("Capability Contract ID"),
-                TableCell::new_with_alignment(metadata.capid, 1, Alignment::Right),
-            ]));
-            table.add_row(Row::new(vec![
-                TableCell::new("Vendor"),
-                TableCell::new_with_alignment(metadata.vendor, 1, Alignment::Right),
-            ]));
+        table.add_row(Row::new(vec![
+            TableCell::new("Revision"),
+            TableCell::new_with_alignment(friendly_rev, 1, Alignment::Right),
+        ]));
 
-            if let Some(ver) = metadata.ver {
-                table.add_row(Row::new(vec![
-                    TableCell::new("Version"),
-                    TableCell::new_with_alignment(ver, 1, Alignment::Right),
-                ]));
-            }
+        table.add_row(Row::new(vec![TableCell::new_with_alignment(
+            "Supported Architecture Targets",
+            2,
+            Alignment::Center,
+        )]));
 
-            if let Some(rev) = metadata.rev {
-                table.add_row(Row::new(vec![
-                    TableCell::new("Revision"),
-                    TableCell::new_with_alignment(rev, 1, Alignment::Right),
-                ]));
-            }
+        table.add_row(Row::new(vec![TableCell::new_with_alignment(
+            artifact.targets().join("\n"),
+            2,
+            Alignment::Left,
+        )]));
 
-            table.add_row(Row::new(vec![TableCell::new_with_alignment(
-                "Supported Architecture Targets",
-                2,
-                Alignment::Center,
-            )]));
-
-            table.add_row(Row::new(vec![TableCell::new_with_alignment(
-                archive.targets().join("\n"),
-                2,
-                Alignment::Left,
-            )]));
-
-            table.render()
-        }
+        table.render()
     };
 
-    Ok(output)
+    Ok(CommandOutput::new(text_table, map))
 }
 
 /// Loads a provider archive and attempts to insert an additional provider into it
-pub(crate) fn handle_insert(cmd: InsertCommand) -> Result<String> {
+pub(crate) fn handle_insert(cmd: InsertCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let mut buf = Vec::new();
     let mut f = File::open(cmd.archive.clone())?;
     f.read_to_end(&mut buf)?;
@@ -397,6 +360,7 @@ pub(crate) fn handle_insert(cmd: InsertCommand) -> Result<String> {
         cmd.directory.clone(),
         KeyPairType::Account,
         cmd.disable_keygen,
+        output_kind,
     )?;
     let subject = extract_keypair(
         cmd.subject,
@@ -404,6 +368,7 @@ pub(crate) fn handle_insert(cmd: InsertCommand) -> Result<String> {
         cmd.directory,
         KeyPairType::Service,
         cmd.disable_keygen,
+        output_kind,
     )?;
 
     let mut f = File::open(cmd.binary.clone())?;
@@ -415,20 +380,21 @@ pub(crate) fn handle_insert(cmd: InsertCommand) -> Result<String> {
     par.write(&cmd.archive, &issuer, &subject, is_compressed(&buf)?)
         .map_err(convert_error)?;
 
-    Ok(format_output(
+    let mut map = HashMap::new();
+    map.insert("file".to_string(), json!(cmd.archive));
+    Ok(CommandOutput::new(
         format!(
             "Successfully inserted {} into archive {}",
             cmd.binary, cmd.archive
         ),
-        json!({"result": "success", "file": cmd.archive}),
-        &cmd.output.kind,
+        map,
     ))
 }
 
 /// Inspects the byte slice for a GZIP header, and returns true if the file is compressed
 fn is_compressed(input: &[u8]) -> Result<bool> {
     if input.len() < 2 {
-        return Err("Not enough bytes to be a valid PAR file".into());
+        bail!("Not enough bytes to be a valid PAR file");
     }
     Ok(input[0..2] == GZIP_MAGIC)
 }
@@ -437,13 +403,19 @@ fn is_compressed(input: &[u8]) -> Result<bool> {
 mod test {
     use super::*;
 
+    #[derive(Parser, Debug)]
+    struct Cmd {
+        #[clap(subcommand)]
+        par: ParCliCommand,
+    }
+
     // Uses all flags and options of the `par create` command
     // to ensure API does not change between versions
     #[test]
     fn test_par_create_comprehensive() {
         const ISSUER: &str = "SAAJLQZDZO57THPTIIEELEY7FJYOJZQWQD7FF4J67TUYTSCOXTF7R4Y3VY";
         const SUBJECT: &str = "SVAH7IN6QE6XODCGIIWZQDZ5LNSSS4FNEO6SNHZSSASW4BBBKSZ6KWTKWY";
-        let create_long = ParCli::from_iter_safe(&[
+        let create_long: Cmd = clap::Parser::try_parse_from(&[
             "par",
             "create",
             "--arch",
@@ -468,13 +440,11 @@ mod test {
             ISSUER,
             "--subject",
             SUBJECT,
-            "--output",
-            "text",
             "--disable-keygen",
             "--compress",
         ])
         .unwrap();
-        match create_long.command {
+        match create_long.par {
             ParCliCommand::Create(CreateCommand {
                 capid,
                 vendor,
@@ -489,7 +459,6 @@ mod test {
                 destination,
                 compress,
                 disable_keygen,
-                output,
             }) => {
                 assert_eq!(capid, "wasmcloud:test");
                 assert_eq!(arch, "x86_64-testrunner");
@@ -497,7 +466,6 @@ mod test {
                 assert_eq!(directory.unwrap(), PathBuf::from("./tests/fixtures"));
                 assert_eq!(issuer.unwrap(), ISSUER);
                 assert_eq!(subject.unwrap(), SUBJECT);
-                assert_eq!(output.kind, OutputKind::Text);
                 assert_eq!(name, "CreateTest");
                 assert_eq!(vendor, "TestRunner");
                 assert_eq!(destination.unwrap(), "./test.par.gz");
@@ -508,7 +476,7 @@ mod test {
             }
             cmd => panic!("par insert constructed incorrect command {:?}", cmd),
         }
-        let create_short = ParCli::from_iter_safe(&[
+        let create_short: Cmd = clap::Parser::try_parse_from(&[
             "par",
             "create",
             "-a",
@@ -533,11 +501,9 @@ mod test {
             ISSUER,
             "-s",
             SUBJECT,
-            "-o",
-            "json",
         ])
         .unwrap();
-        match create_short.command {
+        match create_short.par {
             ParCliCommand::Create(CreateCommand {
                 capid,
                 vendor,
@@ -552,7 +518,6 @@ mod test {
                 destination,
                 compress,
                 disable_keygen,
-                output,
             }) => {
                 assert_eq!(capid, "wasmcloud:test");
                 assert_eq!(arch, "x86_64-testrunner");
@@ -560,7 +525,6 @@ mod test {
                 assert_eq!(directory.unwrap(), PathBuf::from("./tests/fixtures"));
                 assert_eq!(issuer.unwrap(), ISSUER);
                 assert_eq!(subject.unwrap(), SUBJECT);
-                assert_eq!(output.kind, OutputKind::Json);
                 assert_eq!(name, "CreateTest");
                 assert_eq!(vendor, "TestRunner");
                 assert_eq!(destination.unwrap(), "./test.par.gz");
@@ -579,7 +543,7 @@ mod test {
     fn test_par_insert_comprehensive() {
         const ISSUER: &str = "SAAJLQZDZO57THPTQLEELEY7FJYOJZQWQD7FF4J67TUYTSCOXTF7R4Y3VY";
         const SUBJECT: &str = "SVAH7IN6QE6XODCGQAWZQDZ5LNSSS4FNEO6SNHZSSASW4BBBKSZ6KWTKWY";
-        let insert_short = ParCli::from_iter_safe(&[
+        let insert_short: Cmd = clap::Parser::try_parse_from(&[
             "par",
             "insert",
             "libtest.par.gz",
@@ -593,12 +557,10 @@ mod test {
             ISSUER,
             "-s",
             SUBJECT,
-            "-o",
-            "text",
             "--disable-keygen",
         ])
         .unwrap();
-        match insert_short.command {
+        match insert_short.par {
             ParCliCommand::Insert(InsertCommand {
                 archive,
                 arch,
@@ -606,7 +568,6 @@ mod test {
                 directory,
                 issuer,
                 subject,
-                output,
                 disable_keygen,
             }) => {
                 assert_eq!(archive, "libtest.par.gz");
@@ -615,12 +576,11 @@ mod test {
                 assert_eq!(directory.unwrap(), PathBuf::from("./tests/fixtures"));
                 assert_eq!(issuer.unwrap(), ISSUER);
                 assert_eq!(subject.unwrap(), SUBJECT);
-                assert_eq!(output.kind, OutputKind::Text);
                 assert!(disable_keygen);
             }
             cmd => panic!("par insert constructed incorrect command {:?}", cmd),
         }
-        let insert_long = ParCli::from_iter_safe(&[
+        let insert_long: Cmd = clap::Parser::try_parse_from(&[
             "par",
             "insert",
             "libtest.par.gz",
@@ -634,11 +594,9 @@ mod test {
             ISSUER,
             "--subject",
             SUBJECT,
-            "--output",
-            "text",
         ])
         .unwrap();
-        match insert_long.command {
+        match insert_long.par {
             ParCliCommand::Insert(InsertCommand {
                 archive,
                 arch,
@@ -646,7 +604,6 @@ mod test {
                 directory,
                 issuer,
                 subject,
-                output,
                 disable_keygen,
             }) => {
                 assert_eq!(archive, "libtest.par.gz");
@@ -655,7 +612,6 @@ mod test {
                 assert_eq!(directory.unwrap(), PathBuf::from("./tests/fixtures"));
                 assert_eq!(issuer.unwrap(), ISSUER);
                 assert_eq!(subject.unwrap(), SUBJECT);
-                assert_eq!(output.kind, OutputKind::Text);
                 assert!(!disable_keygen);
             }
             cmd => panic!("par insert constructed incorrect command {:?}", cmd),
@@ -669,21 +625,20 @@ mod test {
         const LOCAL: &str = "./coolthing.par.gz";
         const REMOTE: &str = "wasmcloud.azurecr.io/coolthing.par.gz";
 
-        let inspect_long = ParCli::from_iter_safe(&[
+        let inspect_long: Cmd = clap::Parser::try_parse_from(&[
             "par",
             "inspect",
             LOCAL,
             "--digest",
             "sha256:blah",
-            "--output",
-            "json",
             "--password",
             "secret",
             "--user",
             "name",
+            "--no-cache",
         ])
         .unwrap();
-        match inspect_long.command {
+        match inspect_long.par {
             ParCliCommand::Inspect(InspectCommand {
                 archive,
                 digest,
@@ -691,7 +646,7 @@ mod test {
                 user,
                 password,
                 insecure,
-                output,
+                no_cache,
             }) => {
                 assert_eq!(archive, LOCAL);
                 assert_eq!(digest.unwrap(), "sha256:blah");
@@ -699,27 +654,26 @@ mod test {
                 assert!(!insecure);
                 assert_eq!(user.unwrap(), "name");
                 assert_eq!(password.unwrap(), "secret");
-                assert_eq!(output.kind, OutputKind::Json);
+                assert!(no_cache);
             }
             cmd => panic!("par inspect constructed incorrect command {:?}", cmd),
         }
-        let inspect_short = ParCli::from_iter_safe(&[
+        let inspect_short: Cmd = clap::Parser::try_parse_from(&[
             "par",
             "inspect",
             REMOTE,
             "-d",
             "sha256:blah",
-            "-o",
-            "json",
             "-p",
             "secret",
             "-u",
             "name",
             "--allow-latest",
             "--insecure",
+            "--no-cache",
         ])
         .unwrap();
-        match inspect_short.command {
+        match inspect_short.par {
             ParCliCommand::Inspect(InspectCommand {
                 archive,
                 digest,
@@ -727,7 +681,7 @@ mod test {
                 user,
                 password,
                 insecure,
-                output,
+                no_cache,
             }) => {
                 assert_eq!(archive, REMOTE);
                 assert_eq!(digest.unwrap(), "sha256:blah");
@@ -735,7 +689,7 @@ mod test {
                 assert!(insecure);
                 assert_eq!(user.unwrap(), "name");
                 assert_eq!(password.unwrap(), "secret");
-                assert_eq!(output.kind, OutputKind::Json);
+                assert!(no_cache);
             }
             cmd => panic!("par inspect constructed incorrect command {:?}", cmd),
         }

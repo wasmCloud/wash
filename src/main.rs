@@ -1,28 +1,36 @@
-use structopt::clap::AppSettings;
-use structopt::StructOpt;
+use std::collections::HashMap;
 
-mod drain;
-use drain::DrainCli;
-mod claims;
-use claims::ClaimsCli;
-mod ctl;
-use ctl::CtlCli;
-mod generate;
-use generate::NewCli;
-mod keys;
-use keys::KeysCli;
-mod par;
-use par::ParCli;
-mod reg;
-use reg::RegCli;
-mod smithy;
-use smithy::{GenerateCli, LintCli, ValidateCli};
-mod call;
+use anyhow::Result;
 use call::CallCli;
-mod ctx;
-use ctx::CtxCli;
-mod util;
+use claims::ClaimsCliCommand;
+use clap::{Parser, Subcommand};
+use ctl::CtlCliCommand;
+use ctx::CtxCommand;
+use drain::DrainSelection;
+use generate::NewCliCommand;
+use keys::KeysCliCommand;
+use par::ParCliCommand;
+use reg::RegCliCommand;
+use serde_json::json;
+use smithy::{GenerateCli, LintCli, ValidateCli};
+use util::CommandOutput;
+
+use crate::util::OutputKind;
+
 mod appearance;
+mod call;
+mod cfg;
+mod claims;
+mod ctl;
+mod ctx;
+mod drain;
+mod generate;
+mod id;
+mod keys;
+mod par;
+mod reg;
+mod smithy;
+mod util;
 
 const ASCII: &str = r#"
                                _____ _                 _    _____ _          _ _
@@ -35,83 +43,126 @@ const ASCII: &str = r#"
 A single CLI to handle all of your wasmCloud tooling needs
 "#;
 
-#[derive(Debug, Clone, StructOpt)]
-#[structopt(global_settings(&[AppSettings::ColoredHelp, AppSettings::VersionlessSubcommands, AppSettings::DisableHelpSubcommand]),
-            name = "wash",
-            about = ASCII)]
+#[derive(Debug, Clone, Parser)]
+#[clap(name = "wash", about = ASCII, version)]
 struct Cli {
-    #[structopt(flatten)]
+    #[clap(
+        short = 'o',
+        long = "output",
+        default_value = "text",
+        help = "Specify output format (text or json)",
+        global = true
+    )]
+    pub(crate) output: OutputKind,
+
+    #[clap(subcommand)]
     command: CliCommand,
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Subcommand)]
 enum CliCommand {
     /// Invoke a wasmCloud actor
-    #[structopt(name = "call")]
+    #[clap(name = "call")]
     Call(CallCli),
     /// Generate and manage JWTs for wasmCloud actors
-    #[structopt(name = "claims")]
-    Claims(Box<ClaimsCli>),
+    #[clap(name = "claims", subcommand)]
+    Claims(ClaimsCliCommand),
     /// Interact with a wasmCloud control interface
-    #[structopt(name = "ctl")]
-    Ctl(CtlCli),
+    #[clap(name = "ctl", subcommand)]
+    Ctl(CtlCliCommand),
     /// Manage wasmCloud host configuration contexts
-    #[structopt(name = "ctx")]
-    Ctx(CtxCli),
+    #[clap(name = "ctx", subcommand)]
+    Ctx(CtxCommand),
     /// Manage contents of local wasmCloud caches
-    #[structopt(name = "drain")]
-    Drain(DrainCli),
+    #[clap(name = "drain", subcommand)]
+    Drain(DrainSelection),
     /// Generate code from smithy IDL files
-    #[structopt(name = "gen")]
+    #[clap(name = "gen")]
     Gen(GenerateCli),
     /// Utilities for generating and managing keys
-    #[structopt(name = "keys", aliases = &["key"])]
-    Keys(KeysCli),
+    #[clap(name = "keys", subcommand)]
+    Keys(KeysCliCommand),
     /// Create a new project from template
-    #[structopt(name = "new")]
-    New(NewCli),
+    #[clap(name = "new", subcommand)]
+    New(NewCliCommand),
     /// Create, inspect, and modify capability provider archive files
-    #[structopt(name = "par")]
-    Par(ParCli),
+    #[clap(name = "par", subcommand)]
+    Par(ParCliCommand),
     /// Interact with OCI compliant registries
-    #[structopt(name = "reg")]
-    Reg(RegCli),
+    #[clap(name = "reg", subcommand)]
+    Reg(RegCliCommand),
     /// Perform lint checks on smithy models
-    #[structopt(name = "lint")]
+    #[clap(name = "lint")]
     Lint(LintCli),
     /// Perform validation checks on smithy models
-    #[structopt(name = "validate")]
+    #[clap(name = "validate")]
     Validate(ValidateCli),
 }
 
 #[tokio::main]
 async fn main() {
     if env_logger::try_init().is_err() {}
-    let cli = Cli::from_args();
+    let cli: Cli = Parser::parse();
 
-    let res = match cli.command {
+    let output_kind = cli.output;
+
+    let res: Result<CommandOutput> = match cli.command {
         CliCommand::Call(call_cli) => call::handle_command(call_cli.command()).await,
-        CliCommand::Claims(claims_cli) => claims::handle_command(claims_cli.command()).await,
-        CliCommand::Ctl(ctl_cli) => ctl::handle_command(ctl_cli.command()).await,
-        CliCommand::Ctx(ctx_cli) => ctx::handle_command(ctx_cli.command()).await,
-        CliCommand::Drain(drain_cmd) => drain::handle_command(drain_cmd.command()),
+        CliCommand::Claims(claims_cli) => claims::handle_command(claims_cli, output_kind).await,
+        CliCommand::Ctl(ctl_cli) => ctl::handle_command(ctl_cli, output_kind).await,
+        CliCommand::Ctx(ctx_cli) => ctx::handle_command(ctx_cli).await,
+        CliCommand::Drain(drain_cmd) => drain::handle_command(drain_cmd),
         CliCommand::Gen(generate_cli) => smithy::handle_gen_command(generate_cli),
-        CliCommand::Keys(keys_cli) => keys::handle_command(keys_cli.command()),
-        CliCommand::New(new_cli) => generate::handle_command(new_cli.command()),
-        CliCommand::Par(par_cli) => par::handle_command(par_cli.command()).await,
-        CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli.command()).await,
+        CliCommand::Keys(keys_cli) => keys::handle_command(keys_cli),
+        CliCommand::New(new_cli) => generate::handle_command(new_cli),
+        CliCommand::Par(par_cli) => par::handle_command(par_cli, output_kind).await,
+        CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli, output_kind).await,
         CliCommand::Lint(lint_cli) => smithy::handle_lint_command(lint_cli).await,
         CliCommand::Validate(validate_cli) => smithy::handle_validate_command(validate_cli).await,
     };
 
     std::process::exit(match res {
         Ok(out) => {
-            println!("{}", out);
+            match output_kind {
+                OutputKind::Json => {
+                    let mut map = out.map;
+                    map.insert("success".to_string(), json!(true));
+                    println!("{}", serde_json::to_string_pretty(&map).unwrap());
+                }
+                OutputKind::Text => {
+                    println!("{}", out.text);
+                }
+            }
+
             0
         }
         Err(e) => {
-            eprintln!("Error: {}", e);
+            let trace = e
+                .chain()
+                .skip(1)
+                .map(|e| format!("{}", e))
+                .collect::<Vec<String>>();
+
+            match output_kind {
+                OutputKind::Json => {
+                    let mut map = HashMap::new();
+                    map.insert("success".to_string(), json!(false));
+                    map.insert("error".to_string(), json!(e.to_string()));
+                    if !trace.is_empty() {
+                        map.insert("trace".to_string(), json!(trace));
+                    }
+
+                    eprintln!("{}", serde_json::to_string_pretty(&map).unwrap());
+                }
+                OutputKind::Text => {
+                    eprintln!("{}", e);
+                    if !trace.is_empty() {
+                        eprintln!("Error trace:");
+                        eprintln!("{}", trace.join("\n"));
+                    }
+                }
+            }
             1
         }
     })

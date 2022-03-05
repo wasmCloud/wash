@@ -1,51 +1,23 @@
-use crate::util::format_output;
-use crate::util::{Output, OutputKind};
+use crate::util::CommandOutput;
+use anyhow::Result;
+use clap::Subcommand;
 use serde_json::json;
-use std::env;
-use std::path::Path;
-use std::{fs, path::PathBuf};
-use structopt::StructOpt;
+use std::{
+    collections::HashMap,
+    env, fs,
+    path::{Path, PathBuf},
+};
 
-#[derive(Debug, Clone, StructOpt)]
-pub(crate) struct DrainCli {
-    #[structopt(flatten)]
-    command: DrainCliCommand,
-}
-
-impl DrainCli {
-    pub(crate) fn command(self) -> DrainCliCommand {
-        self.command
-    }
-}
-
-#[derive(StructOpt, Debug, Clone)]
-pub(crate) struct DrainCliCommand {
-    #[structopt(subcommand)]
-    selection: DrainSelection,
-}
-
-// Propagates output selection from CLI to all commands
-impl DrainCliCommand {
-    fn output_kind(&self) -> OutputKind {
-        match self.selection {
-            DrainSelection::All(output)
-            | DrainSelection::Lib(output)
-            | DrainSelection::Oci(output)
-            | DrainSelection::Smithy(output) => output.kind,
-        }
-    }
-}
-
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Subcommand, Debug, Clone)]
 pub(crate) enum DrainSelection {
     /// Remove all cached files created by wasmcloud
-    All(Output),
+    All,
     /// Remove cached files downloaded from OCI registries by wasmcloud
-    Oci(Output),
+    Oci,
     /// Remove cached binaries extracted from provider archives
-    Lib(Output),
+    Lib,
     /// Remove cached smithy files downloaded from model urls
-    Smithy(Output),
+    Smithy,
 }
 
 impl IntoIterator for &DrainSelection {
@@ -54,14 +26,14 @@ impl IntoIterator for &DrainSelection {
 
     fn into_iter(self) -> Self::IntoIter {
         let paths = match self {
-            DrainSelection::All(_) => vec![
+            DrainSelection::All => vec![
                 /* Lib    */ env::temp_dir().join("wasmcloudcache"),
                 /* Oci    */ env::temp_dir().join("wasmcloud_ocicache"),
                 /* Smithy */ model_cache_dir(),
             ],
-            DrainSelection::Lib(_) => vec![env::temp_dir().join("wasmcloudcache")],
-            DrainSelection::Oci(_) => vec![env::temp_dir().join("wasmcloud_ocicache")],
-            DrainSelection::Smithy(_) => vec![model_cache_dir()],
+            DrainSelection::Lib => vec![env::temp_dir().join("wasmcloudcache")],
+            DrainSelection::Oci => vec![env::temp_dir().join("wasmcloud_ocicache")],
+            DrainSelection::Smithy => vec![model_cache_dir()],
         };
         paths.into_iter()
     }
@@ -71,33 +43,34 @@ fn model_cache_dir() -> PathBuf {
     match weld_codegen::weld_cache_dir() {
         Ok(path) => path,
         Err(e) => {
-            eprintln!("{}", e.to_string());
+            eprintln!("{}", e);
             "".into()
         }
     }
 }
 
-impl DrainCliCommand {
-    fn drain(&self) -> Result<String, Box<dyn ::std::error::Error>> {
+impl DrainSelection {
+    fn drain(&self) -> Result<CommandOutput> {
         let cleared = self
-            .selection
             .into_iter()
             .filter(|path| path.exists())
             .map(remove_dir_contents)
-            .collect::<Result<Vec<String>, Box<dyn ::std::error::Error>>>()?;
-        Ok(format_output(
+            .collect::<Result<Vec<String>>>()?;
+
+        let mut map = HashMap::new();
+        map.insert("drained".to_string(), json!(cleared));
+        Ok(CommandOutput::new(
             format!("Successfully cleared caches at: {:?}", cleared),
-            json!({ "drained": cleared }),
-            &self.output_kind(),
+            map,
         ))
     }
 }
 
-pub(crate) fn handle_command(cmd: DrainCliCommand) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) fn handle_command(cmd: DrainSelection) -> Result<CommandOutput> {
     cmd.drain()
 }
 
-fn remove_dir_contents<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn ::std::error::Error>> {
+fn remove_dir_contents<P: AsRef<Path>>(path: P) -> Result<String> {
     for entry in fs::read_dir(&path)? {
         let path = entry?.path();
         if path.is_dir() {
@@ -112,32 +85,36 @@ fn remove_dir_contents<P: AsRef<Path>>(path: P) -> Result<String, Box<dyn ::std:
 #[cfg(test)]
 mod test {
     use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cmd {
+        #[clap(subcommand)]
+        drain: DrainSelection,
+    }
+
     #[test]
     // Enumerates all options of drain subcommands to ensure
     // changes are not made to the drain API
     fn test_drain_comprehensive() {
-        let all = DrainCli::from_iter_safe(&["drain", "all", "-o", "text"]).unwrap();
-        match all.command.selection {
-            DrainSelection::All(output) => {
-                assert_eq!(output.kind, OutputKind::Text)
-            }
+        let all: Cmd = Parser::try_parse_from(&["drain", "all"]).unwrap();
+        match all.drain {
+            DrainSelection::All => {}
             _ => panic!("drain constructed incorrect command"),
         }
-        let lib = DrainCli::from_iter_safe(&["drain", "lib", "-o", "text"]).unwrap();
-        match lib.command.selection {
-            DrainSelection::Lib(output) => {
-                assert_eq!(output.kind, OutputKind::Text)
-            }
+        let lib: Cmd = Parser::try_parse_from(&["drain", "lib"]).unwrap();
+        match lib.drain {
+            DrainSelection::Lib => {}
             _ => panic!("drain constructed incorrect command"),
         }
-        let oci = DrainCli::from_iter_safe(&["drain", "oci", "-o", "json"]).unwrap();
-        match oci.command.selection {
-            DrainSelection::Oci(output) => assert_eq!(output.kind, OutputKind::Json),
+        let oci: Cmd = Parser::try_parse_from(&["drain", "oci"]).unwrap();
+        match oci.drain {
+            DrainSelection::Oci => {}
             _ => panic!("drain constructed incorrect command"),
         }
-        let smithy = DrainCli::from_iter_safe(&["drain", "smithy", "-o", "json"]).unwrap();
-        match smithy.command.selection {
-            DrainSelection::Smithy(output) => assert_eq!(output.kind, OutputKind::Json),
+        let smithy: Cmd = Parser::try_parse_from(&["drain", "smithy"]).unwrap();
+        match smithy.drain {
+            DrainSelection::Smithy => {}
             _ => panic!("drain constructed incorrect command"),
         }
     }

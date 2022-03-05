@@ -1,137 +1,105 @@
-use crate::util::{format_output, Output, OutputKind};
+use crate::{
+    cfg::cfg_dir,
+    util::{set_permissions_keys, CommandOutput, OutputKind},
+};
+use anyhow::{bail, Context, Result};
+use clap::Subcommand;
 use nkeys::{KeyPair, KeyPairType};
 use serde_json::json;
-use std::fs;
-use std::fs::File;
-use std::io::prelude::*;
-use std::io::Error;
-use std::path::{Path, PathBuf};
-use structopt::StructOpt;
+use std::{
+    collections::HashMap,
+    fs,
+    fs::File,
+    io::prelude::*,
+    path::{Path, PathBuf},
+};
 
-#[derive(Debug, Clone, StructOpt)]
-pub(crate) struct KeysCli {
-    #[structopt(flatten)]
-    command: KeysCliCommand,
-}
-
-impl KeysCli {
-    pub(crate) fn command(self) -> KeysCliCommand {
-        self.command
-    }
-}
-
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Subcommand)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum KeysCliCommand {
-    #[structopt(name = "gen", about = "Generates a keypair")]
+    #[clap(name = "gen", about = "Generates a keypair")]
     GenCommand {
         /// The type of keypair to generate. May be Account, User, Module (Actor), Service (Capability Provider), Server, Operator, Cluster
-        #[structopt(case_insensitive = true)]
+        #[clap(ignore_case = true)]
         keytype: KeyPairType,
-        #[structopt(flatten)]
-        output: Output,
     },
-    #[structopt(name = "get", about = "Retrieves a keypair and prints the contents")]
+    #[clap(name = "get", about = "Retrieves a keypair and prints the contents")]
     GetCommand {
-        #[structopt(help = "The name of the key to output")]
+        #[clap(help = "The name of the key to output")]
         keyname: String,
-        #[structopt(
-            short = "d",
+        #[clap(
+            short = 'd',
             long = "directory",
             env = "WASH_KEYS",
             hide_env_values = true,
             help = "Absolute path to where keypairs are stored. Defaults to `$HOME/.wash/keys`"
         )]
         directory: Option<PathBuf>,
-        #[structopt(flatten)]
-        output: Output,
     },
-    #[structopt(name = "list", about = "Lists all keypairs in a directory")]
+    #[clap(name = "list", about = "Lists all keypairs in a directory")]
     ListCommand {
-        #[structopt(
-            short = "d",
+        #[clap(
+            short = 'd',
             long = "directory",
             env = "WASH_KEYS",
             hide_env_values = true,
             help = "Absolute path to where keypairs are stored. Defaults to `$HOME/.wash/keys`"
         )]
         directory: Option<PathBuf>,
-        #[structopt(flatten)]
-        output: Output,
     },
 }
 
-pub(crate) fn handle_command(
-    command: KeysCliCommand,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) fn handle_command(command: KeysCliCommand) -> Result<CommandOutput> {
     match command {
-        KeysCliCommand::GenCommand { keytype, output } => Ok(generate(&keytype, &output.kind)),
-        KeysCliCommand::GetCommand {
-            keyname,
-            directory,
-            output,
-        } => get(&keyname, directory, &output),
-        KeysCliCommand::ListCommand { directory, output } => list(directory, &output),
+        KeysCliCommand::GenCommand { keytype } => generate(&keytype),
+        KeysCliCommand::GetCommand { keyname, directory } => get(&keyname, directory),
+        KeysCliCommand::ListCommand { directory } => list(directory),
     }
 }
 
-/// Generates a keypair of the specified KeyPairType, as either Text or JSON
-pub(crate) fn generate(kt: &KeyPairType, output: &OutputKind) -> String {
+/// Generates a keypair of the specified KeyPairType
+pub(crate) fn generate(kt: &KeyPairType) -> Result<CommandOutput> {
     let kp = KeyPair::new(kt.clone());
-    format_output(
+    let seed = kp.seed()?;
+
+    let mut map = HashMap::new();
+    map.insert("public_key".to_string(), json!(kp.public_key()));
+    map.insert("seed".to_string(), json!(seed));
+    Ok(CommandOutput::new(
         format!(
             "Public Key: {}\nSeed: {}\n\nRemember that the seed is private, treat it as a secret.",
             kp.public_key(),
-            kp.seed().unwrap()
+            seed,
         ),
-        json!({
-            "public_key": kp.public_key(),
-            "seed": kp.seed().unwrap(),
-        }),
-        output,
-    )
+        map,
+    ))
 }
 
 /// Retrieves a keypair by name in a specified directory, or $WASH_KEYS ($HOME/.wash/keys) if directory is not specified
-pub(crate) fn get(
-    keyname: &str,
-    directory: Option<PathBuf>,
-    output: &Output,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) fn get(keyname: &str, directory: Option<PathBuf>) -> Result<CommandOutput> {
     let keyfile = determine_directory(directory)?.join(keyname);
     let mut f = File::open(&keyfile)
-        .map_err(|e| format!("{}.\nPlease ensure {} exists.", e, keyfile.display()))?;
+        .with_context(|| format!("Please ensure {} exists.", keyfile.display()))?;
 
     let mut s = String::new();
-    let res = match f.read_to_string(&mut s) {
+    let seed = match f.read_to_string(&mut s) {
         Ok(_) => Ok(s),
         Err(e) => Err(e),
-    };
-    match res {
-        Err(e) => Err(e.into()),
-        Ok(s) => Ok(format_output(
-            s.trim().to_string(),
-            json!({ "seed": s.trim() }),
-            &output.kind,
-        )),
-    }
+    }?;
+
+    Ok(CommandOutput::from_key_and_text(
+        "seed",
+        seed.trim().to_string(),
+    ))
 }
 
 /// Lists all keypairs (file extension .nk) in a specified directory or $WASH_KEYS($HOME/.wash/keys) if directory is not specified
-pub(crate) fn list(
-    directory: Option<PathBuf>,
-    output: &Output,
-) -> Result<String, Box<dyn ::std::error::Error>> {
+pub(crate) fn list(directory: Option<PathBuf>) -> Result<CommandOutput> {
     let dir = determine_directory(directory)?;
 
     let mut keys = vec![];
-    let paths = fs::read_dir(dir.clone()).map_err(|e| {
-        format!(
-            "Error: {}, please ensure directory {} exists",
-            e,
-            dir.display()
-        )
-    })?;
+    let paths = fs::read_dir(dir.clone())
+        .with_context(|| format!("please ensure directory {} exists", dir.display()))?;
 
     for path in paths {
         let f = String::from(path.unwrap().file_name().to_str().unwrap());
@@ -140,29 +108,23 @@ pub(crate) fn list(
         }
     }
 
-    Ok(format_output(
+    let mut map = HashMap::new();
+    map.insert("keys".to_string(), json!(keys));
+    Ok(CommandOutput::new(
         format!(
             "====== Keys found in {} ======\n{}",
             dir.display(),
             keys.join("\n")
         ),
-        json!({ "keys": keys }),
-        &output.kind,
+        map,
     ))
 }
 
-fn determine_directory(directory: Option<PathBuf>) -> Result<PathBuf, Error> {
+fn determine_directory(directory: Option<PathBuf>) -> Result<PathBuf> {
     if let Some(d) = directory {
         Ok(d)
     } else {
-        let d = dirs::home_dir()
-            .ok_or_else(|| {
-                Error::new(
-                    std::io::ErrorKind::NotFound,
-                    "$HOME not found, please set $HOME or $WASH_KEYS for autogenerated keys",
-                )
-            })?
-            .join(".wash/keys");
+        let d = cfg_dir()?.join("keys");
         Ok(d)
     }
 }
@@ -175,7 +137,8 @@ pub(crate) fn extract_keypair(
     directory: Option<PathBuf>,
     keygen_type: KeyPairType,
     disable_keygen: bool,
-) -> Result<KeyPair, Box<dyn std::error::Error>> {
+    output_kind: OutputKind,
+) -> Result<KeyPair> {
     let seed = if let Some(input_str) = input {
         match File::open(input_str.clone()) {
             // User provided file path to seed as argument
@@ -214,40 +177,43 @@ pub(crate) fn extract_keypair(
             }
             // No default key, generating for user
             Err(_e) if !disable_keygen => {
-                println!(
-                    "{}",
-                    crate::util::format_output(
-                        format!(
-                            "No keypair found in \"{}\".
-We will generate one for you and place it there.
-If you'd like to use alternative keys, you can supply them as a flag.\n",
-                            path.display()
-                        ),
-                        json!({"status": "No keypair found", "path": path, "keygen": "true"}),
-                        &Output::default().kind,
-                    )
-                );
+                match output_kind {
+                    OutputKind::Text => println!(
+                        "No keypair found in \"{}\".
+                    We will generate one for you and place it there.
+                    If you'd like to use alternative keys, you can supply them as a flag.\n",
+                        path.display()
+                    ),
+                    OutputKind::Json => {
+                        println!(
+                            "{}",
+                            json!({"status": "No keypair found", "path": path, "keygen": "true"})
+                        )
+                    }
+                }
 
                 let kp = KeyPair::new(keygen_type);
                 let seed = kp.seed()?;
-                fs::create_dir_all(Path::new(&path).parent().unwrap())?;
-                let mut f = File::create(path)?;
+                let key_path = Path::new(&path).parent().unwrap();
+                fs::create_dir_all(key_path)?;
+                set_permissions_keys(key_path)?;
+                let mut f = File::create(path.clone())?;
                 f.write_all(seed.as_bytes())?;
+                set_permissions_keys(&path)?;
                 seed
             }
             _ => {
-                return Err(format!(
+                bail!(
                     "No keypair found in {}, please ensure key exists or supply one as a flag",
                     path.display()
-                )
-                .into());
+                );
             }
         }
     } else {
-        return Err("Keypair path or string not supplied. Ensure provided keypair is valid".into());
+        bail!("Keypair path or string not supplied. Ensure provided keypair is valid");
     };
 
-    KeyPair::from_seed(&seed).map_err(|e| format!("{}", e).into())
+    Ok(KeyPair::from_seed(&seed)?)
 }
 
 fn keypair_type_to_string(keypair_type: KeyPairType) -> String {
@@ -265,25 +231,30 @@ fn keypair_type_to_string(keypair_type: KeyPairType) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use super::{generate, KeysCli, KeysCliCommand, OutputKind};
+    use super::{generate, KeysCliCommand};
+    use clap::Parser;
     use nkeys::KeyPairType;
     use serde::Deserialize;
-    use structopt::StructOpt;
+    use std::path::PathBuf;
 
+    #[derive(Debug, Parser)]
+    struct Cmd {
+        #[clap(subcommand)]
+        keys: KeysCliCommand,
+    }
     #[test]
     fn test_generate_basic_test() {
         let kt = KeyPairType::Account;
 
-        let keypair = generate(&kt, &OutputKind::Text);
-        let keypair_json = generate(&kt, &OutputKind::Json);
+        let keypair = generate(&kt).unwrap();
 
-        assert!(keypair.contains("Public Key: "));
-        assert!(keypair.contains("Seed: "));
-        assert!(keypair.contains("Remember that the seed is private, treat it as a secret."));
-        assert_ne!(keypair, "");
-        assert_ne!(keypair_json, "");
+        assert!(keypair.text.contains("Public Key: "));
+        assert!(keypair.text.contains("Seed: "));
+        assert!(keypair
+            .text
+            .contains("Remember that the seed is private, treat it as a secret."));
+        assert_ne!(keypair.text, "");
+        assert!(!keypair.map.is_empty());
     }
 
     #[derive(Debug, Clone, Deserialize)]
@@ -299,8 +270,10 @@ mod tests {
 
         let kt = KeyPairType::Module;
 
-        let keypair_json = generate(&kt, &OutputKind::Json);
-        let keypair: KeyPairJson = serde_json::from_str(&keypair_json).unwrap();
+        let keypair_json = generate(&kt).unwrap();
+        let keypair: KeyPairJson =
+            serde_json::from_str(serde_json::to_string(&keypair_json.map).unwrap().as_str())
+                .unwrap();
 
         assert_eq!(keypair.public_key.len(), sample_public_key.len());
         assert_eq!(keypair.seed.len(), sample_seed.len());
@@ -313,20 +286,48 @@ mod tests {
         let sample_public_key = "MBBLAHS7MCGNQ6IR4ZDSGRIAF7NVS7FCKFTKGO5JJJKN2QQRVAH7BSIO";
         let sample_seed = "SMAH45IUULL57OSXNOOAKOTLSVNQOORMDLE3Y3PQLJ4J5MY7MN2K7BIFI4";
 
-        let account_keypair: KeyPairJson =
-            serde_json::from_str(&generate(&KeyPairType::Account, &OutputKind::Json)).unwrap();
-        let user_keypair: KeyPairJson =
-            serde_json::from_str(&generate(&KeyPairType::User, &OutputKind::Json)).unwrap();
-        let module_keypair: KeyPairJson =
-            serde_json::from_str(&generate(&KeyPairType::Module, &OutputKind::Json)).unwrap();
-        let service_keypair: KeyPairJson =
-            serde_json::from_str(&generate(&KeyPairType::Service, &OutputKind::Json)).unwrap();
-        let server_keypair: KeyPairJson =
-            serde_json::from_str(&generate(&KeyPairType::Server, &OutputKind::Json)).unwrap();
-        let operator_keypair: KeyPairJson =
-            serde_json::from_str(&generate(&KeyPairType::Operator, &OutputKind::Json)).unwrap();
-        let cluster_keypair: KeyPairJson =
-            serde_json::from_str(&generate(&KeyPairType::Cluster, &OutputKind::Json)).unwrap();
+        let account_keypair: KeyPairJson = serde_json::from_str(
+            serde_json::to_string(&generate(&KeyPairType::Account).unwrap().map)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let user_keypair: KeyPairJson = serde_json::from_str(
+            serde_json::to_string(&generate(&KeyPairType::User).unwrap().map)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let module_keypair: KeyPairJson = serde_json::from_str(
+            serde_json::to_string(&generate(&KeyPairType::Module).unwrap().map)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let service_keypair: KeyPairJson = serde_json::from_str(
+            serde_json::to_string(&generate(&KeyPairType::Service).unwrap().map)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let server_keypair: KeyPairJson = serde_json::from_str(
+            serde_json::to_string(&generate(&KeyPairType::Server).unwrap().map)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let operator_keypair: KeyPairJson = serde_json::from_str(
+            serde_json::to_string(&generate(&KeyPairType::Operator).unwrap().map)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
+        let cluster_keypair: KeyPairJson = serde_json::from_str(
+            serde_json::to_string(&generate(&KeyPairType::Cluster).unwrap().map)
+                .unwrap()
+                .as_str(),
+        )
+        .unwrap();
 
         assert!(account_keypair.public_key.starts_with('A'));
         assert_eq!(account_keypair.public_key.len(), sample_public_key.len());
@@ -374,9 +375,9 @@ mod tests {
         ];
 
         key_gen_types.iter().for_each(|cmd| {
-            let gen_cmd = KeysCli::from_iter(&["keys", "gen", cmd]);
-            match gen_cmd.command {
-                KeysCliCommand::GenCommand { keytype, output } => {
+            let gen_cmd: Cmd = clap::Parser::try_parse_from(&["keys", "gen", cmd]).unwrap();
+            match gen_cmd.keys {
+                KeysCliCommand::GenCommand { keytype } => {
                     use KeyPairType::*;
                     match keytype {
                         Account => assert_eq!(*cmd, "account"),
@@ -387,16 +388,15 @@ mod tests {
                         Operator => assert_eq!(*cmd, "operator"),
                         Cluster => assert_eq!(*cmd, "cluster"),
                     }
-                    assert_eq!(output.kind, OutputKind::Text);
                 }
                 _ => panic!("`keys gen` constructed incorrect command"),
             };
         });
 
         key_gen_types.iter().for_each(|cmd| {
-            let gen_cmd = KeysCli::from_iter(&["keys", "gen", cmd, "-o", "json"]);
-            match gen_cmd.command {
-                KeysCliCommand::GenCommand { keytype, output } => {
+            let gen_cmd: Cmd = clap::Parser::try_parse_from(&["keys", "gen", cmd]).unwrap();
+            match gen_cmd.keys {
+                KeysCliCommand::GenCommand { keytype } => {
                     use KeyPairType::*;
                     match keytype {
                         Account => assert_eq!(*cmd, "account"),
@@ -407,7 +407,6 @@ mod tests {
                         Operator => assert_eq!(*cmd, "operator"),
                         Cluster => assert_eq!(*cmd, "cluster"),
                     }
-                    assert_eq!(output.kind, OutputKind::Json);
                 }
                 _ => panic!("`keys gen` constructed incorrect command"),
             };
@@ -419,8 +418,10 @@ mod tests {
         const KEYNAME: &str = "get_basic_test.nk";
         const KEYPATH: &str = "./tests/fixtures";
 
-        let get_basic = KeysCli::from_iter(&["keys", "get", KEYNAME, "--directory", KEYPATH]);
-        match get_basic.command {
+        let gen_basic: Cmd =
+            clap::Parser::try_parse_from(&["keys", "get", KEYNAME, "--directory", KEYPATH])
+                .unwrap();
+        match gen_basic.keys {
             KeysCliCommand::GetCommand { keyname, .. } => assert_eq!(keyname, KEYNAME),
             other_cmd => panic!("keys get generated other command {:?}", other_cmd),
         }
@@ -434,17 +435,12 @@ mod tests {
         const KEYPATH: &str = "./tests/fixtures";
         const KEYNAME: &str = "get_comprehensive_test.nk";
 
-        let get_all_flags =
-            KeysCli::from_iter(&["keys", "get", KEYNAME, "-d", KEYPATH, "-o", "json"]);
-        match get_all_flags.command {
-            KeysCliCommand::GetCommand {
-                keyname,
-                directory,
-                output,
-            } => {
+        let get_all_flags: Cmd =
+            clap::Parser::try_parse_from(&["keys", "get", KEYNAME, "-d", KEYPATH]).unwrap();
+        match get_all_flags.keys {
+            KeysCliCommand::GetCommand { keyname, directory } => {
                 assert_eq!(keyname, KEYNAME);
                 assert_eq!(directory, Some(PathBuf::from(KEYPATH)));
-                assert_eq!(output.kind, OutputKind::Json);
             }
             other_cmd => panic!("keys get generated other command {:?}", other_cmd),
         }
@@ -457,17 +453,18 @@ mod tests {
     fn test_list_comprehensive() {
         const KEYPATH: &str = "./";
 
-        let list_basic = KeysCli::from_iter(&["keys", "list", "-d", KEYPATH]);
-        match list_basic.command {
+        let list_basic: Cmd =
+            clap::Parser::try_parse_from(&["keys", "list", "-d", KEYPATH]).unwrap();
+        match list_basic.keys {
             KeysCliCommand::ListCommand { .. } => (),
             other_cmd => panic!("keys get generated other command {:?}", other_cmd),
         }
 
-        let list_all_flags = KeysCli::from_iter(&["keys", "list", "-d", KEYPATH, "-o", "json"]);
-        match list_all_flags.command {
-            KeysCliCommand::ListCommand { directory, output } => {
+        let list_all_flags: Cmd =
+            clap::Parser::try_parse_from(&["keys", "list", "-d", KEYPATH]).unwrap();
+        match list_all_flags.keys {
+            KeysCliCommand::ListCommand { directory } => {
                 assert_eq!(directory, Some(PathBuf::from(KEYPATH)));
-                assert_eq!(output.kind, OutputKind::Json);
             }
             other_cmd => panic!("keys get generated other command {:?}", other_cmd),
         }

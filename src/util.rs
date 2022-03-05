@@ -1,34 +1,25 @@
-use nats::asynk::Connection;
+use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-use std::error::Error;
-use std::fmt;
-use std::fs::File;
-use std::io::Read;
-use std::path::PathBuf;
-use std::str::FromStr;
-use structopt::StructOpt;
+use std::{
+    collections::HashMap,
+    env::temp_dir,
+    error::Error,
+    fmt, fs,
+    fs::File,
+    io::Read,
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 use term_table::{Table, TableStyle};
-
-pub(crate) type Result<T> = ::std::result::Result<T, Box<dyn ::std::error::Error>>;
+use wasmbus_rpc::anats;
 
 pub const DEFAULT_NATS_HOST: &str = "127.0.0.1";
 pub const DEFAULT_NATS_PORT: &str = "4222";
 pub const DEFAULT_LATTICE_PREFIX: &str = "default";
-pub const DEFAULT_NATS_TIMEOUT: u64 = 2_000;
+pub const DEFAULT_NATS_TIMEOUT_MS: u64 = 2_000;
+pub const DEFAULT_START_PROVIDER_TIMEOUT_MS: u64 = 60_000;
 
-#[derive(StructOpt, Debug, Copy, Clone, Deserialize, Serialize)]
-pub(crate) struct Output {
-    #[structopt(
-        short = "o",
-        long = "output",
-        default_value = "text",
-        help = "Specify output format (text, json or wide)"
-    )]
-    pub(crate) kind: OutputKind,
-}
-
-pub trait HasOutputKind {
+pub(crate) trait HasOutputKind {
     fn output_kind(&self) -> &OutputKind;
 }
 
@@ -39,14 +30,6 @@ pub(crate) enum OutputKind {
     Json,
 }
 
-impl Default for Output {
-    fn default() -> Self {
-        Output {
-            kind: OutputKind::Text,
-        }
-    }
-}
-
 impl FromStr for OutputKind {
     type Err = OutputParseErr;
 
@@ -54,7 +37,6 @@ impl FromStr for OutputKind {
         match s {
             "json" => Ok(OutputKind::Json),
             "text" => Ok(OutputKind::Text),
-            "wide" => Ok(OutputKind::Text),
             _ => Err(OutputParseErr),
         }
     }
@@ -74,18 +56,6 @@ impl fmt::Display for OutputParseErr {
     }
 }
 
-/// Returns string output for provided output kind
-pub(crate) fn format_output(
-    text: String,
-    json: serde_json::Value,
-    output_kind: &OutputKind,
-) -> String {
-    match output_kind {
-        OutputKind::Text => text,
-        OutputKind::Json => serde_json::to_string(&json).unwrap(),
-    }
-}
-
 pub(crate) fn format_optional(value: Option<String>) -> String {
     value.unwrap_or_else(|| "N/A".into())
 }
@@ -102,16 +72,62 @@ pub(crate) fn extract_arg_value(arg: &str) -> Result<String> {
     }
 }
 
-/// Converts error from Send + Sync error to standard error
-pub(crate) fn convert_error(
-    e: Box<dyn ::std::error::Error + Send + Sync>,
-) -> Box<dyn ::std::error::Error> {
-    Box::<dyn std::error::Error>::from(e.to_string())
+pub(crate) struct CommandOutput {
+    pub map: std::collections::HashMap<String, serde_json::Value>,
+    pub text: String,
 }
 
-/// Converts error from RpcError
-pub(crate) fn convert_rpc_error(e: wasmbus_rpc::RpcError) -> Box<dyn ::std::error::Error> {
-    Box::<dyn std::error::Error>::from(e.to_string())
+impl CommandOutput {
+    pub(crate) fn new(
+        text: String,
+        map: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Self {
+        CommandOutput { map, text }
+    }
+
+    /// shorthand to create a new CommandOutput with a single key-value pair for JSON, and simply the text for text output.
+    pub fn from_key_and_text(key: &str, text: String) -> Self {
+        let mut map = std::collections::HashMap::new();
+        map.insert(key.to_string(), serde_json::Value::String(text.clone()));
+        CommandOutput { map, text }
+    }
+}
+
+impl From<String> for CommandOutput {
+    /// Create a basic CommandOutput from a String. Puts the string a a "result" key in the JSON output.
+    fn from(text: String) -> Self {
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            "result".to_string(),
+            serde_json::Value::String(text.clone()),
+        );
+        CommandOutput { map, text }
+    }
+}
+
+impl From<&str> for CommandOutput {
+    /// Create a basic CommandOutput from a &str. Puts the string a a "result" key in the JSON output.
+    fn from(text: &str) -> Self {
+        CommandOutput::from(text.to_string())
+    }
+}
+
+impl Default for CommandOutput {
+    fn default() -> Self {
+        CommandOutput {
+            map: std::collections::HashMap::new(),
+            text: "".to_string(),
+        }
+    }
+}
+
+pub(crate) fn default_timeout_ms() -> u64 {
+    DEFAULT_NATS_TIMEOUT_MS
+}
+
+/// Converts error from Send + Sync error to standard anyhow error
+pub(crate) fn convert_error(e: Box<dyn ::std::error::Error + Send + Sync>) -> anyhow::Error {
+    anyhow!(e.to_string())
 }
 
 /// Transforms a list of labels in the form of (label=value) to a hashmap
@@ -120,9 +136,8 @@ pub(crate) fn labels_vec_to_hashmap(constraints: Vec<String>) -> Result<HashMap<
     for constraint in constraints {
         let key_value = constraint.split('=').collect::<Vec<_>>();
         if key_value.len() < 2 {
-            return Err(
-                "Constraints were not properly formatted. Ensure they are formatted as label=value"
-                    .into(),
+            bail!(
+                "Constraints were not properly formatted. Ensure they are formatted as label=value",
             );
         }
         hm.insert(key_value[0].to_string(), key_value[1].to_string()); // [0] key, [1] value
@@ -221,7 +236,7 @@ pub(crate) async fn nats_client_from_opts(
     jwt: Option<String>,
     seed: Option<String>,
     credsfile: Option<PathBuf>,
-) -> Result<Connection> {
+) -> Result<anats::Connection> {
     let nats_url = format!("{}:{}", host, port);
 
     let nc = if let Some(jwt_file) = jwt {
@@ -231,8 +246,9 @@ pub(crate) async fn nats_client_from_opts(
         } else {
             nkeys::KeyPair::new_user()
         };
+
         // You must provide the JWT via a closure
-        nats::asynk::Options::with_jwt(
+        anats::Options::with_jwt(
             move || Ok(jwt_contents.clone()),
             move |nonce| kp.sign(nonce).unwrap(),
         )
@@ -240,15 +256,67 @@ pub(crate) async fn nats_client_from_opts(
         .await?
     } else if let Some(seed) = seed {
         let kp = nkeys::KeyPair::from_seed(&extract_arg_value(&seed)?)?;
-        nats::asynk::Options::with_nkey(&kp.public_key(), move |nonce| kp.sign(nonce).unwrap())
+        anats::Options::with_nkey(&kp.public_key(), move |nonce| kp.sign(nonce).unwrap())
             .connect(&nats_url)
             .await?
     } else if let Some(credsfile_path) = credsfile {
-        nats::asynk::Options::with_credentials(credsfile_path)
+        anats::Options::with_credentials(credsfile_path)
             .connect(&nats_url)
             .await?
     } else {
-        nats::asynk::connect(&nats_url).await?
+        anats::connect(&nats_url).await?
     };
     Ok(nc)
+}
+
+pub(crate) const OCI_CACHE_DIR: &str = "wasmcloud_ocicache";
+
+pub(crate) fn cached_file(img: &str) -> PathBuf {
+    let path = temp_dir();
+    let path = path.join(OCI_CACHE_DIR);
+    let _ = ::std::fs::create_dir_all(&path);
+    // should produce a file like wasmcloud_azurecr_io_kvcounter_v1.bin
+    let mut path = path.join(img_name_to_file_name(img));
+    path.set_extension("bin");
+
+    path
+}
+
+pub(crate) fn img_name_to_file_name(img: &str) -> String {
+    img.replace(':', "_").replace('/', "_").replace('.', "_")
+}
+
+// Check if the contract ID parameter is a 56 character key and suggest that the user
+// give the contract ID instead
+//
+// NOTE: `len` is ok here because keys are only ascii characters that take up a single
+// byte.
+pub fn validate_contract_id(contract_id: &str) -> Result<()> {
+    if contract_id.len() == 56
+        && contract_id
+            .chars()
+            .all(|c| c.is_ascii_digit() || c.is_ascii_uppercase())
+    {
+        bail!("It looks like you used an Actor or Provider ID (e.g. VABC...) instead of a contract ID (e.g. wasmcloud:httpserver)")
+    } else {
+        Ok(())
+    }
+}
+
+#[cfg(all(unix))]
+/// Set file and folder permissions for keys.
+pub(crate) fn set_permissions_keys(path: &Path) -> Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+
+    let metadata = path.metadata()?;
+    match metadata.file_type().is_dir() {
+        true => fs::set_permissions(path, fs::Permissions::from_mode(0o700))?,
+        false => fs::set_permissions(path, fs::Permissions::from_mode(0o600))?,
+    };
+    Ok(())
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) fn set_permissions_keys(path: &Path) -> Result<()> {
+    Ok(())
 }

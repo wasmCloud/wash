@@ -1,16 +1,25 @@
 version: "3"
 services:
   registry:
-    image: registry:2
+    image: registry:2.7
     ports:
      - "5000:5000"
   nats:
-    image: nats:2.1.9
+    image: nats:2.3
     ports:
-      - "6222:6222"
       - "4222:4222"
+      - "6222:6222"
       - "8222:8222"
   redis:
-    image: redis:6.0.9
+    image: redis:6.2
     ports:
       - "6379:6379"
+  wasmcloud:
+    image: wasmcloud/wasmcloud_host:latest
+    environment:
+      WASMCLOUD_RPC_HOST: nats
+      WASMCLOUD_CTL_HOST: nats
+      WASMCLOUD_PROV_RPC_HOST: nats
+    ports:
+      - "4000:4000"
+      - "8080-8089:8080-8089" # Allows exposing examples on ports 8080-8089

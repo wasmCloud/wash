@@ -1,17 +1,17 @@
-use crate::ctx::{context_dir, get_default_context, load_context};
-use crate::util::Result;
-use crate::util::{
-    convert_rpc_error, extract_arg_value, format_output, json_str_to_msgpack_bytes,
-    msgpack_to_json_val, nats_client_from_opts, Output, OutputKind, DEFAULT_LATTICE_PREFIX,
-    DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
+use crate::{
+    ctx::{context_dir, get_default_context, load_context},
+    id::{ClusterSeed, ModuleId},
+    util::{
+        default_timeout_ms, extract_arg_value, json_str_to_msgpack_bytes, msgpack_to_json_val,
+        nats_client_from_opts, CommandOutput, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST,
+        DEFAULT_NATS_PORT,
+    },
 };
+use anyhow::{bail, Context, Result};
+use clap::Args;
 use log::{debug, error};
-use serde_json::json;
-use std::path::PathBuf;
-use std::time::Duration;
-use structopt::clap::AppSettings;
-use structopt::StructOpt;
-use wasmbus_rpc::{core::WasmCloudEntity, Message, RpcClient};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
+use wasmbus_rpc::{core::WasmCloudEntity, rpc_client::RpcClient, Message};
 use wasmcloud_test_util::testing::TestResults;
 
 /// fake key (not a real public key)  used to construct origin for invoking actors
@@ -20,12 +20,10 @@ const WASH_ORIGIN_KEY: &str = "__WASH__";
 /// hostname used for actor invocations
 const WASH_HOST_ID: &str = "NwashHostCallerId000000000000000000000000000000000000000";
 
-#[derive(Debug, StructOpt, Clone)]
-#[structopt(
-    global_settings(&[AppSettings::ColoredHelp, AppSettings::VersionlessSubcommands]),
-    name = "call")]
+#[derive(Debug, Args, Clone)]
+#[clap(name = "call")]
 pub(crate) struct CallCli {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     command: CallCommand,
 }
 
@@ -35,91 +33,97 @@ impl CallCli {
     }
 }
 
-pub(crate) async fn handle_command(cmd: CallCommand) -> Result<String> {
-    let output_kind = cmd.output.kind;
+pub(crate) async fn handle_command(cmd: CallCommand) -> Result<CommandOutput> {
     let is_test = cmd.test;
     let save_output = cmd.save.clone();
     let bin = cmd.bin;
-    let res = handle_call(cmd).await;
-    Ok(call_output(res, save_output, bin, is_test, &output_kind))
+    let res = handle_call(cmd).await?;
+    call_output(res, save_output, bin, is_test)
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Args)]
 pub(crate) struct ConnectionOpts {
     /// RPC Host for connection, defaults to 127.0.0.1 for local nats
-    #[structopt(short = "r", long = "rpc-host", env = "WASMCLOUD_RPC_HOST")]
+    #[clap(short = 'r', long = "rpc-host", env = "WASMCLOUD_RPC_HOST")]
     rpc_host: Option<String>,
 
     /// RPC Port for connections, defaults to 4222 for local nats
-    #[structopt(short = "p", long = "rpc-port", env = "WASMCLOUD_RPC_PORT")]
+    #[clap(short = 'p', long = "rpc-port", env = "WASMCLOUD_RPC_PORT")]
     rpc_port: Option<String>,
 
     /// JWT file for RPC authentication. Must be supplied with rpc_seed.
-    #[structopt(long = "rpc-jwt", env = "WASMCLOUD_RPC_JWT", hide_env_values = true)]
+    #[clap(long = "rpc-jwt", env = "WASMCLOUD_RPC_JWT", hide_env_values = true)]
     rpc_jwt: Option<String>,
 
     /// Seed file or literal for RPC authentication. Must be supplied with rpc_jwt.
-    #[structopt(long = "rpc-seed", env = "WASMCLOUD_RPC_SEED", hide_env_values = true)]
+    #[clap(long = "rpc-seed", env = "WASMCLOUD_RPC_SEED", hide_env_values = true)]
     rpc_seed: Option<String>,
 
     /// Credsfile for RPC authentication. Combines rpc_seed and rpc_jwt.
     /// See https://docs.nats.io/developing-with-nats/security/creds for details.
-    #[structopt(long = "rpc-credsfile", env = "WASH_RPC_CREDS", hide_env_values = true)]
+    #[clap(long = "rpc-credsfile", env = "WASH_RPC_CREDS", hide_env_values = true)]
     rpc_credsfile: Option<PathBuf>,
 
     /// Lattice prefix for wasmcloud command interface, defaults to "default"
-    #[structopt(short = "x", long = "lattice-prefix", env = "WASMCLOUD_LATTICE_PREFIX")]
+    #[clap(short = 'x', long = "lattice-prefix", env = "WASMCLOUD_LATTICE_PREFIX")]
     lattice_prefix: Option<String>,
 
     /// Timeout length for RPC, defaults to 2000 milliseconds
-    #[structopt(short = "t", long = "rpc-timeout-ms", env = "WASMCLOUD_RPC_TIMEOUT_MS")]
-    timeout_ms: Option<u64>,
+    #[clap(
+        short = 't',
+        long = "rpc-timeout-ms",
+        default_value_t = default_timeout_ms(),
+        env = "WASMCLOUD_RPC_TIMEOUT_MS"
+    )]
+    timeout_ms: u64,
 
     /// Path to a context with values to use for RPC connection, authentication, and cluster seed invocation signing
-    #[structopt(long = "context")]
+    #[clap(long = "context")]
     pub(crate) context: Option<PathBuf>,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Args, Debug, Clone)]
 pub(crate) struct CallCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Optional json file to send as the operation payload
-    #[structopt(short, long)]
+    #[clap(short, long)]
     pub(crate) data: Option<PathBuf>,
 
     /// Optional file for saving binary response
-    #[structopt(long)]
+    #[clap(long)]
     pub(crate) save: Option<PathBuf>,
 
     /// When using json output, display binary as binary('b'), string('s'), or both('2')
-    #[structopt(long, default_value = "b")]
+    #[clap(long, default_value = "b")]
     pub(crate) bin: char,
 
     /// When invoking a test actor, interpret the response as TestResults
-    #[structopt(long)]
+    #[clap(long)]
     pub(crate) test: bool,
 
     /// wasmCloud host cluster seed. This cluster seed must match the cluster seed used to
     /// launch the wasmCloud host in order to pass antiforgery checks made by the host
     /// This is only optional if a default context is available or a context is provided
-    #[structopt(short = "c", long = "cluster-seed", env = "WASMCLOUD_CLUSTER_SEED")]
-    pub(crate) cluster_seed: Option<String>,
+    #[clap(
+        short = 'c',
+        long = "cluster-seed",
+        env = "WASMCLOUD_CLUSTER_SEED",
+        parse(try_from_str)
+    )]
+    pub(crate) cluster_seed: Option<ClusterSeed>,
 
     /// Public key or OCI reference of actor
-    #[structopt(name = "actor-id")]
-    pub(crate) actor_id: String,
+    #[clap(name = "actor-id")]
+    pub(crate) actor_id: ModuleId,
 
     /// Operation to invoke on actor
-    #[structopt(name = "operation")]
+    #[clap(name = "operation")]
     pub(crate) operation: String,
 
     /// Payload to send with operation (in the form of '{"field": "value"}' )
-    #[structopt(name = "payload")]
+    #[clap(name = "payload")]
     pub(crate) payload: Vec<String>,
 }
 
@@ -130,18 +134,14 @@ pub(crate) async fn handle_call(cmd: CallCommand) -> Result<Vec<u8>> {
         cmd.payload.join("")
     );
     if !"bs2".contains(cmd.bin) {
-        return Err(Box::<dyn std::error::Error>::from(
-            "'bin' parameter must be 'b', 's', or '2'",
-        ));
+        bail!("'bin' parameter must be 'b', 's', or '2'");
     }
 
     let origin = WasmCloudEntity::new_actor(WASH_ORIGIN_KEY)?;
     let target = WasmCloudEntity::new_actor(&cmd.actor_id)?;
 
     if cmd.data.is_some() && !cmd.payload.is_empty() {
-        return Err(Box::<dyn std::error::Error>::from(
-            "you can use either -d/--data or the payload args, but not both.".to_string(),
-        ));
+        bail!("you can use either -d/--data or the payload args, but not both.");
     }
     let payload = if let Some(fname) = cmd.data {
         std::fs::read_to_string(fname)?
@@ -154,8 +154,8 @@ pub(crate) async fn handle_call(cmd: CallCommand) -> Result<Vec<u8>> {
     );
     let bytes = json_str_to_msgpack_bytes(&payload)?;
 
-    let (client, timeout) = rpc_client_from_opts(cmd.opts, cmd.cluster_seed).await?;
-    client
+    let (client, timeout_ms) = rpc_client_from_opts(cmd.opts, cmd.cluster_seed).await?;
+    Ok(client
         .send_timeout(
             origin,
             target,
@@ -163,81 +163,73 @@ pub(crate) async fn handle_call(cmd: CallCommand) -> Result<Vec<u8>> {
                 method: &cmd.operation,
                 arg: bytes.into(),
             },
-            Duration::from_millis(timeout),
+            Duration::from_millis(timeout_ms),
         )
-        .await
-        .map_err(convert_rpc_error)
+        .await?)
 }
 
 // Helper output functions, used to ensure consistent output between call & standalone commands
 pub(crate) fn call_output(
-    response: Result<Vec<u8>>,
+    response: Vec<u8>,
     save_output: Option<PathBuf>,
     bin: char,
     is_test: bool,
-    output_kind: &OutputKind,
-) -> String {
-    match response {
-        Ok(msg) => {
-            if let Some(ref save_path) = save_output {
-                return match std::fs::write(save_path, msg) {
-                    Ok(_) => String::new(),
-                    Err(e) => format!(
-                        "Error saving results to {}: {}",
-                        &save_path.display(),
-                        e.to_string(),
-                    ),
-                };
-            }
-            if is_test {
-                // try to decode it as TestResults, otherwise dump as text
-                return match wasmbus_rpc::deserialize::<TestResults>(&msg) {
-                    Ok(tr) => {
-                        wasmcloud_test_util::cli::print_test_results(&tr);
-                        String::default()
-                    }
-                    Err(e) => {
-                        format!(
-                            "Error interpreting response as TestResults: {}. (raw): {}",
-                            e.to_string(),
-                            String::from_utf8_lossy(&msg)
-                        )
-                    }
-                };
-            }
-            format_output(
-                format!("\nCall response (raw): {}", String::from_utf8_lossy(&msg)),
-                msgpack_to_json_val(msg, bin),
-                output_kind,
-            )
-        }
-        Err(e) => format_output(
-            format!("\nError invoking actor: {}", e),
-            json!({ "error": format!("{}", e) }),
-            output_kind,
-        ),
+) -> Result<CommandOutput> {
+    if let Some(ref save_path) = save_output {
+        std::fs::write(save_path, response)
+            .with_context(|| format!("Error saving results to {}", &save_path.display()))?;
+
+        return Ok(CommandOutput::new(
+            String::new(),
+            HashMap::<String, serde_json::Value>::new(),
+        ));
     }
+    if is_test {
+        // try to decode it as TestResults, otherwise dump as text
+        let test_results =
+            wasmbus_rpc::deserialize::<TestResults>(&response).with_context(|| {
+                format!(
+                    "Error interpreting response as TestResults. Response: {}",
+                    String::from_utf8_lossy(&response)
+                )
+            })?;
+
+        wasmcloud_test_util::cli::print_test_results(&test_results);
+        return Ok(CommandOutput::new(
+            String::new(),
+            HashMap::<String, serde_json::Value>::new(),
+        ));
+    }
+
+    let mut json = HashMap::new();
+    json.insert(
+        "response".to_string(),
+        msgpack_to_json_val(response.clone(), bin),
+    );
+
+    Ok(CommandOutput::new(
+        format!(
+            "\nCall response (raw): {}",
+            String::from_utf8_lossy(&response)
+        ),
+        json,
+    ))
 }
 
 async fn rpc_client_from_opts(
     opts: ConnectionOpts,
-    cmd_cluster_seed: Option<String>,
+    cmd_cluster_seed: Option<ClusterSeed>,
 ) -> Result<(RpcClient, u64)> {
     let ctx = if let Some(context) = opts.context {
-        load_context(&context).ok()
+        load_context(context.as_path()).ok()
     } else if let Ok(ctx_dir) = context_dir(None) {
-        get_default_context(&ctx_dir).ok()
+        get_default_context(ctx_dir.as_path()).ok()
     } else {
         None
     };
 
     // Determine connection parameters, taking explicitly provided flags,
     // then provided context values, lastly using defaults
-    let timeout = opts.timeout_ms.unwrap_or_else(|| {
-        ctx.as_ref()
-            .map(|c| c.rpc_timeout)
-            .unwrap_or(DEFAULT_NATS_TIMEOUT)
-    });
 
     let lattice_prefix = opts.lattice_prefix.unwrap_or_else(|| {
         ctx.as_ref()
@@ -288,31 +280,33 @@ async fn rpc_client_from_opts(
                     error!(
                         "No cluster seed provided and no context available, this RPC will fail."
                     );
-                    "".to_string()
+                    ClusterSeed::default()
                 })
             })
             .unwrap_or_default()
     });
 
     let nc = nats_client_from_opts(&rpc_host, &rpc_port, rpc_jwt, rpc_seed, rpc_credsfile).await?;
+
     Ok((
-        RpcClient::new_asynk(
+        RpcClient::new(
             nc,
             &lattice_prefix,
-            nkeys::KeyPair::from_seed(&extract_arg_value(&cluster_seed)?)?,
+            nkeys::KeyPair::from_seed(&extract_arg_value(&cluster_seed.to_string())?)?,
             WASH_HOST_ID.to_string(),
-            Some(Duration::from_millis(timeout)),
+            Some(Duration::from_millis(opts.timeout_ms)),
         ),
-        timeout,
+        opts.timeout_ms,
     ))
 }
 
 #[cfg(test)]
 mod test {
-    use super::{CallCli, CallCommand};
-    use crate::util::Result;
-    use std::path::PathBuf;
-    use structopt::StructOpt;
+    use super::CallCommand;
+    use crate::id::ModuleId;
+    use anyhow::Result;
+    use clap::Parser;
+    use std::{path::PathBuf, str::FromStr};
 
     const RPC_HOST: &str = "127.0.0.1";
     const RPC_PORT: &str = "4222";
@@ -322,12 +316,16 @@ mod test {
 
     const ACTOR_ID: &str = "MDPDJEYIAK6MACO67PRFGOSSLODBISK4SCEYDY3HEOY4P5CVJN6UCWUK";
 
+    #[derive(Debug, Parser)]
+    struct Cmd {
+        #[clap(flatten)]
+        command: CallCommand,
+    }
+
     #[test]
     fn test_rpc_comprehensive() -> Result<()> {
-        let call_all = CallCli::from_iter_safe(&[
+        let call_all: Cmd = Parser::try_parse_from(&[
             "call",
-            "-o",
-            "json",
             "--test",
             "--data",
             DATA_FNAME,
@@ -338,7 +336,7 @@ mod test {
             "--context",
             "~/.wash/contexts/default.json",
             "--cluster-seed",
-            "SCASDASDASD",
+            "SCAMSVN4M2NZ65RWGYE42BZZ7VYEFEAAHGLIY7R4W7CRHORSMXTDJRKXLY",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--rpc-host",
@@ -354,7 +352,6 @@ mod test {
         match call_all.command {
             CallCommand {
                 opts,
-                output,
                 data,
                 save,
                 bin,
@@ -367,18 +364,22 @@ mod test {
                 assert_eq!(&opts.rpc_host.unwrap(), RPC_HOST);
                 assert_eq!(&opts.rpc_port.unwrap(), RPC_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 0);
+                assert_eq!(opts.timeout_ms, 0);
                 assert_eq!(
                     opts.context,
                     Some(PathBuf::from("~/.wash/contexts/default.json"))
                 );
-                assert_eq!(output.kind, crate::util::OutputKind::Json);
                 assert_eq!(data, Some(PathBuf::from(DATA_FNAME)));
                 assert_eq!(save, Some(PathBuf::from(SAVE_FNAME)));
-                assert_eq!(cluster_seed.unwrap(), "SCASDASDASD");
+                assert_eq!(
+                    cluster_seed.unwrap(),
+                    "SCAMSVN4M2NZ65RWGYE42BZZ7VYEFEAAHGLIY7R4W7CRHORSMXTDJRKXLY"
+                        .parse()
+                        .unwrap()
+                );
                 assert!(test);
                 assert_eq!(bin, '2');
-                assert_eq!(actor_id, ACTOR_ID);
+                assert_eq!(actor_id, ModuleId::from_str(ACTOR_ID).unwrap());
                 assert_eq!(operation, "HandleOperation");
                 assert_eq!(payload, vec!["{ \"hello\": \"world\"}".to_string()])
             }

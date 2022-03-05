@@ -3,51 +3,69 @@ name: Release
 on:
   push:
     tags:
-      - 'v*' # Push events to matching v*, i.e. v1.0, v20.15.10
+      - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
 
 jobs:
   cargo_check:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: make test-all
-    - name: Check fmt
-      run: cargo fmt -- --check
+      - uses: actions/checkout@v2
+      - name: Build
+        run: cargo build --verbose
+      - name: Run tests
+        run: make test-all
+      - name: Check fmt
+        run: cargo fmt -- --check
 
   clippy_check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v2
       - run: rustup component add clippy
       - uses: actions-rs/clippy-check@v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features
 
+  windows_build:
+    runs-on: windows-latest
+    needs: [cargo_check]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Compile wash
+        run: cargo build --release
+      - name: Upload artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: windows
+          path: target/release/wash.exe
+
   release:
-    needs: [cargo_check, clippy_check]
+    needs: [cargo_check, clippy_check, windows_build]
     runs-on: ubuntu-latest
     steps:
-    - name: Create Release
-      id: create_release
-      uses: actions/create-release@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: ${{ github.ref }}
-        release_name: Release ${{ github.ref }}
-        draft: false
-        prerelease: true
+      # We need to put windows on the release so that chocolatey can download it
+      - name: Download windows release
+        uses: actions/download-artifact@v2
+        with:
+          path: release
+      - name: Release
+        id: create_release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release/windows/wash.exe
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: true
 
   crates:
     needs: release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v2
       - name: Cargo login
         env:
           CRATES_TOKEN: ${{ secrets.CRATES_PUBLISH_TOKEN }}

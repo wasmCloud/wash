@@ -1,12 +1,12 @@
 //! template.rs
 //! Process files in template folder to build project folder
 //!
+use crate::appearance::emoji;
 use crate::generate::{
     any_msg,
     config::{RenameConfig, TemplateConfig},
     ParamMap,
 };
-use crate::appearance::emoji;
 use anyhow::{anyhow, Context, Result};
 use console::style;
 use ignore::gitignore::{Gitignore, GitignoreBuilder};

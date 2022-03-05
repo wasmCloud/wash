@@ -1,74 +1,73 @@
 extern crate wasmcloud_control_interface;
-use crate::ctx::{context_dir, get_default_context, load_context};
+
+use crate::appearance::spinner::Spinner;
 use crate::{
     ctl::manifest::HostManifest,
+    ctx::{context_dir, get_default_context, load_context},
+    id::{ModuleId, ServerId, ServiceId},
     util::{
-        convert_error, labels_vec_to_hashmap, HasOutputKind, Output, OutputKind, Result, DEFAULT_LATTICE_PREFIX,
-        DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT,
+        convert_error, default_timeout_ms, labels_vec_to_hashmap, validate_contract_id,
+        CommandOutput, OutputKind, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT,
+        DEFAULT_NATS_TIMEOUT_MS, DEFAULT_START_PROVIDER_TIMEOUT_MS,
     },
 };
-use id::{ModuleId, ServerId, ServiceId};
+use anyhow::{bail, Result};
+use clap::{AppSettings, ArgEnum, Args, Parser, Subcommand};
 pub(crate) use output::*;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
 };
-use structopt::StructOpt;
 use wasmcloud_control_interface::{
     Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
     LinkDefinitionList,
 };
-use crate::appearance::spinner::Spinner;
 
-mod id;
 mod manifest;
 mod output;
 
-#[derive(Debug, Clone, StructOpt)]
-pub(crate) struct CtlCli {
-    #[structopt(flatten)]
-    command: CtlCliCommand,
-}
+// default start actor command starts with one actor
+const ONE_ACTOR: u16 = 1;
 
-impl CtlCli {
-    pub(crate) fn command(self) -> CtlCliCommand {
-        self.command
-    }
-}
-
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Args, Debug, Clone)]
+//#[clap(PARENT_APP_ATTRIBUTE)]
 pub(crate) struct ConnectionOpts {
     /// CTL Host for connection, defaults to 127.0.0.1 for local nats
-    #[structopt(short = "r", long = "ctl-host", env = "WASMCLOUD_CTL_HOST")]
+    #[clap(short = 'r', long = "ctl-host", env = "WASMCLOUD_CTL_HOST")]
     ctl_host: Option<String>,
 
     /// CTL Port for connections, defaults to 4222 for local nats
-    #[structopt(short = "p", long = "ctl-port", env = "WASMCLOUD_CTL_PORT")]
+    #[clap(short = 'p', long = "ctl-port", env = "WASMCLOUD_CTL_PORT")]
     ctl_port: Option<String>,
 
     /// JWT file for CTL authentication. Must be supplied with ctl_seed.
-    #[structopt(long = "ctl-jwt", env = "WASMCLOUD_CTL_JWT", hide_env_values = true)]
+    #[clap(long = "ctl-jwt", env = "WASMCLOUD_CTL_JWT", hide_env_values = true)]
     ctl_jwt: Option<String>,
 
     /// Seed file or literal for CTL authentication. Must be supplied with ctl_jwt.
-    #[structopt(long = "ctl-seed", env = "WASMCLOUD_CTL_SEED", hide_env_values = true)]
+    #[clap(long = "ctl-seed", env = "WASMCLOUD_CTL_SEED", hide_env_values = true)]
     ctl_seed: Option<String>,
 
     /// Credsfile for CTL authentication. Combines ctl_seed and ctl_jwt.
     /// See https://docs.nats.io/developing-with-nats/security/creds for details.
-    #[structopt(long = "ctl-credsfile", env = "WASH_CTL_CREDS", hide_env_values = true)]
+    #[clap(long = "ctl-credsfile", env = "WASH_CTL_CREDS", hide_env_values = true)]
     ctl_credsfile: Option<PathBuf>,
 
     /// Lattice prefix for wasmcloud control interface, defaults to "default"
-    #[structopt(short = "x", long = "lattice-prefix", env = "WASMCLOUD_LATTICE_PREFIX")]
+    #[clap(short = 'x', long = "lattice-prefix", env = "WASMCLOUD_LATTICE_PREFIX")]
     lattice_prefix: Option<String>,
 
     /// Timeout length to await a control interface response, defaults to 2000 milliseconds
-    #[structopt(short = "t", long = "timeout-ms", env = "WASMCLOUD_CTL_TIMEOUT_MS")]
-    timeout_ms: Option<u64>,
+    #[clap(
+        short = 't',
+        long = "timeout-ms",
+        default_value_t = default_timeout_ms(),
+        env = "WASMCLOUD_CTL_TIMEOUT_MS"
+    )]
+    timeout_ms: u64,
 
     /// Path to a context with values to use for CTL connection and authentication
-    #[structopt(long = "context")]
+    #[clap(long = "context")]
     pub(crate) context: Option<PathBuf>,
 }
 
@@ -81,518 +80,528 @@ impl Default for ConnectionOpts {
             ctl_seed: None,
             ctl_credsfile: None,
             lattice_prefix: Some(DEFAULT_LATTICE_PREFIX.to_string()),
-            timeout_ms: Some(DEFAULT_NATS_TIMEOUT),
+            timeout_ms: DEFAULT_NATS_TIMEOUT_MS,
             context: None,
         }
     }
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(ArgEnum, Debug, Clone, Subcommand)]
 pub(crate) enum CtlCliCommand {
     /// Retrieves information about the lattice
-    #[structopt(name = "get")]
+    #[clap(name = "get", subcommand)]
     Get(GetCommand),
 
     /// Link an actor and a provider
-    #[structopt(name = "link")]
+    #[clap(name = "link", subcommand)]
     Link(LinkCommand),
 
     /// Start an actor or a provider
-    #[structopt(name = "start")]
+    #[clap(name = "start", subcommand)]
     Start(StartCommand),
 
     /// Stop an actor, provider, or host
-    #[structopt(name = "stop")]
+    #[clap(name = "stop", subcommand)]
     Stop(StopCommand),
 
     /// Update an actor running in a host to a new actor
-    #[structopt(name = "update")]
+    #[clap(name = "update", subcommand)]
     Update(UpdateCommand),
 
     /// Apply a manifest file to a target host
-    #[structopt(name = "apply")]
+    #[clap(name = "apply")]
     Apply(ApplyCommand),
+
+    #[clap(name = "scale", subcommand)]
+    Scale(ScaleCommand),
 }
 
-impl HasOutputKind for CtlCliCommand {
-    fn output_kind(&self) -> &OutputKind {
-        &match self {
-            CtlCliCommand::Get(a) => {
-                match a {
-                    GetCommand::Claims(c) => c.output.kind,
-                    GetCommand::Hosts(h) => h.output.kind,
-                    GetCommand::HostInventory(i) => i.output.kind,
-                }
-            }
-            CtlCliCommand::Link(a) => {
-                match a {
-                    LinkCommand::Query(q) => q.output.kind,
-                    LinkCommand::Put(p) => p.output.kind,
-                    LinkCommand::Del(d) => d.output.kind,
-                }
-            }
-            CtlCliCommand::Start(a) => {
-                match a {
-                    StartCommand::Actor(x) => x.output.kind,
-                    StartCommand::Provider(p) => p.output.kind,
-                }
-            }
-            CtlCliCommand::Stop(a) => {
-                match a {
-                    StopCommand::Actor(s) => s.output.kind,
-                    StopCommand::Provider(s) => s.output.kind,
-                    StopCommand::Host(s) => s.output.kind,
-                }
-            }
-            CtlCliCommand::Update(a) => {
-                match a {
-                    UpdateCommand::Actor(u) => u.output.kind,
-                }
-            }
-            CtlCliCommand::Apply(a) => a.output.kind,
-        }
-    }
-}
-
-#[derive(StructOpt, Debug, Clone, HasOutput)]
+#[derive(Args, Debug, Clone)]
 pub(crate) struct ApplyCommand {
     /// Public key of the target host for the manifest application
-    #[structopt(name = "host-key", parse(try_from_str))]
+    #[clap(name = "host-key", parse(try_from_str))]
     pub(crate) host_key: ServerId,
 
     /// Path to the manifest file. Note that all the entries in this file are imperative instructions, and all actor and provider references MUST be valid OCI references.
-    #[structopt(name = "path")]
+    #[clap(name = "path")]
     pub(crate) path: String,
 
     /// Expand environment variables using substitution syntax within the manifest file
-    #[structopt(name = "expand-env", short = "e", long = "expand-env")]
+    #[clap(name = "expand-env", short = 'e', long = "expand-env")]
     pub(crate) expand_env: bool,
 
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Subcommand)]
 pub(crate) enum GetCommand {
     /// Query lattice for running hosts
-    #[structopt(name = "hosts")]
+    #[clap(name = "hosts")]
     Hosts(GetHostsCommand),
 
     /// Query a single host for its inventory of labels, actors and providers
-    #[structopt(name = "inventory")]
+    #[clap(name = "inventory")]
     HostInventory(GetHostInventoryCommand),
 
     /// Query lattice for its claims cache
-    #[structopt(name = "claims")]
+    #[clap(name = "claims")]
     Claims(GetClaimsCommand),
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) enum LinkCommand {
     /// Query established links
-    #[structopt(name = "query")]
+    #[clap(name = "query")]
     Query(LinkQueryCommand),
 
     /// Establish a link definition
-    #[structopt(name = "put")]
+    #[clap(name = "put")]
     Put(LinkPutCommand),
 
     /// Delete a link definition
-    #[structopt(name = "del")]
+    #[clap(name = "del")]
     Del(LinkDelCommand),
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub(crate) struct LinkQueryCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub(crate) struct LinkDelCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Public key ID of actor
-    #[structopt(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", parse(try_from_str))]
     pub(crate) actor_id: ModuleId,
 
     /// Capability contract ID between actor and provider
-    #[structopt(name = "contract-id")]
+    #[clap(name = "contract-id")]
     pub(crate) contract_id: String,
 
     /// Link name, defaults to "default"
-    #[structopt(short = "l", long = "link-name")]
+    #[clap(short = 'l', long = "link-name")]
     pub(crate) link_name: Option<String>,
 }
 
-#[derive(StructOpt, Debug, Clone)]
+#[derive(Parser, Debug, Clone)]
 pub(crate) struct LinkPutCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Public key ID of actor
-    #[structopt(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", parse(try_from_str))]
     pub(crate) actor_id: ModuleId,
 
     /// Public key ID of provider
-    #[structopt(name = "provider-id", parse(try_from_str))]
+    #[clap(name = "provider-id", parse(try_from_str))]
     pub(crate) provider_id: ServiceId,
 
     /// Capability contract ID between actor and provider
-    #[structopt(name = "contract-id")]
+    #[clap(name = "contract-id")]
     pub(crate) contract_id: String,
 
     /// Link name, defaults to "default"
-    #[structopt(short = "l", long = "link-name")]
+    #[clap(short = 'l', long = "link-name")]
     pub(crate) link_name: Option<String>,
 
     /// Environment values to provide alongside link
-    #[structopt(name = "values")]
+    #[clap(name = "values")]
     pub(crate) values: Vec<String>,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) enum StartCommand {
     /// Launch an actor in a host
-    #[structopt(name = "actor")]
+    #[clap(name = "actor")]
     Actor(StartActorCommand),
 
     /// Launch a provider in a host
-    #[structopt(name = "provider")]
+    #[clap(name = "provider")]
     Provider(StartProviderCommand),
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) enum StopCommand {
     /// Stop an actor running in a host
-    #[structopt(name = "actor")]
+    #[clap(name = "actor")]
     Actor(StopActorCommand),
 
     /// Stop a provider running in a host
-    #[structopt(name = "provider")]
+    #[clap(name = "provider")]
     Provider(StopProviderCommand),
 
     /// Purge and stop a running host
-    #[structopt(name = "host")]
+    #[clap(name = "host")]
     Host(StopHostCommand),
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) enum UpdateCommand {
     /// Update an actor running in a host
-    #[structopt(name = "actor")]
+    #[clap(name = "actor")]
     Actor(UpdateActorCommand),
 }
 
-#[derive(Debug, Clone, StructOpt)]
-pub(crate) struct GetHostsCommand {
-    #[structopt(flatten)]
-    opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
+#[derive(Debug, Clone, Parser)]
+pub(crate) enum ScaleCommand {
+    /// Scale an actor running in a host
+    #[clap(name = "actor")]
+    Actor(ScaleActorCommand),
 }
 
-#[derive(Debug, Clone, StructOpt)]
-pub(crate) struct GetHostInventoryCommand {
-    #[structopt(flatten)]
+#[derive(Debug, Clone, Parser)]
+pub struct ScaleActorCommand {
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
+    /// Id of host
+    #[clap(name = "host-id", parse(try_from_str))]
+    host_id: ServerId,
+
+    /// Actor Id, e.g. the public key for the actor
+    #[clap(name = "actor-id", parse(try_from_str))]
+    pub(crate) actor_id: ModuleId,
+
+    /// Actor reference, e.g. the OCI URL for the actor.
+    #[clap(name = "actor-ref")]
+    pub(crate) actor_ref: String,
+
+    /// Number of actors to scale to.
+    #[clap(short = 'c', long = "count", default_value = "1")]
+    pub count: u16,
+
+    /// Optional set of annotations used to describe the nature of this actor scale command.
+    /// For example, autonomous agents may wish to “tag” scale requests as part of a given deployment
+    #[clap(short = 'a', long = "annotations")]
+    pub annotations: Vec<String>,
+}
+
+#[derive(Debug, Clone, Parser)]
+pub(crate) struct GetHostsCommand {
+    #[clap(flatten)]
+    opts: ConnectionOpts,
+}
+
+#[derive(Debug, Clone, Parser)]
+pub(crate) struct GetHostInventoryCommand {
+    #[clap(flatten)]
+    opts: ConnectionOpts,
 
     /// Id of host
-    #[structopt(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", parse(try_from_str))]
     pub(crate) host_id: ServerId,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct GetClaimsCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
-
-    #[structopt(flatten)]
-    pub(crate) output: Output,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
+#[clap(setting(AppSettings::DisableHelpFlag))]
 pub(crate) struct StartActorCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host, if omitted the actor will be auctioned in the lattice to find a suitable host
-    #[structopt(short = "h", long = "host-id", name = "host-id", parse(try_from_str))]
+    #[clap(short = 'h', long = "host-id", name = "host-id", parse(try_from_str))]
     pub(crate) host_id: Option<ServerId>,
 
     /// Actor reference, e.g. the OCI URL for the actor.
-    #[structopt(name = "actor-ref")]
+    #[clap(name = "actor-ref")]
     pub(crate) actor_ref: String,
 
+    /// Number of actors to start
+    #[clap(long = "count", default_value = "1")]
+    pub(crate) count: u16,
+
     /// Constraints for actor auction in the form of "label=value". If host-id is supplied, this list is ignored
-    #[structopt(short = "c", long = "constraint", name = "constraints")]
+    #[clap(short = 'c', long = "constraint", name = "constraints")]
     constraints: Option<Vec<String>>,
 
     /// Timeout to await an auction response, defaults to 2000 milliseconds
-    #[structopt(long = "auction-timeout-ms")]
-    auction_timeout_ms: Option<u64>,
+    #[clap(long = "auction-timeout-ms", default_value_t = default_timeout_ms())]
+    auction_timeout_ms: u64,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
+#[clap(setting(AppSettings::DisableHelpFlag))]
 pub(crate) struct StartProviderCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host, if omitted the provider will be auctioned in the lattice to find a suitable host
-    #[structopt(short = "h", long = "host-id", name = "host-id", parse(try_from_str))]
+    #[clap(short = 'h', long = "host-id", name = "host-id", parse(try_from_str))]
     host_id: Option<ServerId>,
 
     /// Provider reference, e.g. the OCI URL for the provider
-    #[structopt(name = "provider-ref")]
+    #[clap(name = "provider-ref")]
     pub(crate) provider_ref: String,
 
     /// Link name of provider
-    #[structopt(short = "l", long = "link-name", default_value = "default")]
+    #[clap(short = 'l', long = "link-name", default_value = "default")]
     pub(crate) link_name: String,
 
     /// Constraints for provider auction in the form of "label=value". If host-id is supplied, this list is ignored
-    #[structopt(short = "c", long = "constraint", name = "constraints")]
+    #[clap(short = 'c', long = "constraint", name = "constraints")]
     constraints: Option<Vec<String>>,
 
     /// Timeout to await an auction response, defaults to 2000 milliseconds
-    #[structopt(long = "auction-timeout-ms")]
-    auction_timeout_ms: Option<u64>,
+    #[clap(long = "auction-timeout-ms", default_value_t = default_timeout_ms())]
+    auction_timeout_ms: u64,
+
+    /// Path to provider configuration JSON file
+    #[clap(long = "config-json")]
+    config_json: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct StopActorCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host
-    #[structopt(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", parse(try_from_str))]
     pub(crate) host_id: ServerId,
 
     /// Actor Id, e.g. the public key for the actor
-    #[structopt(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", parse(try_from_str))]
     pub(crate) actor_id: ModuleId,
 
     /// Number of actors to stop
-    #[structopt(long = "count", default_value = "1")]
+    #[clap(long = "count", default_value = "1")]
     pub(crate) count: u16,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct StopProviderCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host
-    #[structopt(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", parse(try_from_str))]
     host_id: ServerId,
 
     /// Provider Id, e.g. the public key for the provider
-    #[structopt(name = "provider-id", parse(try_from_str))]
+    #[clap(name = "provider-id", parse(try_from_str))]
     pub(crate) provider_id: ServiceId,
 
     /// Link name of provider
-    #[structopt(name = "link-name")]
+    #[clap(name = "link-name")]
     pub(crate) link_name: String,
 
     /// Capability contract Id of provider
-    #[structopt(name = "contract-id")]
+    #[clap(name = "contract-id")]
     pub(crate) contract_id: String,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct StopHostCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host
-    #[structopt(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", parse(try_from_str))]
     host_id: ServerId,
 
     /// The timeout in ms for how much time to give the host for graceful shutdown
-    #[structopt(short = "h", long = "host-timeout")]
-    host_shutdown_timeout: Option<u64>,
+    #[clap(
+        short = 'h',
+        long = "host-timeout",
+        default_value_t = default_timeout_ms()
+    )]
+    host_shutdown_timeout: u64,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Parser)]
 pub(crate) struct UpdateActorCommand {
-    #[structopt(flatten)]
+    #[clap(flatten)]
     opts: ConnectionOpts,
 
-    #[structopt(flatten)]
-    pub(crate) output: Output,
-
     /// Id of host
-    #[structopt(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", parse(try_from_str))]
     pub(crate) host_id: ServerId,
 
     /// Actor Id, e.g. the public key for the actor
-    #[structopt(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", parse(try_from_str))]
     pub(crate) actor_id: ModuleId,
 
     /// Actor reference, e.g. the OCI URL for the actor.
-    #[structopt(name = "new-actor-ref")]
+    #[clap(name = "new-actor-ref")]
     pub(crate) new_actor_ref: String,
 }
 
-pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
+pub(crate) async fn handle_command(
+    command: CtlCliCommand,
+    output_kind: OutputKind,
+) -> Result<CommandOutput> {
     use CtlCliCommand::*;
-    let output_kind = command.output_kind();
-    let sp: Spinner = Spinner::new(output_kind);
+    let sp: Spinner = Spinner::new(&output_kind);
     let out = match command {
         Apply(cmd) => {
             sp.update_spinner_message(" Applying manifest ...".to_string());
             let results = apply_manifest(cmd).await?;
-            apply_manifest_output(results, output_kind)
+            apply_manifest_output(results)
         }
         Get(GetCommand::Hosts(cmd)) => {
             sp.update_spinner_message(" Retrieving Hosts ...".to_string());
             let hosts = get_hosts(cmd).await?;
-            get_hosts_output(hosts, output_kind)
+            get_hosts_output(hosts)
         }
         Get(GetCommand::HostInventory(cmd)) => {
-            sp.update_spinner_message(format!(" Retrieving inventory for host {} ...", cmd.host_id));
+            sp.update_spinner_message(format!(
+                " Retrieving inventory for host {} ...",
+                cmd.host_id
+            ));
             let inv = get_host_inventory(cmd).await?;
-            get_host_inventory_output(inv, output_kind)
+            get_host_inventory_output(inv)
         }
         Get(GetCommand::Claims(cmd)) => {
             sp.update_spinner_message(" Retrieving claims ... ".to_string());
             let claims = get_claims(cmd).await?;
-            get_claims_output(claims, output_kind)
+            get_claims_output(claims)
         }
         Link(LinkCommand::Del(cmd)) => {
             let link_name = &cmd
                 .link_name
                 .clone()
                 .unwrap_or_else(|| "default".to_string());
-            sp.update_spinner_message(
-                format!(
-                    "Deleting link for {} on {} ({}) ... ",
-                    cmd.actor_id, cmd.contract_id, link_name
-                ));
+
+            validate_contract_id(&cmd.contract_id)?;
+
+            sp.update_spinner_message(format!(
+                "Deleting link for {} on {} ({}) ... ",
+                cmd.actor_id, cmd.contract_id, link_name
+            ));
+
             let failure = link_del(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
-            link_del_output(
-                &cmd.actor_id,
-                &cmd.contract_id,
-                link_name,
-                failure,
-                output_kind,
-            )
+            link_del_output(&cmd.actor_id, &cmd.contract_id, link_name, failure)?
         }
         Link(LinkCommand::Put(cmd)) => {
-            sp.update_spinner_message(
-                format!(
-                    "Defining link between {} and {} ... ",
-                    cmd.actor_id, cmd.provider_id
-                )
-            );
+            validate_contract_id(&cmd.contract_id)?;
+
+            sp.update_spinner_message(format!(
+                "Defining link between {} and {} ... ",
+                cmd.actor_id, cmd.contract_id,
+            ));
+
             let failure = link_put(cmd.clone())
                 .await
                 .map_or_else(|e| Some(format!("{}", e)), |_| None);
-            link_put_output(&cmd.actor_id, &cmd.provider_id, failure, output_kind)
+            link_put_output(&cmd.actor_id, &cmd.provider_id, failure)?
         }
         Link(LinkCommand::Query(cmd)) => {
             sp.update_spinner_message("Querying Links ... ".to_string());
             let result = link_query(cmd.clone()).await?;
-            link_query_output(result, output_kind)
+            link_query_output(result)
         }
         Start(StartCommand::Actor(cmd)) => {
             let actor_ref = &cmd.actor_ref.to_string();
+
             sp.update_spinner_message(format!(" Starting actor {} ... ", actor_ref));
+
             let ack = start_actor(cmd).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Actor {} started successfully", actor_ref),
-                &ack.error,
-                output_kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Start actor request received: {}", actor_ref),
             )
         }
         Start(StartCommand::Provider(cmd)) => {
             let provider_ref = &cmd.provider_ref.to_string();
+
             sp.update_spinner_message(format!(" Starting provider {} ... ", provider_ref));
+
             let ack = start_provider(cmd).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Provider {} started successfully", provider_ref),
-                &ack.error,
-                output_kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Start provider request received: {}", provider_ref),
             )
         }
         Stop(StopCommand::Actor(cmd)) => {
             sp.update_spinner_message(format!(" Stopping actor {} ... ", cmd.actor_id));
+
             let ack = stop_actor(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Actor {} stopped successfully", cmd.actor_id),
-                &ack.error,
-                output_kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Actor {} stopped successfully", cmd.actor_id),
             )
         }
         Stop(StopCommand::Provider(cmd)) => {
             sp.update_spinner_message(format!(" Stopping provider {} ... ", cmd.provider_id));
+
             let ack = stop_provider(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Provider {} stopped successfully", cmd.provider_id),
-                &ack.error,
-                output_kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Provider {} stopped successfully", cmd.provider_id),
             )
         }
         Stop(StopCommand::Host(cmd)) => {
             sp.update_spinner_message(format!(" Stopping host {} ... ", cmd.host_id));
+
             let ack = stop_host(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Host {} acknowledged stop request", cmd.host_id),
-                &ack.error,
-                output_kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Host {} acknowledged stop request", cmd.host_id),
             )
         }
         Update(UpdateCommand::Actor(cmd)) => {
-            sp.update_spinner_message(
-                format!(
-                    " Updating Actor {} to {} ... ",
-                    cmd.actor_id, cmd.new_actor_ref
-                ));
+            sp.update_spinner_message(format!(
+                " Updating Actor {} to {} ... ",
+                cmd.actor_id, cmd.new_actor_ref
+            ));
+
             let ack = update_actor(cmd.clone()).await?;
-            ctl_operation_output(
-                ack.accepted,
-                &format!("Actor {} updated to {}", cmd.actor_id, cmd.new_actor_ref),
-                &ack.error,
-                output_kind,
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Actor {} updated to {}", cmd.actor_id, cmd.new_actor_ref),
+            )
+        }
+        Scale(ScaleCommand::Actor(cmd)) => {
+            sp.update_spinner_message(format!(
+                " Scaling Actor {} to {} instances ... ",
+                cmd.actor_id, cmd.count
+            ));
+
+            let ack = scale_actor(cmd.clone()).await?;
+            if !ack.accepted {
+                bail!("Operation failed: {}", ack.error);
+            }
+
+            CommandOutput::from_key_and_text(
+                "result",
+                format!("Actor {} scaled to {} instances", cmd.actor_id, cmd.count),
             )
         }
     };
@@ -603,13 +612,12 @@ pub(crate) async fn handle_command(command: CtlCliCommand) -> Result<String> {
 }
 
 pub(crate) async fn get_hosts(cmd: GetHostsCommand) -> Result<Vec<Host>> {
-    let timeout = Duration::from_millis(cmd.opts.timeout_ms.unwrap_or(DEFAULT_NATS_TIMEOUT));
-    let client = ctl_client_from_opts(cmd.opts).await?;
-    client.get_hosts(timeout).await.map_err(convert_error)
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
+    client.get_hosts().await.map_err(convert_error)
 }
 
 pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<HostInventory> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client
         .get_host_inventory(&cmd.host_id.to_string())
         .await
@@ -617,12 +625,12 @@ pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<H
 }
 
 pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsResponse> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client.get_claims().await.map_err(convert_error)
 }
 
 pub(crate) async fn link_del(cmd: LinkDelCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client
         .remove_link(
             &cmd.actor_id.to_string(),
@@ -634,7 +642,7 @@ pub(crate) async fn link_del(cmd: LinkDelCommand) -> Result<CtlOperationAck> {
 }
 
 pub(crate) async fn link_put(cmd: LinkPutCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client
         .advertise_link(
             &cmd.actor_id.to_string(),
@@ -648,22 +656,16 @@ pub(crate) async fn link_put(cmd: LinkPutCommand) -> Result<CtlOperationAck> {
 }
 
 pub(crate) async fn link_query(cmd: LinkQueryCommand) -> Result<LinkDefinitionList> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client.query_links().await.map_err(convert_error)
 }
 
-pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAck> {
-    // If timeout isn't supplied, override with a reasonably long timeout to account for
-    // OCI downloads and response
-    let opts = if cmd.opts.timeout_ms.is_none() {
-        ConnectionOpts {
-            timeout_ms: Some(15000),
-            ..cmd.opts
-        }
-    } else {
-        cmd.opts
-    };
-    let client = ctl_client_from_opts(opts).await?;
+pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CtlOperationAck> {
+    // If timeout isn't supplied, override with a longer timeout for starting actor
+    if cmd.opts.timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
+        cmd.opts.timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
+    }
+    let client = ctl_client_from_opts(cmd.opts, Some(cmd.auction_timeout_ms)).await?;
 
     let host = match cmd.host_id {
         Some(host) => host,
@@ -672,12 +674,11 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAc
                 .perform_actor_auction(
                     &cmd.actor_ref,
                     labels_vec_to_hashmap(cmd.constraints.unwrap_or_default())?,
-                    Duration::from_millis(cmd.auction_timeout_ms.unwrap_or(DEFAULT_NATS_TIMEOUT)),
                 )
                 .await
                 .map_err(convert_error)?;
             if suitable_hosts.is_empty() {
-                return Err(format!("No suitable hosts found for actor {}", cmd.actor_ref).into());
+                bail!("No suitable hosts found for actor {}", cmd.actor_ref);
             } else {
                 suitable_hosts[0].host_id.parse()?
             }
@@ -685,23 +686,18 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CtlOperationAc
     };
 
     client
-        .start_actor(&host.to_string(), &cmd.actor_ref, None)
+        .start_actor(&host.to_string(), &cmd.actor_ref, cmd.count, None)
         .await
         .map_err(convert_error)
 }
 
-pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOperationAck> {
-    // If timeout isn't supplied, override with a reasonably long timeout to account for
+pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CtlOperationAck> {
+    // If timeout isn't supplied, override with a longer timeout for starting provider
+    if cmd.opts.timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
+        cmd.opts.timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
+    }
     // OCI downloads and response
-    let opts = if cmd.opts.timeout_ms.is_none() {
-        ConnectionOpts {
-            timeout_ms: Some(60000),
-            ..cmd.opts
-        }
-    } else {
-        cmd.opts
-    };
-    let client = ctl_client_from_opts(opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, Some(cmd.auction_timeout_ms)).await?;
 
     let host = match cmd.host_id {
         Some(host) => host,
@@ -711,18 +707,31 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOpera
                     &cmd.provider_ref,
                     &cmd.link_name,
                     labels_vec_to_hashmap(cmd.constraints.unwrap_or_default())?,
-                    Duration::from_millis(cmd.auction_timeout_ms.unwrap_or(DEFAULT_NATS_TIMEOUT)),
                 )
                 .await
                 .map_err(convert_error)?;
             if suitable_hosts.is_empty() {
-                return Err(
-                    format!("No suitable hosts found for provider {}", cmd.provider_ref).into(),
-                );
+                bail!("No suitable hosts found for provider {}", cmd.provider_ref);
             } else {
                 suitable_hosts[0].host_id.parse()?
             }
         }
+    };
+
+    let config_json = if let Some(config_path) = cmd.config_json {
+        let config_str = match std::fs::read_to_string(&config_path) {
+            Ok(s) => s,
+            Err(e) => bail!("Error reading provider configuration: {}", e),
+        };
+        match serde_json::from_str::<serde_json::Value>(&config_str) {
+            Ok(_v) => Some(config_str),
+            _ => bail!(
+                "Configuration path provided but was invalid JSON: {}",
+                config_path.display()
+            ),
+        }
+    } else {
+        None
     };
 
     client
@@ -731,14 +740,32 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CtlOpera
             &cmd.provider_ref,
             Some(cmd.link_name),
             None,
-            None,
+            config_json,
+        )
+        .await
+        .map_err(convert_error)
+}
+
+pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CtlOperationAck> {
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
+
+    let annotations = labels_vec_to_hashmap(cmd.annotations)?;
+
+    client
+        .scale_actor(
+            &cmd.host_id.to_string(),
+            &cmd.actor_ref,
+            &cmd.actor_id.to_string(),
+            cmd.count,
+            Some(annotations),
         )
         .await
         .map_err(convert_error)
 }
 
 pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    validate_contract_id(&cmd.contract_id)?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client
         .stop_provider(
             &cmd.host_id.to_string(),
@@ -752,7 +779,7 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperati
 }
 
 pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client
         .stop_actor(
             &cmd.host_id.to_string(),
@@ -765,15 +792,15 @@ pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CtlOperationAck>
 }
 
 pub(crate) async fn stop_host(cmd: StopHostCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client
-        .stop_host(&cmd.host_id.to_string(), cmd.host_shutdown_timeout)
+        .stop_host(&cmd.host_id.to_string(), Some(cmd.host_shutdown_timeout))
         .await
         .map_err(convert_error)
 }
 
 pub(crate) async fn update_actor(cmd: UpdateActorCommand) -> Result<CtlOperationAck> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     client
         .update_actor(
             &cmd.host_id.to_string(),
@@ -786,10 +813,10 @@ pub(crate) async fn update_actor(cmd: UpdateActorCommand) -> Result<CtlOperation
 }
 
 pub(crate) async fn apply_manifest(cmd: ApplyCommand) -> Result<Vec<String>> {
-    let client = ctl_client_from_opts(cmd.opts).await?;
+    let client = ctl_client_from_opts(cmd.opts, None).await?;
     let hm = match HostManifest::from_path(Path::new(&cmd.path), cmd.expand_env) {
         Ok(hm) => hm,
-        Err(e) => return Err(format!("Failed to load manifest: {}", e).into()),
+        Err(e) => bail!("Failed to load manifest: {}", e),
     };
     let mut results = vec![];
     results.extend_from_slice(&apply_manifest_actors(&cmd.host_key, &client, &hm).await?);
@@ -806,7 +833,10 @@ async fn apply_manifest_actors(
     let mut results = vec![];
 
     for actor in hm.actors.iter() {
-        match client.start_actor(&host_id.to_string(), actor, None).await {
+        match client
+            .start_actor(&host_id.to_string(), actor, ONE_ACTOR, None)
+            .await
+        {
             Ok(ack) => {
                 if ack.accepted {
                     results.push(format!(
@@ -899,7 +929,10 @@ async fn apply_manifest_providers(
     Ok(results)
 }
 
-async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
+async fn ctl_client_from_opts(
+    opts: ConnectionOpts,
+    auction_timeout_ms: Option<u64>,
+) -> Result<CtlClient> {
     // Attempt to load a context, falling back on the default if not supplied
     let ctx = if let Some(context) = opts.context {
         load_context(&context).ok()
@@ -908,15 +941,6 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
     } else {
         None
     };
-
-    // Determine connection parameters, taking explicitly provided flags,
-    // then provided context values, lastly using defaults
-
-    let timeout = opts.timeout_ms.unwrap_or_else(|| {
-        ctx.as_ref()
-            .map(|c| c.ctl_timeout)
-            .unwrap_or(DEFAULT_NATS_TIMEOUT)
-    });
 
     let lattice_prefix = opts.lattice_prefix.unwrap_or_else(|| {
         ctx.as_ref()
@@ -955,11 +979,17 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
             .map(|c| c.ctl_credsfile.clone())
             .unwrap_or_default()
     };
+    let auction_timeout_ms = auction_timeout_ms.unwrap_or(DEFAULT_NATS_TIMEOUT_MS);
 
     let nc =
         crate::util::nats_client_from_opts(&ctl_host, &ctl_port, ctl_jwt, ctl_seed, ctl_credsfile)
             .await?;
-    let ctl_client = CtlClient::new(nc, Some(lattice_prefix), Duration::from_secs(timeout));
+    let ctl_client = CtlClient::new(
+        nc,
+        Some(lattice_prefix),
+        Duration::from_millis(opts.timeout_ms),
+        Duration::from_millis(auction_timeout_ms),
+    );
 
     Ok(ctl_client)
 }
@@ -967,6 +997,13 @@ async fn ctl_client_from_opts(opts: ConnectionOpts) -> Result<CtlClient> {
 #[cfg(test)]
 mod test {
     use super::*;
+    use clap::Parser;
+
+    #[derive(Parser)]
+    struct Cmd {
+        #[clap(subcommand)]
+        command: CtlCliCommand,
+    }
 
     const CTL_HOST: &str = "127.0.0.1";
     const CTL_PORT: &str = "4222";
@@ -981,12 +1018,10 @@ mod test {
     /// change between versions. This test will fail if any subcommand of `wash ctl`
     /// changes syntax, ordering of required elements, or flags.
     fn test_ctl_comprehensive() -> Result<()> {
-        let start_actor_all = CtlCli::from_iter_safe(&[
+        let start_actor_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "start",
             "actor",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -994,9 +1029,9 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
             "--auction-timeout-ms",
-            "2000",
+            "2002",
             "--constraint",
             "arch=x86_64",
             "--host-id",
@@ -1006,30 +1041,27 @@ mod test {
         match start_actor_all.command {
             CtlCliCommand::Start(StartCommand::Actor(super::StartActorCommand {
                 opts,
-                output,
                 host_id,
                 actor_ref,
                 constraints,
                 auction_timeout_ms,
+                ..
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(auction_timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(auction_timeout_ms, 2002);
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v1".to_string());
                 assert_eq!(constraints.unwrap(), vec!["arch=x86_64".to_string()]);
             }
             cmd => panic!("ctl start actor constructed incorrect command {:?}", cmd),
         }
-        let start_provider_all = CtlCli::from_iter_safe(&[
+        let start_provider_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "start",
             "provider",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1037,9 +1069,9 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
             "--auction-timeout-ms",
-            "2000",
+            "2002",
             "--constraint",
             "arch=x86_64",
             "--host-id",
@@ -1051,19 +1083,19 @@ mod test {
         match start_provider_all.command {
             CtlCliCommand::Start(StartCommand::Provider(super::StartProviderCommand {
                 opts,
-                output,
                 host_id,
                 provider_ref,
                 link_name,
                 constraints,
                 auction_timeout_ms,
+                config_json,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(auction_timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(config_json, None);
+                assert_eq!(auction_timeout_ms, 2002);
                 assert_eq!(link_name, "default".to_string());
                 assert_eq!(constraints.unwrap(), vec!["arch=x86_64".to_string()]);
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
@@ -1071,12 +1103,10 @@ mod test {
             }
             cmd => panic!("ctl start provider constructed incorrect command {:?}", cmd),
         }
-        let stop_actor_all = CtlCli::from_iter_safe(&[
+        let stop_actor_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "stop",
             "actor",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1084,7 +1114,7 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
             "--count",
             "2",
             HOST_ID,
@@ -1093,7 +1123,6 @@ mod test {
         match stop_actor_all.command {
             CtlCliCommand::Stop(StopCommand::Actor(super::StopActorCommand {
                 opts,
-                output,
                 host_id,
                 actor_id,
                 count,
@@ -1101,20 +1130,17 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(count, 2);
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
-        let stop_provider_all = CtlCli::from_iter_safe(&[
+        let stop_provider_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "stop",
             "provider",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1122,7 +1148,7 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
             HOST_ID,
             PROVIDER_ID,
             "default",
@@ -1131,7 +1157,6 @@ mod test {
         match stop_provider_all.command {
             CtlCliCommand::Stop(StopCommand::Provider(super::StopProviderCommand {
                 opts,
-                output,
                 host_id,
                 provider_id,
                 link_name,
@@ -1140,8 +1165,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(provider_id, PROVIDER_ID.parse()?);
                 assert_eq!(link_name, "default".to_string());
@@ -1149,12 +1173,10 @@ mod test {
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
-        let get_hosts_all = CtlCli::from_iter_safe(&[
+        let get_hosts_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "get",
             "hosts",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1162,24 +1184,21 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
         ])?;
         match get_hosts_all.command {
-            CtlCliCommand::Get(GetCommand::Hosts(GetHostsCommand { opts, output })) => {
+            CtlCliCommand::Get(GetCommand::Hosts(GetHostsCommand { opts })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
             }
             cmd => panic!("ctl get hosts constructed incorrect command {:?}", cmd),
         }
-        let get_host_inventory_all = CtlCli::from_iter_safe(&[
+        let get_host_inventory_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "get",
             "inventory",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1187,30 +1206,26 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
             HOST_ID,
         ])?;
         match get_host_inventory_all.command {
             CtlCliCommand::Get(GetCommand::HostInventory(GetHostInventoryCommand {
                 opts,
-                output,
                 host_id,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
             }
             cmd => panic!("ctl get inventory constructed incorrect command {:?}", cmd),
         }
-        let get_claims_all = CtlCli::from_iter_safe(&[
+        let get_claims_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "get",
             "claims",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1218,24 +1233,21 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
         ])?;
         match get_claims_all.command {
-            CtlCliCommand::Get(GetCommand::Claims(GetClaimsCommand { opts, output })) => {
+            CtlCliCommand::Get(GetCommand::Claims(GetClaimsCommand { opts })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
             }
             cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
         }
-        let link_all = CtlCli::from_iter_safe(&[
+        let link_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "link",
             "put",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1243,7 +1255,7 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
             "--link-name",
             "default",
             ACTOR_ID,
@@ -1254,7 +1266,6 @@ mod test {
         match link_all.command {
             CtlCliCommand::Link(LinkCommand::Put(LinkPutCommand {
                 opts,
-                output,
                 actor_id,
                 provider_id,
                 contract_id,
@@ -1264,8 +1275,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(provider_id, PROVIDER_ID.parse()?);
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
@@ -1274,12 +1284,10 @@ mod test {
             }
             cmd => panic!("ctl link put constructed incorrect command {:?}", cmd),
         }
-        let update_all = CtlCli::from_iter_safe(&[
+        let update_all: Cmd = Parser::try_parse_from(&[
             "ctl",
             "update",
             "actor",
-            "-o",
-            "json",
             "--lattice-prefix",
             LATTICE_PREFIX,
             "--ctl-host",
@@ -1287,7 +1295,7 @@ mod test {
             "--ctl-port",
             CTL_PORT,
             "--timeout-ms",
-            "2000",
+            "2001",
             HOST_ID,
             ACTOR_ID,
             "wasmcloud.azurecr.io/actor:v2",
@@ -1295,7 +1303,6 @@ mod test {
         match update_all.command {
             CtlCliCommand::Update(UpdateCommand::Actor(super::UpdateActorCommand {
                 opts,
-                output,
                 host_id,
                 actor_id,
                 new_actor_ref,
@@ -1303,13 +1310,55 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms.unwrap(), 2000);
-                assert_eq!(output.kind, OutputKind::Json);
+                assert_eq!(opts.timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(new_actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
             }
             cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
+        }
+
+        let scale_actor_all: Cmd = Parser::try_parse_from(&[
+            "ctl",
+            "scale",
+            "actor",
+            "--lattice-prefix",
+            LATTICE_PREFIX,
+            "--ctl-host",
+            CTL_HOST,
+            "--ctl-port",
+            CTL_PORT,
+            "--timeout-ms",
+            "2001",
+            HOST_ID,
+            ACTOR_ID,
+            "wasmcloud.azurecr.io/actor:v2",
+            "--count",
+            "1",
+            "--annotations",
+            "foo=bar",
+        ])?;
+
+        match scale_actor_all.command {
+            CtlCliCommand::Scale(ScaleCommand::Actor(super::ScaleActorCommand {
+                opts,
+                host_id,
+                actor_id,
+                actor_ref,
+                count,
+                annotations,
+            })) => {
+                assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
+                assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
+                assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
+                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(host_id, HOST_ID.parse()?);
+                assert_eq!(actor_id, ACTOR_ID.parse()?);
+                assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
+                assert_eq!(count, 1);
+                assert_eq!(annotations, vec!["foo=bar".to_string()]);
+            }
+            cmd => panic!("ctl scale actor constructed incorrect command {:?}", cmd),
         }
 
         Ok(())

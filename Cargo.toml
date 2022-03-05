@@ -1,44 +1,41 @@
 [package]
+name = "wash-cli"
+version = "0.9.1"
 authors = ["wasmCloud Team"]
 categories = ["wasm", "command-line-utilities"]
 description = "wasmcloud Shell (wash) CLI tool"
-edition = "2018"
+edition = "2021"
 keywords = ["webassembly", "wasmcloud", "wash", "cli"]
 license = "Apache-2.0"
-name = "wash-cli"
 readme = "README.md"
 repository = "https://github.com/wasmcloud/wash"
-version = "0.7.0"
-
-[features]
-default = []
 
 [badges]
 maintenance = {status = "actively-developed"}
 
 [dependencies]
-anyhow = "1.0"
+anyhow = "1.0.51"
 atelier_core = "0.2"
 bytes = "1.0"
-cargo = "0.56"
+cargo = "0.59"
 cargo_atelier = "0.2"
-console = "0.14"
-derive_more = {version = "0.99.16", default_features = false, features = ["display", "from", "into"]}
-dialoguer = "0.8"
+clap = { version="3", features=["derive", "env"] }
+console = "0.15"
+derive_more = {version = "0.99.16", default_features = false, features = ["display"]}
+dialoguer = "0.9"
 dirs = "4.0"
 env_logger = "0.9"
 envmnt = "0.9.0"
 git2 = {version = "0.13.22", features = ["vendored-libgit2"]}
-heck = "0.3"
+heck = "0.4"
 ignore = "0.4"
 indicatif = "0.16"
 log = "0.4"
-nats = "0.16"
-nkeys = "0.1.0"
-oci-distribution = "0.7.0"
+nkeys = "0.2.0"
+oci-distribution = "0.8.0"
 once_cell = "1.8"
 path-absolutize = {version = "3.0", features = ["once_cell_cache"]}
-provider-archive = "0.4.0"
+provider-archive = "0.5.0"
 regex = "1.5"
 remove_dir_all = "0.7"
 rmp-serde = "0.15"
@@ -49,7 +46,6 @@ serde = {version = "1.0", features = ["derive"]}
 serde_json = {version = "1.0", features = ["raw_value"]}
 serde_with = "1.11.0"
 serde_yaml = "0.8.17"
-#spinners = "2.0"
 structopt = "0.3.21"
 tempfile = "3.2"
 term-table = "1.3.1"
@@ -57,17 +53,20 @@ thiserror = "1.0"
 tokio = {version = "1", features = ["full"]}
 toml = "0.5"
 walkdir = "2.3"
-wascap = "0.6.0"
-wasmbus-rpc = "0.5"
-wasmcloud-control-interface = "0.6"
-wasmcloud-test-util = "0.1.4"
-weld-codegen = "0.1.17"
+wascap = "0.8.0"
+wasmcloud-control-interface = "0.11.0"
+wasmbus-rpc = "0.7.1"
+
+wasmcloud-test-util = "0.2.0"
+weld-codegen = "0.3.0"
 which = "4.2.2"
 
 [dev-dependencies]
 reqwest = {version = "0.11", features = ["json"]}
 tempfile = "3"
+test-case = "1.2.1"
 test_bin = "0.3.0"
+assert-json-diff = "2.0.1"
 
 [[bin]]
 bench = true

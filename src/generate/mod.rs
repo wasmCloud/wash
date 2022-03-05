@@ -36,23 +36,24 @@
 //   license: MIT/Apache-2.0
 //
 
+use crate::appearance::emoji;
 use anyhow::{anyhow, Context, Result};
+use clap::{ArgEnum, Args, Subcommand};
 use config::{Config, CONFIG_FILE_NAME};
 use console::style;
 use git::GitConfig;
-use heck::KebabCase;
 use indicatif::MultiProgress;
 use project_variables::*;
 use serde::Serialize;
-use std::borrow::Borrow;
 use std::{
+    borrow::Borrow,
     fmt, fs,
     path::{Path, PathBuf},
 };
-use structopt::StructOpt;
 use tempfile::TempDir;
 use weld_codegen::render::Renderer;
-use crate::appearance::emoji;
+
+use crate::util::CommandOutput;
 
 mod config;
 mod favorites;
@@ -68,35 +69,23 @@ pub(crate) type ParamMap = std::collections::BTreeMap<String, serde_json::Value>
 pub(crate) const PROJECT_NAME_REGEX: &str = r"^([a-zA-Z][a-zA-Z0-9_-]+)$";
 
 /// Create a new project from template
-#[derive(Debug, Clone, StructOpt)]
-pub(crate) struct NewCli {
-    #[structopt(flatten)]
-    command: NewCliCommand,
-}
-
-impl NewCli {
-    pub(crate) fn command(self) -> NewCliCommand {
-        self.command
-    }
-}
-
-#[derive(Debug, Clone, StructOpt)]
+#[derive(Debug, Clone, Subcommand)]
 pub(crate) enum NewCliCommand {
     /// Generate actor project
-    #[structopt(name = "actor")]
+    #[clap(name = "actor")]
     Actor(NewProjectArgs),
 
     /// Generate a new interface project
-    #[structopt(name = "interface")]
+    #[clap(name = "interface")]
     Interface(NewProjectArgs),
 
     /// Generate a new capability provider project
-    #[structopt(name = "provider")]
+    #[clap(name = "provider")]
     Provider(NewProjectArgs),
 }
 
 /// Type of project to be generated
-#[derive(Debug)]
+#[derive(Debug, Clone, ArgEnum)]
 pub(crate) enum ProjectKind {
     Actor,
     Interface,
@@ -127,53 +116,55 @@ impl fmt::Display for ProjectKind {
     }
 }
 
-#[derive(StructOpt, Debug, Default, Clone)]
+#[derive(Args, Debug, Default, Clone)]
 pub(crate) struct NewProjectArgs {
     /// Project name
-    #[structopt(help = "Project name")]
+    #[clap(help = "Project name")]
     pub(crate) project_name: Option<String>,
 
     /// Github repository url
-    #[structopt(long)]
+    #[clap(long)]
     pub(crate) git: Option<String>,
 
     /// Optional subfolder of the git repository
-    #[structopt(long, alias = "subdir")]
+    #[clap(long, alias = "subdir")]
     pub(crate) subfolder: Option<PathBuf>,
 
     /// Optional github branch
-    #[structopt(long)]
+    #[clap(long)]
     pub(crate) branch: Option<String>,
 
     /// Optional path for template project
-    #[structopt(short, long)]
+    #[clap(short, long)]
     pub(crate) path: Option<PathBuf>,
 
     /// optional path to file containing placeholder values
-    #[structopt(short, long)]
+    #[clap(short, long)]
     pub(crate) values: Option<PathBuf>,
 
     /// ssh identity file, for ssh authentication
-    #[structopt(short = "i", long)]
+    #[clap(short = 'i', long)]
     pub(crate) ssh_identity: Option<PathBuf>,
 
     /// silent - do not prompt user. Placeholder values in the templates
     /// will be resolved from a '--values' file and placeholder defaults.
-    #[structopt(long)]
+    #[clap(long)]
     pub(crate) silent: bool,
 
     /// favorites file - to use for project selection
-    #[structopt(long)]
+    #[clap(long)]
     pub(crate) favorites: Option<PathBuf>,
 
     /// template name - name of template to use
-    #[structopt(short, long)]
+    #[clap(short, long)]
     pub(crate) template_name: Option<String>,
+
+    /// Don't create a git repository. Will create one if this is not passed.
+    #[clap(long)]
+    pub(crate) no_git_init: bool,
 }
 
-pub(crate) fn handle_command(
-    command: NewCliCommand,
-) -> std::result::Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
     validate(&command)?;
 
     let kind = ProjectKind::from(&command);
@@ -202,7 +193,7 @@ pub(crate) fn handle_command(
     };
 
     make_project(kind, cmd)?;
-    Ok(String::new())
+    Ok(CommandOutput::default())
 }
 
 fn validate(command: &NewCliCommand) -> Result<()> {
@@ -362,6 +353,11 @@ pub(crate) fn make_project(
         &mut pbar,
     )
     .map_err(|e| any_msg("generating project from templates:", &e.to_string()))?;
+
+    if !args.no_git_init {
+        git2::Repository::init(&project_dir)?;
+    }
+
     pbar.join().unwrap();
 
     println!(
@@ -602,6 +598,7 @@ impl ProjectName {
     }
 
     pub(crate) fn kebab_case(&self) -> String {
+        use heck::ToKebabCase as _;
         self.user_input.to_kebab_case()
     }
 }
