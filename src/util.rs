@@ -19,10 +19,6 @@ pub const DEFAULT_LATTICE_PREFIX: &str = "default";
 pub const DEFAULT_NATS_TIMEOUT_MS: u64 = 2_000;
 pub const DEFAULT_START_PROVIDER_TIMEOUT_MS: u64 = 60_000;
 
-pub(crate) trait HasOutputKind {
-    fn output_kind(&self) -> &OutputKind;
-}
-
 /// Used for displaying human-readable output vs JSON format
 #[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
 pub(crate) enum OutputKind {
