@@ -3889,7 +3889,6 @@ dependencies = [
  "serde_json",
  "serde_with",
  "serde_yaml",
- "structopt",
  "tempfile",
  "term-table",
  "test-case",
