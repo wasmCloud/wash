@@ -23,8 +23,11 @@ use wasmcloud_control_interface::{
     LinkDefinitionList,
 };
 
+use self::wait::{find_event, find_start_actor_result_event};
+
 mod manifest;
 mod output;
+mod wait;
 
 // default start actor command starts with one actor
 const ONE_ACTOR: u16 = 1;
@@ -328,6 +331,15 @@ pub(crate) struct StartActorCommand {
     /// Timeout to await an auction response, defaults to 2000 milliseconds
     #[clap(long = "auction-timeout-ms", default_value_t = default_timeout_ms())]
     auction_timeout_ms: u64,
+
+    /// By default, the command will wait until the actor has been started.
+    /// If this flag is passed, the command will return immedately after acknowledgement from the host, without waiting for the actor to start.
+    #[clap(long = "skip-wait")]
+    skip_wait: bool,
+
+    /// Timeout to await an actor start, defaults to 10000 milliseconds.
+    #[clap(long = "start-timeout-ms", default_value_t = 10000)]
+    start_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -508,15 +520,7 @@ pub(crate) async fn handle_command(
 
             sp.update_spinner_message(format!(" Starting actor {} ... ", actor_ref));
 
-            let ack = start_actor(cmd).await?;
-            if !ack.accepted {
-                bail!("Operation failed: {}", ack.error);
-            }
-
-            CommandOutput::from_key_and_text(
-                "result",
-                format!("Start actor request received: {}", actor_ref),
-            )
+            start_actor(cmd).await?
         }
         Start(StartCommand::Provider(cmd)) => {
             let provider_ref = &cmd.provider_ref.to_string();
@@ -660,7 +664,7 @@ pub(crate) async fn link_query(cmd: LinkQueryCommand) -> Result<LinkDefinitionLi
     client.query_links().await.map_err(convert_error)
 }
 
-pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CtlOperationAck> {
+pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOutput> {
     // If timeout isn't supplied, override with a longer timeout for starting actor
     if cmd.opts.timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
         cmd.opts.timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
@@ -685,10 +689,37 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CtlOperati
         }
     };
 
-    client
+    let receiver = client.events_receiver().await.map_err(convert_error)?;
+
+    let ack = client
         .start_actor(&host.to_string(), &cmd.actor_ref, cmd.count, None)
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    if !ack.accepted {
+        bail!("Operation failed: {}", ack.error);
+    }
+
+    if cmd.skip_wait {
+        return Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Starting actor {} on host {}", &cmd.actor_ref, &host),
+        ));
+    }
+
+    let start_actor_result_checker =
+        find_start_actor_result_event(host.to_string(), cmd.actor_ref.clone());
+
+    find_event(
+        &receiver,
+        Duration::from_millis(cmd.start_timeout_ms),
+        start_actor_result_checker,
+    )??;
+
+    Ok(CommandOutput::from_key_and_text(
+        "result",
+        format!("Actor {} started on host {}", cmd.actor_ref, host),
+    ))
 }
 
 pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CtlOperationAck> {
