@@ -23,7 +23,7 @@ use wasmcloud_control_interface::{
     LinkDefinitionList,
 };
 
-use self::wait::{wait_for_actor_start_event, FindEventOutcome};
+use self::wait::{wait_for_actor_start_event, wait_for_provider_start_event, FindEventOutcome};
 
 mod manifest;
 mod output;
@@ -371,6 +371,15 @@ pub(crate) struct StartProviderCommand {
     /// Path to provider configuration JSON file
     #[clap(long = "config-json")]
     config_json: Option<PathBuf>,
+
+    /// By default, the command will wait until the actor has been started.
+    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to start.
+    #[clap(long = "skip-wait")]
+    skip_wait: bool,
+
+    /// Timeout to await an actor start, defaults to 3000 milliseconds.
+    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
+    start_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -527,15 +536,7 @@ pub(crate) async fn handle_command(
 
             sp.update_spinner_message(format!(" Starting provider {} ... ", provider_ref));
 
-            let ack = start_provider(cmd).await?;
-            if !ack.accepted {
-                bail!("Operation failed: {}", ack.error);
-            }
-
-            CommandOutput::from_key_and_text(
-                "result",
-                format!("Start provider request received: {}", provider_ref),
-            )
+            start_provider(cmd).await?
         }
         Stop(StopCommand::Actor(cmd)) => {
             sp.update_spinner_message(format!(" Stopping actor {} ... ", cmd.actor_id));
@@ -728,7 +729,7 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
     }
 }
 
-pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CtlOperationAck> {
+pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CommandOutput> {
     // If timeout isn't supplied, override with a longer timeout for starting provider
     if cmd.opts.timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
         cmd.opts.timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
@@ -771,7 +772,9 @@ pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CtlO
         None
     };
 
-    client
+    let receiver = client.events_receiver().await.map_err(convert_error)?;
+
+    let ack = client
         .start_provider(
             &host.to_string(),
             &cmd.provider_ref,
@@ -780,7 +783,35 @@ pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CtlO
             config_json,
         )
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    if !ack.accepted {
+        bail!("Operation failed: {}", ack.error);
+    }
+
+    if cmd.skip_wait {
+        return Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Start provider request received: {}", &cmd.provider_ref),
+        ));
+    }
+
+    let event = wait_for_provider_start_event(
+        &receiver,
+        Duration::from_millis(cmd.start_timeout_ms),
+        host.to_string(),
+        cmd.provider_ref.clone(),
+    )?;
+
+    match event {
+        FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Provider {} started on host {}", cmd.provider_ref, host),
+        )),
+        FindEventOutcome::Failure(err) => {
+            bail!("{}", err);
+        }
+    }
 }
 
 pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CtlOperationAck> {
@@ -1115,6 +1146,7 @@ mod test {
             HOST_ID,
             "--link-name",
             "default",
+            "--skip-wait",
             "wasmcloud.azurecr.io/provider:v1",
         ])?;
         match start_provider_all.command {
@@ -1126,6 +1158,8 @@ mod test {
                 constraints,
                 auction_timeout_ms,
                 config_json,
+                skip_wait,
+                start_timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1137,6 +1171,8 @@ mod test {
                 assert_eq!(constraints.unwrap(), vec!["arch=x86_64".to_string()]);
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
                 assert_eq!(provider_ref, "wasmcloud.azurecr.io/provider:v1".to_string());
+                assert!(skip_wait);
+                assert_eq!(start_timeout_ms, 3000);
             }
             cmd => panic!("ctl start provider constructed incorrect command {:?}", cmd),
         }

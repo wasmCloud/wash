@@ -57,7 +57,7 @@ enum EventCheckOutcome<T> {
 
 /// Uses the NATS reciever to read events being published to the wasmCloud lattice event subject, up until the given timeout duration.
 ///
-/// If the applicable response event is found (either started or failed to start), the `Ok` variant of the `Result` will be returned,
+/// If the applicable actor start response event is found (either started or failed to start), the `Ok` variant of the `Result` will be returned,
 /// with the `FindEventOutcome` enum containing the success or failure state of the event.
 ///
 /// If the timeout is reached or another error occurs, the `Err` variant of the `Result` will be returned.
@@ -68,41 +68,29 @@ pub(crate) fn wait_for_actor_start_event(
     actor_ref: String,
 ) -> Result<FindEventOutcome<()>> {
     let check_function = move |event: Event| {
-        if event.source() != host_id.as_str() {
+        let cloud_event = get_wasmbus_event_info(event)?;
+
+        if cloud_event.source != host_id.as_str() {
             return Ok(EventCheckOutcome::NotApplicable);
         }
 
-        let data: serde_json::Value = event
-            .data()
-            .ok_or(anyhow!("No data in event"))?
-            .clone()
-            .try_into()?;
-
-        match event.ty() {
+        match cloud_event.event_type.as_str() {
             "com.wasmcloud.lattice.actor_started" => {
-                let image_ref = data
-                    .get("image_ref")
-                    .ok_or(anyhow!("No image_ref found in data"))?
-                    .as_str()
-                    .ok_or(anyhow!("image_ref is not a string"))?
-                    .to_string();
+                let image_ref = get_string_data_from_json(&cloud_event.data, "image_ref")?;
 
                 if image_ref == actor_ref {
                     return Ok(EventCheckOutcome::Success(()));
                 }
             }
             "com.wasmcloud.lattice.actor_start_failed" => {
-                let returned_actor_ref = data
-                    .get("actor_ref")
-                    .ok_or(anyhow!("No actor_ref found in data"))?
-                    .as_str()
-                    .ok_or(anyhow!("actor_ref is not a string"))?
-                    .to_string();
+                let returned_actor_ref = get_string_data_from_json(&cloud_event.data, "actor_ref")?;
 
                 if returned_actor_ref == actor_ref {
                     let error = anyhow!(
                         "{}",
-                        data.get("error")
+                        cloud_event
+                            .data
+                            .get("error")
                             .ok_or(anyhow!("No error found in data"))?
                             .as_str()
                             .ok_or(anyhow!("error is not a string"))?
@@ -119,4 +107,91 @@ pub(crate) fn wait_for_actor_start_event(
 
     let event = find_event(receiver, timeout, check_function)?;
     Ok(event)
+}
+
+/// Uses the NATS reciever to read events being published to the wasmCloud lattice event subject, up until the given timeout duration.
+///
+/// If the applicable provider start response event is found (either started or failed to start), the `Ok` variant of the `Result` will be returned,
+/// with the `FindEventOutcome` enum containing the success or failure state of the event.
+///
+/// If the timeout is reached or another error occurs, the `Err` variant of the `Result` will be returned.
+pub fn wait_for_provider_start_event(
+    receiver: &Receiver<Event>,
+    timeout: Duration,
+    host_id: String,
+    provider_ref: String,
+) -> Result<FindEventOutcome<()>> {
+    let check_function = move |event: Event| {
+        let cloud_event = get_wasmbus_event_info(event)?;
+
+        if cloud_event.source != host_id.as_str() {
+            return Ok(EventCheckOutcome::NotApplicable);
+        }
+
+        match cloud_event.event_type.as_str() {
+            "com.wasmcloud.lattice.provider_started" => {
+                let image_ref = get_string_data_from_json(&cloud_event.data, "image_ref")?;
+
+                if image_ref == provider_ref {
+                    return Ok(EventCheckOutcome::Success(()));
+                }
+            }
+            "com.wasmcloud.lattice.provider_start_failed" => {
+                let returned_provider_ref =
+                    get_string_data_from_json(&cloud_event.data, "provider_ref")?;
+
+                if returned_provider_ref == provider_ref {
+                    let error = anyhow!(
+                        "{}",
+                        cloud_event
+                            .data
+                            .get("error")
+                            .ok_or(anyhow!("No error found in data"))?
+                            .as_str()
+                            .ok_or(anyhow!("error is not a string"))?
+                    );
+
+                    return Ok(EventCheckOutcome::Failure(error));
+                }
+            }
+            _ => {}
+        }
+
+        Ok(EventCheckOutcome::NotApplicable)
+    };
+
+    let event = find_event(receiver, timeout, check_function)?;
+    Ok(event)
+}
+
+/// Useful parts of a CloudEvent coming in from the wasmbus.
+struct CloudEventData {
+    event_type: String,
+    source: String,
+    data: serde_json::Value,
+}
+
+/// Get the useful parts out of a wasmbus cloud event.
+fn get_wasmbus_event_info(event: Event) -> Result<CloudEventData> {
+    let data: serde_json::Value = event
+        .data()
+        .ok_or(anyhow!("No data in event"))?
+        .clone()
+        .try_into()?;
+
+    Ok(CloudEventData {
+        event_type: event.ty().to_string(),
+        source: event.source().to_string(),
+        data,
+    })
+}
+
+/// Small helper to easily get a String value out of a JSON object.
+fn get_string_data_from_json(json: &serde_json::Value, key: &str) -> Result<String> {
+    Ok(json
+        .get(key)
+        .ok_or_else(|| anyhow!("No {} key found in json data", key))?
+        .as_str()
+        .ok_or_else(|| anyhow!("{} is not a string", key))?
+        .to_string())
 }
