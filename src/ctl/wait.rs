@@ -3,11 +3,21 @@ use cloudevents::{event::Event, AttributesReader};
 use crossbeam_channel::Receiver;
 use std::time::{Duration, Instant};
 
-pub(crate) fn find_event<T>(
+/// Uses the NATS reciever to read events being published to the wasmCloud lattice event subject, up until the given timeout duration.
+///
+/// Takes a `check_function`, which recieves each event coming in from the receiver. This function must return a `Result<EventCheckOutcome>`.
+///
+/// If the applicable response event is found (either started or failed to start), the `Ok` variant of the `Result` will be returned,
+/// with the `FindEventOutcome` enum containing the success or failure state of the event.
+///
+/// If the timeout is reached or another error occurs, the `Err` variant of the `Result` will be returned.
+///
+/// You can use the generics in `EventCheckOutcome` and `FindEventOutcome` to return any data from the event out of your `check_function`.
+fn find_event<T>(
     receiver: &Receiver<Event>,
     timeout: Duration,
-    check_function: impl Fn(Event) -> Result<Option<T>>,
-) -> Result<T> {
+    check_function: impl Fn(Event) -> Result<EventCheckOutcome<T>>,
+) -> Result<FindEventOutcome<T>> {
     let start = Instant::now();
     loop {
         let elapsed = start.elapsed();
@@ -19,19 +29,47 @@ pub(crate) fn find_event<T>(
 
         let outcome = check_function(event)?;
 
-        if let Some(result) = outcome {
-            return Ok(result);
+        match outcome {
+            EventCheckOutcome::Success(success_data) => {
+                return Ok(FindEventOutcome::Success(success_data))
+            }
+            EventCheckOutcome::Failure(e) => return Ok(FindEventOutcome::Failure(e)),
+            EventCheckOutcome::NotApplicable => continue,
         }
     }
 }
 
-pub(crate) fn find_start_actor_result_event(
+/// The potential outcomes of an event that has been found.
+/// It can either succeed or fail. This enum should only be returned if we found the applicable event.
+/// If we did not find the event or another error occured, use the `Err` variant of a `Result` wrapping around this enum.
+pub enum FindEventOutcome<T> {
+    Success(T),
+    Failure(anyhow::Error),
+}
+
+/// The potential outcomes of a function check on an event.
+/// Because we can pass events that are not applicable to the event we are looking for, we need the `NotApplicable` variant to skip these events.
+enum EventCheckOutcome<T> {
+    Success(T),
+    Failure(anyhow::Error),
+    NotApplicable,
+}
+
+/// Uses the NATS reciever to read events being published to the wasmCloud lattice event subject, up until the given timeout duration.
+///
+/// If the applicable response event is found (either started or failed to start), the `Ok` variant of the ``Result` will be returned,
+/// with the `FindEventOutcome` enum containing the success or failure state of the event.
+///
+/// If the timeout is reached or another error occurs, the `Err` variant of the `Result` will be returned.
+pub(crate) fn wait_for_actor_start_event(
+    receiver: &Receiver<Event>,
+    timeout: Duration,
     host_id: String,
     actor_ref: String,
-) -> impl Fn(Event) -> Result<Option<Result<()>>> {
-    move |event: Event| {
+) -> Result<FindEventOutcome<()>> {
+    let check_function = move |event: Event| {
         if event.source() != host_id.as_str() {
-            return Ok(None);
+            return Ok(EventCheckOutcome::NotApplicable);
         }
 
         let data: serde_json::Value = event
@@ -50,7 +88,7 @@ pub(crate) fn find_start_actor_result_event(
                     .to_string();
 
                 if image_ref == actor_ref {
-                    return Ok(Some(Ok(())));
+                    return Ok(EventCheckOutcome::Success(()));
                 }
             }
             "com.wasmcloud.lattice.actor_start_failed" => {
@@ -62,19 +100,23 @@ pub(crate) fn find_start_actor_result_event(
                     .to_string();
 
                 if returned_actor_ref == actor_ref {
-                    let error = data
-                        .get("error")
-                        .ok_or(anyhow!("No error found in data"))?
-                        .as_str()
-                        .ok_or(anyhow!("error is not a string"))?
-                        .to_string();
+                    let error = anyhow!(
+                        "{}",
+                        data.get("error")
+                            .ok_or(anyhow!("No error found in data"))?
+                            .as_str()
+                            .ok_or(anyhow!("error is not a string"))?
+                    );
 
-                    return Ok(Some(Err(anyhow!("Failed to start actor: {}", error))));
+                    return Ok(EventCheckOutcome::Failure(error));
                 }
             }
             _ => {}
         }
 
-        Ok(None)
-    }
+        Ok(EventCheckOutcome::NotApplicable)
+    };
+
+    let event = find_event(receiver, timeout, check_function)?;
+    Ok(event)
 }

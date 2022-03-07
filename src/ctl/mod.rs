@@ -23,7 +23,7 @@ use wasmcloud_control_interface::{
     LinkDefinitionList,
 };
 
-use self::wait::{find_event, find_start_actor_result_event};
+use self::wait::{wait_for_actor_start_event, FindEventOutcome};
 
 mod manifest;
 mod output;
@@ -710,19 +710,22 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
         ));
     }
 
-    let start_actor_result_checker =
-        find_start_actor_result_event(host.to_string(), cmd.actor_ref.clone());
-
-    find_event(
+    let event = wait_for_actor_start_event(
         &receiver,
         Duration::from_millis(cmd.start_timeout_ms),
-        start_actor_result_checker,
-    )??;
+        host.to_string(),
+        cmd.actor_ref.clone(),
+    )?;
 
-    Ok(CommandOutput::from_key_and_text(
-        "result",
-        format!("Actor {} started on host {}", cmd.actor_ref, host),
-    ))
+    match event {
+        FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Actor {} started on host {}", cmd.actor_ref, host),
+        )),
+        FindEventOutcome::Failure(err) => {
+            bail!("{}", err);
+        }
+    }
 }
 
 pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CtlOperationAck> {
