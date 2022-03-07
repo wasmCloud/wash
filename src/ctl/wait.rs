@@ -57,7 +57,7 @@ enum EventCheckOutcome<T> {
 
 /// Uses the NATS reciever to read events being published to the wasmCloud lattice event subject, up until the given timeout duration.
 ///
-/// If the applicable response event is found (either started or failed to start), the `Ok` variant of the ``Result` will be returned,
+/// If the applicable response event is found (either started or failed to start), the `Ok` variant of the `Result` will be returned,
 /// with the `FindEventOutcome` enum containing the success or failure state of the event.
 ///
 /// If the timeout is reached or another error occurs, the `Err` variant of the `Result` will be returned.
