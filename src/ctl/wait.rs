@@ -53,7 +53,7 @@ pub(crate) fn find_start_actor_result_event(
                     return Ok(Some(Ok(())));
                 }
             }
-            "com.wasmcloud.latticeactor_start_failed" => {
+            "com.wasmcloud.lattice.actor_start_failed" => {
                 let returned_actor_ref = data
                     .get("actor_ref")
                     .ok_or(anyhow!("No actor_ref found in data"))?

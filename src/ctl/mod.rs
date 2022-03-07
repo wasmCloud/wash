@@ -333,12 +333,12 @@ pub(crate) struct StartActorCommand {
     auction_timeout_ms: u64,
 
     /// By default, the command will wait until the actor has been started.
-    /// If this flag is passed, the command will return immedately after acknowledgement from the host, without waiting for the actor to start.
+    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to start.
     #[clap(long = "skip-wait")]
     skip_wait: bool,
 
-    /// Timeout to await an actor start, defaults to 10000 milliseconds.
-    #[clap(long = "start-timeout-ms", default_value_t = 10000)]
+    /// Timeout to await an actor start, defaults to 3000 milliseconds.
+    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
     start_timeout_ms: u64,
 }
 
@@ -703,7 +703,10 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
     if cmd.skip_wait {
         return Ok(CommandOutput::from_key_and_text(
             "result",
-            format!("Starting actor {} on host {}", &cmd.actor_ref, &host),
+            format!(
+                "Start actor request received: {}, host: {}",
+                &cmd.actor_ref, &host
+            ),
         ));
     }
 
