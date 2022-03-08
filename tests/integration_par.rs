@@ -65,7 +65,7 @@ fn integration_par_create(issuer: &str, subject: &str, archive: &str) {
     assert!(create.status.success());
     assert_eq!(
         output_to_string(create).unwrap(),
-        format!("Successfully created archive {}\n", archive)
+        format!("\nSuccessfully created archive {}\n", archive)
     );
 
     let inspect_created = wash()
