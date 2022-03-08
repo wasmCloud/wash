@@ -24,8 +24,8 @@ use wasmcloud_control_interface::{
 };
 
 use self::wait::{
-    wait_for_actor_scale_event, wait_for_actor_start_event, wait_for_provider_start_event,
-    FindEventOutcome,
+    wait_for_actor_scale_event, wait_for_actor_start_event, wait_for_actor_stop_event,
+    wait_for_provider_start_event, FindEventOutcome,
 };
 
 mod manifest;
@@ -293,7 +293,7 @@ pub struct ScaleActorCommand {
 
     /// Timeout to await an actor start, defaults to 3000 milliseconds.
     #[clap(long = "start-timeout-ms", default_value_t = 3000)]
-    start_timeout_ms: u64,
+    wait_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -351,7 +351,7 @@ pub(crate) struct StartActorCommand {
 
     /// Timeout to await an actor start, defaults to 3000 milliseconds.
     #[clap(long = "start-timeout-ms", default_value_t = 3000)]
-    start_timeout_ms: u64,
+    wait_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -391,7 +391,7 @@ pub(crate) struct StartProviderCommand {
 
     /// Timeout to await an actor start, defaults to 3000 milliseconds.
     #[clap(long = "start-timeout-ms", default_value_t = 3000)]
-    start_timeout_ms: u64,
+    wait_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -410,6 +410,15 @@ pub(crate) struct StopActorCommand {
     /// Number of actors to stop
     #[clap(long = "count", default_value = "1")]
     pub(crate) count: u16,
+
+    /// By default, the command will wait until the actor has been started.
+    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to start.
+    #[clap(long = "skip-wait")]
+    skip_wait: bool,
+
+    /// Timeout to await an actor start, defaults to 3000 milliseconds.
+    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
+    wait_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -553,15 +562,7 @@ pub(crate) async fn handle_command(
         Stop(StopCommand::Actor(cmd)) => {
             sp.update_spinner_message(format!(" Stopping actor {} ... ", cmd.actor_id));
 
-            let ack = stop_actor(cmd.clone()).await?;
-            if !ack.accepted {
-                bail!("Operation failed: {}", ack.error);
-            }
-
-            CommandOutput::from_key_and_text(
-                "result",
-                format!("Actor {} stopped successfully", cmd.actor_id),
-            )
+            stop_actor(cmd.clone()).await?
         }
         Stop(StopCommand::Provider(cmd)) => {
             sp.update_spinner_message(format!(" Stopping provider {} ... ", cmd.provider_id));
@@ -716,7 +717,7 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
 
     let event = wait_for_actor_start_event(
         &receiver,
-        Duration::from_millis(cmd.start_timeout_ms),
+        Duration::from_millis(cmd.wait_timeout_ms),
         host.to_string(),
         cmd.actor_ref.clone(),
     )?;
@@ -799,7 +800,7 @@ pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<Comm
 
     let event = wait_for_provider_start_event(
         &receiver,
-        Duration::from_millis(cmd.start_timeout_ms),
+        Duration::from_millis(cmd.wait_timeout_ms),
         host.to_string(),
         cmd.provider_ref.clone(),
     )?;
@@ -828,8 +829,7 @@ pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CommandOutput>
             &cmd.actor_ref,
             &cmd.actor_id.to_string(),
             cmd.count,
-            // Some(annotations),
-            None,
+            Some(annotations),
         )
         .await
         .map_err(convert_error)?;
@@ -850,10 +850,9 @@ pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CommandOutput>
 
     let event = wait_for_actor_scale_event(
         &receiver,
-        Duration::from_millis(cmd.start_timeout_ms),
+        Duration::from_millis(cmd.wait_timeout_ms),
         cmd.host_id.to_string(),
         cmd.actor_id.to_string(),
-        cmd.actor_ref.to_string(),
     )?;
 
     match event {
@@ -880,9 +879,12 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperati
         .map_err(convert_error)
 }
 
-pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CtlOperationAck> {
+pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CommandOutput> {
     let client = ctl_client_from_opts(cmd.opts, None).await?;
-    client
+
+    let receiver = client.events_receiver().await.map_err(convert_error)?;
+
+    let ack = client
         .stop_actor(
             &cmd.host_id.to_string(),
             &cmd.actor_id.to_string(),
@@ -890,7 +892,33 @@ pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CtlOperationAck>
             None,
         )
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    if !ack.accepted {
+        bail!("Operation failed: {}", ack.error);
+    }
+
+    if cmd.skip_wait {
+        return Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Request to stop actor {} received", cmd.actor_id),
+        ));
+    }
+
+    let event = wait_for_actor_stop_event(
+        &receiver,
+        Duration::from_millis(cmd.wait_timeout_ms),
+        cmd.host_id.to_string(),
+        cmd.actor_id.to_string(),
+    )?;
+
+    match event {
+        FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Actor {} stopped", cmd.actor_id),
+        )),
+        FindEventOutcome::Failure(err) => bail!("{}", err),
+    }
 }
 
 pub(crate) async fn stop_host(cmd: StopHostCommand) -> Result<CtlOperationAck> {
@@ -1193,7 +1221,7 @@ mod test {
                 auction_timeout_ms,
                 config_json,
                 skip_wait,
-                start_timeout_ms,
+                wait_timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1206,7 +1234,7 @@ mod test {
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
                 assert_eq!(provider_ref, "wasmcloud.azurecr.io/provider:v1".to_string());
                 assert!(skip_wait);
-                assert_eq!(start_timeout_ms, 3000);
+                assert_eq!(wait_timeout_ms, 3000);
             }
             cmd => panic!("ctl start provider constructed incorrect command {:?}", cmd),
         }
@@ -1233,6 +1261,8 @@ mod test {
                 host_id,
                 actor_id,
                 count,
+                skip_wait,
+                wait_timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1241,6 +1271,8 @@ mod test {
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(count, 2);
+                assert!(!skip_wait);
+                assert_eq!(wait_timeout_ms, 3000);
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
@@ -1455,7 +1487,7 @@ mod test {
                 count,
                 annotations,
                 skip_wait,
-                start_timeout_ms,
+                wait_timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1466,8 +1498,8 @@ mod test {
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
                 assert_eq!(count, 1);
                 assert_eq!(annotations, vec!["foo=bar".to_string()]);
-                assert_eq!(skip_wait, false);
-                assert_eq!(start_timeout_ms, 3000);
+                assert!(!skip_wait);
+                assert_eq!(wait_timeout_ms, 3000);
             }
             cmd => panic!("ctl scale actor constructed incorrect command {:?}", cmd),
         }

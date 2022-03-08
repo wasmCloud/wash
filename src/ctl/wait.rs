@@ -175,7 +175,6 @@ pub fn wait_for_actor_scale_event(
     timeout: Duration,
     host_id: String,
     actor_id: String,
-    actor_ref: String,
 ) -> Result<FindEventOutcome<()>> {
     let check_function = move |event: Event| {
         let cloud_event = get_wasmbus_event_info(event)?;
@@ -185,18 +184,72 @@ pub fn wait_for_actor_scale_event(
         }
 
         match cloud_event.event_type.as_str() {
-            "com.wasmcloud.lattice.provider_started" => {
+            "com.wasmcloud.lattice.actor_scaled" => {
                 let image_ref = get_string_data_from_json(&cloud_event.data, "image_ref")?;
 
                 if image_ref == actor_id {
                     return Ok(EventCheckOutcome::Success(()));
                 }
             }
-            "com.wasmcloud.lattice.provider_start_failed" => {
+            "com.wasmcloud.lattice.actor_scale_failed" => {
                 let returned_provider_ref =
                     get_string_data_from_json(&cloud_event.data, "provider_ref")?;
 
                 if returned_provider_ref == actor_id {
+                    let error = anyhow!(
+                        "{}",
+                        cloud_event
+                            .data
+                            .get("error")
+                            .ok_or(anyhow!("No error found in data"))?
+                            .as_str()
+                            .ok_or(anyhow!("error is not a string"))?
+                    );
+
+                    return Ok(EventCheckOutcome::Failure(error));
+                }
+            }
+            _ => {}
+        }
+
+        Ok(EventCheckOutcome::NotApplicable)
+    };
+
+    let event = find_event(receiver, timeout, check_function)?;
+    Ok(event)
+}
+
+/// Uses the NATS reciever to read events being published to the wasmCloud lattice event subject, up until the given timeout duration.
+///
+/// If the applicable stop actor response event is found (either started or failed to start), the `Ok` variant of the `Result` will be returned,
+/// with the `FindEventOutcome` enum containing the success or failure state of the event.
+///
+/// If the timeout is reached or another error occurs, the `Err` variant of the `Result` will be returned.
+pub fn wait_for_actor_stop_event(
+    receiver: &Receiver<Event>,
+    timeout: Duration,
+    host_id: String,
+    actor_id: String,
+) -> Result<FindEventOutcome<()>> {
+    let check_function = move |event: Event| {
+        let cloud_event = get_wasmbus_event_info(event)?;
+
+        if cloud_event.source != host_id.as_str() {
+            return Ok(EventCheckOutcome::NotApplicable);
+        }
+
+        match cloud_event.event_type.as_str() {
+            "com.wasmcloud.lattice.actor_stopped" => {
+                let returned_actor_id = get_string_data_from_json(&cloud_event.data, "public_key")?;
+
+                if returned_actor_id == actor_id {
+                    return Ok(EventCheckOutcome::Success(()));
+                }
+            }
+            "com.wasmcloud.lattice.actor_stop_failed" => {
+                let returned_actor_id = get_string_data_from_json(&cloud_event.data, "public_key")?;
+
+                if returned_actor_id == actor_id {
                     let error = anyhow!(
                         "{}",
                         cloud_event
