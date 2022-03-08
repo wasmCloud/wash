@@ -4,7 +4,7 @@ use crate::appearance::spinner::Spinner;
 use crate::util::{cached_file, CommandOutput, OutputKind};
 use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
-use log::{debug, info, warn};
+use log::{debug, warn};
 use oci_distribution::{client::*, secrets::RegistryAuth, Reference};
 use provider_archive::ProviderArchive;
 use serde_json::json;
@@ -136,9 +136,7 @@ pub(crate) async fn handle_pull(
     let image: Reference = cmd.url.parse()?;
 
     let spinner = Spinner::new(&output_kind);
-    let msg = format!(" Downloading {} ...", image.whole());
-    spinner.update_spinner_message(msg.clone());
-    info!("{}", msg);
+    spinner.update_spinner_message(format!(" Downloading {} ...", image.whole()));
 
     let artifact = pull_artifact(
         cmd.url,
@@ -335,9 +333,7 @@ pub(crate) async fn handle_push(
     }
 
     let spinner = Spinner::new(&output_kind);
-    let msg = format!(" Pushing {} to {} ...", cmd.artifact, cmd.url);
-    spinner.update_spinner_message(msg.clone());
-    info!("{}", msg);
+    spinner.update_spinner_message(format!(" Pushing {} to {} ...", cmd.artifact, cmd.url));
 
     push_artifact(
         cmd.url.clone(),

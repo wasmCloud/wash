@@ -20,7 +20,7 @@ impl Spinner {
             OutputKind::Text => {
                 let style = ProgressStyle::default_spinner()
                     .tick_strings(DOTS_12)
-                    .template("{spinner:.blue} {msg}");
+                    .template("{spinner:.mid-gray} {wide_msg}");
 
                 let spinner = ProgressBar::new_spinner().with_style(style);
 
