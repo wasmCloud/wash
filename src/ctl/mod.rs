@@ -23,7 +23,10 @@ use wasmcloud_control_interface::{
     LinkDefinitionList,
 };
 
-use self::wait::{wait_for_actor_start_event, wait_for_provider_start_event, FindEventOutcome};
+use self::wait::{
+    wait_for_actor_scale_event, wait_for_actor_start_event, wait_for_provider_start_event,
+    FindEventOutcome,
+};
 
 mod manifest;
 mod output;
@@ -282,6 +285,15 @@ pub struct ScaleActorCommand {
     /// For example, autonomous agents may wish to “tag” scale requests as part of a given deployment
     #[clap(short = 'a', long = "annotations")]
     pub annotations: Vec<String>,
+
+    /// By default, the command will wait until the actor has been started.
+    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to start.
+    #[clap(long = "skip-wait")]
+    skip_wait: bool,
+
+    /// Timeout to await an actor start, defaults to 3000 milliseconds.
+    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
+    start_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -598,16 +610,7 @@ pub(crate) async fn handle_command(
                 " Scaling Actor {} to {} instances ... ",
                 cmd.actor_id, cmd.count
             ));
-
-            let ack = scale_actor(cmd.clone()).await?;
-            if !ack.accepted {
-                bail!("Operation failed: {}", ack.error);
-            }
-
-            CommandOutput::from_key_and_text(
-                "result",
-                format!("Actor {} scaled to {} instances", cmd.actor_id, cmd.count),
-            )
+            scale_actor(cmd.clone()).await?
         }
     };
 
@@ -723,9 +726,7 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
             "result",
             format!("Actor {} started on host {}", cmd.actor_ref, host),
         )),
-        FindEventOutcome::Failure(err) => {
-            bail!("{}", err);
-        }
+        FindEventOutcome::Failure(err) => bail!("{}", err),
     }
 }
 
@@ -814,21 +815,54 @@ pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<Comm
     }
 }
 
-pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CtlOperationAck> {
+pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CommandOutput> {
     let client = ctl_client_from_opts(cmd.opts, None).await?;
 
     let annotations = labels_vec_to_hashmap(cmd.annotations)?;
 
-    client
+    let receiver = client.events_receiver().await.map_err(convert_error)?;
+
+    let ack = client
         .scale_actor(
             &cmd.host_id.to_string(),
             &cmd.actor_ref,
             &cmd.actor_id.to_string(),
             cmd.count,
-            Some(annotations),
+            // Some(annotations),
+            None,
         )
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    if !ack.accepted {
+        bail!("Operation failed: {}", ack.error);
+    }
+
+    if cmd.skip_wait {
+        return Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!(
+                "Request to scale actor {} to {} instances recieved",
+                cmd.actor_id, cmd.count
+            ),
+        ));
+    }
+
+    let event = wait_for_actor_scale_event(
+        &receiver,
+        Duration::from_millis(cmd.start_timeout_ms),
+        cmd.host_id.to_string(),
+        cmd.actor_id.to_string(),
+        cmd.actor_ref.to_string(),
+    )?;
+
+    match event {
+        FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Actor {} scaled to {} instances", cmd.actor_id, cmd.count),
+        )),
+        FindEventOutcome::Failure(err) => bail!("{}", err),
+    }
 }
 
 pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperationAck> {
@@ -1420,6 +1454,8 @@ mod test {
                 actor_ref,
                 count,
                 annotations,
+                skip_wait,
+                start_timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1430,6 +1466,8 @@ mod test {
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
                 assert_eq!(count, 1);
                 assert_eq!(annotations, vec!["foo=bar".to_string()]);
+                assert_eq!(skip_wait, false);
+                assert_eq!(start_timeout_ms, 3000);
             }
             cmd => panic!("ctl scale actor constructed incorrect command {:?}", cmd),
         }
