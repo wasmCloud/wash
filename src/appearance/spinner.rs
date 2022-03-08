@@ -20,7 +20,7 @@ impl Spinner {
             OutputKind::Text => {
                 let style = ProgressStyle::default_spinner()
                     .tick_strings(DOTS_12)
-                    .template("{spinner:.mid-gray} {wide_msg}");
+                    .template("{prefix:.bold.dim} {spinner:.bold.dim} {wide_msg:.bold.dim}");
 
                 let spinner = ProgressBar::new_spinner().with_style(style);
 
@@ -37,7 +37,10 @@ impl Spinner {
     /// JSON output will be corrupted with a spinner
     pub fn update_spinner_message(&self, msg: String) {
         match &self.spinner {
-            Some(spinner) => spinner.set_message(msg),
+            Some(spinner) => {
+                spinner.set_prefix(">>>");
+                spinner.set_message(msg);
+            }
             None => {}
         }
     }
