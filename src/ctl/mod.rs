@@ -24,8 +24,8 @@ use wasmcloud_control_interface::{
 };
 
 use self::wait::{
-    wait_for_actor_scale_event, wait_for_actor_start_event, wait_for_actor_stop_event,
-    wait_for_provider_start_event, FindEventOutcome,
+    wait_for_actor_start_event, wait_for_actor_stop_event, wait_for_provider_start_event,
+    wait_for_provider_stop_event, FindEventOutcome,
 };
 
 mod manifest;
@@ -285,15 +285,6 @@ pub struct ScaleActorCommand {
     /// For example, autonomous agents may wish to “tag” scale requests as part of a given deployment
     #[clap(short = 'a', long = "annotations")]
     pub annotations: Vec<String>,
-
-    /// By default, the command will wait until the actor has been started.
-    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to start.
-    #[clap(long = "skip-wait")]
-    skip_wait: bool,
-
-    /// Timeout to await an actor start, defaults to 3000 milliseconds.
-    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
-    wait_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -384,12 +375,12 @@ pub(crate) struct StartProviderCommand {
     #[clap(long = "config-json")]
     config_json: Option<PathBuf>,
 
-    /// By default, the command will wait until the actor has been started.
-    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to start.
+    /// By default, the command will wait until the provider has been started.
+    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the provider to start.
     #[clap(long = "skip-wait")]
     skip_wait: bool,
 
-    /// Timeout to await an actor start, defaults to 3000 milliseconds.
+    /// Timeout to await the provider start, defaults to 3000 milliseconds.
     #[clap(long = "start-timeout-ms", default_value_t = 3000)]
     wait_timeout_ms: u64,
 }
@@ -411,12 +402,12 @@ pub(crate) struct StopActorCommand {
     #[clap(long = "count", default_value = "1")]
     pub(crate) count: u16,
 
-    /// By default, the command will wait until the actor has been started.
-    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to start.
+    /// By default, the command will wait until the actor has been stopped.
+    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to stp[].
     #[clap(long = "skip-wait")]
     skip_wait: bool,
 
-    /// Timeout to await an actor start, defaults to 3000 milliseconds.
+    /// Timeout to await rhe actor stop, defaults to 3000 milliseconds.
     #[clap(long = "start-timeout-ms", default_value_t = 3000)]
     wait_timeout_ms: u64,
 }
@@ -441,6 +432,15 @@ pub(crate) struct StopProviderCommand {
     /// Capability contract Id of provider
     #[clap(name = "contract-id")]
     pub(crate) contract_id: String,
+
+    /// By default, the command will wait until the provider has been stopped.
+    /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the provider to stop.
+    #[clap(long = "skip-wait")]
+    skip_wait: bool,
+
+    /// Timeout to await the provider stop, defaults to 3000 milliseconds.
+    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
+    wait_timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -567,15 +567,7 @@ pub(crate) async fn handle_command(
         Stop(StopCommand::Provider(cmd)) => {
             sp.update_spinner_message(format!(" Stopping provider {} ... ", cmd.provider_id));
 
-            let ack = stop_provider(cmd.clone()).await?;
-            if !ack.accepted {
-                bail!("Operation failed: {}", ack.error);
-            }
-
-            CommandOutput::from_key_and_text(
-                "result",
-                format!("Provider {} stopped successfully", cmd.provider_id),
-            )
+            stop_provider(cmd.clone()).await?
         }
         Stop(StopCommand::Host(cmd)) => {
             sp.update_spinner_message(format!(" Stopping host {} ... ", cmd.host_id));
@@ -821,8 +813,6 @@ pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CommandOutput>
 
     let annotations = labels_vec_to_hashmap(cmd.annotations)?;
 
-    let receiver = client.events_receiver().await.map_err(convert_error)?;
-
     let ack = client
         .scale_actor(
             &cmd.host_id.to_string(),
@@ -838,36 +828,22 @@ pub(crate) async fn scale_actor(cmd: ScaleActorCommand) -> Result<CommandOutput>
         bail!("Operation failed: {}", ack.error);
     }
 
-    if cmd.skip_wait {
-        return Ok(CommandOutput::from_key_and_text(
-            "result",
-            format!(
-                "Request to scale actor {} to {} instances recieved",
-                cmd.actor_id, cmd.count
-            ),
-        ));
-    }
-
-    let event = wait_for_actor_scale_event(
-        &receiver,
-        Duration::from_millis(cmd.wait_timeout_ms),
-        cmd.host_id.to_string(),
-        cmd.actor_id.to_string(),
-    )?;
-
-    match event {
-        FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
-            "result",
-            format!("Actor {} scaled to {} instances", cmd.actor_id, cmd.count),
-        )),
-        FindEventOutcome::Failure(err) => bail!("{}", err),
-    }
+    Ok(CommandOutput::from_key_and_text(
+        "result",
+        format!(
+            "Request to scale actor {} to {} instances recieved",
+            cmd.actor_id, cmd.count
+        ),
+    ))
 }
 
-pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperationAck> {
+pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CommandOutput> {
     validate_contract_id(&cmd.contract_id)?;
     let client = ctl_client_from_opts(cmd.opts, None).await?;
-    client
+
+    let receiver = client.events_receiver().await.map_err(convert_error)?;
+
+    let ack = client
         .stop_provider(
             &cmd.host_id.to_string(),
             &cmd.provider_id.to_string(),
@@ -876,7 +852,32 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CtlOperati
             None,
         )
         .await
-        .map_err(convert_error)
+        .map_err(convert_error)?;
+
+    if !ack.accepted {
+        bail!("Operation failed: {}", ack.error);
+    }
+    if cmd.skip_wait {
+        return Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Provider {} stop request received", cmd.provider_id),
+        ));
+    }
+
+    let event = wait_for_provider_stop_event(
+        &receiver,
+        Duration::from_millis(cmd.wait_timeout_ms),
+        cmd.host_id.to_string(),
+        cmd.provider_id.to_string(),
+    )?;
+
+    match event {
+        FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
+            "result",
+            format!("Provider {} stopped successfully", cmd.provider_id),
+        )),
+        FindEventOutcome::Failure(err) => bail!("{}", err),
+    }
 }
 
 pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CommandOutput> {
@@ -1300,6 +1301,8 @@ mod test {
                 provider_id,
                 link_name,
                 contract_id,
+                skip_wait,
+                wait_timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1309,6 +1312,8 @@ mod test {
                 assert_eq!(provider_id, PROVIDER_ID.parse()?);
                 assert_eq!(link_name, "default".to_string());
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
+                assert!(!skip_wait);
+                assert_eq!(wait_timeout_ms, 3000);
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
@@ -1486,8 +1491,6 @@ mod test {
                 actor_ref,
                 count,
                 annotations,
-                skip_wait,
-                wait_timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1498,8 +1501,6 @@ mod test {
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
                 assert_eq!(count, 1);
                 assert_eq!(annotations, vec!["foo=bar".to_string()]);
-                assert!(!skip_wait);
-                assert_eq!(wait_timeout_ms, 3000);
             }
             cmd => panic!("ctl scale actor constructed incorrect command {:?}", cmd),
         }

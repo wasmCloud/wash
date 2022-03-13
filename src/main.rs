@@ -156,7 +156,7 @@ async fn main() {
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
                 }
                 OutputKind::Text => {
-                    eprintln!("\nError: {}", e);
+                    eprintln!("\n{}", e);
                     if !trace.is_empty() {
                         eprintln!("Error trace:");
                         eprintln!("{}", trace.join("\n"));
