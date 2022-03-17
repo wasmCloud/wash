@@ -185,7 +185,8 @@ pub fn wait_for_provider_stop_event(
 
         match cloud_event.event_type.as_str() {
             "com.wasmcloud.lattice.provider_stopped" => {
-                let returned_provider_id = get_string_data_from_json(&cloud_event.data, "public_key")?;
+                let returned_provider_id =
+                    get_string_data_from_json(&cloud_event.data, "public_key")?;
 
                 if returned_provider_id == provider_id {
                     return Ok(EventCheckOutcome::Success(()));
