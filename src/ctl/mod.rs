@@ -381,7 +381,7 @@ pub(crate) struct StartProviderCommand {
     skip_wait: bool,
 
     /// Timeout to await the provider start, defaults to 3000 milliseconds.
-    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
+    #[clap(long = "start-timeout-ms", default_value_t = 15000)]
     wait_timeout_ms: u64,
 }
 
@@ -407,7 +407,7 @@ pub(crate) struct StopActorCommand {
     #[clap(long = "skip-wait")]
     skip_wait: bool,
 
-    /// Timeout to await rhe actor stop, defaults to 3000 milliseconds.
+    /// Timeout to await the actor stop, defaults to 3000 milliseconds.
     #[clap(long = "start-timeout-ms", default_value_t = 3000)]
     wait_timeout_ms: u64,
 }
