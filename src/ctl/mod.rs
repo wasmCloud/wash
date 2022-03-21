@@ -380,7 +380,7 @@ pub(crate) struct StartProviderCommand {
     #[clap(long = "skip-wait")]
     skip_wait: bool,
 
-    /// Timeout to await the provider start, defaults to 3000 milliseconds.
+    /// Timeout to await the provider start, defaults to 15000 milliseconds.
     #[clap(long = "start-timeout-ms", default_value_t = 15000)]
     wait_timeout_ms: u64,
 }
@@ -1235,7 +1235,7 @@ mod test {
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
                 assert_eq!(provider_ref, "wasmcloud.azurecr.io/provider:v1".to_string());
                 assert!(skip_wait);
-                assert_eq!(wait_timeout_ms, 3000);
+                assert_eq!(wait_timeout_ms, 15000);
             }
             cmd => panic!("ctl start provider constructed incorrect command {:?}", cmd),
         }
