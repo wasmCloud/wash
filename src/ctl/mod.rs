@@ -408,7 +408,7 @@ pub(crate) struct StopActorCommand {
     skip_wait: bool,
 
     /// Timeout to await the actor stop, defaults to 3000 milliseconds.
-    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
+    #[clap(long = "stop-timeout-ms", default_value_t = 3000)]
     wait_timeout_ms: u64,
 }
 
