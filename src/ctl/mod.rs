@@ -66,11 +66,11 @@ pub(crate) struct ConnectionOpts {
     /// Timeout length to await a control interface response, defaults to 2000 milliseconds
     #[clap(
         short = 't',
-        long = "timeout-ms",
+        long = "ack-timeout-ms",
         default_value_t = default_timeout_ms(),
         env = "WASMCLOUD_CTL_TIMEOUT_MS"
     )]
-    timeout_ms: u64,
+    ack_timeout_ms: u64,
 
     /// Path to a context with values to use for CTL connection and authentication
     #[clap(long = "context")]
@@ -86,7 +86,7 @@ impl Default for ConnectionOpts {
             ctl_seed: None,
             ctl_credsfile: None,
             lattice_prefix: Some(DEFAULT_LATTICE_PREFIX.to_string()),
-            timeout_ms: DEFAULT_NATS_TIMEOUT_MS,
+            ack_timeout_ms: DEFAULT_NATS_TIMEOUT_MS,
             context: None,
         }
     }
@@ -341,8 +341,8 @@ pub(crate) struct StartActorCommand {
     skip_wait: bool,
 
     /// Timeout to await an actor start, defaults to 3000 milliseconds.
-    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
-    wait_timeout_ms: u64,
+    #[clap(long = "timeout-ms", default_value_t = 3000)]
+    timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -381,8 +381,8 @@ pub(crate) struct StartProviderCommand {
     skip_wait: bool,
 
     /// Timeout to await the provider start, defaults to 15000 milliseconds.
-    #[clap(long = "start-timeout-ms", default_value_t = 15000)]
-    wait_timeout_ms: u64,
+    #[clap(long = "timeout-ms", default_value_t = 15000)]
+    timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -408,8 +408,8 @@ pub(crate) struct StopActorCommand {
     skip_wait: bool,
 
     /// Timeout to await the actor stop, defaults to 3000 milliseconds.
-    #[clap(long = "stop-timeout-ms", default_value_t = 3000)]
-    wait_timeout_ms: u64,
+    #[clap(long = "timeout-ms", default_value_t = 3000)]
+    timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -439,8 +439,8 @@ pub(crate) struct StopProviderCommand {
     skip_wait: bool,
 
     /// Timeout to await the provider stop, defaults to 3000 milliseconds.
-    #[clap(long = "start-timeout-ms", default_value_t = 3000)]
-    wait_timeout_ms: u64,
+    #[clap(long = "timeout-ms", default_value_t = 3000)]
+    timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -663,8 +663,8 @@ pub(crate) async fn link_query(cmd: LinkQueryCommand) -> Result<LinkDefinitionLi
 
 pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOutput> {
     // If timeout isn't supplied, override with a longer timeout for starting actor
-    if cmd.opts.timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
-        cmd.opts.timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
+    if cmd.opts.ack_timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
+        cmd.opts.ack_timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
     }
     let client = ctl_client_from_opts(cmd.opts, Some(cmd.auction_timeout_ms)).await?;
 
@@ -709,7 +709,7 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
 
     let event = wait_for_actor_start_event(
         &receiver,
-        Duration::from_millis(cmd.wait_timeout_ms),
+        Duration::from_millis(cmd.timeout_ms),
         host.to_string(),
         cmd.actor_ref.clone(),
     )?;
@@ -725,8 +725,8 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
 
 pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<CommandOutput> {
     // If timeout isn't supplied, override with a longer timeout for starting provider
-    if cmd.opts.timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
-        cmd.opts.timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
+    if cmd.opts.ack_timeout_ms == DEFAULT_NATS_TIMEOUT_MS {
+        cmd.opts.ack_timeout_ms = DEFAULT_START_PROVIDER_TIMEOUT_MS;
     }
     // OCI downloads and response
     let client = ctl_client_from_opts(cmd.opts, Some(cmd.auction_timeout_ms)).await?;
@@ -792,7 +792,7 @@ pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<Comm
 
     let event = wait_for_provider_start_event(
         &receiver,
-        Duration::from_millis(cmd.wait_timeout_ms),
+        Duration::from_millis(cmd.timeout_ms),
         host.to_string(),
         cmd.provider_ref.clone(),
     )?;
@@ -866,7 +866,7 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CommandOut
 
     let event = wait_for_provider_stop_event(
         &receiver,
-        Duration::from_millis(cmd.wait_timeout_ms),
+        Duration::from_millis(cmd.timeout_ms),
         cmd.host_id.to_string(),
         cmd.provider_id.to_string(),
     )?;
@@ -908,7 +908,7 @@ pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CommandOutput> {
 
     let event = wait_for_actor_stop_event(
         &receiver,
-        Duration::from_millis(cmd.wait_timeout_ms),
+        Duration::from_millis(cmd.timeout_ms),
         cmd.host_id.to_string(),
         cmd.actor_id.to_string(),
     )?;
@@ -1118,7 +1118,7 @@ async fn ctl_client_from_opts(
     let ctl_client = CtlClient::new(
         nc,
         Some(lattice_prefix),
-        Duration::from_millis(opts.timeout_ms),
+        Duration::from_millis(opts.ack_timeout_ms),
         Duration::from_millis(auction_timeout_ms),
     );
 
@@ -1176,12 +1176,13 @@ mod test {
                 actor_ref,
                 constraints,
                 auction_timeout_ms,
+                timeout_ms,
                 ..
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(timeout_ms, 2001);
                 assert_eq!(auction_timeout_ms, 2002);
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v1".to_string());
@@ -1199,7 +1200,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
             "--auction-timeout-ms",
             "2002",
@@ -1222,12 +1223,12 @@ mod test {
                 auction_timeout_ms,
                 config_json,
                 skip_wait,
-                wait_timeout_ms,
+                timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
                 assert_eq!(config_json, None);
                 assert_eq!(auction_timeout_ms, 2002);
                 assert_eq!(link_name, "default".to_string());
@@ -1235,7 +1236,7 @@ mod test {
                 assert_eq!(host_id.unwrap(), HOST_ID.parse()?);
                 assert_eq!(provider_ref, "wasmcloud.azurecr.io/provider:v1".to_string());
                 assert!(skip_wait);
-                assert_eq!(wait_timeout_ms, 15000);
+                assert_eq!(timeout_ms, 15000);
             }
             cmd => panic!("ctl start provider constructed incorrect command {:?}", cmd),
         }
@@ -1249,7 +1250,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
             "--count",
             "2",
@@ -1263,17 +1264,17 @@ mod test {
                 actor_id,
                 count,
                 skip_wait,
-                wait_timeout_ms,
+                timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(count, 2);
                 assert!(!skip_wait);
-                assert_eq!(wait_timeout_ms, 3000);
+                assert_eq!(timeout_ms, 3000);
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
@@ -1287,7 +1288,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
             HOST_ID,
             PROVIDER_ID,
@@ -1302,18 +1303,18 @@ mod test {
                 link_name,
                 contract_id,
                 skip_wait,
-                wait_timeout_ms,
+                timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(provider_id, PROVIDER_ID.parse()?);
                 assert_eq!(link_name, "default".to_string());
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
                 assert!(!skip_wait);
-                assert_eq!(wait_timeout_ms, 3000);
+                assert_eq!(timeout_ms, 3000);
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
@@ -1327,7 +1328,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
         ])?;
         match get_hosts_all.command {
@@ -1335,7 +1336,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
             }
             cmd => panic!("ctl get hosts constructed incorrect command {:?}", cmd),
         }
@@ -1349,7 +1350,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
             HOST_ID,
         ])?;
@@ -1361,7 +1362,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
             }
             cmd => panic!("ctl get inventory constructed incorrect command {:?}", cmd),
@@ -1376,7 +1377,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
         ])?;
         match get_claims_all.command {
@@ -1384,7 +1385,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
             }
             cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
         }
@@ -1398,7 +1399,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
             "--link-name",
             "default",
@@ -1419,7 +1420,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(provider_id, PROVIDER_ID.parse()?);
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
@@ -1438,7 +1439,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
             HOST_ID,
             ACTOR_ID,
@@ -1454,7 +1455,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(new_actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
@@ -1472,7 +1473,7 @@ mod test {
             CTL_HOST,
             "--ctl-port",
             CTL_PORT,
-            "--timeout-ms",
+            "--ack-timeout-ms",
             "2001",
             HOST_ID,
             ACTOR_ID,
@@ -1495,7 +1496,7 @@ mod test {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
-                assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.ack_timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
