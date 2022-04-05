@@ -259,7 +259,7 @@ pub(crate) struct ActorMetadata {
     #[clap(short = 'q', long = "http_server")]
     http_server: bool,
     /// Enable the HTTP client standard capability
-    #[clap(short = 'b', long = "http_client")]
+    #[clap(short = 'j', long = "http_client")]
     http_client: bool,
     /// Enable access to the blob store capability
     #[clap(short = 'f', long = "blob_store")]
