@@ -17,7 +17,7 @@ use crate::{
     util::{CommandOutput, OutputKind},
 };
 use anyhow::{bail, Context, Result};
-use clap::{AppSettings, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 use nkeys::{KeyPair, KeyPairType};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::json;
@@ -41,7 +41,6 @@ use wascap::{
 };
 
 #[derive(Debug, Clone, Subcommand)]
-#[clap(setting(AppSettings::DisableHelpFlag))]
 pub(crate) enum ClaimsCliCommand {
     /// Examine the capabilities of a WebAssembly module
     #[clap(name = "inspect")]
@@ -249,7 +248,6 @@ pub(crate) struct ProviderMetadata {
 }
 
 #[derive(Parser, Debug, Clone, Serialize, Deserialize)]
-#[clap(setting(AppSettings::DisableHelpFlag))]
 pub(crate) struct ActorMetadata {
     /// Enable the Key/Value Store standard capability
     #[clap(short = 'k', long = "keyvalue")]
@@ -261,7 +259,7 @@ pub(crate) struct ActorMetadata {
     #[clap(short = 'q', long = "http_server")]
     http_server: bool,
     /// Enable the HTTP client standard capability
-    #[clap(short = 'h', long = "http_client")]
+    #[clap(short = 'b', long = "http_client")]
     http_client: bool,
     /// Enable access to the blob store capability
     #[clap(short = 'f', long = "blob_store")]

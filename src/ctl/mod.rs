@@ -12,7 +12,7 @@ use crate::{
     },
 };
 use anyhow::{bail, Result};
-use clap::{AppSettings, ArgEnum, Args, Parser, Subcommand};
+use clap::{Args, Parser, Subcommand};
 pub(crate) use output::*;
 use std::{
     path::{Path, PathBuf},
@@ -92,7 +92,7 @@ impl Default for ConnectionOpts {
     }
 }
 
-#[derive(ArgEnum, Debug, Clone, Subcommand)]
+#[derive(Debug, Clone, Subcommand)]
 pub(crate) enum CtlCliCommand {
     /// Retrieves information about the lattice
     #[clap(name = "get", subcommand)]
@@ -310,13 +310,12 @@ pub(crate) struct GetClaimsCommand {
 }
 
 #[derive(Debug, Clone, Parser)]
-#[clap(setting(AppSettings::DisableHelpFlag))]
 pub(crate) struct StartActorCommand {
     #[clap(flatten)]
     opts: ConnectionOpts,
 
     /// Id of host, if omitted the actor will be auctioned in the lattice to find a suitable host
-    #[clap(short = 'h', long = "host-id", name = "host-id", parse(try_from_str))]
+    #[clap(long = "host-id", name = "host-id", parse(try_from_str))]
     pub(crate) host_id: Option<ServerId>,
 
     /// Actor reference, e.g. the OCI URL for the actor.
@@ -346,13 +345,12 @@ pub(crate) struct StartActorCommand {
 }
 
 #[derive(Debug, Clone, Parser)]
-#[clap(setting(AppSettings::DisableHelpFlag))]
 pub(crate) struct StartProviderCommand {
     #[clap(flatten)]
     opts: ConnectionOpts,
 
     /// Id of host, if omitted the provider will be auctioned in the lattice to find a suitable host
-    #[clap(short = 'h', long = "host-id", name = "host-id", parse(try_from_str))]
+    #[clap(long = "host-id", name = "host-id", parse(try_from_str))]
     host_id: Option<ServerId>,
 
     /// Provider reference, e.g. the OCI URL for the provider
@@ -454,7 +452,6 @@ pub(crate) struct StopHostCommand {
 
     /// The timeout in ms for how much time to give the host for graceful shutdown
     #[clap(
-        short = 'h',
         long = "host-timeout",
         default_value_t = default_timeout_ms()
     )]
