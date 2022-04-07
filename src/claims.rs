@@ -1118,7 +1118,6 @@ mod test {
             "-f",
             "-e",
             "-z",
-            "-h",
             "-q",
             "-k",
             "-l",
@@ -1143,7 +1142,6 @@ mod test {
                 assert!(metadata.keyvalue);
                 assert!(metadata.msg_broker);
                 assert!(metadata.http_server);
-                assert!(metadata.http_client);
                 assert!(metadata.blob_store);
                 assert!(metadata.extras);
                 assert!(metadata.logging);
