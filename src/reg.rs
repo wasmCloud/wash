@@ -19,6 +19,7 @@ const WASM_MEDIA_TYPE: &str = "application/vnd.module.wasm.content.layer.v1+wasm
 const WASM_CONFIG_MEDIA_TYPE: &str = "application/vnd.wasmcloud.actor.archive.config";
 const OCI_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
 const WASM_FILE_EXTENSION: &str = ".wasm";
+const MAX_LAYER_SIZE: usize = 4_000_000;
 
 pub(crate) const SHOWER_EMOJI: &str = "\u{1F6BF}";
 
@@ -408,11 +409,24 @@ pub(crate) async fn push_artifact(
             ),
         };
 
-    let image_data = ImageData {
-        layers: vec![ImageLayer {
+    //TODO: make this configurable
+    let layers = if artifact_buf.len() > MAX_LAYER_SIZE {
+        artifact_buf
+            .chunks(MAX_LAYER_SIZE)
+            .map(|chunk| ImageLayer {
+                data: chunk.to_vec(),
+                media_type: artifact_media_type.to_string(),
+            })
+            .collect()
+    } else {
+        vec![ImageLayer {
             data: artifact_buf,
             media_type: artifact_media_type.to_string(),
-        }],
+        }]
+    };
+
+    let image_data = ImageData {
+        layers: layers,
         digest: None,
     };
 
@@ -468,8 +482,7 @@ fn generate_manifest(
         manifest.annotations = Some(additional_annotations);
     }
 
-    // We only support one layer for actors and providers at this time
-    if let Some(layer) = image_data.layers.get(0) {
+    image_data.layers.iter().for_each(|layer| {
         let digest = sha256_digest(&layer.data);
 
         let mut annotations = HashMap::new();
@@ -487,7 +500,9 @@ fn generate_manifest(
         };
 
         manifest.layers.push(descriptor);
-    }
+    });
+
+    println!("{:?}\n\n", serde_json::to_string(&manifest));
 
     manifest
 }
