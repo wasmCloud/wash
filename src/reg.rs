@@ -5,7 +5,7 @@ use crate::util::{cached_file, labels_vec_to_hashmap, CommandOutput, OutputKind}
 use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
 use log::{debug, warn};
-use oci_distribution::manifest::{OciDescriptor, OciManifest};
+use oci_distribution::manifest::{OciDescriptor, OciImageManifest};
 use oci_distribution::{client::*, secrets::RegistryAuth, Reference};
 use provider_archive::ProviderArchive;
 use serde_json::json;
@@ -19,7 +19,7 @@ const WASM_MEDIA_TYPE: &str = "application/vnd.module.wasm.content.layer.v1+wasm
 const WASM_CONFIG_MEDIA_TYPE: &str = "application/vnd.wasmcloud.actor.archive.config";
 const OCI_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
 const WASM_FILE_EXTENSION: &str = ".wasm";
-const MAX_LAYER_SIZE: usize = 4_000_000;
+const MAX_LAYER_SIZE: usize = 8_000_000;
 
 pub(crate) const SHOWER_EMOJI: &str = "\u{1F6BF}";
 
@@ -384,18 +384,6 @@ pub(crate) async fn push_artifact(
         );
     };
 
-    let mut config_buf = vec![];
-    match config {
-        Some(config_file) => {
-            let mut f = File::open(config_file)?;
-            f.read_to_end(&mut config_buf)?;
-        }
-        None => {
-            // If no config provided, send blank config
-            config_buf = b"{}".to_vec();
-        }
-    };
-
     let mut artifact_buf = vec![];
     let mut f = File::open(artifact.clone())?;
     f.read_to_end(&mut artifact_buf)?;
@@ -409,25 +397,39 @@ pub(crate) async fn push_artifact(
             ),
         };
 
-    //TODO: make this configurable
+    let mut config_buf = vec![];
+    match config {
+        Some(config_file) => {
+            let mut f = File::open(config_file)?;
+            f.read_to_end(&mut config_buf)?;
+        }
+        None => {
+            // If no config provided, send blank config
+            config_buf = b"{}".to_vec();
+        }
+    };
+    let config = Config {
+        data: config_buf,
+        media_type: config_media_type.to_string(),
+        annotations: None,
+    };
+
+    //TODO: make the layer size configurable
     let layers = if artifact_buf.len() > MAX_LAYER_SIZE {
         artifact_buf
             .chunks(MAX_LAYER_SIZE)
             .map(|chunk| ImageLayer {
                 data: chunk.to_vec(),
                 media_type: artifact_media_type.to_string(),
+                annotations: None,
             })
             .collect()
     } else {
         vec![ImageLayer {
             data: artifact_buf,
             media_type: artifact_media_type.to_string(),
+            annotations: None,
         }]
-    };
-
-    let image_data = ImageData {
-        layers: layers,
-        digest: None,
     };
 
     let mut client = Client::new(ClientConfig {
@@ -444,58 +446,39 @@ pub(crate) async fn push_artifact(
         _ => RegistryAuth::Anonymous,
     };
 
-    let manifest = generate_manifest(
-        &image_data,
-        &config_buf,
-        config_media_type,
-        annotations.unwrap_or_default(),
-    );
+    let manifest = generate_manifest(&layers, &config, annotations.unwrap_or_default());
 
     client
-        .push(
-            &image,
-            &image_data,
-            &config_buf,
-            config_media_type,
-            &auth,
-            Some(manifest),
-        )
+        .push(&image, &layers, config, &auth, Some(manifest))
         .await?;
     Ok(())
 }
 
 /// Modified version of oci_distribution::generate_manifest to support additional annotations
 fn generate_manifest(
-    image_data: &ImageData,
-    config_data: &[u8],
-    config_media_type: &str,
+    image_layers: &[ImageLayer],
+    config: &Config,
     custom_annotations: Vec<String>,
-) -> OciManifest {
-    let mut manifest = OciManifest::default();
+) -> OciImageManifest {
+    let mut manifest = OciImageManifest::default();
 
-    manifest.config.media_type = config_media_type.to_string();
-    manifest.config.size = config_data.len() as i64;
-    manifest.config.digest = sha256_digest(config_data);
+    manifest.config.media_type = config.media_type.to_string();
+    manifest.config.size = config.data.len() as i64;
+    manifest.config.digest = sha256_digest(&config.data);
 
     // Insert additional annotations into this manifest
     if let Ok(additional_annotations) = labels_vec_to_hashmap(custom_annotations) {
         manifest.annotations = Some(additional_annotations);
     }
 
-    image_data.layers.iter().for_each(|layer| {
+    image_layers.iter().for_each(|layer| {
         let digest = sha256_digest(&layer.data);
-
-        let mut annotations = HashMap::new();
-        annotations.insert(
-            "org.opencontainers.image.title".to_string(),
-            digest.to_string(),
-        );
 
         let descriptor = OciDescriptor {
             size: layer.data.len() as i64,
             digest,
             media_type: layer.media_type.clone(),
-            annotations: Some(annotations),
+            annotations: None,
             ..Default::default()
         };
 
