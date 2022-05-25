@@ -5,7 +5,7 @@ use crate::util::{cached_file, labels_vec_to_hashmap, CommandOutput, OutputKind}
 use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
 use log::{debug, warn};
-use oci_distribution::manifest::{OciDescriptor, OciImageManifest};
+use oci_distribution::manifest::OciImageManifest;
 use oci_distribution::{client::*, secrets::RegistryAuth, Reference};
 use provider_archive::ProviderArchive;
 use serde_json::json;
@@ -19,7 +19,8 @@ const WASM_MEDIA_TYPE: &str = "application/vnd.module.wasm.content.layer.v1+wasm
 const WASM_CONFIG_MEDIA_TYPE: &str = "application/vnd.wasmcloud.actor.archive.config";
 const OCI_MEDIA_TYPE: &str = "application/vnd.oci.image.layer.v1.tar";
 const WASM_FILE_EXTENSION: &str = ".wasm";
-const MAX_LAYER_SIZE: usize = 8_000_000;
+// Default to 4MB to support a popular use case, GitHub Container Registry
+const MAX_LAYER_SIZE: usize = 4_000_000;
 
 pub(crate) const SHOWER_EMOJI: &str = "\u{1F6BF}";
 
@@ -84,6 +85,10 @@ pub(crate) struct PushCommand {
     /// Optional set of annotations to apply to the OCI artifact manifest
     #[clap(short = 'a', long = "annotation", name = "annotations")]
     pub(crate) annotations: Option<Vec<String>>,
+
+    /// Optional parameter to specify the size to divide an artifact up into layers, default 4MB
+    #[clap(short = 'm', long = "max-layer-size")]
+    pub(crate) max_layer_size: Option<usize>,
 
     #[clap(flatten)]
     pub(crate) opts: AuthOpts,
@@ -205,7 +210,7 @@ pub(crate) async fn pull_artifact(
 
     if image.tag().unwrap_or("latest") == "latest" && !allow_latest {
         bail!(
-            "Pulling artifacts with tag 'latest' is prohibited. This can be overriden with a flag"
+            "Pulling artifacts with tag 'latest' is prohibited. This can be overriden with the flag --allow-latest"
         );
     };
 
@@ -350,6 +355,7 @@ pub(crate) async fn handle_push(
         cmd.opts.password,
         cmd.opts.insecure,
         cmd.annotations,
+        cmd.max_layer_size.unwrap_or(MAX_LAYER_SIZE),
     )
     .await?;
 
@@ -375,12 +381,13 @@ pub(crate) async fn push_artifact(
     password: Option<String>,
     insecure: bool,
     annotations: Option<Vec<String>>,
+    max_layer_size: usize,
 ) -> Result<()> {
     let image: Reference = url.parse()?;
 
     if image.tag().unwrap() == "latest" && !allow_latest {
         bail!(
-            "Pushing artifacts with tag 'latest' is prohibited. This can be overriden with a flag"
+            "Pushing artifacts with tag 'latest' is prohibited. This can be overriden with the flag --allow-latest"
         );
     };
 
@@ -414,10 +421,10 @@ pub(crate) async fn push_artifact(
         annotations: None,
     };
 
-    //TODO: make the layer size configurable
-    let layers = if artifact_buf.len() > MAX_LAYER_SIZE {
+    // Automatically chunk artifact into layers if it exceeds the max layer size
+    let layers = if artifact_buf.len() > max_layer_size {
         artifact_buf
-            .chunks(MAX_LAYER_SIZE)
+            .chunks(max_layer_size)
             .map(|chunk| ImageLayer {
                 data: chunk.to_vec(),
                 media_type: artifact_media_type.to_string(),
@@ -446,54 +453,16 @@ pub(crate) async fn push_artifact(
         _ => RegistryAuth::Anonymous,
     };
 
-    let manifest = generate_manifest(&layers, &config, annotations.unwrap_or_default());
+    let manifest = OciImageManifest::build(
+        &layers,
+        &config,
+        labels_vec_to_hashmap(annotations.unwrap_or_default()).ok(),
+    );
 
     client
         .push(&image, &layers, config, &auth, Some(manifest))
         .await?;
     Ok(())
-}
-
-/// Modified version of oci_distribution::generate_manifest to support additional annotations
-fn generate_manifest(
-    image_layers: &[ImageLayer],
-    config: &Config,
-    custom_annotations: Vec<String>,
-) -> OciImageManifest {
-    let mut manifest = OciImageManifest::default();
-
-    manifest.config.media_type = config.media_type.to_string();
-    manifest.config.size = config.data.len() as i64;
-    manifest.config.digest = sha256_digest(&config.data);
-
-    // Insert additional annotations into this manifest
-    if let Ok(additional_annotations) = labels_vec_to_hashmap(custom_annotations) {
-        manifest.annotations = Some(additional_annotations);
-    }
-
-    image_layers.iter().for_each(|layer| {
-        let digest = sha256_digest(&layer.data);
-
-        let descriptor = OciDescriptor {
-            size: layer.data.len() as i64,
-            digest,
-            media_type: layer.media_type.clone(),
-            annotations: None,
-            ..Default::default()
-        };
-
-        manifest.layers.push(descriptor);
-    });
-
-    println!("{:?}\n\n", serde_json::to_string(&manifest));
-
-    manifest
-}
-
-/// Computes the SHA256 digest of a byte vector
-use sha2::Digest;
-fn sha256_digest(bytes: &[u8]) -> String {
-    format!("sha256:{:x}", sha2::Sha256::digest(bytes))
 }
 
 #[cfg(test)]
