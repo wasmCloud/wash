@@ -3796,7 +3796,7 @@ dependencies = [
  "wasmbus-rpc",
  "wasmcloud-control-interface",
  "wasmcloud-test-util",
- "weld-codegen",
+ "weld-codegen 0.4.4",
  "which",
 ]
 
@@ -3921,7 +3921,7 @@ dependencies = [
  "uuid",
  "wascap",
  "wasmbus-macros",
- "weld-codegen",
+ "weld-codegen 0.3.3",
 ]
 
 [[package]]
@@ -3961,7 +3961,7 @@ dependencies = [
  "rmp-serde 0.15.5",
  "serde",
  "wasmbus-rpc",
- "weld-codegen",
+ "weld-codegen 0.3.3",
 ]
 
 [[package]]
@@ -3976,7 +3976,7 @@ dependencies = [
  "serde_bytes",
  "serde_json",
  "wasmbus-rpc",
- "weld-codegen",
+ "weld-codegen 0.3.3",
 ]
 
 [[package]]
@@ -4049,6 +4049,36 @@ dependencies = [
  "lazy_static",
  "lexical-sort",
  "minicbor",
+ "reqwest",
+ "rustc-hash",
+ "semver",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
+name = "weld-codegen"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "185e3faea8e8c2aab9ab93b5c5eaa340105880d8525dd6a8c0af695bd393b3f0"
+dependencies = [
+ "Inflector",
+ "anyhow",
+ "atelier_assembler",
+ "atelier_core 0.2.22",
+ "atelier_json",
+ "atelier_smithy",
+ "bytes",
+ "cfg-if 1.0.0",
+ "clap 3.1.8",
+ "directories",
+ "downloader",
+ "handlebars",
+ "lazy_static",
+ "lexical-sort",
  "reqwest",
  "rustc-hash",
  "semver",
