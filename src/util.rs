@@ -20,7 +20,7 @@ pub const DEFAULT_NATS_TIMEOUT_MS: u64 = 2_000;
 pub const DEFAULT_START_PROVIDER_TIMEOUT_MS: u64 = 60_000;
 
 /// Used for displaying human-readable output vs JSON format
-#[derive(Debug, Copy, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Copy, Clone, Eq, Serialize, Deserialize, PartialEq)]
 pub(crate) enum OutputKind {
     Text,
     Json,
@@ -145,7 +145,7 @@ pub(crate) fn labels_vec_to_hashmap(constraints: Vec<String>) -> Result<HashMap<
 /// Transform a json string (e.g. "{"hello": "world"}") into msgpack bytes
 pub(crate) fn json_str_to_msgpack_bytes(payload: &str) -> Result<Vec<u8>> {
     let json = serde_json::from_str::<serde_json::Value>(payload)?;
-    let payload = wasmbus_rpc::serialize(&json)?;
+    let payload = wasmbus_rpc::common::serialize(&json)?;
     Ok(payload)
 }
 
