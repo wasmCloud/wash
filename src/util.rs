@@ -1,13 +1,7 @@
 use anyhow::{anyhow, bail, Result};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
-    env::temp_dir,
-    error::Error,
-    fmt, 
-    fs::File,
-    io::Read,
-    path::PathBuf,
+    collections::HashMap, env::temp_dir, error::Error, fmt, fs::File, io::Read, path::PathBuf,
     str::FromStr,
 };
 use term_table::{Table, TableStyle};
