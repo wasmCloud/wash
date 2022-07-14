@@ -69,6 +69,16 @@ struct RawProjectConfig {
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct TinyGoConfig {}
 
+/// Gets the wasmCloud config.
+///
+/// The config can come from multiple sources: a specific toml file path, a folder with a `wasmcloud.toml` file inside it, or by default it looks for a `wasmcloud.toml` file in the current directory.
+///
+/// The user can also override the config file by setting environment variables with the prefix "WASMCLOUD_". This behavior can be disabled by setting `use_env` to false.
+/// For example, a user could set the variable `WASMCLOUD_RUST_CARGO_PATH` to override the default `cargo` path.
+///
+/// # Arguments
+/// * `opt_path` - The path to the config file. If None, it will look for a wasmcloud.toml file in the current directory.
+/// * `use_env` - Whether to use the environment variables or not. If false, it will not attempt to use environment variables. Defaults to true.
 pub fn get_config(opt_path: Option<PathBuf>, use_env: Option<bool>) -> Result<ProjectConfig> {
     let mut path = opt_path.unwrap_or_else(|| PathBuf::from("."));
 
