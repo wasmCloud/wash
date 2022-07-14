@@ -69,7 +69,7 @@ struct RawProjectConfig {
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct TinyGoConfig {}
 
-/// Gets the wasmCloud config.
+/// Gets the wasmCloud project (actor, provider, or interface) config.
 ///
 /// The config can come from multiple sources: a specific toml file path, a folder with a `wasmcloud.toml` file inside it, or by default it looks for a `wasmcloud.toml` file in the current directory.
 ///
