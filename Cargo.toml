@@ -55,7 +55,7 @@ walkdir = "2.3"
 wascap = "0.8.0"
 wasmcloud-control-interface = "0.14.0"
 wasmbus-rpc = "0.8.5"
-
+wasmcloud-config-parser = { path = "crates/wasmcloud-config-parser", version = "0.1.0" }
 wasmcloud-test-util = "0.3.3"
 weld-codegen = "0.4.5"
 which = "4.2.2"

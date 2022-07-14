@@ -69,21 +69,50 @@ struct RawProjectConfig {
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct TinyGoConfig {}
 
-pub fn get_config(path: Option<PathBuf>) -> Result<ProjectConfig> {
-    let path_to_file = path
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("wasmcloud.toml");
+pub fn get_config(opt_path: Option<PathBuf>, use_env: Option<bool>) -> Result<ProjectConfig> {
+    let mut path = opt_path.unwrap_or_else(|| PathBuf::from("."));
 
-    let config = Config::builder()
-        .add_source(config::File::from(path_to_file))
-        .add_source(config::Environment::with_prefix("WASMCLOUD"))
-        .build()?;
+    if !path.exists() {
+        return Err(anyhow!("Path {} does not exist", path.display()));
+    }
 
-    let value = config.try_deserialize::<serde_json::Value>()?;
+    if path.is_dir() {
+        let wasmcloud_path = path.join("wasmcloud.toml");
+        if !wasmcloud_path.is_file() {
+            return Err(anyhow!(
+                "No wasmcloud.toml file found in {}",
+                path.display()
+            ));
+        }
+        path = wasmcloud_path;
+    }
 
-    let raw_project_config: RawProjectConfig = serde_json::from_value(value)?;
+    if !path.is_file() {
+        return Err(anyhow!("No config file found at {}", path.display()));
+    }
 
-    raw_project_config.try_into()
+    let mut config = Config::builder().add_source(config::File::from(path.clone()));
+
+    if use_env.unwrap_or(true) {
+        config = config.add_source(config::Environment::with_prefix("WASMCLOUD"));
+    }
+
+    let json_value = config
+        .build()
+        .map_err(|e| {
+            if e.to_string().contains("is not of a registered file format") {
+                return anyhow!("Invalid config file: {}", path.display());
+            }
+
+            anyhow!("{}", e)
+        })?
+        .try_deserialize::<serde_json::Value>()?;
+
+    let raw_project_config: RawProjectConfig = serde_json::from_value(json_value)?;
+
+    raw_project_config
+        .try_into()
+        .map_err(|e: anyhow::Error| anyhow!("{} in {}", e, path.display()))
 }
 
 impl TryFrom<RawProjectConfig> for ProjectConfig {
@@ -94,21 +123,21 @@ impl TryFrom<RawProjectConfig> for ProjectConfig {
             "actor" => {
                 let actor_config = raw_project_config
                     .actor
-                    .ok_or_else(|| anyhow!("Missing actor config in wasmcloud.toml"))?;
+                    .ok_or_else(|| anyhow!("Missing actor config"))?;
                 TypeConfig::Actor(actor_config)
             }
 
             "provider" => {
                 let provider_config = raw_project_config
                     .provider
-                    .ok_or_else(|| anyhow!("Missing provider config in wasmcloud.toml"))?;
+                    .ok_or_else(|| anyhow!("Missing provider config"))?;
                 TypeConfig::Provider(provider_config)
             }
 
             "interface" => {
                 let interface_config = raw_project_config
                     .interface
-                    .ok_or_else(|| anyhow!("Missing interface config in wasmcloud.toml"))?;
+                    .ok_or_else(|| anyhow!("Missing interface config"))?;
                 TypeConfig::Interface(interface_config)
             }
 
