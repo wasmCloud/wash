@@ -246,7 +246,8 @@ pub(crate) async fn nats_client_from_opts(
         .connect("localhost")
         .await?
     } else if let Some(credsfile_path) = credsfile {
-        ConnectOptions::with_credentials(&credsfile_path.to_string_lossy())?
+        ConnectOptions::with_credentials_file(credsfile_path)
+            .await?
             .connect(&nats_url)
             .await?
     } else {
