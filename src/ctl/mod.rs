@@ -400,10 +400,6 @@ pub(crate) struct StopActorCommand {
     /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the actor to stp[].
     #[clap(long = "skip-wait")]
     skip_wait: bool,
-
-    /// Timeout to await the actor stop, defaults to 3000 milliseconds.
-    #[clap(long = "timeout-ms", default_value_t = 3000)]
-    timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -431,10 +427,6 @@ pub(crate) struct StopProviderCommand {
     /// If this flag is passed, the command will return immediately after acknowledgement from the host, without waiting for the provider to stop.
     #[clap(long = "skip-wait")]
     skip_wait: bool,
-
-    /// Timeout to await the provider stop, defaults to 3000 milliseconds.
-    #[clap(long = "timeout-ms", default_value_t = 3000)]
-    timeout_ms: u64,
 }
 
 #[derive(Debug, Clone, Parser)]
@@ -1262,7 +1254,6 @@ mod test {
                 actor_id,
                 count,
                 skip_wait,
-                timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1272,7 +1263,6 @@ mod test {
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(count, 2);
                 assert!(!skip_wait);
-                assert_eq!(timeout_ms, 3000);
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
@@ -1301,7 +1291,6 @@ mod test {
                 link_name,
                 contract_id,
                 skip_wait,
-                timeout_ms,
             })) => {
                 assert_eq!(&opts.ctl_host.unwrap(), CTL_HOST);
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
@@ -1312,7 +1301,6 @@ mod test {
                 assert_eq!(link_name, "default".to_string());
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
                 assert!(!skip_wait);
-                assert_eq!(timeout_ms, 3000);
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
