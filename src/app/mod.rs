@@ -381,7 +381,7 @@ async fn nats_client_from_opts(opts: ConnectionOpts) -> Result<(Client, Duration
         crate::util::nats_client_from_opts(&ctl_host, &ctl_port, ctl_jwt, ctl_seed, ctl_credsfile)
             .await?;
 
-    let timeout = Duration::from_millis(opts.ack_timeout_ms);
+    let timeout = Duration::from_millis(opts.timeout_ms);
 
     Ok((nc, timeout))
 }
