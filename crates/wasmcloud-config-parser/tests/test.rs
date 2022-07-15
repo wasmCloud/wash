@@ -24,12 +24,12 @@ fn rust_actor() {
     assert_eq!(
         config.project_type,
         TypeConfig::Actor(ActorConfig {
-            claims: Some(vec!["wasmcloud:httpserver".to_string()]),
+            claims: vec!["wasmcloud:httpserver".to_string()],
             registry: Some("localhost:8080".to_string()),
             push_insecure: false,
-            key_directory: Some(PathBuf::from("./keys")),
+            key_directory: PathBuf::from("./keys"),
             filename: Some("testactor.wasm".to_string()),
-            wasm_target: Some("wasm32-unknown-unknown".to_string()),
+            wasm_target: "wasm32-unknown-unknown".to_string(),
             call_alias: Some("testactor".to_string())
         })
     );
@@ -54,12 +54,12 @@ fn tinygo_actor() {
     assert_eq!(
         config.project_type,
         TypeConfig::Actor(ActorConfig {
-            claims: Some(vec!["wasmcloud:httpserver".to_string()]),
+            claims: vec!["wasmcloud:httpserver".to_string()],
             registry: Some("localhost:8080".to_string()),
             push_insecure: false,
-            key_directory: Some(PathBuf::from("./keys")),
+            key_directory: PathBuf::from("./keys"),
             filename: Some("testactor.wasm".to_string()),
-            wasm_target: Some("wasm32-unknown-unknown".to_string()),
+            wasm_target: "wasm32-unknown-unknown".to_string(),
             call_alias: Some("testactor".to_string())
         })
     );
