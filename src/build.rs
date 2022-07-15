@@ -13,9 +13,6 @@ use wasmcloud_config_parser::{
 #[clap(name = "build")]
 pub(crate) struct BuildCli {}
 
-/// Build options shared amoung actors/providers/interfaces.
-struct CommonBuildOptions {}
-
 pub(crate) fn handle_command(command: BuildCli) -> Result<CommandOutput> {
     let config = wasmcloud_config_parser::get_config(None, Some(true))?;
 
