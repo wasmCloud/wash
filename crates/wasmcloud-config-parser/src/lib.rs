@@ -20,28 +20,41 @@ pub enum TypeConfig {
 
 #[derive(serde::Deserialize, Debug)]
 pub struct ProjectConfig {
+    /// The language of the project, e.g. rust, tinygo. Contains specific configuration for that language.
     pub language: LanguageConfig,
     /// The type of project, e.g. actor, provider, interface. Contains the specific configuration for that type.
     /// This is renamed to "type" but is named project_type here to avoid clashing with the type keyword in Rust.
     #[serde(rename = "type")]
     pub project_type: TypeConfig,
+    /// The name of the project.
     pub name: String,
+    /// The semantic version of the project.
     pub version: Version,
 }
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct ActorConfig {
+    /// The list of provider claims that this actor requires. eg. ["wasmcloud:httpserver"]
     pub claims: Option<Vec<String>>,
+    /// The registry to push to. eg. "localhost:8080"
     pub registry: Option<String>,
+    /// Whether to push to the registry insecurely. Defaults to false.
     pub push_insecure: bool,
+    /// The directory to store the private keys in. Defaults to "./keys".
     pub key_directory: Option<PathBuf>,
+    /// The filename of the signed wasm actor.
     pub filename: Option<String>,
-    pub wasm_type: Option<String>,
+    /// The target wasm target to build for. Defaults to "wasm32-unknown-unknown".
+    pub wasm_target: Option<String>,
+    /// The call alias of the actor. Defaults to no alias.
+    pub call_alias: Option<String>,
 }
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct ProviderConfig {
+    /// The capability ID of the provider.
     pub capability_id: String,
+    /// The vendor name of the provider. Optional, defaults to 'NoVendor'.
     pub vendor: Option<String>,
 }
 
@@ -50,18 +63,23 @@ pub struct InterfaceConfig {}
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct RustConfig {
+    /// The path to the cargo binary. Optional, will default to just `cargo` if not specified.
     pub cargo_path: Option<PathBuf>,
+    /// Path to cargo/rust's `target` directory. Optional, defaults to `./target`.
     pub target_path: Option<PathBuf>,
 }
 
 #[derive(serde::Deserialize, Debug)]
 struct RawProjectConfig {
+    /// The language of the project, e.g. rust, tinygo. This is used to determine which config to parse.
     pub language: String,
     /// The type of project. This is a string that is used to determine which type of config to parse.
     /// The toml file name is just "type" but is named project_type here to avoid clashing with the type keyword in Rust.
     #[serde(rename = "type")]
     pub project_type: String,
+    /// Name of the project.
     pub name: String,
+    /// Semantic version of the project.
     pub version: Version,
     pub actor: Option<ActorConfig>,
     pub provider: Option<ProviderConfig>,

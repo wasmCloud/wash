@@ -30,7 +30,8 @@ fn specific_toml() {
             push_insecure: false,
             key_directory: Some(PathBuf::from("./keys")),
             filename: Some("testactor.wasm".to_string()),
-            wasm_type: Some("wasm32-unknown-unknown".to_string()),
+            wasm_target: Some("wasm32-unknown-unknown".to_string()),
+            call_alias: Some("testactor".to_string())
         })
     );
 
