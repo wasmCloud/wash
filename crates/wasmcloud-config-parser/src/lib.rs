@@ -26,10 +26,8 @@ pub struct ProjectConfig {
     /// This is renamed to "type" but is named project_type here to avoid clashing with the type keyword in Rust.
     #[serde(rename = "type")]
     pub project_type: TypeConfig,
-    /// The name of the project.
-    pub name: String,
-    /// The semantic version of the project.
-    pub version: Version,
+    /// Configuration common amoung all project types & languages.
+    pub common: CommonConfig,
 }
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
@@ -72,7 +70,7 @@ impl TryFrom<RawActorConfig> for ActorConfig {
 
     fn try_from(raw_config: RawActorConfig) -> Result<Self> {
         Ok(Self {
-            claims: raw_config.claims.unwrap_or_else(Vec::new),
+            claims: raw_config.claims.unwrap_or_default(),
             registry: raw_config.registry,
             push_insecure: raw_config.push_insecure,
             key_directory: raw_config
@@ -168,6 +166,15 @@ impl TryFrom<RawRustConfig> for RustConfig {
             target_path: raw_config.target_path,
         })
     }
+}
+
+/// Configuration common amoung all project types & languages.
+#[derive(serde::Deserialize, Debug, PartialEq)]
+pub struct CommonConfig {
+    /// Name of the project.
+    pub name: String,
+    /// Semantic version of the project.
+    pub version: Version,
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -325,8 +332,10 @@ impl TryFrom<RawProjectConfig> for ProjectConfig {
         Ok(Self {
             language: language_config,
             project_type: project_type_config,
-            name: raw_project_config.name,
-            version: raw_project_config.version,
+            common: CommonConfig {
+                name: raw_project_config.name,
+                version: raw_project_config.version,
+            },
         })
     }
 }

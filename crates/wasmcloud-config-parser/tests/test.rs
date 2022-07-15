@@ -3,7 +3,8 @@ use std::path::PathBuf;
 use claim::{assert_err, assert_ok};
 use semver::Version;
 use wasmcloud_config_parser::{
-    self, get_config, ActorConfig, LanguageConfig, RustConfig, TinyGoConfig, TypeConfig,
+    self, get_config, ActorConfig, CommonConfig, LanguageConfig, RustConfig, TinyGoConfig,
+    TypeConfig,
 };
 
 #[test]
@@ -34,8 +35,13 @@ fn rust_actor() {
         })
     );
 
-    assert_eq!(config.name, "testactor".to_string());
-    assert_eq!(config.version, Version::parse("0.1.0").unwrap());
+    assert_eq!(
+        config.common,
+        CommonConfig {
+            name: "testactor".to_string(),
+            version: Version::parse("0.1.0").unwrap(),
+        }
+    );
 }
 
 #[test]
@@ -64,8 +70,13 @@ fn tinygo_actor() {
         })
     );
 
-    assert_eq!(config.name, "testactor".to_string());
-    assert_eq!(config.version, Version::parse("0.1.0").unwrap());
+    assert_eq!(
+        config.common,
+        CommonConfig {
+            name: "testactor".to_string(),
+            version: Version::parse("0.1.0").unwrap(),
+        }
+    );
 }
 
 #[test]
