@@ -21,6 +21,8 @@ pub enum TypeConfig {
 #[derive(serde::Deserialize, Debug)]
 pub struct ProjectConfig {
     pub language: LanguageConfig,
+    /// The type of project, e.g. actor, provider, interface. Contains the specific configuration for that type.
+    /// This is renamed to "type" but is named project_type here to avoid clashing with the type keyword in Rust.
     #[serde(rename = "type")]
     pub project_type: TypeConfig,
     pub name: String,
@@ -55,6 +57,8 @@ pub struct RustConfig {
 #[derive(serde::Deserialize, Debug)]
 struct RawProjectConfig {
     pub language: String,
+    /// The type of project. This is a string that is used to determine which type of config to parse.
+    /// The toml file name is just "type" but is named project_type here to avoid clashing with the type keyword in Rust.
     #[serde(rename = "type")]
     pub project_type: String,
     pub name: String,
