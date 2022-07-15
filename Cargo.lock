@@ -3973,7 +3973,8 @@ dependencies = [
 [[package]]
 name = "wasmcloud-test-util"
 version = "0.4.1"
-source = "git+https://github.com/wasmcloud/wasmcloud-test?branch=fix/async-nats-bug#4e9b0c902d5e5b80cd49073c59fb594d62e1fddb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fd40034ec8efead88765601b57ae04430289a8ba2c1bb4d4208daea5a99a2337"
 dependencies = [
  "anyhow",
  "async-nats",

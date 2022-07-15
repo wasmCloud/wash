@@ -61,8 +61,7 @@ wascap = "0.8.0"
 weld-codegen = "0.4.6"
 wasmcloud-control-interface = "0.16.2"
 wasmbus-rpc = "0.9"
-# wasmcloud-test-util = "0.4.1"
-wasmcloud-test-util = { git = "https://github.com/wasmcloud/wasmcloud-test", branch = "fix/async-nats-bug" }
+wasmcloud-test-util = "0.4.1"
 
 [dev-dependencies]
 reqwest = {version = "0.11", default-features = false, features = ["json", "rustls-tls"]}
