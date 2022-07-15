@@ -686,7 +686,7 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
         }
     };
 
-    let receiver = client.events_receiver().await.map_err(convert_error)?;
+    let mut receiver = client.events_receiver().await.map_err(convert_error)?;
 
     let ack = client
         .start_actor(&host.to_string(), &cmd.actor_ref, cmd.count, None)
@@ -708,11 +708,12 @@ pub(crate) async fn start_actor(mut cmd: StartActorCommand) -> Result<CommandOut
     }
 
     let event = wait_for_actor_start_event(
-        &receiver,
+        &mut receiver,
         Duration::from_millis(cmd.timeout_ms),
         host.to_string(),
         cmd.actor_ref.clone(),
-    )?;
+    )
+    .await?;
 
     match event {
         FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
@@ -766,7 +767,7 @@ pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<Comm
         None
     };
 
-    let receiver = client.events_receiver().await.map_err(convert_error)?;
+    let mut receiver = client.events_receiver().await.map_err(convert_error)?;
 
     let ack = client
         .start_provider(
@@ -791,11 +792,12 @@ pub(crate) async fn start_provider(mut cmd: StartProviderCommand) -> Result<Comm
     }
 
     let event = wait_for_provider_start_event(
-        &receiver,
+        &mut receiver,
         Duration::from_millis(cmd.timeout_ms),
         host.to_string(),
         cmd.provider_ref.clone(),
-    )?;
+    )
+    .await?;
 
     match event {
         FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
@@ -841,7 +843,7 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CommandOut
     validate_contract_id(&cmd.contract_id)?;
     let client = ctl_client_from_opts(cmd.opts, None).await?;
 
-    let receiver = client.events_receiver().await.map_err(convert_error)?;
+    let mut receiver = client.events_receiver().await.map_err(convert_error)?;
 
     let ack = client
         .stop_provider(
@@ -865,11 +867,12 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CommandOut
     }
 
     let event = wait_for_provider_stop_event(
-        &receiver,
+        &mut receiver,
         Duration::from_millis(cmd.timeout_ms),
         cmd.host_id.to_string(),
         cmd.provider_id.to_string(),
-    )?;
+    )
+    .await?;
 
     match event {
         FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
@@ -883,7 +886,7 @@ pub(crate) async fn stop_provider(cmd: StopProviderCommand) -> Result<CommandOut
 pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CommandOutput> {
     let client = ctl_client_from_opts(cmd.opts, None).await?;
 
-    let receiver = client.events_receiver().await.map_err(convert_error)?;
+    let mut receiver = client.events_receiver().await.map_err(convert_error)?;
 
     let ack = client
         .stop_actor(
@@ -907,11 +910,12 @@ pub(crate) async fn stop_actor(cmd: StopActorCommand) -> Result<CommandOutput> {
     }
 
     let event = wait_for_actor_stop_event(
-        &receiver,
+        &mut receiver,
         Duration::from_millis(cmd.timeout_ms),
         cmd.host_id.to_string(),
         cmd.actor_id.to_string(),
-    )?;
+    )
+    .await?;
 
     match event {
         FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
