@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 use claim::{assert_err, assert_ok};
 use semver::Version;
@@ -95,6 +95,14 @@ fn folder_path() {
     );
 }
 
+/// Gets the full path of a local path. Test helper.
+fn get_full_path(path: &str) -> String {
+    match fs::canonicalize(path) {
+        Ok(path) => path.to_str().unwrap().to_string(),
+        Err(_) => panic!("get_full_path helper error. Could not find path: {}", path),
+    }
+}
+
 #[test]
 fn no_actor_config() {
     let result = get_config(Some(PathBuf::from("./tests/files/no_actor.toml")), None);
@@ -102,7 +110,10 @@ fn no_actor_config() {
     let err = assert_err!(result);
 
     assert_eq!(
-        "Missing actor config in ./tests/files/no_actor.toml",
+        format!(
+            "Missing actor config in {}",
+            get_full_path("./tests/files/no_actor.toml")
+        ),
         err.to_string().as_str()
     );
 }
@@ -114,7 +125,10 @@ fn no_provider_config() {
     let err = assert_err!(result);
 
     assert_eq!(
-        "Missing provider config in ./tests/files/no_provider.toml",
+        format!(
+            "Missing provider config in {}",
+            get_full_path("./tests/files/no_provider.toml")
+        ),
         err.to_string().as_str()
     );
 }
@@ -126,7 +140,10 @@ fn no_interface_config() {
     let err = assert_err!(result);
 
     assert_eq!(
-        "Missing interface config in ./tests/files/no_interface.toml",
+        format!(
+            "Missing interface config in {}",
+            get_full_path("./tests/files/no_interface.toml")
+        ),
         err.to_string().as_str()
     );
 }
@@ -138,7 +155,10 @@ fn folder_path_with_no_config() {
 
     let err = assert_err!(result);
     assert_eq!(
-        "No wasmcloud.toml file found in ./tests/files/noconfig",
+        format!(
+            "No wasmcloud.toml file found in {}",
+            get_full_path("./tests/files/noconfig")
+        ),
         err.to_string().as_str()
     );
 }
@@ -150,7 +170,10 @@ fn random_file() {
 
     let err = assert_err!(result);
     assert_eq!(
-        "Invalid config file: ./tests/files/random.txt",
+        format!(
+            "Invalid config file: {}",
+            get_full_path("./tests/files/random.txt")
+        ),
         err.to_string().as_str()
     );
 }
