@@ -37,16 +37,18 @@ async fn find_event<T>(
                     EventCheckOutcome::NotApplicable => continue,
                 }
             }
-            Ok(None) => {
-                return Ok(FindEventOutcome::Failure(anyhow!(
-                    "Channel dropped before event was received"
-                )))
-            }
             Err(_e) => {
                 return Ok(FindEventOutcome::Failure(anyhow!(
-                    "Timed out waiting for event"
+                    "Timed out waiting for applicable event, operation may have failed"
                 )))
             }
+            // Should only happen due to an internal failure with the events receiver
+            Ok(None) => {
+                return Ok(FindEventOutcome::Failure(anyhow!(
+                    "Channel dropped before event was received, please report this at https://github.com/wasmCloud/wash/issues with details to reproduce"
+                )))
+            }
+
         }
     }
 }
