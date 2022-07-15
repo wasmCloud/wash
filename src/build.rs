@@ -1,8 +1,11 @@
+use std::process;
+
 use crate::util::CommandOutput;
 use anyhow::Result;
 use clap::Parser;
 use wasmcloud_config_parser::{
-    ActorConfig, CommonConfig, InterfaceConfig, LanguageConfig, ProviderConfig, TypeConfig,
+    ActorConfig, CommonConfig, InterfaceConfig, LanguageConfig, ProviderConfig, RustConfig,
+    TinyGoConfig, TypeConfig,
 };
 
 /// Build (and sign) a wasmCloud actor, provider, or interface
@@ -29,12 +32,43 @@ pub(crate) fn handle_command(command: BuildCli) -> Result<CommandOutput> {
     }
 }
 
+fn build_rust(rust_config: RustConfig) -> Result<()> {
+    let result = process::Command::new("cargo")
+        .args(["build", "--release"])
+        .output();
+
+    match result {
+        Ok(output) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn build_tinygo(tinygo_config: TinyGoConfig) -> Result<()> {
+    todo!()
+}
+
 fn build_actor(
     command: BuildCli,
     actor_config: ActorConfig,
     language_config: LanguageConfig,
     common_config: CommonConfig,
 ) -> Result<CommandOutput> {
+    // build it
+    match language_config {
+        LanguageConfig::Rust(rust_config) => {
+            build_rust(rust_config)?;
+        }
+        LanguageConfig::TinyGo(tinygo_config) => {
+            build_tinygo(tinygo_config)?;
+        }
+    }
+
+    // sign it
+
+    // push it
+
+    // bop it
+
     todo!()
 }
 
