@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Result};
 use config::Config;
 use semver::Version;
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -234,6 +234,8 @@ pub fn get_config(opt_path: Option<PathBuf>, use_env: Option<bool>) -> Result<Pr
     if !path.exists() {
         return Err(anyhow!("Path {} does not exist", path.display()));
     }
+
+    path = fs::canonicalize(path)?;
 
     if path.is_dir() {
         let wasmcloud_path = path.join("wasmcloud.toml");
