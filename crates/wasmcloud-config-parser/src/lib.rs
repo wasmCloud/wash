@@ -63,7 +63,7 @@ pub struct InterfaceConfig {}
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct RustConfig {
-    /// The path to the cargo binary. Optional, will default to just `cargo` if not specified.
+    /// The path to the cargo binary. Optional, will default tothe default `cargo` if not specified.
     pub cargo_path: Option<PathBuf>,
     /// Path to cargo/rust's `target` directory. Optional, defaults to `./target`.
     pub target_path: Option<PathBuf>,
@@ -89,7 +89,10 @@ struct RawProjectConfig {
 }
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
-pub struct TinyGoConfig {}
+pub struct TinyGoConfig {
+    /// The path to the tinygo binary. Optional, will default to the default`tinygo` if not specified.
+    pub tinygo_path: Option<PathBuf>,
+}
 
 /// Gets the wasmCloud project (actor, provider, or interface) config.
 ///

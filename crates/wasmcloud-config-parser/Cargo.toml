@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0.58"
+claim = "0.5.0"
 config = {version = "0.13.1", features = ["toml"]}
 semver = { version = "1.0.12", features = ["serde"]}
 serde = { version = "1", features = ["derive"] }
