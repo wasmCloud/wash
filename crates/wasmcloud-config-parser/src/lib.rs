@@ -35,6 +35,23 @@ pub struct ProjectConfig {
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct ActorConfig {
     /// The list of provider claims that this actor requires. eg. ["wasmcloud:httpserver"]
+    pub claims: Vec<String>,
+    /// The registry to push to. eg. "localhost:8080"
+    pub registry: Option<String>,
+    /// Whether to push to the registry insecurely. Defaults to false.
+    pub push_insecure: bool,
+    /// The directory to store the private keys in.
+    pub key_directory: PathBuf,
+    /// The filename of the signed wasm actor.
+    pub filename: Option<String>,
+    /// The target wasm target to build for.
+    pub wasm_target: String,
+    /// The call alias of the actor.
+    pub call_alias: Option<String>,
+}
+#[derive(serde::Deserialize, Debug, PartialEq)]
+struct RawActorConfig {
+    /// The list of provider claims that this actor requires. eg. ["wasmcloud:httpserver"]
     pub claims: Option<Vec<String>>,
     /// The registry to push to. eg. "localhost:8080"
     pub registry: Option<String>,
@@ -50,16 +67,81 @@ pub struct ActorConfig {
     pub call_alias: Option<String>,
 }
 
+impl TryFrom<RawActorConfig> for ActorConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(raw_config: RawActorConfig) -> Result<Self> {
+        Ok(Self {
+            claims: raw_config.claims.unwrap_or_else(Vec::new),
+            registry: raw_config.registry,
+            push_insecure: raw_config.push_insecure,
+            key_directory: raw_config
+                .key_directory
+                .unwrap_or_else(|| PathBuf::from("./keys")),
+            filename: raw_config.filename,
+            wasm_target: raw_config
+                .wasm_target
+                .unwrap_or_else(|| "wasm32-unknown-unknown".to_string()),
+            call_alias: raw_config.call_alias,
+        })
+    }
+}
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct ProviderConfig {
+    /// The capability ID of the provider.
+    pub capability_id: String,
+    /// The vendor name of the provider.
+    pub vendor: String,
+}
+#[derive(serde::Deserialize, Debug, PartialEq)]
+struct RawProviderConfig {
     /// The capability ID of the provider.
     pub capability_id: String,
     /// The vendor name of the provider. Optional, defaults to 'NoVendor'.
     pub vendor: Option<String>,
 }
 
+impl TryFrom<RawProviderConfig> for ProviderConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(raw_config: RawProviderConfig) -> Result<Self> {
+        Ok(Self {
+            capability_id: raw_config.capability_id,
+            vendor: raw_config.vendor.unwrap_or_else(|| "NoVendor".to_string()),
+        })
+    }
+}
+
 #[derive(serde::Deserialize, Debug, PartialEq)]
-pub struct InterfaceConfig {}
+pub struct InterfaceConfig {
+    /// Directory to output HTML.
+    pub html_target: PathBuf,
+    /// Path to codegen.toml file.
+    pub codegen_config: PathBuf,
+}
+#[derive(serde::Deserialize, Debug, PartialEq)]
+
+struct RawInterfaceConfig {
+    /// Directory to output HTML. Defaults to "./html".
+    pub html_target: Option<PathBuf>,
+    /// Path to codegen.toml file. Optional, defaults to "./codegen.toml".
+    pub codegen_config: Option<PathBuf>,
+}
+
+impl TryFrom<RawInterfaceConfig> for InterfaceConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(raw_config: RawInterfaceConfig) -> Result<Self> {
+        Ok(Self {
+            html_target: raw_config
+                .html_target
+                .unwrap_or_else(|| PathBuf::from("./html")),
+            codegen_config: raw_config
+                .codegen_config
+                .unwrap_or_else(|| PathBuf::from("./codegen.toml")),
+        })
+    }
+}
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct RustConfig {
@@ -67,6 +149,25 @@ pub struct RustConfig {
     pub cargo_path: Option<PathBuf>,
     /// Path to cargo/rust's `target` directory. Optional, defaults to `./target`.
     pub target_path: Option<PathBuf>,
+}
+#[derive(serde::Deserialize, Debug, PartialEq)]
+
+struct RawRustConfig {
+    /// The path to the cargo binary. Optional, will default tothe default `cargo` if not specified.
+    pub cargo_path: Option<PathBuf>,
+    /// Path to cargo/rust's `target` directory. Optional, defaults to `./target`.
+    pub target_path: Option<PathBuf>,
+}
+
+impl TryFrom<RawRustConfig> for RustConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(raw_config: RawRustConfig) -> Result<Self> {
+        Ok(Self {
+            cargo_path: raw_config.cargo_path,
+            target_path: raw_config.target_path,
+        })
+    }
 }
 
 #[derive(serde::Deserialize, Debug)]
@@ -81,17 +182,33 @@ struct RawProjectConfig {
     pub name: String,
     /// Semantic version of the project.
     pub version: Version,
-    pub actor: Option<ActorConfig>,
-    pub provider: Option<ProviderConfig>,
-    pub rust: Option<RustConfig>,
-    pub interface: Option<InterfaceConfig>,
-    pub tinygo: Option<TinyGoConfig>,
+    pub actor: Option<RawActorConfig>,
+    pub provider: Option<RawProviderConfig>,
+    pub rust: Option<RawRustConfig>,
+    pub interface: Option<RawInterfaceConfig>,
+    pub tinygo: Option<RawTinyGoConfig>,
 }
 
 #[derive(serde::Deserialize, Debug, PartialEq)]
 pub struct TinyGoConfig {
-    /// The path to the tinygo binary. Optional, will default to the default`tinygo` if not specified.
+    /// The path to the tinygo binary. Optional, will default to `tinygo` if not specified.
     pub tinygo_path: Option<PathBuf>,
+}
+
+#[derive(serde::Deserialize, Debug, PartialEq)]
+struct RawTinyGoConfig {
+    /// The path to the tinygo binary. Optional, will default to `tinygo` if not specified.
+    pub tinygo_path: Option<PathBuf>,
+}
+
+impl TryFrom<RawTinyGoConfig> for TinyGoConfig {
+    type Error = anyhow::Error;
+
+    fn try_from(raw_config: RawTinyGoConfig) -> Result<Self> {
+        Ok(Self {
+            tinygo_path: raw_config.tinygo_path,
+        })
+    }
 }
 
 /// Gets the wasmCloud project (actor, provider, or interface) config.
@@ -159,21 +276,21 @@ impl TryFrom<RawProjectConfig> for ProjectConfig {
                 let actor_config = raw_project_config
                     .actor
                     .ok_or_else(|| anyhow!("Missing actor config"))?;
-                TypeConfig::Actor(actor_config)
+                TypeConfig::Actor(actor_config.try_into()?)
             }
 
             "provider" => {
                 let provider_config = raw_project_config
                     .provider
                     .ok_or_else(|| anyhow!("Missing provider config"))?;
-                TypeConfig::Provider(provider_config)
+                TypeConfig::Provider(provider_config.try_into()?)
             }
 
             "interface" => {
                 let interface_config = raw_project_config
                     .interface
                     .ok_or_else(|| anyhow!("Missing interface config"))?;
-                TypeConfig::Interface(interface_config)
+                TypeConfig::Interface(interface_config.try_into()?)
             }
 
             _ => {
@@ -189,13 +306,13 @@ impl TryFrom<RawProjectConfig> for ProjectConfig {
                 let rust_config = raw_project_config
                     .rust
                     .ok_or_else(|| anyhow!("Missing rust config in wasmcloud.toml"))?;
-                LanguageConfig::Rust(rust_config)
+                LanguageConfig::Rust(rust_config.try_into()?)
             }
             "tinygo" => {
                 let tinygo_config = raw_project_config
                     .tinygo
                     .ok_or_else(|| anyhow!("Missing tinygo config in wasmcloud.toml"))?;
-                LanguageConfig::TinyGo(tinygo_config)
+                LanguageConfig::TinyGo(tinygo_config.try_into()?)
             }
             _ => {
                 return Err(anyhow!(
