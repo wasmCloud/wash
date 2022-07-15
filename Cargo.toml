@@ -54,7 +54,6 @@ tokio = {version = "1", features = ["full"]}
 toml = "0.5"
 walkdir = "2.3"
 which = "4.2.2"
-crossbeam-channel = "0.5.2"
 cloudevents-sdk = "0.4.0"
 
 wascap = "0.8.0"

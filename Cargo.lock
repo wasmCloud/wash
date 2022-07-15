@@ -3737,7 +3737,6 @@ dependencies = [
  "clap 3.2.12",
  "cloudevents-sdk",
  "console",
- "crossbeam-channel",
  "derive_more",
  "dialoguer",
  "dirs",
