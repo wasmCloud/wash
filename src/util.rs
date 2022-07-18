@@ -244,7 +244,7 @@ pub(crate) async fn nats_client_from_opts(
             let key_pair = kp.clone();
             async move { key_pair.sign(&nonce).map_err(async_nats::AuthError::new) }
         })
-        .connect("localhost")
+        .connect(&nats_url)
         .await?
     } else if let Some(credsfile_path) = credsfile {
         ConnectOptions::with_credentials_file(credsfile_path)
