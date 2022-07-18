@@ -58,7 +58,7 @@ jobs:
           release_name: Release ${{ github.ref }}
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
-          prerelease: true
+          prerelease: false
 
   crates:
     needs: release
