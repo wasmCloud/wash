@@ -1,37 +1,17 @@
 use anyhow::Result;
 use async_compression::tokio::bufread::GzipDecoder;
 use std::path::Path;
-use std::process::{Child, Command};
-use std::{ffi::OsStr, io::Cursor, os::unix::prelude::PermissionsExt, path::PathBuf};
+use std::{ffi::OsStr, io::Cursor, os::unix::prelude::PermissionsExt};
 use tokio::fs::{create_dir_all, metadata, File};
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
 
 const NATS_GITHUB_RELEASE_URL: &str = "https://github.com/nats-io/nats-server/releases/download";
-const NATS_VERSION: &str = "v2.8.4";
 const WASMCLOUD_GITHUB_RELEASE_URL: &str =
     "https://github.com/wasmCloud/wasmcloud-otp/releases/download";
-const WASMCLOUD_VERSION: &str = "v0.55.1";
-
-// Ideal, high level, usage from the wash cli
-// handle start() {
-// check nats parameters, see if connection can be established
-//     take into account flags, contexts
-// see if nats is downloaded to ~/.wash/bin
-//     if not, download NATS, allow override with flag to disable this
-//     start NATS, return connection info
-// see if wasmCloud is downloaded to ~/.wash
-//     if not, download wasmcloud, allow override with flag to disable this
-//     start wasmCloud on 4000, atomic increment if the port is taken
-// tell user to go to localhost:4000
-// }
-
-// considerations
-// Take into account that the wasmCloud install will automatically use the host_config.json in ~/.wash as-is. Perhaps we should install to ~/.wash/bin/wasmcloud to compensate for this, users don't need to be able to run `wasmcloud_host` on their own and we could provide them with ~/.wash/bin/wasmcloud/bin as the thing to put in their path
-// for the above, consider installing into ~/.wash/wasmcloud/bin
 
 /// Downloads the specified GitHub release version of nats-server and unpacks the binary
-/// for a specified OS/ARCH pair to a path from https://github.com/nats-io/nats-server/releases/
+/// for a specified OS/ARCH pair to a path from <https://github.com/nats-io/nats-server/releases/>
 /// # Arguments
 ///
 /// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
@@ -41,14 +21,14 @@ const WASMCLOUD_VERSION: &str = "v0.55.1";
 /// # Examples
 ///
 /// ```
+/// # #[tokio::main]
+/// # async fn main() {
 /// use wash_lib::start::download_nats_server;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// // Note: there's no need to `block_on` unless you're in a synchronous function
-/// let res = tokio_test::block_on(
-///     download_nats_server(os, arch, "v2.8.4", "/tmp/nats_server")
-/// );
+/// let res = download_nats_server(os, arch, "v2.8.4", "/tmp/nats_server").await;
 /// assert!(res.is_ok());
+/// # }
 /// ```
 pub async fn download_nats_server<P>(os: &str, arch: &str, version: &str, path: P) -> Result<()>
 where
@@ -97,7 +77,7 @@ where
 }
 
 /// Downloads the specified GitHub release version of nats-server and unpacks the binary
-/// for a specified OS/ARCH pair to a path from https://github.com/wasmCloud/wasmcloud-otp/releases/
+/// for a specified OS/ARCH pair to a path from <https://github.com/wasmCloud/wasmcloud-otp/releases/>
 ///
 /// # Arguments
 ///
@@ -108,14 +88,14 @@ where
 /// # Examples
 ///
 /// ```
+/// # #[tokio::main]
+/// # async fn main() {
 /// use wash_lib::start::download_wasmcloud;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// // Note: there's no need to `block_on` unless you're in a synchronous function
-/// let res = tokio_test::block_on(
-///     download_wasmcloud(os, arch, "v0.55.1", "/tmp/wasmcloud/")
-/// );
+/// let res = download_wasmcloud(os, arch, "v0.55.1", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
+/// # }
 /// ```
 pub async fn download_wasmcloud<P>(os: &str, arch: &str, version: &str, dir: P) -> Result<()>
 where
@@ -179,8 +159,12 @@ where
 fn nats_url(os: &str, arch: &str, version: &str) -> String {
     // Replace "macos" with "darwin" to match NATS release scheme
     let os = if os == "macos" { "darwin" } else { os };
-    // Replace "aarch64" with "arm64" to match NATS release scheme
-    let arch = if arch == "aarch64" { "arm64" } else { arch };
+    // Replace architecture to match NATS release naming scheme
+    let arch = match arch {
+        "aarch64" => "arm64",
+        "x86_64" => "amd64",
+        _ => arch,
+    };
     format!(
         "{}/{}/nats-server-{}-{}-{}.tar.gz",
         NATS_GITHUB_RELEASE_URL, version, version, os, arch
@@ -194,34 +178,6 @@ fn wasmcloud_url(os: &str, arch: &str, version: &str) -> String {
         WASMCLOUD_GITHUB_RELEASE_URL, version, arch, os
     )
 }
-
-// async fn run_nats() -> Result<Child> {
-//     let cspec = Command::new(nats_path()).arg("-js").spawn()?;
-//     println!("Child spec: {:?}", cspec);
-//     Ok(cspec)
-// }
-
-// async fn run_wasmcloud() -> Result<Child> {
-//     let cspec = Command::new(wasmcloud_path()).arg("start").spawn()?;
-//     println!("Child spec: {:?}", cspec);
-//     Ok(cspec)
-// }
-
-// fn nats_path() -> PathBuf {
-//     //TODO: generalize with wash utils
-//     PathBuf::from("/Users/brooks/.wash/bin/nats-server")
-// }
-
-// fn wasmcloud_path() -> PathBuf {
-//     //TODO: generalize with wash utils
-//     // we unpack so you can run `wasmcloud_host foreground`
-//     PathBuf::from("/Users/brooks/.wash/bin/wasmcloud_host")
-// }
-
-// fn wash_path() -> PathBuf {
-//     //TODO: generalize with wash utils
-//     PathBuf::from("/Users/brooks/.wash")
-// }
 
 /// Helper function to ensure the wasmCloud host tarball is successfully
 /// installed in a directory
@@ -245,6 +201,7 @@ where
         .fold(true, |acc, i| acc && i.is_ok()))
 }
 
+#[cfg(test)]
 mod test {
     use super::{download_wasmcloud, ensure_wasmcloud_install, wasmcloud_url};
     use reqwest::StatusCode;

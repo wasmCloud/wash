@@ -16,15 +16,17 @@ jobs:
       matrix:
         os: [ubuntu-20.04, windows-2019, macos-10.15]
         include:
-          #TODO: run doctests
           - os: ubuntu-20.04
-            test-options: '--no-fail-fast --bin wash --test "integration*"'
+            test-options-bin: '--no-fail-fast --bin wash --test "integration*"'
+            test-options-lib: "--no-fail-fast -p wash-lib"
             name: "Unit and integration tests"
           - os: windows-2019
-            test-options: "--no-fail-fast --bin wash"
+            test-options-bin: "--no-fail-fast --bin wash"
+            test-options-lib: "--no-fail-fast -p wash-lib"
             name: "Unit tests"
           - os: macos-10.15
-            test-options: "--no-fail-fast --bin wash"
+            test-options-bin: "--no-fail-fast --bin wash"
+            test-options-lib: "--no-fail-fast -p wash-lib"
             name: "Unit tests"
     runs-on: ${{ matrix.os }}
     steps:
@@ -34,8 +36,13 @@ jobs:
         uses: sudo-bot/action-docker-compose@latest
         with:
           cli-args: "-f ./tools/docker-compose.yml up --detach"
-      - id: rust-check-action
+      - id: check-wash-lib
         name: ${{ matrix.name }}
         uses: wasmcloud/common-actions/rust-check@main
         with:
-          test-options: ${{ matrix.test-options }}
+          test-options: ${{ matrix.test-options-lib }}
+      - id: check-wash-bin
+        name: ${{ matrix.name }}
+        uses: wasmcloud/common-actions/rust-check@main
+        with:
+          test-options: ${{ matrix.test-options-bin }}
