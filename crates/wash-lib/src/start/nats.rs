@@ -2,12 +2,13 @@ use anyhow::{anyhow, Result};
 use async_compression::tokio::bufread::GzipDecoder;
 #[cfg(target_family = "unix")]
 use std::os::unix::prelude::PermissionsExt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::{ffi::OsStr, io::Cursor};
 use tokio::fs::{create_dir_all, metadata, File};
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
+
 const NATS_GITHUB_RELEASE_URL: &str = "https://github.com/nats-io/nats-server/releases/download";
 #[cfg(target_family = "unix")]
 pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
@@ -15,7 +16,7 @@ pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
 pub(crate) const NATS_SERVER_BINARY: &str = "nats-server.exe";
 
 /// Downloads the specified GitHub release version of nats-server from <https://github.com/nats-io/nats-server/releases/>
-/// and unpacks the binary for a specified OS/ARCH pair to a directory
+/// and unpacks the binary for a specified OS/ARCH pair to a directory. Returns the path to the NATS executable.
 /// # Arguments
 ///
 /// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
@@ -24,7 +25,7 @@ pub(crate) const NATS_SERVER_BINARY: &str = "nats-server.exe";
 /// * `dir` - Where to download the `nats-server` binary to
 /// # Examples
 ///
-/// ```
+/// ```no_run
 /// # #[tokio::main]
 /// # async fn main() {
 /// use wash_lib::start::download_nats_server;
@@ -32,21 +33,17 @@ pub(crate) const NATS_SERVER_BINARY: &str = "nats-server.exe";
 /// let arch = std::env::consts::ARCH;
 /// let res = download_nats_server(os, arch, "v2.8.4", "/tmp/").await;
 /// assert!(res.is_ok());
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/nats-server");
 /// # }
 /// ```
-pub async fn download_nats_server<P>(os: &str, arch: &str, version: &str, dir: P) -> Result<()>
+pub async fn download_nats_server<P>(os: &str, arch: &str, version: &str, dir: P) -> Result<PathBuf>
 where
     P: AsRef<Path>,
 {
-    #[cfg(target_family = "unix")]
-    let nats_server_bin = "nats-server";
-    #[cfg(target_family = "windows")]
-    let nats_server_bin = "nats-server.exe";
-
-    let nats_bin_path = dir.as_ref().join(nats_server_bin);
+    let nats_bin_path = dir.as_ref().join(NATS_SERVER_BINARY);
     if let Ok(_md) = metadata(&nats_bin_path).await {
         // NATS already exists, return early
-        return Ok(());
+        return Ok(nats_bin_path);
     }
     // Download NATS tarball
     let url = nats_url(os, arch, version);
@@ -60,7 +57,7 @@ where
         let mut entry = res?;
         match entry.path() {
             Ok(tar_path) => match tar_path.file_name() {
-                Some(name) if name == OsStr::new(nats_server_bin) => {
+                Some(name) if name == OsStr::new(NATS_SERVER_BINARY) => {
                     // Ensure target directory exists
                     create_dir_all(&dir).await?;
                     let mut nats_server = File::create(&nats_bin_path).await?;
@@ -74,7 +71,7 @@ where
                     }
 
                     tokio::io::copy(&mut entry, &mut nats_server).await?;
-                    break;
+                    return Ok(nats_bin_path);
                 }
                 // Ignore LICENSE and README in the NATS tarball
                 _ => (),
@@ -85,13 +82,9 @@ where
     }
 
     // Return success if NATS server binary exists, error otherwise
-    if is_nats_installed(dir).await {
-        Ok(())
-    } else {
-        Err(anyhow!(
-            "NATS Server binary could not be installed, please see logs"
-        ))
-    }
+    Err(anyhow!(
+        "NATS Server binary could not be installed, please see logs"
+    ))
 }
 
 /// Helper function to execute a NATS server binary with wasmCloud arguments
@@ -106,7 +99,13 @@ where
     P: AsRef<Path>,
     T: Into<Stdio>,
 {
-    //TODO: allow specifying args for the NATS server?
+    if std::net::TcpListener::bind((address, port)).is_err() {
+        return Err(anyhow!(
+            "Could not start NATS server, a process is already listening on {}:{}",
+            address,
+            port
+        ));
+    }
     Command::new(bin_path.as_ref())
         .stderr(stderr)
         .arg("-js")
@@ -143,4 +142,74 @@ fn nats_url(os: &str, arch: &str, version: &str) -> String {
         "{}/{}/nats-server-{}-{}-{}.tar.gz",
         NATS_GITHUB_RELEASE_URL, version, version, os, arch
     )
+}
+
+#[cfg(test)]
+mod test {
+    use crate::start::{
+        download_nats_server, is_nats_installed, start_nats_server, NATS_SERVER_BINARY,
+    };
+    use anyhow::Result;
+    use std::env::temp_dir;
+
+    /// Helper struct to ensure temp dirs are removed regardless of test result
+    struct DirClean {
+        dir: std::path::PathBuf,
+    }
+    impl Drop for DirClean {
+        fn drop(&mut self) {
+            println!("Removing temp dir {:?}", self.dir);
+            let _ = std::fs::remove_dir_all(&self.dir);
+        }
+    }
+    /// Helper struct to ensure spawned processes are killed regardless of test result
+    struct ProcessChild {
+        child: std::process::Child,
+    }
+    impl Drop for ProcessChild {
+        fn drop(&mut self) {
+            let _ = self.child.kill();
+        }
+    }
+
+    const NATS_SERVER_VERSION: &str = "v2.8.4";
+
+    #[tokio::test]
+    async fn can_gracefully_fail_running_nats() -> Result<()> {
+        let install_dir = temp_dir().join("can_gracefully_fail_running_nats");
+        let _cleanup_dir = DirClean {
+            dir: install_dir.clone(),
+        };
+        assert!(!is_nats_installed(&install_dir).await);
+
+        let res = download_nats_server(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            NATS_SERVER_VERSION,
+            &install_dir,
+        )
+        .await;
+        assert!(res.is_ok());
+
+        let nats_one = start_nats_server(
+            &install_dir.join(NATS_SERVER_BINARY),
+            std::process::Stdio::null(),
+            "0.0.0.0",
+            10003,
+        );
+        assert!(nats_one.is_ok());
+        let _to_drop = ProcessChild {
+            child: nats_one.unwrap(),
+        };
+
+        // Give NATS a few seconds to start up and listen
+        tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
+        let log_path = install_dir.join("nats.log");
+        let log = std::fs::File::create(&log_path)?;
+        let nats_two =
+            start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log, "0.0.0.0", 10003);
+        assert!(nats_two.is_err());
+
+        Ok(())
+    }
 }

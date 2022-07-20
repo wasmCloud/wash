@@ -2,7 +2,7 @@
 //! NATS servers and wasmCloud hosts.
 //!
 //! # Downloading and Starting NATS and wasmCloud
-//! ```rust
+//! ```no_run
 //! use anyhow::{anyhow, Result};
 //! use wash_lib::start::{
 //!     start_wasmcloud_host,
@@ -71,7 +71,6 @@
 //!     Ok(())
 //! }
 //! ```
-//TODO: audit exports
 mod nats;
 pub use nats::*;
 mod wasmcloud;
@@ -79,12 +78,9 @@ pub use wasmcloud::*;
 
 #[cfg(test)]
 mod test {
-    //TODO: is this how we should import them in cli?
-    use crate::{
-        start::nats::download_nats_server,
-        start::nats::NATS_SERVER_BINARY,
-        start::{download_wasmcloud, nats::start_nats_server, start_wasmcloud_host},
-        start::{is_nats_installed, is_wasmcloud_installed},
+    use crate::start::{
+        download_nats_server, download_wasmcloud, is_nats_installed, is_wasmcloud_installed,
+        start_nats_server, start_wasmcloud_host, NATS_SERVER_BINARY,
     };
     use anyhow::Result;
     use std::{collections::HashMap, env::temp_dir};
