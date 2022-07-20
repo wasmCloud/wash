@@ -98,16 +98,30 @@ where
     }
 }
 
+use std::collections::HashMap;
+use std::ffi::OsStr;
 /// Helper function to start a wasmCloud host given the path to the elixir release script
-pub fn start_wasmcloud_host<P, T>(bin_path: P, log_file: T) -> Result<Child>
+pub fn start_wasmcloud_host<P, T, K, V>(
+    bin_path: P,
+    log_file: T,
+    env_vars: HashMap<K, V>,
+) -> Result<Child>
 where
     P: AsRef<Path>,
     T: Into<Stdio>,
+    K: AsRef<OsStr>,
+    V: AsRef<OsStr>,
 {
-    Command::new(bin_path.as_ref())
-        // wasmCloud host logs are sent to stderr as of https://github.com/wasmCloud/wasmcloud-otp/pull/418
-        .stderr(log_file)
-        // Spawn in the foreground so we can capture logs to a specified location
+    // wasmCloud host logs are sent to stderr as of https://github.com/wasmCloud/wasmcloud-otp/pull/418
+    let mut cmd = &mut Command::new(bin_path.as_ref());
+
+    // Insert environment
+    for (k, v) in env_vars {
+        cmd = cmd.env(k, v)
+    }
+
+    // Spawn in the foreground so we can capture logs to a specified location
+    cmd.stderr(log_file)
         .arg("foreground")
         .spawn()
         .map_err(|e| anyhow!(e))

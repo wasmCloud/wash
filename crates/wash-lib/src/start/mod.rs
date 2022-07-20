@@ -17,7 +17,7 @@ mod test {
         start::{is_nats_installed, is_wasmcloud_installed},
     };
     use anyhow::Result;
-    use std::env::temp_dir;
+    use std::{collections::HashMap, env::temp_dir};
 
     /// Helper struct to ensure temp dirs are removed regardless of test result
     struct DirClean {
@@ -62,7 +62,12 @@ mod test {
         let log_path = install_dir.join("nats.log");
         let log_file = tokio::fs::File::create(&log_path).await?.into_std().await;
 
-        let child_res = start_nats_for_wasmcloud(&install_dir.join(NATS_SERVER_BINARY), log_file);
+        let child_res = start_nats_for_wasmcloud(
+            &install_dir.join(NATS_SERVER_BINARY),
+            log_file,
+            "0.0.0.0",
+            10000,
+        );
         assert!(child_res.is_ok());
         let _to_drop = ProcessChild {
             child: child_res.unwrap(),
@@ -100,18 +105,24 @@ mod test {
         let arch = std::env::consts::ARCH;
 
         // Install and start NATS server for this test
+        let nats_port = 10001;
         assert!(
             download_nats_server(os, arch, NATS_SERVER_VERSION, &install_dir)
                 .await
                 .is_ok()
         );
         assert!(is_nats_installed(&install_dir).await);
-        let nats_log_file = tokio::fs::File::create(&install_dir.join("nats.log"))
+        let nats_log_path = install_dir.clone().join("nats.log");
+        let nats_log_file = tokio::fs::File::create(&nats_log_path)
             .await?
             .into_std()
             .await;
-        let nats_child =
-            start_nats_for_wasmcloud(&install_dir.join(NATS_SERVER_BINARY), nats_log_file);
+        let nats_child = start_nats_for_wasmcloud(
+            &install_dir.join(NATS_SERVER_BINARY),
+            nats_log_file,
+            "0.0.0.0",
+            nats_port,
+        );
         assert!(nats_child.is_ok());
         let _to_drop = ProcessChild {
             child: nats_child.unwrap(),
@@ -123,7 +134,12 @@ mod test {
         let log_path = install_dir.join("wasmcloud.log");
         let log_file = tokio::fs::File::create(&log_path).await?.into_std().await;
 
-        let child_res = start_wasmcloud_host(&install_dir.join("bin/wasmcloud_host"), log_file);
+        let mut host_env = HashMap::new();
+        host_env.insert("WASMCLOUD_RPC_PORT", nats_port.to_string());
+        host_env.insert("WASMCLOUD_CTL_PORT", nats_port.to_string());
+        host_env.insert("WASMCLOUD_PROV_RPC_PORT", nats_port.to_string());
+        let child_res =
+            start_wasmcloud_host(&install_dir.join("bin/wasmcloud_host"), log_file, host_env);
         assert!(child_res.is_ok());
         let _to_drop = ProcessChild {
             child: child_res.unwrap(),
@@ -138,6 +154,10 @@ mod test {
             } else {
                 // Give just a little bit of time for the startup logs to flow in
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                println!(
+                    "nats: {:?}",
+                    tokio::fs::read_to_string(&nats_log_path).await?
+                );
                 println!("{:?}", log_contents);
                 assert!(log_contents
                     .contains("Connecting to control interface NATS without authentication"));

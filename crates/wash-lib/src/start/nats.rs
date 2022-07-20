@@ -27,7 +27,9 @@ pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
 /// use wash_lib::start::download_nats_server;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = download_nats_server(os, arch, "v2.8.4", "/tmp/nats_server").await;
+/// println!("os: {:?}", os);
+/// println!("arch: {:?}", arch);
+/// let res = download_nats_server(os, arch, "v2.8.4", "/tmp/").await;
 /// assert!(res.is_ok());
 /// # }
 /// ```
@@ -42,17 +44,22 @@ where
     }
     // Download NATS tarball
     let url = nats_url(os, arch, version);
+    println!("{:?}", url);
     let body = reqwest::get(url).await?.bytes().await?;
     let cursor = Cursor::new(body);
     let mut nats_server = Archive::new(Box::new(GzipDecoder::new(cursor)));
 
     // Look for nats-server binary and only extract that
+    #[cfg(target_family = "unix")]
+    let nats_server_bin = "nats-server";
+    #[cfg(target_family = "windows")]
+    let nats_server_bin = "nats-server.exe";
     let mut entries = nats_server.entries()?;
     while let Some(res) = entries.next().await {
         let mut entry = res?;
         match entry.path() {
             Ok(tar_path) => match tar_path.file_name() {
-                Some(name) if name == OsStr::new("nats-server") => {
+                Some(name) if name == OsStr::new(nats_server_bin) => {
                     // Ensure target directory exists
                     create_dir_all(&dir).await?;
                     let mut nats_server = File::create(&nats_bin_path).await?;
@@ -87,7 +94,12 @@ where
 }
 
 /// Helper function to execute a NATS server binary with wasmCloud arguments
-pub fn start_nats_for_wasmcloud<P, T>(bin_path: P, log_file: T) -> Result<Child>
+pub fn start_nats_for_wasmcloud<P, T>(
+    bin_path: P,
+    log_file: T,
+    address: &str,
+    port: u16,
+) -> Result<Child>
 where
     P: AsRef<Path>,
     T: Into<Stdio>,
@@ -95,6 +107,10 @@ where
     Command::new(bin_path.as_ref())
         .stderr(log_file)
         .arg("-js")
+        .arg("--addr")
+        .arg(address)
+        .arg("--port")
+        .arg(port.to_string())
         .spawn()
         .map_err(|e| anyhow!(e))
 }
