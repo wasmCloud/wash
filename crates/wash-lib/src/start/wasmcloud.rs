@@ -16,8 +16,8 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
 #[cfg(target_family = "windows")]
 pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
-/// Downloads the specified GitHub release version of nats-server and unpacks the binary
-/// for a specified OS/ARCH pair to a path from <https://github.com/wasmCloud/wasmcloud-otp/releases/>
+/// Downloads the specified GitHub release version of the wasmCloud host from <https://github.com/wasmCloud/wasmcloud-otp/releases/>
+/// and unpacks the contents for a specified OS/ARCH pair to a directory
 ///
 /// # Arguments
 ///
@@ -47,7 +47,6 @@ where
     }
     // Download wasmCloud host tarball
     let url = wasmcloud_url(os, arch, version);
-    println!("wasmcloud_url: {:?}", url);
     let body = reqwest::get(url).await?.bytes().await?;
     let cursor = Cursor::new(body);
     let mut wasmcloud_host = Archive::new(Box::new(GzipDecoder::new(cursor)));
@@ -106,15 +105,16 @@ where
 use std::collections::HashMap;
 use std::ffi::OsStr;
 /// Helper function to start a wasmCloud host given the path to the elixir release script
-pub fn start_wasmcloud_host<P, T, K, V>(
+pub fn start_wasmcloud_host<P, T, S, K, V>(
     bin_path: P,
     stdout: T,
-    stderr: T,
+    stderr: S,
     env_vars: HashMap<K, V>,
 ) -> Result<Child>
 where
     P: AsRef<Path>,
     T: Into<Stdio>,
+    S: Into<Stdio>,
     K: AsRef<OsStr>,
     V: AsRef<OsStr>,
 {
@@ -126,7 +126,6 @@ where
         cmd = cmd.env(k, v)
     }
 
-    println!("Trying to exec: {:?}", cmd);
     // Spawn in the foreground so we can capture logs to a specified location
     cmd.stderr(stderr)
         .stdout(stdout)

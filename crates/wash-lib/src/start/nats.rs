@@ -14,8 +14,8 @@ pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
 #[cfg(target_family = "windows")]
 pub(crate) const NATS_SERVER_BINARY: &str = "nats-server.exe";
 
-/// Downloads the specified GitHub release version of nats-server and unpacks the binary
-/// for a specified OS/ARCH pair to a path from <https://github.com/nats-io/nats-server/releases/>
+/// Downloads the specified GitHub release version of nats-server from <https://github.com/nats-io/nats-server/releases/>
+/// and unpacks the binary for a specified OS/ARCH pair to a directory
 /// # Arguments
 ///
 /// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
@@ -95,18 +95,20 @@ where
 }
 
 /// Helper function to execute a NATS server binary with wasmCloud arguments
-pub fn start_nats_for_wasmcloud<P, T>(
-    bin_path: P,
-    log_file: T,
-    address: &str,
-    port: u16,
-) -> Result<Child>
+/// # Arguments
+///
+/// * `bin_path` - Path to the nats-server binary to execute
+/// * `stderr` - Specify where NATS stderr logs should be written to. If logs aren't important, use std::process::Stdio::null()
+/// * `address` - Address for NATS to listen on
+/// * `port` - Port for NATS to listen on
+pub fn start_nats_server<P, T>(bin_path: P, stderr: T, address: &str, port: u16) -> Result<Child>
 where
     P: AsRef<Path>,
     T: Into<Stdio>,
 {
+    //TODO: allow specifying args for the NATS server?
     Command::new(bin_path.as_ref())
-        .stderr(log_file)
+        .stderr(stderr)
         .arg("-js")
         .arg("--addr")
         .arg(address)

@@ -1,6 +1,76 @@
 //! The `start` module contains functionality relating to downloading and starting
 //! NATS servers and wasmCloud hosts.
 //!
+//! # Downloading and Starting NATS and wasmCloud
+//! ```rust
+//! use anyhow::{anyhow, Result};
+//! use wash_lib::start::{
+//!     start_wasmcloud_host,
+//!     start_nats_server,
+//!     download_nats_server,
+//!     download_wasmcloud,
+//!     is_nats_installed,
+//!     is_wasmcloud_installed
+//! };
+//! use std::{collections::HashMap, path::PathBuf};
+//!
+//! // Unix executables
+//! #[cfg(target_family = "unix")]
+//! const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
+//! #[cfg(target_family = "unix")]
+//! const NATS_BIN: &str = "nats-server";
+//!
+//! // Windows executables
+//! #[cfg(target_family = "windows")]
+//! const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
+//! #[cfg(target_family = "windows")]
+//! const NATS_BIN: &str = "nats-server.exe";
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<()> {
+//!     let install_dir = PathBuf::from("/tmp");
+//!     let os = std::env::consts::OS;
+//!     let arch = std::env::consts::ARCH;
+//!
+//!     // Download NATS if not already installed
+//!     if !is_nats_installed(&install_dir).await {
+//!         download_nats_server(os, arch, "v2.8.4", &install_dir).await?;
+//!     }
+//!     // Start NATS server, redirecting output to a log file
+//!     let nats_log_path = install_dir.join("nats.log");
+//!     let nats_log_file = std::fs::File::create(&nats_log_path)?;
+//!     let mut nats_process = start_nats_server(
+//!         &install_dir.join(NATS_BIN),
+//!         nats_log_file,
+//!         "0.0.0.0",
+//!         4222,
+//!     )?;
+//!     
+//!     // Download wasmCloud if not already installed
+//!     if !is_wasmcloud_installed(&install_dir).await {
+//!         download_wasmcloud(os, arch, "v0.55.1", &install_dir).await?;
+//!     }
+//!     
+//!     // Redirect output (which is on stderr) to a log file
+//!     let log_path = install_dir.join("wasmcloud_stderr.log");
+//!     let log_file = std::fs::File::create(&log_path)?;
+//!     
+//!     let env: HashMap<String, String> = HashMap::new();
+//!     let mut wasmcloud_process = start_wasmcloud_host(
+//!         &install_dir.join(WASMCLOUD_HOST_BIN),
+//!         std::process::Stdio::null(),
+//!         log_file,
+//!         env,
+//!     )?;
+//!
+//!     // Park thread, wasmCloud and NATS are running
+//!     
+//!     // Terminate processes
+//!     nats_process.kill()?;
+//!     wasmcloud_process.kill()?;
+//!     Ok(())
+//! }
+//! ```
 //TODO: audit exports
 mod nats;
 pub use nats::*;
@@ -13,7 +83,7 @@ mod test {
     use crate::{
         start::nats::download_nats_server,
         start::nats::NATS_SERVER_BINARY,
-        start::{download_wasmcloud, nats::start_nats_for_wasmcloud, start_wasmcloud_host},
+        start::{download_wasmcloud, nats::start_nats_server, start_wasmcloud_host},
         start::{is_nats_installed, is_wasmcloud_installed},
     };
     use anyhow::Result;
@@ -62,7 +132,7 @@ mod test {
         let log_path = install_dir.join("nats.log");
         let log_file = tokio::fs::File::create(&log_path).await?.into_std().await;
 
-        let child_res = start_nats_for_wasmcloud(
+        let child_res = start_nats_server(
             &install_dir.join(NATS_SERVER_BINARY),
             log_file,
             "0.0.0.0",
@@ -82,7 +152,6 @@ mod test {
             } else {
                 // Give just a little bit of time for the startup logs to flow in
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                println!("{:?}", log_contents);
 
                 assert!(log_contents.contains("Starting nats-server"));
                 assert!(log_contents.contains("Starting JetStream"));
@@ -107,34 +176,35 @@ mod test {
         // Install and start NATS server for this test
         let nats_port = 10001;
         assert!(
-           download_nats_server(os, arch, NATS_SERVER_VERSION, &install_dir)
+            download_nats_server(os, arch, NATS_SERVER_VERSION, &install_dir)
                 .await
                 .is_ok()
         );
         assert!(is_nats_installed(&install_dir).await);
-        let nats_log_path = install_dir.clone().join("nats.log");
-        let nats_log_file = tokio::fs::File::create(&nats_log_path)
-            .await?
-            .into_std()
-            .await;
-        let nats_child = start_nats_for_wasmcloud(
-           &install_dir.join(NATS_SERVER_BINARY),
-           nats_log_file,
-           "0.0.0.0",
-           nats_port,
-       );
-       assert!(nats_child.is_ok());
-       let _to_drop = ProcessChild {
-           child: nats_child.unwrap(),
-       };
+        let nats_child = start_nats_server(
+            install_dir.join(NATS_SERVER_BINARY),
+            std::process::Stdio::null(),
+            "0.0.0.0",
+            nats_port,
+        );
+        assert!(nats_child.is_ok());
+        let _to_drop = ProcessChild {
+            child: nats_child.unwrap(),
+        };
 
         let res = download_wasmcloud(os, arch, WASMCLOUD_HOST_VERSION, &install_dir).await;
         assert!(res.is_ok());
 
         let stderr_log_path = install_dir.join("wasmcloud_stderr.log");
-        let stderr_log_file = tokio::fs::File::create(&stderr_log_path).await?.into_std().await;
+        let stderr_log_file = tokio::fs::File::create(&stderr_log_path)
+            .await?
+            .into_std()
+            .await;
         let stdout_log_path = install_dir.join("wasmcloud_stdout.log");
-        let stdout_log_file = tokio::fs::File::create(&stdout_log_path).await?.into_std().await;
+        let stdout_log_file = tokio::fs::File::create(&stdout_log_path)
+            .await?
+            .into_std()
+            .await;
 
         let mut host_env = HashMap::new();
         host_env.insert("WASMCLOUD_RPC_PORT", nats_port.to_string());
@@ -146,7 +216,6 @@ mod test {
             stderr_log_file,
             host_env,
         );
-        println!("res: {:?}", child_res);
         assert!(child_res.is_ok());
         let _to_drop = ProcessChild {
             child: child_res.unwrap(),
@@ -160,23 +229,14 @@ mod test {
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             } else {
                 // Give just a little bit of time for the startup logs to flow in, re-read logs
-                println!("check port");
                 tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
                 let log_contents = tokio::fs::read_to_string(&stderr_log_path).await?;
-                println!(
-                    "nats: {:?}",
-                    tokio::fs::read_to_string(&nats_log_path).await?
-                );
-                println!("wasmcloud: {:?}", log_contents);
                 assert!(log_contents
                     .contains("Connecting to control interface NATS without authentication"));
                 assert!(
                     log_contents.contains("Connecting to lattice rpc NATS without authentication")
                 );
                 assert!(log_contents.contains("Started wasmCloud OTP Host Runtime"));
-                assert!(
-                    log_contents.contains("Created ephemeral consumer for lattice cache loader")
-                );
                 break;
             }
         }
