@@ -3816,6 +3816,7 @@ dependencies = [
  "anyhow",
  "async-compression",
  "futures 0.3.21",
+ "log",
  "reqwest",
  "tokio",
  "tokio-stream",
