@@ -18,8 +18,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
-      - name: Run Rust check + clippy
-        run: make rust-check
+      # - name: Run Rust check + clippy
+      #   run: make rust-check
       - name: Run unit tests
         run: make test
       - name: Launch integration test services

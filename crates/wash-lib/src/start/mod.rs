@@ -96,7 +96,7 @@ mod test {
 
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> Result<()> {
-        let install_dir = temp_dir().join("can_download_and_invoke_wasmcloud");
+        let install_dir = temp_dir().join("can_download_and_start_wasmcloud");
         let _cleanup_dir = DirClean {
             dir: install_dir.clone(),
         };
@@ -107,7 +107,7 @@ mod test {
         // Install and start NATS server for this test
         let nats_port = 10001;
         assert!(
-            download_nats_server(os, arch, NATS_SERVER_VERSION, &install_dir)
+           download_nats_server(os, arch, NATS_SERVER_VERSION, &install_dir)
                 .await
                 .is_ok()
         );
@@ -118,28 +118,35 @@ mod test {
             .into_std()
             .await;
         let nats_child = start_nats_for_wasmcloud(
-            &install_dir.join(NATS_SERVER_BINARY),
-            nats_log_file,
-            "0.0.0.0",
-            nats_port,
-        );
-        assert!(nats_child.is_ok());
-        let _to_drop = ProcessChild {
-            child: nats_child.unwrap(),
-        };
+           &install_dir.join(NATS_SERVER_BINARY),
+           nats_log_file,
+           "0.0.0.0",
+           nats_port,
+       );
+       assert!(nats_child.is_ok());
+       let _to_drop = ProcessChild {
+           child: nats_child.unwrap(),
+       };
 
         let res = download_wasmcloud(os, arch, WASMCLOUD_HOST_VERSION, &install_dir).await;
         assert!(res.is_ok());
 
-        let log_path = install_dir.join("wasmcloud.log");
-        let log_file = tokio::fs::File::create(&log_path).await?.into_std().await;
+        let stderr_log_path = install_dir.join("wasmcloud_stderr.log");
+        let stderr_log_file = tokio::fs::File::create(&stderr_log_path).await?.into_std().await;
+        let stdout_log_path = install_dir.join("wasmcloud_stdout.log");
+        let stdout_log_file = tokio::fs::File::create(&stdout_log_path).await?.into_std().await;
 
         let mut host_env = HashMap::new();
         host_env.insert("WASMCLOUD_RPC_PORT", nats_port.to_string());
         host_env.insert("WASMCLOUD_CTL_PORT", nats_port.to_string());
         host_env.insert("WASMCLOUD_PROV_RPC_PORT", nats_port.to_string());
-        let child_res =
-            start_wasmcloud_host(&install_dir.join("bin/wasmcloud_host"), log_file, host_env);
+        let child_res = start_wasmcloud_host(
+            &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
+            stdout_log_file,
+            stderr_log_file,
+            host_env,
+        );
+        println!("res: {:?}", child_res);
         assert!(child_res.is_ok());
         let _to_drop = ProcessChild {
             child: child_res.unwrap(),
@@ -147,18 +154,20 @@ mod test {
 
         // Give wasmCloud max 15 seconds to start up
         for _ in 0..14 {
-            let log_contents = tokio::fs::read_to_string(&log_path).await?;
+            let log_contents = tokio::fs::read_to_string(&stderr_log_path).await?;
             if log_contents.is_empty() {
                 println!("wasmCloud hasn't started up yet, waiting 1 second");
                 tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
             } else {
-                // Give just a little bit of time for the startup logs to flow in
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                // Give just a little bit of time for the startup logs to flow in, re-read logs
+                println!("check port");
+                tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
+                let log_contents = tokio::fs::read_to_string(&stderr_log_path).await?;
                 println!(
                     "nats: {:?}",
                     tokio::fs::read_to_string(&nats_log_path).await?
                 );
-                println!("{:?}", log_contents);
+                println!("wasmcloud: {:?}", log_contents);
                 assert!(log_contents
                     .contains("Connecting to control interface NATS without authentication"));
                 assert!(

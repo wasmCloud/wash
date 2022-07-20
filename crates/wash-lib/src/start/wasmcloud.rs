@@ -11,6 +11,10 @@ use tokio_tar::Archive;
 
 const WASMCLOUD_GITHUB_RELEASE_URL: &str =
     "https://github.com/wasmCloud/wasmcloud-otp/releases/download";
+#[cfg(target_family = "unix")]
+pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
+#[cfg(target_family = "windows")]
+pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
 /// Downloads the specified GitHub release version of nats-server and unpacks the binary
 /// for a specified OS/ARCH pair to a path from <https://github.com/wasmCloud/wasmcloud-otp/releases/>
@@ -43,6 +47,7 @@ where
     }
     // Download wasmCloud host tarball
     let url = wasmcloud_url(os, arch, version);
+    println!("wasmcloud_url: {:?}", url);
     let body = reqwest::get(url).await?.bytes().await?;
     let cursor = Cursor::new(body);
     let mut wasmcloud_host = Archive::new(Box::new(GzipDecoder::new(cursor)));
@@ -103,7 +108,8 @@ use std::ffi::OsStr;
 /// Helper function to start a wasmCloud host given the path to the elixir release script
 pub fn start_wasmcloud_host<P, T, K, V>(
     bin_path: P,
-    log_file: T,
+    stdout: T,
+    stderr: T,
     env_vars: HashMap<K, V>,
 ) -> Result<Child>
 where
@@ -120,8 +126,10 @@ where
         cmd = cmd.env(k, v)
     }
 
+    println!("Trying to exec: {:?}", cmd);
     // Spawn in the foreground so we can capture logs to a specified location
-    cmd.stderr(log_file)
+    cmd.stderr(stderr)
+        .stdout(stdout)
         .arg("foreground")
         .spawn()
         .map_err(|e| anyhow!(e))
@@ -136,7 +144,7 @@ where
     use futures::future::join_all;
     //TODO: check for erts
     let bin_dir = dir.as_ref().join("bin");
-    let release_script = dir.as_ref().join("bin/wasmcloud_host");
+    let release_script = dir.as_ref().join(WASMCLOUD_HOST_BIN);
     let lib_dir = dir.as_ref().join("lib");
     let releases_dir = dir.as_ref().join("releases");
     let file_checks = vec![
@@ -195,7 +203,7 @@ mod test {
 
     #[tokio::test]
     async fn can_download_wasmcloud_tarball() {
-        let download_dir = temp_dir();
+        let download_dir = temp_dir().join("can_download_wasmcloud_tarball");
         let _cleanup_dir = DirClean {
             dir: download_dir.clone(),
         };

@@ -9,7 +9,10 @@ use tokio::fs::{create_dir_all, metadata, File};
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
 const NATS_GITHUB_RELEASE_URL: &str = "https://github.com/nats-io/nats-server/releases/download";
+#[cfg(target_family = "unix")]
 pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
+#[cfg(target_family = "windows")]
+pub(crate) const NATS_SERVER_BINARY: &str = "nats-server.exe";
 
 /// Downloads the specified GitHub release version of nats-server and unpacks the binary
 /// for a specified OS/ARCH pair to a path from <https://github.com/nats-io/nats-server/releases/>
@@ -27,8 +30,6 @@ pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
 /// use wash_lib::start::download_nats_server;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// println!("os: {:?}", os);
-/// println!("arch: {:?}", arch);
 /// let res = download_nats_server(os, arch, "v2.8.4", "/tmp/").await;
 /// assert!(res.is_ok());
 /// # }
@@ -37,23 +38,23 @@ pub async fn download_nats_server<P>(os: &str, arch: &str, version: &str, dir: P
 where
     P: AsRef<Path>,
 {
-    let nats_bin_path = dir.as_ref().join("nats-server");
+    #[cfg(target_family = "unix")]
+    let nats_server_bin = "nats-server";
+    #[cfg(target_family = "windows")]
+    let nats_server_bin = "nats-server.exe";
+
+    let nats_bin_path = dir.as_ref().join(nats_server_bin);
     if let Ok(_md) = metadata(&nats_bin_path).await {
         // NATS already exists, return early
         return Ok(());
     }
     // Download NATS tarball
     let url = nats_url(os, arch, version);
-    println!("{:?}", url);
     let body = reqwest::get(url).await?.bytes().await?;
     let cursor = Cursor::new(body);
     let mut nats_server = Archive::new(Box::new(GzipDecoder::new(cursor)));
 
     // Look for nats-server binary and only extract that
-    #[cfg(target_family = "unix")]
-    let nats_server_bin = "nats-server";
-    #[cfg(target_family = "windows")]
-    let nats_server_bin = "nats-server.exe";
     let mut entries = nats_server.entries()?;
     while let Some(res) = entries.next().await {
         let mut entry = res?;
