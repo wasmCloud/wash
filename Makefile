@@ -14,7 +14,7 @@ test-integration: ##Run integration test suite
 	docker compose -f ./tools/docker-compose.yml down
 
 rust-check:
-	rustfmt --edition 2021 --check src/*.rs src/*/*.rs crates/*/**/*.rs
+	cargo fmt --all --check
 	cargo clippy --all-features --all-targets --workspace
 
 # run all tests

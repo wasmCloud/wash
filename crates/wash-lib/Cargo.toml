@@ -20,9 +20,12 @@ start = []
 [dependencies]
 anyhow = "1.0.51"
 futures = "0.3"
-tokio = {version = "1", features = ["full"]}
+tokio = {version = "1", default-features = false, features = ["process"]}
 reqwest = {version = "0.11", default-features = false, features = ["json", "rustls-tls", "stream"]}
 async-compression = { version = "0.3", default-features = false, features = ["tokio", "gzip"] }
 tokio-tar = "0.3"
 tokio-stream = "0.1"
 log = "0.4"
+
+[dev-dependencies]
+tokio = {version = "1", features = ["full"]}
