@@ -27,22 +27,9 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all-features
 
-  release_wash_lib:
-    if: startswith(github.ref, 'refs/tags/') # Only run on tag push
-    runs-on: ubuntu-latest
-    env:
-      working-directory: ./crates/wash-lib
-    steps:
-      - uses: actions/checkout@v1
-      - id: crates-release-action
-        uses: wasmcloud/common-actions/crates-release@main
-        with:
-          working-directory: ${{ env.working-directory }}
-          crates-token: ${{ secrets.CRATES_PUBLISH_TOKEN }}
-
   windows_build:
     runs-on: windows-latest
-    needs: [release_wash_lib, cargo_check]
+    needs: [cargo_check]
     steps:
       - uses: actions/checkout@v2
       - name: Compile wash
