@@ -183,7 +183,7 @@ where
     let _ = Command::new(bin_path.as_ref())
         .stderr(Stdio::null())
         .stdout(Stdio::null())
-        .output();
+        .spawn();
 
     match Command::new(bin_path.as_ref()).arg("ping").output().await {
         // If ping was successful, returning "pong", another host is already running
