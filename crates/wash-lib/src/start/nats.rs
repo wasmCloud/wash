@@ -92,17 +92,16 @@ where
 ///
 /// * `bin_path` - Path to the nats-server binary to execute
 /// * `stderr` - Specify where NATS stderr logs should be written to. If logs aren't important, use std::process::Stdio::null()
-/// * `address` - Address for NATS to listen on
 /// * `port` - Port for NATS to listen on
-pub fn start_nats_server<P, T>(bin_path: P, stderr: T, address: &str, port: u16) -> Result<Child>
+pub fn start_nats_server<P, T>(bin_path: P, stderr: T, port: u16) -> Result<Child>
 where
     P: AsRef<Path>,
     T: Into<Stdio>,
 {
-    if std::net::TcpListener::bind((address, port)).is_err() {
+    // If we can connect to the local port, NATS won't be able to listen on that port
+    if std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
         return Err(anyhow!(
-            "Could not start NATS server, a process is already listening on {}:{}",
-            address,
+            "Could not start NATS server, a process is already listening on 127.0.0.1:{}",
             port
         ));
     }
@@ -110,7 +109,7 @@ where
         .stderr(stderr)
         .arg("-js")
         .arg("--addr")
-        .arg(address)
+        .arg("0.0.0.0")
         .arg("--port")
         .arg(port.to_string())
         .spawn()
@@ -147,32 +146,59 @@ fn nats_url(os: &str, arch: &str, version: &str) -> String {
 #[cfg(test)]
 mod test {
     use crate::start::{
-        download_nats_server, is_nats_installed, start_nats_server, NATS_SERVER_BINARY,
+        download_nats_server, is_nats_installed, start_nats_server, test_helpers::*,
+        NATS_SERVER_BINARY,
     };
     use anyhow::Result;
     use std::env::temp_dir;
 
-    /// Helper struct to ensure temp dirs are removed regardless of test result
-    struct DirClean {
-        dir: std::path::PathBuf,
-    }
-    impl Drop for DirClean {
-        fn drop(&mut self) {
-            println!("Removing temp dir {:?}", self.dir);
-            let _ = std::fs::remove_dir_all(&self.dir);
-        }
-    }
-    /// Helper struct to ensure spawned processes are killed regardless of test result
-    struct ProcessChild {
-        child: std::process::Child,
-    }
-    impl Drop for ProcessChild {
-        fn drop(&mut self) {
-            let _ = self.child.kill();
-        }
-    }
-
     const NATS_SERVER_VERSION: &str = "v2.8.4";
+
+    #[tokio::test]
+    async fn can_download_and_start_nats() -> Result<()> {
+        let install_dir = temp_dir().join("can_download_and_start_nats");
+        let _cleanup_dir = DirClean {
+            dir: install_dir.clone(),
+        };
+        assert!(!is_nats_installed(&install_dir).await);
+
+        let res = download_nats_server(
+            std::env::consts::OS,
+            std::env::consts::ARCH,
+            NATS_SERVER_VERSION,
+            &install_dir,
+        )
+        .await;
+        assert!(res.is_ok());
+
+        let log_path = install_dir.join("nats.log");
+        let log_file = tokio::fs::File::create(&log_path).await?.into_std().await;
+
+        let child_res = start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log_file, 10000);
+        assert!(child_res.is_ok());
+        let _to_drop = ProcessChild {
+            child: child_res.unwrap(),
+        };
+
+        // Give NATS max 5 seconds to start up
+        for _ in 0..4 {
+            let log_contents = tokio::fs::read_to_string(&log_path).await?;
+            if log_contents.is_empty() {
+                println!("NATS server hasn't started up yet, waiting 1 second");
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            } else {
+                // Give just a little bit of time for the startup logs to flow in
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+
+                assert!(log_contents.contains("Starting nats-server"));
+                assert!(log_contents.contains("Starting JetStream"));
+                assert!(log_contents.contains("Server is ready"));
+                break;
+            }
+        }
+
+        Ok(())
+    }
 
     #[tokio::test]
     async fn can_gracefully_fail_running_nats() -> Result<()> {
@@ -194,7 +220,6 @@ mod test {
         let nats_one = start_nats_server(
             &install_dir.join(NATS_SERVER_BINARY),
             std::process::Stdio::null(),
-            "0.0.0.0",
             10003,
         );
         assert!(nats_one.is_ok());
@@ -206,8 +231,7 @@ mod test {
         tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
         let log_path = install_dir.join("nats.log");
         let log = std::fs::File::create(&log_path)?;
-        let nats_two =
-            start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log, "0.0.0.0", 10003);
+        let nats_two = start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log, 10003);
         assert!(nats_two.is_err());
 
         Ok(())
