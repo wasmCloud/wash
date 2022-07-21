@@ -14,12 +14,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-20.04, windows-2019, macos-10.15]
+        os: [ubuntu-20.04, windows-2019, macos-11]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
-      # - name: Run Rust check + clippy
-      #   run: make rust-check
+      - name: Run Rust check + clippy
+        run: make rust-check
       - name: Run unit tests
         run: make test
       - name: Launch integration test services
