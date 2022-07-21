@@ -225,7 +225,7 @@ mod test {
 
     #[tokio::test]
     async fn can_download_wasmcloud_tarball() {
-        let download_dir = temp_dir().join("perms-test");
+        let download_dir = temp_dir().join("can_download_wasmcloud_tarball");
         let _cleanup_dir = DirClean {
             dir: download_dir.clone(),
         };
@@ -237,7 +237,7 @@ mod test {
 
     #[tokio::test]
     async fn can_handle_missing_wasmcloud_version() {
-        let download_dir = temp_dir().join("perms-test");
+        let download_dir = temp_dir().join("can_handle_missing_wasmcloud_version");
         let _cleanup_dir = DirClean {
             dir: download_dir.clone(),
         };
