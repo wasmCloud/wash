@@ -146,22 +146,19 @@ where
 
     // Windows powershell will ping forever if it's the first command, this is essentially an
     // initialization
-    #[cfg(target_family = "windows") ]
+    #[cfg(target_family = "windows")]
     let _ = Command::new(bin_path.as_ref())
         .stderr(Stdio::null())
         .stdout(Stdio::null())
         .output();
 
-    match Command::new(bin_path.as_ref())
-        .arg("ping")
-        .output()
-    {
+    match Command::new(bin_path.as_ref()).arg("ping").output() {
         // If ping was successful, returning "pong", another host is already running
         Ok(output) if output.status.success() => {
             if String::from_utf8_lossy(&output.stdout).contains("pong") {
                 return Err(anyhow!(
                     "Another wasmCloud host is already running on this machine"
-                ))
+                ));
             }
         }
         _ => (),
