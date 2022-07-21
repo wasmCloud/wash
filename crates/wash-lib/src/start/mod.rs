@@ -7,24 +7,10 @@
 //! use wash_lib::start::{
 //!     start_wasmcloud_host,
 //!     start_nats_server,
-//!     download_nats_server,
-//!     download_wasmcloud,
-//!     is_nats_installed,
-//!     is_wasmcloud_installed
+//!     ensure_nats_server,
+//!     ensure_wasmcloud
 //! };
-//! use std::{collections::HashMap, path::PathBuf};
-//!
-//! // Unix executables
-//! #[cfg(target_family = "unix")]
-//! const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
-//! #[cfg(target_family = "unix")]
-//! const NATS_BIN: &str = "nats-server";
-//!
-//! // Windows executables
-//! #[cfg(target_family = "windows")]
-//! const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
-//! #[cfg(target_family = "windows")]
-//! const NATS_BIN: &str = "nats-server.exe";
+//! use std::path::PathBuf;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<()> {
@@ -33,33 +19,29 @@
 //!     let arch = std::env::consts::ARCH;
 //!
 //!     // Download NATS if not already installed
-//!     if !is_nats_installed(&install_dir).await {
-//!         download_nats_server(os, arch, "v2.8.4", &install_dir).await?;
-//!     }
+//!     let nats_binary = ensure_nats_server(os, arch, "v2.8.4", &install_dir).await?;
+//!
 //!     // Start NATS server, redirecting output to a log file
 //!     let nats_log_path = install_dir.join("nats.log");
 //!     let nats_log_file = std::fs::File::create(&nats_log_path)?;
 //!     let mut nats_process = start_nats_server(
-//!         &install_dir.join(NATS_BIN),
+//!         nats_binary,
 //!         nats_log_file,
 //!         4222,
 //!     )?;
 //!     
 //!     // Download wasmCloud if not already installed
-//!     if !is_wasmcloud_installed(&install_dir).await {
-//!         download_wasmcloud(os, arch, "v0.55.1", &install_dir).await?;
-//!     }
+//!     let wasmcloud_executable = ensure_wasmcloud(os, arch, "v0.55.1", &install_dir).await?;
 //!     
 //!     // Redirect output (which is on stderr) to a log file
 //!     let log_path = install_dir.join("wasmcloud_stderr.log");
 //!     let log_file = std::fs::File::create(&log_path)?;
 //!     
-//!     let env: HashMap<String, String> = HashMap::new();
 //!     let mut wasmcloud_process = start_wasmcloud_host(
-//!         &install_dir.join(WASMCLOUD_HOST_BIN),
+//!         wasmcloud_executable,
 //!         std::process::Stdio::null(),
 //!         log_file,
-//!         env,
+//!         std::collections::HashMap::new(),
 //!     )?;
 //!
 //!     // Park thread, wasmCloud and NATS are running

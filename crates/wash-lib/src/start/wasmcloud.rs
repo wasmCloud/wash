@@ -16,8 +16,9 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
 #[cfg(target_family = "windows")]
 pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
-/// Downloads the specified GitHub release version of the wasmCloud host from <https://github.com/wasmCloud/wasmcloud-otp/releases/>
-/// and unpacks the contents for a specified OS/ARCH pair to a directory. Returns the path to the Elixir executable.
+/// Ensures the `wasmcloud_host` application is installed, returning the path to the executable early if it exists or
+/// downloading the specified GitHub release version of the wasmCloud host from <https://github.com/wasmCloud/wasmcloud-otp/releases/>
+/// and unpacking the contents for a specified OS/ARCH pair to a directory. Returns the path to the Elixir executable.
 ///
 /// # Arguments
 ///
@@ -30,15 +31,15 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 /// ```no_run
 /// # #[tokio::main]
 /// # async fn main() {
-/// use wash_lib::start::download_wasmcloud;
+/// use wash_lib::start::ensure_wasmcloud;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = download_wasmcloud(os, arch, "v0.55.1", "/tmp/wasmcloud/").await;
+/// let res = ensure_wasmcloud(os, arch, "v0.55.1", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
 /// ```
-pub async fn download_wasmcloud<P>(os: &str, arch: &str, version: &str, dir: P) -> Result<PathBuf>
+pub async fn ensure_wasmcloud<P>(os: &str, arch: &str, version: &str, dir: P) -> Result<PathBuf>
 where
     P: AsRef<Path>,
 {
@@ -55,7 +56,12 @@ where
     // Copy all of the files out of the tarball into the bin directory
     let mut executable_path = None;
     while let Some(res) = entries.next().await {
-        let mut entry = res?;
+        let mut entry = res.map_err(|_e| {
+            anyhow!(
+                "Failed to retrieve file from archive, ensure wasmcloud_host version '{}' exists",
+                version
+            )
+        })?;
         if let Ok(path) = entry.path() {
             let file_path = dir.as_ref().join(path);
             if let Some(parent_folder) = file_path.parent() {
@@ -191,9 +197,9 @@ fn wasmcloud_url(os: &str, arch: &str, version: &str) -> String {
 }
 #[cfg(test)]
 mod test {
-    use super::{download_wasmcloud, wasmcloud_url};
+    use super::{ensure_wasmcloud, wasmcloud_url};
     use crate::start::{
-        download_nats_server, is_nats_installed, is_wasmcloud_installed, start_nats_server,
+        ensure_nats_server, is_nats_installed, is_wasmcloud_installed, start_nats_server,
         start_wasmcloud_host, test_helpers::*, NATS_SERVER_BINARY,
     };
     use reqwest::StatusCode;
@@ -224,10 +230,20 @@ mod test {
             dir: download_dir.clone(),
         };
         let res: anyhow::Result<std::path::PathBuf> =
-            download_wasmcloud("macos", "aarch64", WASMCLOUD_VERSION, &download_dir).await;
-        println!("{:?}", res);
+            ensure_wasmcloud("macos", "aarch64", WASMCLOUD_VERSION, &download_dir).await;
         assert!(res.is_ok());
         assert!(is_wasmcloud_installed(&download_dir).await);
+    }
+
+    #[tokio::test]
+    async fn can_handle_missing_wasmcloud_version() {
+        let download_dir = temp_dir().join("perms-test");
+        let _cleanup_dir = DirClean {
+            dir: download_dir.clone(),
+        };
+        let res: anyhow::Result<std::path::PathBuf> =
+            ensure_wasmcloud("macos", "aarch64", "v010233.123.3.4", &download_dir).await;
+        assert!(res.is_err());
     }
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
@@ -246,7 +262,7 @@ mod test {
         // Install and start NATS server for this test
         let nats_port = 10004;
         assert!(
-            download_nats_server(os, arch, NATS_SERVER_VERSION, &install_dir)
+            ensure_nats_server(os, arch, NATS_SERVER_VERSION, &install_dir)
                 .await
                 .is_ok()
         );
@@ -261,7 +277,7 @@ mod test {
             child: nats_child.unwrap(),
         };
 
-        let res = download_wasmcloud(os, arch, WASMCLOUD_HOST_VERSION, &install_dir).await;
+        let res = ensure_wasmcloud(os, arch, WASMCLOUD_HOST_VERSION, &install_dir).await;
         assert!(res.is_ok());
 
         let stderr_log_path = install_dir.join("wasmcloud_stderr.log");
