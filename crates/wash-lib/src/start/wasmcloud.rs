@@ -144,17 +144,25 @@ where
         cmd = cmd.env(k, v)
     }
 
-    match Command::new(bin_path.as_ref())
+    // Windows powershell will ping forever if it's the first command, this is essentially an
+    // initialization
+    #[cfg(target_family = "windows") ]
+    let _ = Command::new(bin_path.as_ref())
         .stderr(Stdio::null())
         .stdout(Stdio::null())
+        .output();
+
+    match Command::new(bin_path.as_ref())
         .arg("ping")
         .output()
     {
-        // If ping was successful, another host is already running
+        // If ping was successful, returning "pong", another host is already running
         Ok(output) if output.status.success() => {
-            return Err(anyhow!(
-                "Another wasmCloud host is already running on this machine"
-            ))
+            if String::from_utf8_lossy(&output.stdout).contains("pong") {
+                return Err(anyhow!(
+                    "Another wasmCloud host is already running on this machine"
+                ))
+            }
         }
         _ => (),
     }
