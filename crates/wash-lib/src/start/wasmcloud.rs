@@ -41,7 +41,7 @@ pub async fn ensure_wasmcloud<P>(version: &str, dir: P) -> Result<PathBuf>
 where
     P: AsRef<Path>,
 {
-    ensure_wasmcloud_for_os_arch_pair(std::env::consts::OS, std::env::consts::OS, version, dir)
+    ensure_wasmcloud_for_os_arch_pair(std::env::consts::OS, std::env::consts::ARCH, version, dir)
         .await
 }
 
@@ -104,19 +104,22 @@ where
                 create_dir_all(parent_folder).await?;
             }
             if let Ok(mut wasmcloud_file) = File::create(&file_path).await {
-                // Set permissions of executable files and binaries to allow executing
                 if let Some(file_name) = file_path.file_name() {
-                    let file_name = file_name.to_string_lossy();
+                    // Set permissions of executable files and binaries to allow executing
                     #[cfg(target_family = "unix")]
-                    if file_path.to_string_lossy().contains("bin")
-                        || file_name.contains(".sh")
-                        || file_name.contains(".bat")
-                        || file_name.eq("wasmcloud_host")
                     {
-                        let mut perms = wasmcloud_file.metadata().await?.permissions();
-                        perms.set_mode(0o755);
-                        wasmcloud_file.set_permissions(perms).await?;
+                        let file_name = file_name.to_string_lossy();
+                        if file_path.to_string_lossy().contains("bin")
+                            || file_name.contains(".sh")
+                            || file_name.contains(".bat")
+                            || file_name.eq("wasmcloud_host")
+                        {
+                            let mut perms = wasmcloud_file.metadata().await?.permissions();
+                            perms.set_mode(0o755);
+                            wasmcloud_file.set_permissions(perms).await?;
+                        }
                     }
+
                     // Set the executable path for return
                     if file_path.ends_with(WASMCLOUD_HOST_BIN) {
                         executable_path = Some(file_path.clone())
@@ -165,7 +168,10 @@ where
         .get("PORT")
         .cloned()
         .unwrap_or_else(|| "4000".to_string());
-    if std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+    if tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+        .await
+        .is_ok()
+    {
         return Err(anyhow!(
             "Could not start wasmCloud, a host is already listening on 127.0.0.1:{}",
             port
@@ -180,10 +186,26 @@ where
     // Windows powershell will ping forever if it's the first command,
     // this is essentially an initialization
     #[cfg(target_family = "windows")]
-    let _ = Command::new(bin_path.as_ref())
-        .stderr(Stdio::null())
-        .stdout(Stdio::null())
-        .spawn();
+    {
+        let tmp_log = std::env::temp_dir().join("init.log");
+        let init_run = tokio::fs::File::create(&tmp_log).await?.into_std().await;
+        let mut child = tokio::process::Command::new(bin_path.as_ref())
+            .stdout(init_run)
+            .arg("ping")
+            .spawn()?;
+        // Give the wasmcloud initialization a few seconds to unpack
+        for _ in 0..5 {
+            let log_contents = tokio::fs::read_to_string(&tmp_log).await?;
+            if log_contents.is_empty() {
+                // Give just a little bit of time for the startup logs to flow in
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+            } else {
+                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+                break;
+            }
+        }
+        let _ = child.kill();
+    }
 
     match Command::new(bin_path.as_ref()).arg("ping").output().await {
         // If ping was successful, returning "pong", another host is already running
@@ -237,11 +259,11 @@ mod test {
     use super::{ensure_wasmcloud, wasmcloud_url};
     use crate::start::{
         ensure_nats_server, ensure_wasmcloud_for_os_arch_pair, is_nats_installed,
-        is_wasmcloud_installed, start_nats_server, start_wasmcloud_host, test_helpers::*,
-        NATS_SERVER_BINARY,
+        is_wasmcloud_installed, start_nats_server, start_wasmcloud_host, NATS_SERVER_BINARY,
     };
     use reqwest::StatusCode;
     use std::{collections::HashMap, env::temp_dir};
+    use tokio::fs::{create_dir_all, remove_dir_all};
     const WASMCLOUD_VERSION: &str = "v0.55.1";
 
     #[tokio::test]
@@ -264,25 +286,21 @@ mod test {
     #[tokio::test]
     async fn can_download_wasmcloud_tarball() {
         let download_dir = temp_dir().join("can_download_wasmcloud_tarball");
-        let _cleanup_dir = DirClean {
-            dir: download_dir.clone(),
-        };
-        let res: anyhow::Result<std::path::PathBuf> =
+        let res =
             ensure_wasmcloud_for_os_arch_pair("macos", "aarch64", WASMCLOUD_VERSION, &download_dir)
                 .await;
         assert!(res.is_ok());
         assert!(is_wasmcloud_installed(&download_dir).await);
+        let _ = remove_dir_all(download_dir).await;
     }
 
     #[tokio::test]
     async fn can_handle_missing_wasmcloud_version() {
         let download_dir = temp_dir().join("can_handle_missing_wasmcloud_version");
-        let _cleanup_dir = DirClean {
-            dir: download_dir.clone(),
-        };
-        let res: anyhow::Result<std::path::PathBuf> =
-            ensure_wasmcloud("v010233.123.3.4", &download_dir).await;
+        let res = ensure_wasmcloud("v010233.123.3.4", &download_dir).await;
+
         assert!(res.is_err());
+        let _ = remove_dir_all(download_dir).await;
     }
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
@@ -291,9 +309,8 @@ mod test {
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> anyhow::Result<()> {
         let install_dir = temp_dir().join("can_download_and_start_wasmcloud");
-        let _cleanup_dir = DirClean {
-            dir: install_dir.clone(),
-        };
+        let _ = remove_dir_all(&install_dir).await;
+        create_dir_all(&install_dir).await?;
         assert!(!is_wasmcloud_installed(&install_dir).await);
 
         // Install and start NATS server for this test
@@ -309,9 +326,6 @@ mod test {
         )
         .await;
         assert!(nats_child.is_ok());
-        let _to_drop = ProcessChild {
-            child: nats_child.unwrap(),
-        };
 
         let res = ensure_wasmcloud(WASMCLOUD_HOST_VERSION, &install_dir).await;
         assert!(res.is_ok());
@@ -331,17 +345,14 @@ mod test {
         host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
-        let child_res = start_wasmcloud_host(
+        let host_child = start_wasmcloud_host(
             &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
             stdout_log_file,
             stderr_log_file,
             host_env,
         )
         .await;
-        assert!(child_res.is_ok());
-        let _to_drop = ProcessChild {
-            child: child_res.unwrap(),
-        };
+        assert!(host_child.is_ok());
 
         // Give wasmCloud max 15 seconds to start up
         for _ in 0..14 {
@@ -392,6 +403,9 @@ mod test {
         .await;
         assert!(child_res.is_err());
 
+        host_child.unwrap().kill().await?;
+        nats_child.unwrap().kill().await?;
+        let _ = remove_dir_all(install_dir).await;
         Ok(())
     }
 }

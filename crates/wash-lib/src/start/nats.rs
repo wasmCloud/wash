@@ -38,7 +38,7 @@ pub async fn ensure_nats_server<P>(version: &str, dir: P) -> Result<PathBuf>
 where
     P: AsRef<Path>,
 {
-    ensure_nats_server_for_os_arch_pair(std::env::consts::OS, std::env::consts::OS, version, dir)
+    ensure_nats_server_for_os_arch_pair(std::env::consts::OS, std::env::consts::ARCH, version, dir)
         .await
 }
 
@@ -137,7 +137,10 @@ where
     T: Into<Stdio>,
 {
     // If we can connect to the local port, NATS won't be able to listen on that port
-    if std::net::TcpStream::connect(format!("127.0.0.1:{}", port)).is_ok() {
+    if tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+        .await
+        .is_ok()
+    {
         return Err(anyhow!(
             "Could not start NATS server, a process is already listening on 127.0.0.1:{}",
             port
@@ -184,34 +187,33 @@ fn nats_url(os: &str, arch: &str, version: &str) -> String {
 #[cfg(test)]
 mod test {
     use crate::start::{
-        ensure_nats_server, is_nats_installed, start_nats_server, test_helpers::*,
-        NATS_SERVER_BINARY,
+        ensure_nats_server, is_nats_installed, start_nats_server, NATS_SERVER_BINARY,
     };
     use anyhow::Result;
     use std::env::temp_dir;
+    use tokio::fs::{create_dir_all, remove_dir_all};
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
 
     #[tokio::test]
     async fn can_handle_missing_nats_version() -> Result<()> {
         let install_dir = temp_dir().join("can_handle_missing_nats_version");
-        let _cleanup_dir = DirClean {
-            dir: install_dir.clone(),
-        };
+        let _ = remove_dir_all(&install_dir).await;
+        create_dir_all(&install_dir).await?;
         assert!(!is_nats_installed(&install_dir).await);
 
         let res = ensure_nats_server("v300.22.1111223", &install_dir).await;
         assert!(res.is_err());
 
+        let _ = remove_dir_all(install_dir).await;
         Ok(())
     }
 
     #[tokio::test]
     async fn can_download_and_start_nats() -> Result<()> {
         let install_dir = temp_dir().join("can_download_and_start_nats");
-        let _cleanup_dir = DirClean {
-            dir: install_dir.clone(),
-        };
+        let _ = remove_dir_all(&install_dir).await;
+        create_dir_all(&install_dir).await?;
         assert!(!is_nats_installed(&install_dir).await);
 
         let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
@@ -223,9 +225,6 @@ mod test {
         let child_res =
             start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log_file, 10000).await;
         assert!(child_res.is_ok());
-        let _to_drop = ProcessChild {
-            child: child_res.unwrap(),
-        };
 
         // Give NATS max 5 seconds to start up
         for _ in 0..4 {
@@ -244,15 +243,16 @@ mod test {
             }
         }
 
+        child_res.unwrap().kill().await?;
+        let _ = remove_dir_all(install_dir).await;
         Ok(())
     }
 
     #[tokio::test]
     async fn can_gracefully_fail_running_nats() -> Result<()> {
         let install_dir = temp_dir().join("can_gracefully_fail_running_nats");
-        let _cleanup_dir = DirClean {
-            dir: install_dir.clone(),
-        };
+        let _ = remove_dir_all(&install_dir).await;
+        create_dir_all(&install_dir).await?;
         assert!(!is_nats_installed(&install_dir).await);
 
         let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
@@ -265,9 +265,6 @@ mod test {
         )
         .await;
         assert!(nats_one.is_ok());
-        let _to_drop = ProcessChild {
-            child: nats_one.unwrap(),
-        };
 
         // Give NATS a few seconds to start up and listen
         tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
@@ -275,6 +272,9 @@ mod test {
         let log = std::fs::File::create(&log_path)?;
         let nats_two = start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log, 10003).await;
         assert!(nats_two.is_err());
+
+        nats_one.unwrap().kill().await?;
+        let _ = remove_dir_all(install_dir).await;
 
         Ok(())
     }

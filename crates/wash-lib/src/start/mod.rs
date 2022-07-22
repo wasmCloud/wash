@@ -54,26 +54,3 @@ mod nats;
 pub use nats::*;
 mod wasmcloud;
 pub use wasmcloud::*;
-
-#[cfg(test)]
-pub(crate) mod test_helpers {
-    /// Helper struct to ensure temp dirs are removed regardless of test result
-    pub(crate) struct DirClean {
-        pub(crate) dir: std::path::PathBuf,
-    }
-    impl Drop for DirClean {
-        fn drop(&mut self) {
-            println!("Removing temp dir {:?}", self.dir);
-            let _ = std::fs::remove_dir_all(&self.dir);
-        }
-    }
-    /// Helper struct to ensure spawned processes are killed regardless of test result
-    pub(crate) struct ProcessChild {
-        pub(crate) child: tokio::process::Child,
-    }
-    impl Drop for ProcessChild {
-        fn drop(&mut self) {
-            let _ = self.child.kill();
-        }
-    }
-}
