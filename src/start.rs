@@ -11,10 +11,60 @@ use std::sync::{
 };
 use wash_lib::start::*;
 
-pub(crate) const SHOWER_EMOJI: &str = "\u{1F6BF}";
 const DOWNLOADS_DIR: &str = "downloads";
+// NATS configuration values
 const NATS_SERVER_VERSION: &str = "v2.8.4";
+const DEFAULT_NATS_HOST: &str = "127.0.0.1";
+const DEFAULT_NATS_PORT: &str = "4222";
+// wasmCloud configuration values, https://wasmcloud.dev/reference/host-runtime/host_configure/
 const WASMCLOUD_HOST_VERSION: &str = "v0.55.1";
+// NATS isolation configuration variables
+const WASMCLOUD_LATTICE_PREFIX: &str = "WASMCLOUD_LATTICE_PREFIX";
+const DEFAULT_LATTICE_PREFIX: &str = "default";
+const WASMCLOUD_JS_DOMAIN: &str = "WASMCLOUD_JS_DOMAIN";
+// Host / Cluster configuration
+const WASMCLOUD_CLUSTER_ISSUERS: &str = "WASMCLOUD_CLUSTER_ISSUERS";
+const WASMCLOUD_CLUSTER_SEED: &str = "WASMCLOUD_CLUSTER_SEED";
+const WASMCLOUD_HOST_SEED: &str = "WASMCLOUD_HOST_SEED";
+// NATS RPC connection configuration
+const WASMCLOUD_RPC_HOST: &str = "WASMCLOUD_RPC_HOST";
+const DEFAULT_RPC_HOST: &str = "0.0.0.0";
+const WASMCLOUD_RPC_PORT: &str = "WASMCLOUD_RPC_PORT";
+const DEFAULT_RPC_PORT: &str = "4222";
+const WASMCLOUD_RPC_TIMEOUT_MS: &str = "WASMCLOUD_RPC_TIMEOUT_MS";
+const DEFAULT_RPC_TIMEOUT_MS: &str = "2000";
+const WASMCLOUD_RPC_SEED: &str = "WASMCLOUD_RPC_SEED";
+const WASMCLOUD_RPC_JWT: &str = "WASMCLOUD_RPC_JWT";
+const WASMCLOUD_RPC_TLS: &str = "WASMCLOUD_RPC_TLS";
+// NATS CTL connection configuration
+const WASMCLOUD_CTL_HOST: &str = "WASMCLOUD_CTL_HOST";
+const DEFAULT_CTL_HOST: &str = "0.0.0.0";
+const WASMCLOUD_CTL_PORT: &str = "WASMCLOUD_CTL_PORT";
+const DEFAULT_CTL_PORT: &str = "4222";
+const WASMCLOUD_CTL_SEED: &str = "WASMCLOUD_CTL_SEED";
+const WASMCLOUD_CTL_JWT: &str = "WASMCLOUD_CTL_JWT";
+const WASMCLOUD_CTL_TLS: &str = "WASMCLOUD_CTL_TLS";
+// NATS Provider RPC connection configuration
+const WASMCLOUD_PROV_RPC_HOST: &str = "WASMCLOUD_PROV_RPC_HOST";
+const DEFAULT_PROV_RPC_HOST: &str = "0.0.0.0";
+const WASMCLOUD_PROV_RPC_PORT: &str = "WASMCLOUD_PROV_RPC_PORT";
+const DEFAULT_PROV_RPC_PORT: &str = "4222";
+const WASMCLOUD_PROV_SHUTDOWN_DELAY_MS: &str = "WASMCLOUD_PROV_SHUTDOWN_DELAY_MS";
+const DEFAULT_PROV_SHUTDOWN_DELAY_MS: &str = "300";
+const WASMCLOUD_PROV_RPC_SEED: &str = "WASMCLOUD_PROV_RPC_SEED";
+const WASMCLOUD_PROV_RPC_TLS: &str = "WASMCLOUD_PROV_RPC_TLS";
+const WASMCLOUD_PROV_RPC_JWT: &str = "WASMCLOUD_PROV_RPC_JWT";
+// OCI configuration TODO: registry, user, pass
+const WASMCLOUD_OCI_ALLOWED_INSECURE: &str = "WASMCLOUD_OCI_ALLOWED_INSECURE";
+const WASMCLOUD_OCI_ALLOW_LATEST: &str = "WASMCLOUD_OCI_ALLOW_LATEST";
+// Extra configuration (logs, IPV6, config service)
+const WASMCLOUD_STRUCTURED_LOG_LEVEL: &str = "WASMCLOUD_STRUCTURED_LOG_LEVEL";
+const DEFAULT_STRUCTURED_LOG_LEVEL: &str = "info";
+const WASMCLOUD_ENABLE_IPV6: &str = "WASMCLOUD_ENABLE_IPV6";
+const WASMCLOUD_STRUCTURED_LOGGING_ENABLED: &str = "WASMCLOUD_STRUCTURED_LOGGING_ENABLED";
+const WASMCLOUD_CONFIG_SERVICE: &str = "WASMCLOUD_CONFIG_SERVICE";
+
+//TODO: enable tracing, do we pass environment down from the parent?
 
 #[derive(Parser, Debug, Clone)]
 #[clap(name = "start")]
@@ -28,26 +78,125 @@ pub(crate) struct StartCommand {
 
     #[clap(flatten)]
     pub(crate) wasmcloud_opts: WasmcloudOpts,
-    // supply NATS connections, attempt to use ports for downloaded nats maybe
-    // all wasmcloud host configuration values
 }
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct NatsOpts {
     /// If a connection can't be established, exit and don't start a NATS server
-    #[clap(long = "connect-only")]
+    #[clap(long = "connect-only", env = "NATS_CONNECT_ONLY")]
     pub(crate) connect_only: bool,
 
-    /// Specify a NATS server version to download, e.g. `v2.7.2`. See https://github.com/nats-io/nats-server/releases/ for releases
-    #[clap(long = "nats-version", default_value = NATS_SERVER_VERSION)]
+    /// NATS server version to download, e.g. `v2.7.2`. See https://github.com/nats-io/nats-server/releases/ for releases
+    #[clap(long = "nats-version", default_value = NATS_SERVER_VERSION, env = "NATS_VERSION")]
     pub(crate) nats_version: String,
+
+    /// NATS server host to connect to
+    #[clap(long = "nats-host", default_value = DEFAULT_NATS_HOST, env = "NATS_HOST")]
+    pub(crate) nats_host: String,
+
+    /// NATS server port to connect to. This will be used as the NATS listen port if `--connect-only` isn't set
+    #[clap(long = "nats-port", default_value = DEFAULT_NATS_PORT, env = "NATS_PORT")]
+    pub(crate) nats_port: u16,
 }
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct WasmcloudOpts {
-    /// Specify a wasmCloud host version to download, e.g. `v0.55.0`. See https://github.com/wasmCloud/wasmcloud-otp/releases for releases
-    #[clap(long = "wasmcloud-version", default_value = WASMCLOUD_HOST_VERSION)]
+    /// wasmCloud host version to download, e.g. `v0.55.0`. See https://github.com/wasmCloud/wasmcloud-otp/releases for releases
+    #[clap(long = "wasmcloud-version", default_value = WASMCLOUD_HOST_VERSION, env = "WASMCLOUD_VERSION")]
     pub(crate) wasmcloud_version: String,
+
+    /// The prefix used to isolate multiple lattices from each other within the same NATS topic space
+    #[clap(
+        short = 'x',
+        long = "lattice-prefix",
+        default_value = DEFAULT_LATTICE_PREFIX,
+        env = WASMCLOUD_LATTICE_PREFIX
+    )]
+    pub(crate) lattice_prefix: String,
+
+    #[clap(long = "host-seed", env = WASMCLOUD_HOST_SEED)]
+    pub(crate) host_seed: Option<String>,
+
+    #[clap(long = "rpc-host", default_value = DEFAULT_RPC_HOST, env = WASMCLOUD_RPC_HOST)]
+    pub(crate) rpc_host: String,
+
+    #[clap(long = "rpc-port", default_value = DEFAULT_RPC_PORT, env = WASMCLOUD_RPC_PORT)]
+    pub(crate) rpc_port: String,
+
+    #[clap(long = "rpc-seed", env = WASMCLOUD_RPC_SEED)]
+    pub(crate) rpc_seed: Option<String>,
+
+    #[clap(long = "rpc-timeout-ms", default_value = DEFAULT_RPC_TIMEOUT_MS, env = WASMCLOUD_RPC_TIMEOUT_MS)]
+    pub(crate) rpc_timeout_ms: String,
+
+    #[clap(long = "rpc-jwt", env = WASMCLOUD_RPC_JWT)]
+    pub(crate) rpc_jwt: Option<String>,
+
+    #[clap(long = "rpc-tls", env = WASMCLOUD_RPC_TLS)]
+    pub(crate) rpc_tls: bool,
+
+    #[clap(long = "prov-rpc-host", default_value = DEFAULT_PROV_RPC_HOST, env = WASMCLOUD_PROV_RPC_HOST)]
+    pub(crate) prov_rpc_host: String,
+
+    #[clap(long = "prov-rpc-port", default_value = DEFAULT_PROV_RPC_PORT, env = WASMCLOUD_PROV_RPC_PORT)]
+    pub(crate) prov_rpc_port: String,
+
+    #[clap(long = "prov-rpc-seed", env = WASMCLOUD_PROV_RPC_SEED)]
+    pub(crate) prov_rpc_seed: Option<String>,
+
+    #[clap(long = "prov-rpc-tls", env = WASMCLOUD_PROV_RPC_TLS)]
+    pub(crate) prov_rpc_tls: bool,
+
+    #[clap(long = "prov-rpc-jwt", env = WASMCLOUD_PROV_RPC_JWT)]
+    pub(crate) prov_rpc_jwt: Option<String>,
+
+    #[clap(long = "ctl-host", default_value = DEFAULT_CTL_HOST, env = WASMCLOUD_CTL_HOST)]
+    pub(crate) ctl_host: String,
+
+    #[clap(long = "ctl-port", default_value = DEFAULT_CTL_PORT, env = WASMCLOUD_CTL_PORT)]
+    pub(crate) ctl_port: String,
+
+    #[clap(long = "ctl-seed", env = WASMCLOUD_CTL_SEED)]
+    pub(crate) ctl_seed: Option<String>,
+
+    #[clap(long = "ctl-jwt", env = WASMCLOUD_CTL_JWT)]
+    pub(crate) ctl_jwt: Option<String>,
+
+    #[clap(long = "ctl-tls", env = WASMCLOUD_CTL_TLS)]
+    pub(crate) ctl_tls: bool,
+
+    #[clap(long = "cluster-seed", env = WASMCLOUD_CLUSTER_SEED)]
+    pub(crate) cluster_seed: Option<String>,
+
+    #[clap(long = "cluster-issuers", env = WASMCLOUD_CLUSTER_ISSUERS)]
+    pub(crate) cluster_issuers: Option<Vec<String>>,
+
+    #[clap(long = "provider-delay", default_value = DEFAULT_PROV_SHUTDOWN_DELAY_MS, env = WASMCLOUD_PROV_SHUTDOWN_DELAY_MS)]
+    pub(crate) provider_delay: String,
+
+    #[clap(long = "allow-latest", env = WASMCLOUD_OCI_ALLOW_LATEST)]
+    pub(crate) allow_latest: bool,
+
+    #[clap(long = "allowed-insecure", env = WASMCLOUD_OCI_ALLOWED_INSECURE)]
+    pub(crate) allowed_insecure: Option<Vec<String>>,
+
+    #[clap(long = "js-domain", env = WASMCLOUD_JS_DOMAIN)]
+    pub(crate) js_domain: Option<String>,
+
+    #[clap(long = "config-service-enabled", env = WASMCLOUD_CONFIG_SERVICE)]
+    pub(crate) config_service_enabled: bool,
+
+    #[clap(
+        long = "enable-structured-logging",
+        env = WASMCLOUD_STRUCTURED_LOGGING_ENABLED
+    )]
+    pub(crate) enable_structured_logging: bool,
+
+    #[clap(long = "structured-log-level", default_value = DEFAULT_STRUCTURED_LOG_LEVEL, env = WASMCLOUD_STRUCTURED_LOG_LEVEL)]
+    pub(crate) structured_log_level: String,
+
+    #[clap(long = "enable-ipv6", env = WASMCLOUD_ENABLE_IPV6)]
+    pub(crate) enable_ipv6: bool,
 }
 
 pub(crate) async fn handle_command(
@@ -77,11 +226,11 @@ pub(crate) async fn handle_start(
             .await?
             .into_std()
             .await;
-        Some(start_nats_server(nats_binary, nats_log_file, 4222).await?)
+        Some(start_nats_server(nats_binary, nats_log_file, cmd.nats_opts.nats_port).await?)
     } else {
         // If we can connect to NATS, return None as we aren't managing the child process.
         // Otherwise, exit with error since --connect-only was specified
-        let server_address = format!("127.0.0.1:{}", 4222);
+        let server_address = format!("{}:{}", cmd.nats_opts.nats_host, cmd.nats_opts.nats_port);
         tokio::net::TcpStream::connect(&server_address)
             .await
             .map(|_| None)
@@ -111,11 +260,12 @@ pub(crate) async fn handle_start(
             .into()
     };
 
+    let host_env = configure_host(cmd.wasmcloud_opts);
     let mut wasmcloud_process = start_wasmcloud_host(
-        wasmcloud_executable,
+        &wasmcloud_executable,
         std::process::Stdio::null(),
         stderr,
-        std::collections::HashMap::new(),
+        host_env,
     )
     .await?;
 
@@ -146,30 +296,173 @@ pub(crate) async fn handle_start(
         }
     }
 
+    // Build the CommandOutput providing some useful information like pids & ports
     let mut out_json = HashMap::new();
     let mut out_text = String::from("");
     out_json.insert("success".to_string(), json!(true));
-    out_text.push_str(&format!(
-        "\n{} wash start completed successfully",
-        SHOWER_EMOJI
-    ));
-    //TODO: capture pids, show command to kill them
+    out_text.push_str("\n🚿 wash start completed successfully");
+
+    // Tuple of (nats_pid, wasmcloud_pid)
+    let mut pids = (0, 0);
     if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
         out_json.insert("nats_pid".to_string(), json!(pid));
+        let url = format!("127.0.0.1:{}", cmd.nats_opts.nats_port);
+        out_json.insert("nats_url".to_string(), json!(url));
         out_text.push_str(&format!(
-            "\n🕸  NATS is running in the background with a PID of {}, ",
-            pid
+            "\n🕸  NATS is running in the background at http://{}",
+            url
         ));
+        pids.0 = pid;
     }
     if let Some(pid) = wasmcloud_process.id() {
         out_json.insert("wasmcloud_pid".to_string(), json!(pid));
-        out_text.push_str(&format!(
-            "\n🎛  wasmCloud is accessible at http://localhost:4000 and is running with a PID of {},",
-            pid
-        ));
+        let url = "http://localhost:4000";
+        out_json.insert("wasmcloud_url".to_string(), json!(url));
+        out_text.push_str(&format!("\n🎛  wasmCloud is accessible at {}", url));
+        pids.1 = pid;
+    }
+
+    //TODO: change command based on Windows if `kill` isn't an alias
+    match pids {
+        (0, 0) => (),
+        // NATS without wasmCloud would've failed before now
+        (_npid, 0) => (),
+        (0, _wpid) => {
+            let kill_cmd = format!("{} stop", wasmcloud_executable.to_string_lossy());
+            out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
+            out_text.push_str(&format!(
+                "\n\n🔪 To stop the wasmCloud host, run `{}`",
+                kill_cmd
+            ));
+        }
+        (npid, _wpid) => {
+            let kill_cmd = format!(
+                "{} stop; kill {}",
+                wasmcloud_executable.to_string_lossy(),
+                npid,
+            );
+            out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
+            out_text.push_str(&format!(
+                "\n\n🔪 To stop the wasmCloud host and the NATS server, run `{}`",
+                kill_cmd
+            ));
+        }
     }
 
     Ok(CommandOutput::new(out_text, out_json))
+}
+
+/// Helper function to convert WasmcloudOpts to the host environment map
+fn configure_host(wasmcloud_opts: WasmcloudOpts) -> HashMap<String, String> {
+    let mut host_config = std::collections::HashMap::new();
+    // NATS isolation configuration variables
+    host_config.insert(
+        WASMCLOUD_LATTICE_PREFIX.to_string(),
+        wasmcloud_opts.lattice_prefix,
+    );
+    if let Some(js_domain) = wasmcloud_opts.js_domain {
+        host_config.insert(WASMCLOUD_JS_DOMAIN.to_string(), js_domain);
+    }
+
+    // Host / Cluster configuration
+    if let Some(seed) = wasmcloud_opts.host_seed {
+        host_config.insert(WASMCLOUD_HOST_SEED.to_string(), seed);
+    }
+    if let Some(seed) = wasmcloud_opts.cluster_seed {
+        host_config.insert(WASMCLOUD_CLUSTER_SEED.to_string(), seed);
+    }
+    if let Some(cluster_issuers) = wasmcloud_opts.cluster_issuers {
+        host_config.insert(
+            WASMCLOUD_CLUSTER_ISSUERS.to_string(),
+            cluster_issuers.join(", "),
+        );
+    }
+
+    // OCI configuration TODO: registry, user, pass
+    if wasmcloud_opts.allow_latest {
+        host_config.insert(WASMCLOUD_OCI_ALLOW_LATEST.to_string(), "true".to_string());
+    }
+    if let Some(allowed_insecure) = wasmcloud_opts.allowed_insecure {
+        host_config.insert(
+            WASMCLOUD_OCI_ALLOWED_INSECURE.to_string(),
+            allowed_insecure.join(", "),
+        );
+    }
+
+    // NATS RPC connection configuration
+    host_config.insert(WASMCLOUD_RPC_HOST.to_string(), wasmcloud_opts.rpc_host);
+    host_config.insert(WASMCLOUD_RPC_PORT.to_string(), wasmcloud_opts.rpc_port);
+    if let Some(seed) = wasmcloud_opts.rpc_seed {
+        host_config.insert(WASMCLOUD_RPC_SEED.to_string(), seed);
+    }
+    host_config.insert(
+        WASMCLOUD_RPC_TIMEOUT_MS.to_string(),
+        wasmcloud_opts.rpc_timeout_ms,
+    );
+    if let Some(jwt) = wasmcloud_opts.rpc_jwt {
+        host_config.insert(WASMCLOUD_RPC_JWT.to_string(), jwt);
+    }
+    if wasmcloud_opts.rpc_tls {
+        host_config.insert(WASMCLOUD_RPC_TLS.to_string(), "1".to_string());
+    }
+    // NATS CTL connection configuration
+    host_config.insert(WASMCLOUD_CTL_HOST.to_string(), wasmcloud_opts.ctl_host);
+    host_config.insert(WASMCLOUD_CTL_PORT.to_string(), wasmcloud_opts.ctl_port);
+    if let Some(seed) = wasmcloud_opts.ctl_seed {
+        host_config.insert(WASMCLOUD_CTL_SEED.to_string(), seed);
+    }
+    if let Some(jwt) = wasmcloud_opts.ctl_jwt {
+        host_config.insert(WASMCLOUD_CTL_JWT.to_string(), jwt);
+    }
+    if wasmcloud_opts.ctl_tls {
+        host_config.insert(WASMCLOUD_CTL_TLS.to_string(), "1".to_string());
+    }
+
+    // NATS Provider RPC connection configuration
+    host_config.insert(
+        WASMCLOUD_PROV_RPC_HOST.to_string(),
+        wasmcloud_opts.prov_rpc_host,
+    );
+    host_config.insert(
+        WASMCLOUD_PROV_RPC_PORT.to_string(),
+        wasmcloud_opts.prov_rpc_port,
+    );
+    if let Some(seed) = wasmcloud_opts.prov_rpc_seed {
+        host_config.insert(WASMCLOUD_PROV_RPC_SEED.to_string(), seed);
+    }
+
+    if wasmcloud_opts.prov_rpc_tls {
+        host_config.insert(WASMCLOUD_PROV_RPC_TLS.to_string(), "1".to_string());
+    }
+
+    if let Some(jwt) = wasmcloud_opts.prov_rpc_jwt {
+        host_config.insert(WASMCLOUD_PROV_RPC_JWT.to_string(), jwt);
+    }
+
+    host_config.insert(
+        WASMCLOUD_PROV_SHUTDOWN_DELAY_MS.to_string(),
+        wasmcloud_opts.provider_delay,
+    );
+
+    // Extras configuration
+    if wasmcloud_opts.config_service_enabled {
+        host_config.insert(WASMCLOUD_CONFIG_SERVICE.to_string(), "1".to_string());
+    }
+    if wasmcloud_opts.enable_structured_logging {
+        host_config.insert(
+            WASMCLOUD_STRUCTURED_LOGGING_ENABLED.to_string(),
+            "true".to_string(),
+        );
+    }
+    host_config.insert(
+        WASMCLOUD_STRUCTURED_LOG_LEVEL.to_string(),
+        wasmcloud_opts.structured_log_level,
+    );
+    if wasmcloud_opts.enable_ipv6 {
+        host_config.insert(WASMCLOUD_ENABLE_IPV6.to_string(), "1".to_string());
+    }
+    //TODO: add support for labels, or env vars that start with HOST_
+    host_config
 }
 
 // #[cfg(test)]
