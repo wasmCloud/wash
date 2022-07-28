@@ -23,8 +23,9 @@ pub(crate) const WASMCLOUD_RPC_PORT: &str = "WASMCLOUD_RPC_PORT";
 pub(crate) const DEFAULT_RPC_PORT: &str = "4222";
 pub(crate) const WASMCLOUD_RPC_TIMEOUT_MS: &str = "WASMCLOUD_RPC_TIMEOUT_MS";
 pub(crate) const DEFAULT_RPC_TIMEOUT_MS: &str = "2000";
-pub(crate) const WASMCLOUD_RPC_SEED: &str = "WASMCLOUD_RPC_SEED";
 pub(crate) const WASMCLOUD_RPC_JWT: &str = "WASMCLOUD_RPC_JWT";
+pub(crate) const WASMCLOUD_RPC_SEED: &str = "WASMCLOUD_RPC_SEED";
+pub(crate) const WASMCLOUD_RPC_CREDSFILE: &str = "WASMCLOUD_RPC_CREDSFILE";
 pub(crate) const WASMCLOUD_RPC_TLS: &str = "WASMCLOUD_RPC_TLS";
 // NATS CTL connection configuration
 pub(crate) const WASMCLOUD_CTL_HOST: &str = "WASMCLOUD_CTL_HOST";
@@ -33,6 +34,7 @@ pub(crate) const WASMCLOUD_CTL_PORT: &str = "WASMCLOUD_CTL_PORT";
 pub(crate) const DEFAULT_CTL_PORT: &str = "4222";
 pub(crate) const WASMCLOUD_CTL_SEED: &str = "WASMCLOUD_CTL_SEED";
 pub(crate) const WASMCLOUD_CTL_JWT: &str = "WASMCLOUD_CTL_JWT";
+pub(crate) const WASMCLOUD_CTL_CREDSFILE: &str = "WASMCLOUD_CTL_CREDSFILE";
 pub(crate) const WASMCLOUD_CTL_TLS: &str = "WASMCLOUD_CTL_TLS";
 // NATS Provider RPC connection configuration
 pub(crate) const WASMCLOUD_PROV_RPC_HOST: &str = "WASMCLOUD_PROV_RPC_HOST";
@@ -42,8 +44,9 @@ pub(crate) const DEFAULT_PROV_RPC_PORT: &str = "4222";
 pub(crate) const WASMCLOUD_PROV_SHUTDOWN_DELAY_MS: &str = "WASMCLOUD_PROV_SHUTDOWN_DELAY_MS";
 pub(crate) const DEFAULT_PROV_SHUTDOWN_DELAY_MS: &str = "300";
 pub(crate) const WASMCLOUD_PROV_RPC_SEED: &str = "WASMCLOUD_PROV_RPC_SEED";
-pub(crate) const WASMCLOUD_PROV_RPC_TLS: &str = "WASMCLOUD_PROV_RPC_TLS";
 pub(crate) const WASMCLOUD_PROV_RPC_JWT: &str = "WASMCLOUD_PROV_RPC_JWT";
+pub(crate) const WASMCLOUD_PROV_RPC_CREDSFILE: &str = "WASMCLOUD_PROV_RPC_CREDSFILE";
+pub(crate) const WASMCLOUD_PROV_RPC_TLS: &str = "WASMCLOUD_PROV_RPC_TLS";
 // OCI configuration TODO: registry, user, pass
 pub(crate) const WASMCLOUD_OCI_ALLOWED_INSECURE: &str = "WASMCLOUD_OCI_ALLOWED_INSECURE";
 pub(crate) const WASMCLOUD_OCI_ALLOW_LATEST: &str = "WASMCLOUD_OCI_ALLOW_LATEST";
@@ -110,6 +113,7 @@ pub(crate) fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<Strin
     if wasmcloud_opts.rpc_tls {
         host_config.insert(WASMCLOUD_RPC_TLS.to_string(), "1".to_string());
     }
+
     // NATS CTL connection configuration
     host_config.insert(WASMCLOUD_CTL_HOST.to_string(), wasmcloud_opts.ctl_host);
     host_config.insert(WASMCLOUD_CTL_PORT.to_string(), wasmcloud_opts.ctl_port);
@@ -166,6 +170,5 @@ pub(crate) fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<Strin
     if wasmcloud_opts.enable_ipv6 {
         host_config.insert(WASMCLOUD_ENABLE_IPV6.to_string(), "1".to_string());
     }
-    //TODO: add support for labels, or env vars that start with HOST_
     host_config
 }
