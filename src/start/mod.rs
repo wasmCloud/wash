@@ -46,6 +46,30 @@ pub(crate) struct NatsOpts {
     /// NATS server port to connect to. This will be used as the NATS listen port if `--connect-only` isn't set
     #[clap(long = "nats-port", default_value = DEFAULT_NATS_PORT, env = "NATS_PORT")]
     pub(crate) nats_port: u16,
+
+    /// NATS Server Jetstream domain, defaults to `core`
+    #[clap(long = "nats-js-domain", env = "NATS_JS_DOMAIN")]
+    pub(crate) nats_js_domain: Option<String>,
+
+    /// Optional remote URL of existing NATS infrastructure to extend. Must be provided with `nats-credentials`
+    #[clap(long = "nats-remote-url", env = "NATS_REMOTE_URL")]
+    pub(crate) nats_remote_url: Option<String>,
+
+    /// Optional path to a NATS credentials file to authenticate and extend existing NATS infrastructure. Must be provided with `nats-remote-url`
+    #[clap(long = "nats-credsfile", env = "NATS_CREDSFILE")]
+    pub(crate) nats_credsfile: Option<PathBuf>,
+}
+
+impl Into<NatsConfig> for NatsOpts {
+    fn into(self: NatsOpts) -> NatsConfig {
+        NatsConfig {
+            host: self.nats_host,
+            port: self.nats_port,
+            js_domain: self.nats_js_domain,
+            remote_url: self.nats_remote_url,
+            credentials: self.nats_credsfile,
+        }
+    }
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -71,6 +95,7 @@ pub(crate) struct WasmcloudOpts {
     #[clap(long = "host-seed", env = WASMCLOUD_HOST_SEED)]
     pub(crate) host_seed: Option<String>,
 
+    // host, port, seed, timeout, jwt, tls, credsfile
     ///
     #[clap(long = "rpc-host", default_value = DEFAULT_RPC_HOST, env = WASMCLOUD_RPC_HOST)]
     pub(crate) rpc_host: String,
@@ -120,7 +145,7 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) prov_rpc_jwt: Option<String>,
 
     /// Convenience flag for Provider RPC authentication, internally this parses the JWT and seed from the credsfile
-    #[clap(long = "prov_rpc-credsfile", env = WASMCLOUD_PROV_RPC_CREDSFILE)]
+    #[clap(long = "prov-rpc-credsfile", env = WASMCLOUD_PROV_RPC_CREDSFILE)]
     pub(crate) prov_rpc_credsfile: Option<PathBuf>,
 
     ///
@@ -167,9 +192,9 @@ pub(crate) struct WasmcloudOpts {
     #[clap(long = "allowed-insecure", env = WASMCLOUD_OCI_ALLOWED_INSECURE)]
     pub(crate) allowed_insecure: Option<Vec<String>>,
 
-    ///
-    #[clap(long = "js-domain", env = WASMCLOUD_JS_DOMAIN)]
-    pub(crate) js_domain: Option<String>,
+    /// Defaults to `core`
+    #[clap(long = "wasmcloud-js-domain", env = WASMCLOUD_JS_DOMAIN)]
+    pub(crate) wasmcloud_js_domain: Option<String>,
 
     ///
     #[clap(long = "config-service-enabled", env = WASMCLOUD_CONFIG_SERVICE)]
@@ -204,6 +229,8 @@ pub(crate) async fn handle_start(
 ) -> Result<CommandOutput> {
     let install_dir = cfg_dir()?.join(DOWNLOADS_DIR);
     let spinner = Spinner::new(&output_kind);
+    // Capture listen address for logs later
+    let nats_listen_address = format!("{}:{}", cmd.nats_opts.nats_host, cmd.nats_opts.nats_port);
 
     // Avoid downloading + starting NATS if the user already runs their own server
     let mut nats_process = if !cmd.nats_opts.connect_only {
@@ -218,18 +245,19 @@ pub(crate) async fn handle_start(
             .await?
             .into_std()
             .await;
-        Some(start_nats_server(nats_binary, nats_log_file, cmd.nats_opts.nats_port).await?)
+        Some(start_nats_server(nats_binary, nats_log_file, cmd.nats_opts.into()).await?)
     } else {
         // If we can connect to NATS, return None as we aren't managing the child process.
         // Otherwise, exit with error since --connect-only was specified
-        let server_address = format!("{}:{}", cmd.nats_opts.nats_host, cmd.nats_opts.nats_port);
-        tokio::net::TcpStream::connect(&server_address)
+        //TODO: try to establish a NATS connection instead of just tcp conn
+        // TODO: server conn only? leaf conn only? If I extend infra, I want to test connection to that infra and not local
+        tokio::net::TcpStream::connect(&nats_listen_address)
             .await
             .map(|_| None)
             .map_err(|_| {
                 anyhow!(
                     "Could not connect to NATS at {}, exiting since --connect-only was set",
-                    server_address
+                    nats_listen_address
                 )
             })?
     };
@@ -252,7 +280,7 @@ pub(crate) async fn handle_start(
             .into()
     };
 
-    let host_env = configure_host_env(cmd.wasmcloud_opts);
+    let host_env = configure_host_env(cmd.wasmcloud_opts).await;
     let mut wasmcloud_process = start_wasmcloud_host(
         &wasmcloud_executable,
         std::process::Stdio::null(),
@@ -298,11 +326,10 @@ pub(crate) async fn handle_start(
     let mut pids = (0, 0);
     if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
         out_json.insert("nats_pid".to_string(), json!(pid));
-        let url = format!("127.0.0.1:{}", cmd.nats_opts.nats_port);
-        out_json.insert("nats_url".to_string(), json!(url));
+        out_json.insert("nats_url".to_string(), json!(nats_listen_address));
         out_text.push_str(&format!(
             "\n🕸  NATS is running in the background at http://{}",
-            url
+            nats_listen_address
         ));
         pids.0 = pid;
     }

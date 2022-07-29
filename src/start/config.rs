@@ -1,6 +1,8 @@
 use crate::start::WasmcloudOpts;
 use std::collections::HashMap;
 
+use super::credsfile::parse_credsfile;
+
 pub(crate) const DOWNLOADS_DIR: &str = "downloads";
 // NATS configuration values
 pub(crate) const NATS_SERVER_VERSION: &str = "v2.8.4";
@@ -58,17 +60,15 @@ pub(crate) const WASMCLOUD_STRUCTURED_LOGGING_ENABLED: &str =
     "WASMCLOUD_STRUCTURED_LOGGING_ENABLED";
 pub(crate) const WASMCLOUD_CONFIG_SERVICE: &str = "WASMCLOUD_CONFIG_SERVICE";
 
-//TODO: enable tracing, do we pass environment down from the parent?
-
 /// Helper function to convert WasmcloudOpts to the host environment map
-pub(crate) fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<String, String> {
+pub(crate) async fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<String, String> {
     let mut host_config = HashMap::new();
     // NATS isolation configuration variables
     host_config.insert(
         WASMCLOUD_LATTICE_PREFIX.to_string(),
         wasmcloud_opts.lattice_prefix,
     );
-    if let Some(js_domain) = wasmcloud_opts.js_domain {
+    if let Some(js_domain) = wasmcloud_opts.wasmcloud_js_domain {
         host_config.insert(WASMCLOUD_JS_DOMAIN.to_string(), js_domain);
     }
 
@@ -100,15 +100,23 @@ pub(crate) fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<Strin
     // NATS RPC connection configuration
     host_config.insert(WASMCLOUD_RPC_HOST.to_string(), wasmcloud_opts.rpc_host);
     host_config.insert(WASMCLOUD_RPC_PORT.to_string(), wasmcloud_opts.rpc_port);
-    if let Some(seed) = wasmcloud_opts.rpc_seed {
-        host_config.insert(WASMCLOUD_RPC_SEED.to_string(), seed);
-    }
+
     host_config.insert(
         WASMCLOUD_RPC_TIMEOUT_MS.to_string(),
         wasmcloud_opts.rpc_timeout_ms,
     );
-    if let Some(jwt) = wasmcloud_opts.rpc_jwt {
-        host_config.insert(WASMCLOUD_RPC_JWT.to_string(), jwt);
+    if let Some(path) = wasmcloud_opts.rpc_credsfile {
+        if let Ok((jwt, seed)) = parse_credsfile(path).await {
+            host_config.insert(WASMCLOUD_RPC_JWT.to_string(), jwt);
+            host_config.insert(WASMCLOUD_RPC_SEED.to_string(), seed);
+        };
+    } else {
+        if let Some(jwt) = wasmcloud_opts.rpc_jwt {
+            host_config.insert(WASMCLOUD_RPC_JWT.to_string(), jwt);
+        }
+        if let Some(seed) = wasmcloud_opts.rpc_seed {
+            host_config.insert(WASMCLOUD_RPC_SEED.to_string(), seed);
+        }
     }
     if wasmcloud_opts.rpc_tls {
         host_config.insert(WASMCLOUD_RPC_TLS.to_string(), "1".to_string());
@@ -117,11 +125,18 @@ pub(crate) fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<Strin
     // NATS CTL connection configuration
     host_config.insert(WASMCLOUD_CTL_HOST.to_string(), wasmcloud_opts.ctl_host);
     host_config.insert(WASMCLOUD_CTL_PORT.to_string(), wasmcloud_opts.ctl_port);
-    if let Some(seed) = wasmcloud_opts.ctl_seed {
-        host_config.insert(WASMCLOUD_CTL_SEED.to_string(), seed);
-    }
-    if let Some(jwt) = wasmcloud_opts.ctl_jwt {
-        host_config.insert(WASMCLOUD_CTL_JWT.to_string(), jwt);
+    if let Some(path) = wasmcloud_opts.ctl_credsfile {
+        if let Ok((jwt, seed)) = parse_credsfile(path).await {
+            host_config.insert(WASMCLOUD_CTL_JWT.to_string(), jwt);
+            host_config.insert(WASMCLOUD_CTL_SEED.to_string(), seed);
+        };
+    } else {
+        if let Some(seed) = wasmcloud_opts.ctl_seed {
+            host_config.insert(WASMCLOUD_CTL_SEED.to_string(), seed);
+        }
+        if let Some(jwt) = wasmcloud_opts.ctl_jwt {
+            host_config.insert(WASMCLOUD_CTL_JWT.to_string(), jwt);
+        }
     }
     if wasmcloud_opts.ctl_tls {
         host_config.insert(WASMCLOUD_CTL_TLS.to_string(), "1".to_string());
@@ -136,18 +151,22 @@ pub(crate) fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<Strin
         WASMCLOUD_PROV_RPC_PORT.to_string(),
         wasmcloud_opts.prov_rpc_port,
     );
-    if let Some(seed) = wasmcloud_opts.prov_rpc_seed {
-        host_config.insert(WASMCLOUD_PROV_RPC_SEED.to_string(), seed);
+    if let Some(path) = wasmcloud_opts.prov_rpc_credsfile {
+        if let Ok((jwt, seed)) = parse_credsfile(path).await {
+            host_config.insert(WASMCLOUD_PROV_RPC_JWT.to_string(), jwt);
+            host_config.insert(WASMCLOUD_PROV_RPC_SEED.to_string(), seed);
+        };
+    } else {
+        if let Some(seed) = wasmcloud_opts.prov_rpc_seed {
+            host_config.insert(WASMCLOUD_PROV_RPC_SEED.to_string(), seed);
+        }
+        if let Some(jwt) = wasmcloud_opts.prov_rpc_jwt {
+            host_config.insert(WASMCLOUD_PROV_RPC_JWT.to_string(), jwt);
+        }
     }
-
     if wasmcloud_opts.prov_rpc_tls {
         host_config.insert(WASMCLOUD_PROV_RPC_TLS.to_string(), "1".to_string());
     }
-
-    if let Some(jwt) = wasmcloud_opts.prov_rpc_jwt {
-        host_config.insert(WASMCLOUD_PROV_RPC_JWT.to_string(), jwt);
-    }
-
     host_config.insert(
         WASMCLOUD_PROV_SHUTDOWN_DELAY_MS.to_string(),
         wasmcloud_opts.provider_delay,

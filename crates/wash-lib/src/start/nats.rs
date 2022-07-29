@@ -5,7 +5,7 @@ use std::os::unix::prelude::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::{ffi::OsStr, io::Cursor};
-use tokio::fs::{create_dir_all, metadata, File};
+use tokio::fs::{create_dir_all, metadata, write, File};
 use tokio::process::{Child, Command};
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
@@ -125,36 +125,160 @@ where
     ))
 }
 
+/// Configuration for a NATS server that supports running either in "standalone" or "leaf" mode.
+/// See the respective [NatsConfig::new_standalone] and [NatsConfig::new_leaf] implementations below for more information.
+#[derive(Clone)]
+pub struct NatsConfig {
+    pub host: String,
+    pub port: u16,
+    pub js_domain: Option<String>,
+    pub remote_url: Option<String>,
+    pub credentials: Option<PathBuf>,
+}
+
+/// Returns a standalone NATS config with the following values:
+/// * `host`: `127.0.0.1`
+/// * `port`: `4222`
+/// * `js_domain`: `Some("core")`
+/// * `remote_url`: `None`
+/// * `credentials`: `None`
+impl Default for NatsConfig {
+    fn default() -> Self {
+        NatsConfig {
+            host: "127.0.0.1".to_string(),
+            port: 4222,
+            js_domain: Some("core".to_string()),
+            remote_url: None,
+            credentials: None,
+        }
+    }
+}
+
+impl NatsConfig {
+    /// Instantiates config for a NATS leaf node. Leaf nodes are meant to extend
+    /// an existing NATS infrastructure like [Synadia's NGS](https://synadia.com/ngs), but can
+    /// also be used to extend your own NATS infrastructure. For more information,
+    /// our [Working with Leaf Nodes](https://wasmcloud.dev/reference/lattice/leaf-nodes/) docs
+    ///
+    /// # Arguments
+    /// * `host`: NATS host to listen on, e.g. `127.0.0.1`
+    /// * `port`: NATS port to listen on, e.g. `4222`
+    /// * `js_domain`: Jetstream domain to use, defaults to `core`. See [Configuring Jetstream](https://wasmcloud.dev/reference/lattice/jetstream/) for more information
+    /// * `remote_url`: URL of NATS cluster to extend
+    /// * `credentials`: Credentials to authenticate to the existing NATS cluster
+    pub fn new_leaf(
+        host: &str,
+        port: u16,
+        js_domain: Option<String>,
+        remote_url: String,
+        credentials: PathBuf,
+    ) -> Self {
+        NatsConfig {
+            host: host.to_owned(),
+            port,
+            js_domain,
+            remote_url: Some(remote_url),
+            credentials: Some(credentials),
+        }
+    }
+    /// Instantiates config for a standalone NATS server. Unless you're looking to extend
+    /// existing NATS infrastructure, this should be the default NATS server mode.
+    ///
+    /// # Arguments
+    /// * `host`: NATS host to listen on, e.g. `127.0.0.1`
+    /// * `port`: NATS port to listen on, e.g. `4222`
+    /// * `js_domain`: Jetstream domain to use, defaults to `core`. See [Configuring Jetstream](https://wasmcloud.dev/reference/lattice/jetstream/) for more information
+    pub fn new_standalone(host: &str, port: u16, js_domain: Option<String>) -> Self {
+        if host == "0.0.0.0" {
+            log::warn!("Listening on 0.0.0.0 is unsupported on some platforms, use 127.0.0.1 for best results")
+        }
+        NatsConfig {
+            host: host.to_owned(),
+            port,
+            js_domain,
+            ..Default::default()
+        }
+    }
+
+    async fn write_to_path<P>(self, path: P) -> Result<()>
+    where
+        P: AsRef<Path>,
+    {
+        let leafnode_section = match (self.remote_url, self.credentials) {
+            (Some(url), Some(creds)) => format!(
+                r#"
+leafnodes {{
+    remotes = [ 
+        {{ 
+            url: "{}"
+            credentials: "{}"
+        }}
+    ]
+}}
+                "#,
+                url,
+                creds.to_string_lossy()
+            ),
+            _ => "".to_owned(),
+        };
+        let config = format!(
+            r#"
+jetstream {{
+    domain={}
+}}
+{}
+"#,
+            self.js_domain.unwrap_or_else(|| "core".to_string()),
+            leafnode_section
+        );
+        write(path, config).await.map_err(|e| anyhow!(e))
+    }
+}
+
 /// Helper function to execute a NATS server binary with required wasmCloud arguments, e.g. JetStream
 /// # Arguments
 ///
 /// * `bin_path` - Path to the nats-server binary to execute
 /// * `stderr` - Specify where NATS stderr logs should be written to. If logs aren't important, use std::process::Stdio::null()
-/// * `port` - Port for NATS to listen on
-pub async fn start_nats_server<P, T>(bin_path: P, stderr: T, port: u16) -> Result<Child>
+/// * `config` - Configuration for the NATS server, see [NatsConfig] for options
+pub async fn start_nats_server<P, T>(bin_path: P, stderr: T, config: NatsConfig) -> Result<Child>
 where
     P: AsRef<Path>,
     T: Into<Stdio>,
 {
     // If we can connect to the local port, NATS won't be able to listen on that port
-    if tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+    if tokio::net::TcpStream::connect(format!("{}:{}", config.host, config.port))
         .await
         .is_ok()
     {
         return Err(anyhow!(
-            "Could not start NATS server, a process is already listening on 127.0.0.1:{}",
-            port
+            "Could not start NATS server, a process is already listening on {}:{}",
+            config.host,
+            config.port
         ));
     }
-    Command::new(bin_path.as_ref())
-        .stderr(stderr)
-        .arg("-js")
-        .arg("--addr")
-        .arg("0.0.0.0")
-        .arg("--port")
-        .arg(port.to_string())
-        .spawn()
-        .map_err(|e| anyhow!(e))
+    if let Some(config_path) = bin_path
+        .as_ref()
+        .parent()
+        .and_then(|p| Some(p.join("nats-server.conf")))
+    {
+        let host = config.host.to_owned();
+        let port = config.port;
+        config.write_to_path(&config_path).await?;
+        Command::new(bin_path.as_ref())
+            .stderr(stderr)
+            .arg("-js")
+            .arg("--config")
+            .arg(config_path)
+            .arg("--addr")
+            .arg(host)
+            .arg("--port")
+            .arg(port.to_string())
+            .spawn()
+            .map_err(|e| anyhow!(e))
+    } else {
+        Err(anyhow!("Could not write config to disk"))
+    }
 }
 
 /// Helper function to indicate if the NATS server binary is successfully
@@ -187,7 +311,7 @@ fn nats_url(os: &str, arch: &str, version: &str) -> String {
 #[cfg(test)]
 mod test {
     use crate::start::{
-        ensure_nats_server, is_nats_installed, start_nats_server, NATS_SERVER_BINARY,
+        ensure_nats_server, is_nats_installed, start_nats_server, NatsConfig, NATS_SERVER_BINARY,
     };
     use anyhow::Result;
     use std::env::temp_dir;
@@ -222,8 +346,9 @@ mod test {
         let log_path = install_dir.join("nats.log");
         let log_file = tokio::fs::File::create(&log_path).await?.into_std().await;
 
+        let config = NatsConfig::new_standalone("127.0.0.1", 10000, None);
         let child_res =
-            start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log_file, 10000).await;
+            start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log_file, config).await;
         assert!(child_res.is_ok());
 
         // Give NATS max 5 seconds to start up
@@ -258,10 +383,11 @@ mod test {
         let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
         assert!(res.is_ok());
 
+        let config = NatsConfig::new_standalone("127.0.0.1", 10003, Some("extender".to_string()));
         let nats_one = start_nats_server(
             &install_dir.join(NATS_SERVER_BINARY),
             std::process::Stdio::null(),
-            10003,
+            config.clone(),
         )
         .await;
         assert!(nats_one.is_ok());
@@ -270,7 +396,7 @@ mod test {
         tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
         let log_path = install_dir.join("nats.log");
         let log = std::fs::File::create(&log_path)?;
-        let nats_two = start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log, 10003).await;
+        let nats_two = start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log, config).await;
         assert!(nats_two.is_err());
 
         nats_one.unwrap().kill().await?;

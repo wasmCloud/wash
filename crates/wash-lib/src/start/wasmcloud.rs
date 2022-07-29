@@ -259,7 +259,8 @@ mod test {
     use super::{ensure_wasmcloud, wasmcloud_url};
     use crate::start::{
         ensure_nats_server, ensure_wasmcloud_for_os_arch_pair, is_nats_installed,
-        is_wasmcloud_installed, start_nats_server, start_wasmcloud_host, NATS_SERVER_BINARY,
+        is_wasmcloud_installed, start_nats_server, start_wasmcloud_host, NatsConfig,
+        NATS_SERVER_BINARY,
     };
     use reqwest::StatusCode;
     use std::{collections::HashMap, env::temp_dir};
@@ -319,10 +320,11 @@ mod test {
             .await
             .is_ok());
         assert!(is_nats_installed(&install_dir).await);
+        let config = NatsConfig::new_standalone("127.0.0.1", nats_port, None);
         let nats_child = start_nats_server(
             install_dir.join(NATS_SERVER_BINARY),
             std::process::Stdio::null(),
-            nats_port,
+            config,
         )
         .await;
         assert!(nats_child.is_ok());
