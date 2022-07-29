@@ -3,7 +3,7 @@ use std::process;
 use crate::util::CommandOutput;
 use anyhow::Result;
 use clap::Parser;
-use wasmcloud_config_parser::{
+use wash_lib::parser::{
     ActorConfig, CommonConfig, InterfaceConfig, LanguageConfig, ProviderConfig, RustConfig,
     TinyGoConfig, TypeConfig,
 };
@@ -14,7 +14,7 @@ use wasmcloud_config_parser::{
 pub(crate) struct BuildCli {}
 
 pub(crate) fn handle_command(command: BuildCli) -> Result<CommandOutput> {
-    let config = wasmcloud_config_parser::get_config(None, Some(true))?;
+    let config = wash_lib::parser::get_config(None, Some(true))?;
 
     match config.project_type {
         TypeConfig::Actor(actor_config) => {
