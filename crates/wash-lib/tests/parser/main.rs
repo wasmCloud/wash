@@ -1,16 +1,18 @@
 use std::{fs, path::PathBuf};
 
-use claim::{assert_err, assert_ok};
 use semver::Version;
-use wasmcloud_config_parser::{
-    self, get_config, ActorConfig, CommonConfig, LanguageConfig, RustConfig, TinyGoConfig,
-    TypeConfig,
+use tokio_test::{assert_err, assert_ok};
+use wash_lib::parser::{
+    get_config, ActorConfig, CommonConfig, LanguageConfig, RustConfig, TinyGoConfig, TypeConfig,
 };
 
 #[test]
 /// When given a specific toml file's path, it should parse the file and return a ProjectConfig.
 fn rust_actor() {
-    let result = get_config(Some(PathBuf::from("./tests/files/rust_actor.toml")), None);
+    let result = get_config(
+        Some(PathBuf::from("./tests/parser/files/rust_actor.toml")),
+        None,
+    );
 
     let config = assert_ok!(result);
 
@@ -46,7 +48,10 @@ fn rust_actor() {
 
 #[test]
 fn tinygo_actor() {
-    let result = get_config(Some(PathBuf::from("./tests/files/tinygo_actor.toml")), None);
+    let result = get_config(
+        Some(PathBuf::from("./tests/parser/files/tinygo_actor.toml")),
+        None,
+    );
 
     let config = assert_ok!(result);
 
@@ -82,7 +87,7 @@ fn tinygo_actor() {
 #[test]
 /// When given a folder, should automatically grab a wasmcloud.toml file inside it and parse it.
 fn folder_path() {
-    let result = get_config(Some(PathBuf::from("./tests/files/folder")), None);
+    let result = get_config(Some(PathBuf::from("./tests/parser/files/folder")), None);
 
     let config = assert_ok!(result);
 
@@ -105,14 +110,17 @@ fn get_full_path(path: &str) -> String {
 
 #[test]
 fn no_actor_config() {
-    let result = get_config(Some(PathBuf::from("./tests/files/no_actor.toml")), None);
+    let result = get_config(
+        Some(PathBuf::from("./tests/parser/files/no_actor.toml")),
+        None,
+    );
 
     let err = assert_err!(result);
 
     assert_eq!(
         format!(
             "Missing actor config in {}",
-            get_full_path("./tests/files/no_actor.toml")
+            get_full_path("./tests/parser/files/no_actor.toml")
         ),
         err.to_string().as_str()
     );
@@ -120,14 +128,17 @@ fn no_actor_config() {
 
 #[test]
 fn no_provider_config() {
-    let result = get_config(Some(PathBuf::from("./tests/files/no_provider.toml")), None);
+    let result = get_config(
+        Some(PathBuf::from("./tests/parser/files/no_provider.toml")),
+        None,
+    );
 
     let err = assert_err!(result);
 
     assert_eq!(
         format!(
             "Missing provider config in {}",
-            get_full_path("./tests/files/no_provider.toml")
+            get_full_path("./tests/parser/files/no_provider.toml")
         ),
         err.to_string().as_str()
     );
@@ -135,14 +146,17 @@ fn no_provider_config() {
 
 #[test]
 fn no_interface_config() {
-    let result = get_config(Some(PathBuf::from("./tests/files/no_interface.toml")), None);
+    let result = get_config(
+        Some(PathBuf::from("./tests/parser/files/no_interface.toml")),
+        None,
+    );
 
     let err = assert_err!(result);
 
     assert_eq!(
         format!(
             "Missing interface config in {}",
-            get_full_path("./tests/files/no_interface.toml")
+            get_full_path("./tests/parser/files/no_interface.toml")
         ),
         err.to_string().as_str()
     );
@@ -151,13 +165,13 @@ fn no_interface_config() {
 #[test]
 /// When given a folder with no wasmcloud.toml file, should return an error.
 fn folder_path_with_no_config() {
-    let result = get_config(Some(PathBuf::from("./tests/files/noconfig")), None);
+    let result = get_config(Some(PathBuf::from("./tests/parser/files/noconfig")), None);
 
     let err = assert_err!(result);
     assert_eq!(
         format!(
             "No wasmcloud.toml file found in {}",
-            get_full_path("./tests/files/noconfig")
+            get_full_path("./tests/parser/files/noconfig")
         ),
         err.to_string().as_str()
     );
@@ -166,13 +180,13 @@ fn folder_path_with_no_config() {
 #[test]
 /// When given a random file, should return an error.
 fn random_file() {
-    let result = get_config(Some(PathBuf::from("./tests/files/random.txt")), None);
+    let result = get_config(Some(PathBuf::from("./tests/parser/files/random.txt")), None);
 
     let err = assert_err!(result);
     assert_eq!(
         format!(
             "Invalid config file: {}",
-            get_full_path("./tests/files/random.txt")
+            get_full_path("./tests/parser/files/random.txt")
         ),
         err.to_string().as_str()
     );
@@ -181,22 +195,28 @@ fn random_file() {
 #[test]
 /// When given a nonexistent file or path, should return an error.
 fn nonexistent_file() {
-    let result = get_config(Some(PathBuf::from("./tests/files/nonexistent.toml")), None);
+    let result = get_config(
+        Some(PathBuf::from("./tests/parser/files/nonexistent.toml")),
+        None,
+    );
 
     let err = assert_err!(result);
     assert_eq!(
-        "Path ./tests/files/nonexistent.toml does not exist",
+        "Path ./tests/parser/files/nonexistent.toml does not exist",
         err.to_string().as_str()
     );
 }
 
 #[test]
 fn nonexistent_folder() {
-    let result = get_config(Some(PathBuf::from("./tests/files/nonexistent/")), None);
+    let result = get_config(
+        Some(PathBuf::from("./tests/parser/files/nonexistent/")),
+        None,
+    );
 
     let err = assert_err!(result);
     assert_eq!(
-        "Path ./tests/files/nonexistent/ does not exist",
+        "Path ./tests/parser/files/nonexistent/ does not exist",
         err.to_string().as_str()
     );
 }

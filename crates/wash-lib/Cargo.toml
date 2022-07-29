@@ -14,11 +14,12 @@ repository = "https://github.com/wasmcloud/wash"
 maintenance = {status = "actively-developed"}
 
 [features]
-default = ["start"]
+default = ["start", "parser"]
 start = []
+parser = []
 
 [dependencies]
-anyhow = "1.0.51"
+anyhow = "1.0.58"
 futures = "0.3"
 tokio = {version = "1", default-features = false, features = ["process"]}
 reqwest = {version = "0.11", default-features = false, features = ["json", "rustls-tls", "stream"]}
@@ -26,6 +27,12 @@ async-compression = { version = "0.3", default-features = false, features = ["to
 tokio-tar = "0.3"
 tokio-stream = "0.1"
 log = "0.4"
+config = {version = "0.13.1", features = ["toml"]}
+semver = { version = "1.0.12", features = ["serde"]}
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.82"
 
 [dev-dependencies]
 tokio = {version = "1", features = ["full"]}
+claim = { git = "https://github.com/Turbo87/rust-claim.git", rev = "23892a3" }
+tokio-test = "0.4.2"

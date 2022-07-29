@@ -486,8 +486,7 @@ dependencies = [
 [[package]]
 name = "claim"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f81099d6bb72e1df6d50bb2347224b666a670912bb7f06dbe867a4a070ab3ce8"
+source = "git+https://github.com/Turbo87/rust-claim.git?rev=23892a3#23892a345d38e1434303143a73033925284ad04d"
 dependencies = [
  "autocfg",
 ]
@@ -3292,11 +3291,10 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "tokio"
-version = "1.20.1"
+version = "1.19.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7a8325f63a7d4774dd041e363b2409ed1c5cbbd0f867795e661df066b2b0a581"
+checksum = "c51a52ed6686dd62c320f9b89299e9dfb46f730c7a48e635c19f21d116cb1439"
 dependencies = [
- "autocfg",
  "bytes",
  "libc",
  "memchr",
@@ -3377,6 +3375,19 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "xattr",
+]
+
+[[package]]
+name = "tokio-test"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "53474327ae5e166530d17f2d956afcb4f8a004de581b3cae10f12006bc8163e3"
+dependencies = [
+ "async-stream",
+ "bytes",
+ "futures-core",
+ "tokio",
+ "tokio-stream",
 ]
 
 [[package]]
@@ -3856,7 +3867,6 @@ dependencies = [
  "wascap",
  "wash-lib",
  "wasmbus-rpc",
- "wasmcloud-config-parser",
  "wasmcloud-control-interface",
  "wasmcloud-test-util",
  "weld-codegen",
@@ -3869,12 +3879,18 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-compression",
+ "claim",
+ "config",
  "futures 0.3.21",
  "log",
  "reqwest",
+ "semver",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tokio-tar",
+ "tokio-test",
 ]
 
 [[package]]
@@ -4008,18 +4024,6 @@ dependencies = [
  "wascap",
  "wasmbus-macros",
  "weld-codegen",
-]
-
-[[package]]
-name = "wasmcloud-config-parser"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "claim",
- "config",
- "semver",
- "serde",
- "serde_json",
 ]
 
 [[package]]
