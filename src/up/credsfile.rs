@@ -5,7 +5,7 @@ use regex::Regex;
 use std::path::Path;
 use tokio::fs::read_to_string;
 
-type JWT = String;
+type Jwt = String;
 type Seed = String;
 
 // The code below is largely copied from https://github.com/nats-io/nats.rs/blob/main/async-nats/src/auth_utils.rs
@@ -13,7 +13,7 @@ type Seed = String;
 
 /// Helper function to parse a credsfile from a path and return a tuple
 /// with the JWT and Seed values that were in the credsfile
-pub(crate) async fn parse_credsfile<P>(path: P) -> Result<(JWT, Seed)>
+pub(crate) async fn parse_credsfile<P>(path: P) -> Result<(Jwt, Seed)>
 where
     P: AsRef<Path>,
 {

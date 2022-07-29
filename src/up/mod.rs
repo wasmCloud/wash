@@ -5,21 +5,27 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use serde_json::json;
 use std::collections::HashMap;
+use std::path::Path;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use tokio::{
+    io::{AsyncBufReadExt, BufReader},
+    process::Command,
+};
+
 use wash_lib::start::*;
 mod config;
 mod credsfile;
 use config::*;
 
 #[derive(Parser, Debug, Clone)]
-#[clap(name = "start")]
-pub(crate) struct StartCommand {
+pub(crate) struct UpCommand {
     /// Launch NATS and wasmCloud connected to the current terminal, exiting on CTRL+c
-    #[clap(long = "interactive")]
+    #[clap(short = 'i', long = "interactive")]
     pub(crate) interactive: bool,
 
     #[clap(flatten)]
@@ -31,7 +37,7 @@ pub(crate) struct StartCommand {
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct NatsOpts {
-    /// If a connection can't be established, exit and don't start a NATS server
+    /// If a connection can't be established, exit and don't start a NATS server. Will be ignored if a remote_url and credsfile are specified
     #[clap(long = "connect-only", env = "NATS_CONNECT_ONLY")]
     pub(crate) connect_only: bool,
 
@@ -60,24 +66,20 @@ pub(crate) struct NatsOpts {
     pub(crate) nats_credsfile: Option<PathBuf>,
 }
 
-impl Into<NatsConfig> for NatsOpts {
-    fn into(self: NatsOpts) -> NatsConfig {
+impl From<NatsOpts> for NatsConfig {
+    fn from(other: NatsOpts) -> NatsConfig {
         NatsConfig {
-            host: self.nats_host,
-            port: self.nats_port,
-            js_domain: self.nats_js_domain,
-            remote_url: self.nats_remote_url,
-            credentials: self.nats_credsfile,
+            host: other.nats_host,
+            port: other.nats_port,
+            js_domain: other.nats_js_domain,
+            remote_url: other.nats_remote_url,
+            credentials: other.nats_credsfile,
         }
     }
 }
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct WasmcloudOpts {
-    /// Path to a wash context with values to use to configure a host
-    #[clap(long = "context")]
-    pub(crate) context: Option<std::path::PathBuf>,
-
     /// wasmCloud host version to download, e.g. `v0.55.0`. See https://github.com/wasmCloud/wasmcloud-otp/releases for releases
     #[clap(long = "wasmcloud-version", default_value = WASMCLOUD_HOST_VERSION, env = "WASMCLOUD_VERSION")]
     pub(crate) wasmcloud_version: String,
@@ -96,13 +98,14 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) host_seed: Option<String>,
 
     // host, port, seed, timeout, jwt, tls, credsfile
-    ///
-    #[clap(long = "rpc-host", default_value = DEFAULT_RPC_HOST, env = WASMCLOUD_RPC_HOST)]
-    pub(crate) rpc_host: String,
+    /// Defaults to --nats-host if not supplied
+    #[clap(long = "rpc-host", env = WASMCLOUD_RPC_HOST)]
+    pub(crate) rpc_host: Option<String>,
 
     ///
-    #[clap(long = "rpc-port", default_value = DEFAULT_RPC_PORT, env = WASMCLOUD_RPC_PORT)]
-    pub(crate) rpc_port: String,
+    /// Defaults to --nats-port if not supplied
+    #[clap(long = "rpc-port", env = WASMCLOUD_RPC_PORT)]
+    pub(crate) rpc_port: Option<u16>,
 
     ///
     #[clap(long = "rpc-seed", env = WASMCLOUD_RPC_SEED)]
@@ -125,12 +128,14 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) rpc_credsfile: Option<PathBuf>,
 
     ///
-    #[clap(long = "prov-rpc-host", default_value = DEFAULT_PROV_RPC_HOST, env = WASMCLOUD_PROV_RPC_HOST)]
-    pub(crate) prov_rpc_host: String,
+    /// Defaults to --nats-host if not supplied
+    #[clap(long = "prov-rpc-host", env = WASMCLOUD_PROV_RPC_HOST)]
+    pub(crate) prov_rpc_host: Option<String>,
 
     ///
-    #[clap(long = "prov-rpc-port", default_value = DEFAULT_PROV_RPC_PORT, env = WASMCLOUD_PROV_RPC_PORT)]
-    pub(crate) prov_rpc_port: String,
+    /// Defaults to --nats-port if not supplied
+    #[clap(long = "prov-rpc-port", env = WASMCLOUD_PROV_RPC_PORT)]
+    pub(crate) prov_rpc_port: Option<u16>,
 
     ///
     #[clap(long = "prov-rpc-seed", env = WASMCLOUD_PROV_RPC_SEED)]
@@ -149,12 +154,14 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) prov_rpc_credsfile: Option<PathBuf>,
 
     ///
-    #[clap(long = "ctl-host", default_value = DEFAULT_CTL_HOST, env = WASMCLOUD_CTL_HOST)]
-    pub(crate) ctl_host: String,
+    /// Defaults to --nats-host if not supplied
+    #[clap(long = "ctl-host", env = WASMCLOUD_CTL_HOST)]
+    pub(crate) ctl_host: Option<String>,
 
     ///
-    #[clap(long = "ctl-port", default_value = DEFAULT_CTL_PORT, env = WASMCLOUD_CTL_PORT)]
-    pub(crate) ctl_port: String,
+    /// Defaults to --nats-port if not supplied
+    #[clap(long = "ctl-port", env = WASMCLOUD_CTL_PORT)]
+    pub(crate) ctl_port: Option<u16>,
 
     ///
     #[clap(long = "ctl-seed", env = WASMCLOUD_CTL_SEED)]
@@ -217,40 +224,64 @@ pub(crate) struct WasmcloudOpts {
 }
 
 pub(crate) async fn handle_command(
-    command: StartCommand,
+    command: UpCommand,
     output_kind: OutputKind,
 ) -> Result<CommandOutput> {
-    handle_start(command, output_kind).await
+    handle_up(command, output_kind).await
 }
 
-pub(crate) async fn handle_start(
-    cmd: StartCommand,
-    output_kind: OutputKind,
-) -> Result<CommandOutput> {
+pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let install_dir = cfg_dir()?.join(DOWNLOADS_DIR);
     let spinner = Spinner::new(&output_kind);
-    // Capture listen address for logs later
+    // Capture listen address to keep the value after the nats_opts are moved
     let nats_listen_address = format!("{}:{}", cmd.nats_opts.nats_host, cmd.nats_opts.nats_port);
 
-    // Avoid downloading + starting NATS if the user already runs their own server
-    let mut nats_process = if !cmd.nats_opts.connect_only {
+    // Avoid downloading + starting NATS if the user already runs their own server. Ignore connect_only
+    // if this server has a remote and credsfile as we have to start a leafnode in that scenario
+    let nats_opts = cmd.nats_opts.clone();
+    let mut nats_process = if !cmd.nats_opts.connect_only
+        || cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some()
+    {
+        if cmd.nats_opts.connect_only {
+            log::warn!("--connect-only ignored as remote_url and credsfile are specified\n")
+        };
         // Download NATS if not already installed
         spinner.update_spinner_message(" Downloading NATS ...".to_string());
         let nats_binary = ensure_nats_server(&cmd.nats_opts.nats_version, &install_dir).await?;
 
         spinner.update_spinner_message(" Starting NATS ...".to_string());
+        // Ensure that leaf node remote connection can be established before launching NATS
+        let nats_opts = match (
+            cmd.nats_opts.nats_remote_url.as_ref(),
+            cmd.nats_opts.nats_credsfile.as_ref(),
+        ) {
+            (Some(url), Some(creds)) => {
+                if let Err(e) = crate::util::nats_client_from_opts(
+                    url,
+                    &cmd.nats_opts.nats_port.to_string(),
+                    None,
+                    None,
+                    Some(creds.to_owned()),
+                )
+                .await
+                {
+                    return Err(anyhow!("Could not connect to leafnode remote: {}", e));
+                } else {
+                    cmd.nats_opts
+                }
+            }
+            (_, _) => cmd.nats_opts,
+        };
         // Start NATS server, redirecting output to a log file
         let nats_log_path = install_dir.join("nats.log");
         let nats_log_file = tokio::fs::File::create(&nats_log_path)
             .await?
             .into_std()
             .await;
-        Some(start_nats_server(nats_binary, nats_log_file, cmd.nats_opts.into()).await?)
+        Some(start_nats_server(nats_binary, nats_log_file, nats_opts.into()).await?)
     } else {
         // If we can connect to NATS, return None as we aren't managing the child process.
         // Otherwise, exit with error since --connect-only was specified
-        //TODO: try to establish a NATS connection instead of just tcp conn
-        // TODO: server conn only? leaf conn only? If I extend infra, I want to test connection to that infra and not local
         tokio::net::TcpStream::connect(&nats_listen_address)
             .await
             .map(|_| None)
@@ -269,8 +300,8 @@ pub(crate) async fn handle_start(
 
     // Redirect output (which is on stderr) to a log file, or use the terminal for interactive mode
     spinner.update_spinner_message(" Starting wasmCloud ...".to_string());
-    let stderr: std::process::Stdio = if cmd.interactive {
-        std::process::Stdio::inherit()
+    let stderr: Stdio = if cmd.interactive {
+        Stdio::piped()
     } else {
         let log_path = install_dir.join("wasmcloud.log");
         tokio::fs::File::create(&log_path)
@@ -280,14 +311,24 @@ pub(crate) async fn handle_start(
             .into()
     };
 
-    let host_env = configure_host_env(cmd.wasmcloud_opts).await;
-    let mut wasmcloud_process = start_wasmcloud_host(
+    let host_env = configure_host_env(nats_opts, cmd.wasmcloud_opts).await;
+    let mut wasmcloud_child = match start_wasmcloud_host(
         &wasmcloud_executable,
         std::process::Stdio::null(),
         stderr,
         host_env,
     )
-    .await?;
+    .await
+    {
+        Ok(child) => child,
+        Err(e) => {
+            // Ensure we clean up the NATS server if we can't start wasmCloud
+            if let Some(mut process) = nats_process {
+                process.kill().await?;
+            }
+            return Err(e);
+        }
+    };
 
     spinner.finish_and_clear();
     if cmd.interactive {
@@ -295,9 +336,13 @@ pub(crate) async fn handle_start(
         let r = running.clone();
 
         ctrlc::set_handler(move || {
-            r.store(false, Ordering::SeqCst);
+            if r.load(Ordering::SeqCst) {
+                r.store(false, Ordering::SeqCst);
+            } else {
+                log::warn!("\nRepeated CTRL+C received, killing wasmCloud and NATS. This may result in zombie processes")
+            }
         })
-        .expect("Error setting Ctrl-C handler");
+        .expect("Error setting Ctrl-C handler, please file a bug issue https://github.com/wasmCloud/wash/issues/new/choose");
 
         if output_kind != OutputKind::Json {
             println!(
@@ -305,70 +350,116 @@ pub(crate) async fn handle_start(
             );
             println!("🚪 Press `CTRL+c` at any time to exit");
         }
+
+        // Create a separate thread to log host output
+        let handle = wasmcloud_child.stderr.take().map(|stderr| {
+            tokio::spawn(async {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    //TODO: in the future, would be great print these in a prettier format
+                    println!("{}", line)
+                }
+            })
+        });
+
         while running.load(Ordering::SeqCst) {}
+        // Prevent extraneous messages from the host getting printed as the host shuts down
+        if let Some(handle) = handle {
+            handle.abort()
+        };
+        let spinner = Spinner::new(&output_kind);
+        spinner.update_spinner_message(
+            "CTRL+c received, gracefully stopping wasmCloud and NATS...".to_string(),
+        );
 
         // Terminate wasmCloud and NATS processes
-        wasmcloud_process.kill().await?;
+        stop_wasmcloud(wasmcloud_executable.clone()).await?;
+
         if let Some(mut process) = nats_process {
-            process.kill().await?;
+            match process.try_wait() {
+                Ok(Some(_)) => (),
+                _ => process.kill().await?,
+            }
             // This avoids moving ownership so I can grab the pid later
             nats_process = Some(process)
         }
+
+        spinner.finish_and_clear();
     }
 
     // Build the CommandOutput providing some useful information like pids & ports
     let mut out_json = HashMap::new();
     let mut out_text = String::from("");
     out_json.insert("success".to_string(), json!(true));
-    out_text.push_str("\n🚿 wash start completed successfully");
+    out_text.push_str("🛁 wash up completed successfully");
 
-    // Tuple of (nats_pid, wasmcloud_pid)
-    let mut pids = (0, 0);
-    if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
+    let nats_pid = if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
         out_json.insert("nats_pid".to_string(), json!(pid));
         out_json.insert("nats_url".to_string(), json!(nats_listen_address));
         out_text.push_str(&format!(
             "\n🕸  NATS is running in the background at http://{}",
             nats_listen_address
         ));
-        pids.0 = pid;
-    }
-    if let Some(pid) = wasmcloud_process.id() {
-        out_json.insert("wasmcloud_pid".to_string(), json!(pid));
+        Some(pid)
+    } else {
+        None
+    };
+    if !cmd.interactive {
         let url = "http://localhost:4000";
         out_json.insert("wasmcloud_url".to_string(), json!(url));
-        out_text.push_str(&format!("\n🎛  wasmCloud is accessible at {}", url));
-        pids.1 = pid;
+        out_text.push_str(&format!(
+            "\n🌐 The wasmCloud dashboard is running at {}",
+            url
+        ));
     }
 
-    //TODO: change command based on Windows if `kill` isn't an alias
-    match pids {
-        (0, 0) => (),
-        // NATS without wasmCloud would've failed before now
-        (_npid, 0) => (),
-        (0, _wpid) => {
-            let kill_cmd = format!("{} stop", wasmcloud_executable.to_string_lossy());
-            out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-            out_text.push_str(&format!(
-                "\n\n🔪 To stop the wasmCloud host, run `{}`",
-                kill_cmd
-            ));
-        }
-        (npid, _wpid) => {
-            let kill_cmd = format!(
-                "{} stop; kill {}",
-                wasmcloud_executable.to_string_lossy(),
-                npid,
-            );
-            out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-            out_text.push_str(&format!(
-                "\n\n🔪 To stop the wasmCloud host and the NATS server, run `{}`",
-                kill_cmd
-            ));
-        }
+    if let Some(pid) = nats_pid {
+        let kill_cmd = format!(
+            "{} stop; kill {}",
+            wasmcloud_executable.to_string_lossy(),
+            pid,
+        );
+        out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
+        out_text.push_str(&format!(
+            "\n\n🛑 To stop the wasmCloud host and the NATS server, run:\n{}",
+            kill_cmd
+        ));
+    } else if !cmd.interactive {
+        let kill_cmd = format!("{} stop", wasmcloud_executable.to_string_lossy());
+        out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
+        out_text.push_str(&format!(
+            "\n\n🛑 To stop the wasmCloud host, run:\n{}",
+            kill_cmd
+        ));
     }
 
     Ok(CommandOutput::new(out_text, out_json))
+}
+
+async fn stop_wasmcloud<P>(bin_path: P) -> Result<()>
+where
+    P: AsRef<Path>,
+{
+    let child = Command::new(bin_path.as_ref())
+        .stdout(Stdio::piped())
+        .arg("stop")
+        .spawn()?;
+
+    // Wait for the stop command to return "ok", then exit
+    tokio::spawn(async {
+        if let Some(stdout) = child.stdout {
+            let mut lines = BufReader::new(stdout).lines();
+
+            while let Ok(Some(line)) = lines.next_line().await {
+                if line == "ok" {
+                    return;
+                }
+            }
+        }
+    })
+    .await?;
+
+    Ok(())
 }
 
 // #[cfg(test)]

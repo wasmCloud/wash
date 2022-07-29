@@ -1,7 +1,7 @@
-use crate::start::WasmcloudOpts;
+use crate::up::WasmcloudOpts;
 use std::collections::HashMap;
 
-use super::credsfile::parse_credsfile;
+use super::{credsfile::parse_credsfile, NatsOpts};
 
 pub(crate) const DOWNLOADS_DIR: &str = "downloads";
 // NATS configuration values
@@ -20,9 +20,7 @@ pub(crate) const WASMCLOUD_CLUSTER_SEED: &str = "WASMCLOUD_CLUSTER_SEED";
 pub(crate) const WASMCLOUD_HOST_SEED: &str = "WASMCLOUD_HOST_SEED";
 // NATS RPC connection configuration
 pub(crate) const WASMCLOUD_RPC_HOST: &str = "WASMCLOUD_RPC_HOST";
-pub(crate) const DEFAULT_RPC_HOST: &str = "0.0.0.0";
 pub(crate) const WASMCLOUD_RPC_PORT: &str = "WASMCLOUD_RPC_PORT";
-pub(crate) const DEFAULT_RPC_PORT: &str = "4222";
 pub(crate) const WASMCLOUD_RPC_TIMEOUT_MS: &str = "WASMCLOUD_RPC_TIMEOUT_MS";
 pub(crate) const DEFAULT_RPC_TIMEOUT_MS: &str = "2000";
 pub(crate) const WASMCLOUD_RPC_JWT: &str = "WASMCLOUD_RPC_JWT";
@@ -31,25 +29,20 @@ pub(crate) const WASMCLOUD_RPC_CREDSFILE: &str = "WASMCLOUD_RPC_CREDSFILE";
 pub(crate) const WASMCLOUD_RPC_TLS: &str = "WASMCLOUD_RPC_TLS";
 // NATS CTL connection configuration
 pub(crate) const WASMCLOUD_CTL_HOST: &str = "WASMCLOUD_CTL_HOST";
-pub(crate) const DEFAULT_CTL_HOST: &str = "0.0.0.0";
 pub(crate) const WASMCLOUD_CTL_PORT: &str = "WASMCLOUD_CTL_PORT";
-pub(crate) const DEFAULT_CTL_PORT: &str = "4222";
 pub(crate) const WASMCLOUD_CTL_SEED: &str = "WASMCLOUD_CTL_SEED";
 pub(crate) const WASMCLOUD_CTL_JWT: &str = "WASMCLOUD_CTL_JWT";
 pub(crate) const WASMCLOUD_CTL_CREDSFILE: &str = "WASMCLOUD_CTL_CREDSFILE";
 pub(crate) const WASMCLOUD_CTL_TLS: &str = "WASMCLOUD_CTL_TLS";
 // NATS Provider RPC connection configuration
 pub(crate) const WASMCLOUD_PROV_RPC_HOST: &str = "WASMCLOUD_PROV_RPC_HOST";
-pub(crate) const DEFAULT_PROV_RPC_HOST: &str = "0.0.0.0";
 pub(crate) const WASMCLOUD_PROV_RPC_PORT: &str = "WASMCLOUD_PROV_RPC_PORT";
-pub(crate) const DEFAULT_PROV_RPC_PORT: &str = "4222";
 pub(crate) const WASMCLOUD_PROV_SHUTDOWN_DELAY_MS: &str = "WASMCLOUD_PROV_SHUTDOWN_DELAY_MS";
 pub(crate) const DEFAULT_PROV_SHUTDOWN_DELAY_MS: &str = "300";
 pub(crate) const WASMCLOUD_PROV_RPC_SEED: &str = "WASMCLOUD_PROV_RPC_SEED";
 pub(crate) const WASMCLOUD_PROV_RPC_JWT: &str = "WASMCLOUD_PROV_RPC_JWT";
 pub(crate) const WASMCLOUD_PROV_RPC_CREDSFILE: &str = "WASMCLOUD_PROV_RPC_CREDSFILE";
 pub(crate) const WASMCLOUD_PROV_RPC_TLS: &str = "WASMCLOUD_PROV_RPC_TLS";
-// OCI configuration TODO: registry, user, pass
 pub(crate) const WASMCLOUD_OCI_ALLOWED_INSECURE: &str = "WASMCLOUD_OCI_ALLOWED_INSECURE";
 pub(crate) const WASMCLOUD_OCI_ALLOW_LATEST: &str = "WASMCLOUD_OCI_ALLOW_LATEST";
 // Extra configuration (logs, IPV6, config service)
@@ -60,8 +53,12 @@ pub(crate) const WASMCLOUD_STRUCTURED_LOGGING_ENABLED: &str =
     "WASMCLOUD_STRUCTURED_LOGGING_ENABLED";
 pub(crate) const WASMCLOUD_CONFIG_SERVICE: &str = "WASMCLOUD_CONFIG_SERVICE";
 
-/// Helper function to convert WasmcloudOpts to the host environment map
-pub(crate) async fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap<String, String> {
+/// Helper function to convert WasmcloudOpts to the host environment map.
+/// Takes NatsOpts as well to provide reasonable defaults
+pub(crate) async fn configure_host_env(
+    nats_opts: NatsOpts,
+    wasmcloud_opts: WasmcloudOpts,
+) -> HashMap<String, String> {
     let mut host_config = HashMap::new();
     // NATS isolation configuration variables
     host_config.insert(
@@ -86,7 +83,6 @@ pub(crate) async fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap
         );
     }
 
-    // OCI configuration TODO: registry, user, pass
     if wasmcloud_opts.allow_latest {
         host_config.insert(WASMCLOUD_OCI_ALLOW_LATEST.to_string(), "true".to_string());
     }
@@ -98,8 +94,19 @@ pub(crate) async fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap
     }
 
     // NATS RPC connection configuration
-    host_config.insert(WASMCLOUD_RPC_HOST.to_string(), wasmcloud_opts.rpc_host);
-    host_config.insert(WASMCLOUD_RPC_PORT.to_string(), wasmcloud_opts.rpc_port);
+    if let Some(host) = wasmcloud_opts.rpc_host {
+        host_config.insert(WASMCLOUD_RPC_HOST.to_string(), host);
+    } else {
+        host_config.insert(WASMCLOUD_RPC_HOST.to_string(), nats_opts.nats_host.clone());
+    }
+    if let Some(port) = wasmcloud_opts.rpc_port {
+        host_config.insert(WASMCLOUD_RPC_PORT.to_string(), port.to_string());
+    } else {
+        host_config.insert(
+            WASMCLOUD_RPC_PORT.to_string(),
+            nats_opts.nats_port.to_string(),
+        );
+    }
 
     host_config.insert(
         WASMCLOUD_RPC_TIMEOUT_MS.to_string(),
@@ -123,8 +130,19 @@ pub(crate) async fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap
     }
 
     // NATS CTL connection configuration
-    host_config.insert(WASMCLOUD_CTL_HOST.to_string(), wasmcloud_opts.ctl_host);
-    host_config.insert(WASMCLOUD_CTL_PORT.to_string(), wasmcloud_opts.ctl_port);
+    if let Some(host) = wasmcloud_opts.ctl_host {
+        host_config.insert(WASMCLOUD_CTL_HOST.to_string(), host);
+    } else {
+        host_config.insert(WASMCLOUD_CTL_HOST.to_string(), nats_opts.nats_host.clone());
+    }
+    if let Some(port) = wasmcloud_opts.ctl_port {
+        host_config.insert(WASMCLOUD_CTL_PORT.to_string(), port.to_string());
+    } else {
+        host_config.insert(
+            WASMCLOUD_CTL_PORT.to_string(),
+            nats_opts.nats_port.to_string(),
+        );
+    }
     if let Some(path) = wasmcloud_opts.ctl_credsfile {
         if let Ok((jwt, seed)) = parse_credsfile(path).await {
             host_config.insert(WASMCLOUD_CTL_JWT.to_string(), jwt);
@@ -143,14 +161,19 @@ pub(crate) async fn configure_host_env(wasmcloud_opts: WasmcloudOpts) -> HashMap
     }
 
     // NATS Provider RPC connection configuration
-    host_config.insert(
-        WASMCLOUD_PROV_RPC_HOST.to_string(),
-        wasmcloud_opts.prov_rpc_host,
-    );
-    host_config.insert(
-        WASMCLOUD_PROV_RPC_PORT.to_string(),
-        wasmcloud_opts.prov_rpc_port,
-    );
+    if let Some(host) = wasmcloud_opts.prov_rpc_host {
+        host_config.insert(WASMCLOUD_PROV_RPC_HOST.to_string(), host);
+    } else {
+        host_config.insert(WASMCLOUD_PROV_RPC_HOST.to_string(), nats_opts.nats_host);
+    }
+    if let Some(port) = wasmcloud_opts.prov_rpc_port {
+        host_config.insert(WASMCLOUD_PROV_RPC_PORT.to_string(), port.to_string());
+    } else {
+        host_config.insert(
+            WASMCLOUD_PROV_RPC_PORT.to_string(),
+            nats_opts.nats_port.to_string(),
+        );
+    }
     if let Some(path) = wasmcloud_opts.prov_rpc_credsfile {
         if let Ok((jwt, seed)) = parse_credsfile(path).await {
             host_config.insert(WASMCLOUD_PROV_RPC_JWT.to_string(), jwt);

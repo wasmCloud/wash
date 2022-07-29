@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use async_compression::tokio::bufread::GzipDecoder;
+use command_group::AsyncCommandGroup;
 use futures::future::join_all;
 use std::collections::HashMap;
 use std::io::Cursor;
@@ -104,11 +105,12 @@ where
                 create_dir_all(parent_folder).await?;
             }
             if let Ok(mut wasmcloud_file) = File::create(&file_path).await {
-                if let Some(file_name) = file_path.file_name() {
+                // This isn't an `if let` to avoid a Windows lint warning
+                if file_path.file_name().is_some() {
                     // Set permissions of executable files and binaries to allow executing
                     #[cfg(target_family = "unix")]
                     {
-                        let file_name = file_name.to_string_lossy();
+                        let file_name = file_path.file_name().unwrap().to_string_lossy();
                         if file_path.to_string_lossy().contains("bin")
                             || file_name.contains(".sh")
                             || file_name.contains(".bat")
@@ -161,7 +163,7 @@ where
     S: Into<Stdio>,
 {
     // wasmCloud host logs are sent to stderr as of https://github.com/wasmCloud/wasmcloud-otp/pull/418
-    let mut cmd = &mut Command::new(bin_path.as_ref());
+    let mut cmd = Command::new(bin_path.as_ref());
 
     // If we can connect to the local port, a wasmCloud host won't be able to listen on that port
     let port = env_vars
@@ -173,14 +175,9 @@ where
         .is_ok()
     {
         return Err(anyhow!(
-            "Could not start wasmCloud, a host is already listening on 127.0.0.1:{}",
+            "Could not start wasmCloud, a process is already listening on 127.0.0.1:{}",
             port
         ));
-    }
-
-    // Insert environment
-    for (k, v) in env_vars {
-        cmd = cmd.env(k, v)
     }
 
     // Windows powershell will ping forever if it's the first command,
@@ -219,12 +216,20 @@ where
         _ => (),
     }
 
-    // Spawn in the foreground so we can capture logs to a specified location
-    cmd.stderr(stderr)
+    let cmd = cmd
+        .stderr(stderr)
         .stdout(stdout)
-        .arg("foreground")
-        .spawn()
-        .map_err(|e| anyhow!(e))
+        .envs(&env_vars)
+        .arg("foreground");
+
+    #[cfg(target_family = "unix")]
+    {
+        Ok(cmd.group_spawn()?.into_inner())
+    }
+    #[cfg(target_family = "windows")]
+    {
+        Ok(cmd.spawn())
+    }
 }
 
 /// Helper function to indicate if the wasmCloud host tarball is successfully

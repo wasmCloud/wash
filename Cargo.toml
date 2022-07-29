@@ -1,6 +1,6 @@
 [package]
 name = "wash-cli"
-version = "0.12.0-alpha.1"
+version = "0.12.0-alpha.2"
 authors = ["wasmCloud Team"]
 categories = ["wasm", "command-line-utilities"]
 description = "wasmcloud Shell (wash) CLI tool"
@@ -27,6 +27,7 @@ dialoguer = "0.9"
 dirs = "4.0"
 env_logger = "0.9"
 envmnt = "0.9.0"
+futures = "0.3.21"
 git2 = {version = "0.13.25", features = ["vendored-libgit2"]}
 heck = "0.4"
 ignore = "0.4"

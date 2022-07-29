@@ -14,7 +14,7 @@ use par::ParCliCommand;
 use reg::RegCliCommand;
 use serde_json::json;
 use smithy::{GenerateCli, LintCli, ValidateCli};
-use start::StartCommand;
+use up::UpCommand;
 use util::CommandOutput;
 
 use crate::util::OutputKind;
@@ -33,7 +33,7 @@ mod keys;
 mod par;
 mod reg;
 mod smithy;
-mod start;
+mod up;
 mod util;
 
 const ASCII: &str = r#"
@@ -102,9 +102,9 @@ enum CliCommand {
     /// Interact with OCI compliant registries
     #[clap(name = "reg", subcommand)]
     Reg(RegCliCommand),
-    /// Download and start wasmCloud hosts
-    #[clap(name = "start")]
-    Start(StartCommand),
+    /// Bring up a wasmCloud environment in one step
+    #[clap(name = "up")]
+    Up(UpCommand),
     /// Perform validation checks on smithy models
     #[clap(name = "validate")]
     Validate(ValidateCli),
@@ -130,7 +130,7 @@ async fn main() {
         CliCommand::New(new_cli) => generate::handle_command(new_cli),
         CliCommand::Par(par_cli) => par::handle_command(par_cli, output_kind).await,
         CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli, output_kind).await,
-        CliCommand::Start(start_cli) => start::handle_command(start_cli, output_kind).await,
+        CliCommand::Up(up_cli) => up::handle_command(up_cli, output_kind).await,
         CliCommand::Validate(validate_cli) => smithy::handle_validate_command(validate_cli).await,
     };
 

@@ -11,6 +11,7 @@ use tokio_stream::StreamExt;
 use tokio_tar::Archive;
 
 const NATS_GITHUB_RELEASE_URL: &str = "https://github.com/nats-io/nats-server/releases/download";
+pub(crate) const NATS_SERVER_CONF: &str = "nats.conf";
 #[cfg(target_family = "unix")]
 pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
 #[cfg(target_family = "windows")]
@@ -182,7 +183,7 @@ impl NatsConfig {
         }
     }
     /// Instantiates config for a standalone NATS server. Unless you're looking to extend
-    /// existing NATS infrastructure, this should be the default NATS server mode.
+    /// existing NATS infrastructure, this is the preferred NATS server mode.
     ///
     /// # Arguments
     /// * `host`: NATS host to listen on, e.g. `127.0.0.1`
@@ -240,7 +241,7 @@ jetstream {{
 ///
 /// * `bin_path` - Path to the nats-server binary to execute
 /// * `stderr` - Specify where NATS stderr logs should be written to. If logs aren't important, use std::process::Stdio::null()
-/// * `config` - Configuration for the NATS server, see [NatsConfig] for options
+/// * `config` - Configuration for the NATS server, see [NatsConfig] for options. This config file is written alongside the nats-server binary as `nats.conf`
 pub async fn start_nats_server<P, T>(bin_path: P, stderr: T, config: NatsConfig) -> Result<Child>
 where
     P: AsRef<Path>,
@@ -257,11 +258,7 @@ where
             config.port
         ));
     }
-    if let Some(config_path) = bin_path
-        .as_ref()
-        .parent()
-        .and_then(|p| Some(p.join("nats-server.conf")))
-    {
+    if let Some(config_path) = bin_path.as_ref().parent().map(|p| p.join(NATS_SERVER_CONF)) {
         let host = config.host.to_owned();
         let port = config.port;
         config.write_to_path(&config_path).await?;
