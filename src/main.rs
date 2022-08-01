@@ -102,7 +102,7 @@ enum CliCommand {
     /// Interact with OCI compliant registries
     #[clap(name = "reg", subcommand)]
     Reg(RegCliCommand),
-    /// Bring up a wasmCloud environment in one step
+    /// Bootstrap a wasmCloud environment
     #[clap(name = "up")]
     Up(UpCommand),
     /// Perform validation checks on smithy models

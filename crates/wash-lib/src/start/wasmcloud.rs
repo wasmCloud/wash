@@ -163,9 +163,6 @@ where
     T: Into<Stdio>,
     S: Into<Stdio>,
 {
-    // wasmCloud host logs are sent to stderr as of https://github.com/wasmCloud/wasmcloud-otp/pull/418
-    let mut cmd = Command::new(bin_path.as_ref());
-
     // If we can connect to the local port, a wasmCloud host won't be able to listen on that port
     let port = env_vars
         .get("PORT")
@@ -217,7 +214,10 @@ where
         _ => (),
     }
 
+    // Constructing this object in one step results in a temporary value that's dropped
+    let mut cmd = Command::new(bin_path.as_ref());
     let cmd = cmd
+        // wasmCloud host logs are sent to stderr as of https://github.com/wasmCloud/wasmcloud-otp/pull/418
         .stderr(stderr)
         .stdout(stdout)
         .envs(&env_vars)

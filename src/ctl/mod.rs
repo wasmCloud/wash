@@ -103,7 +103,7 @@ pub(crate) enum CtlCliCommand {
 
     /// Start an actor or a provider
     #[clap(name = "start", subcommand)]
-    Start(UpCommand),
+    Start(StartCommand),
 
     /// Stop an actor, provider, or host
     #[clap(name = "stop", subcommand)]
@@ -223,7 +223,7 @@ pub(crate) struct LinkPutCommand {
 }
 
 #[derive(Debug, Clone, Parser)]
-pub(crate) enum UpCommand {
+pub(crate) enum StartCommand {
     /// Launch an actor in a host
     #[clap(name = "actor")]
     Actor(StartActorCommand),
@@ -530,14 +530,14 @@ pub(crate) async fn handle_command(
             let result = link_query(cmd.clone()).await?;
             link_query_output(result)
         }
-        Start(UpCommand::Actor(cmd)) => {
+        Start(StartCommand::Actor(cmd)) => {
             let actor_ref = &cmd.actor_ref.to_string();
 
             sp.update_spinner_message(format!(" Starting actor {} ... ", actor_ref));
 
             start_actor(cmd).await?
         }
-        Start(UpCommand::Provider(cmd)) => {
+        Start(StartCommand::Provider(cmd)) => {
             let provider_ref = &cmd.provider_ref.to_string();
 
             sp.update_spinner_message(format!(" Starting provider {} ... ", provider_ref));
@@ -1164,7 +1164,7 @@ mod test {
             "wasmcloud.azurecr.io/actor:v1",
         ])?;
         match start_actor_all.command {
-            CtlCliCommand::Start(UpCommand::Actor(super::StartActorCommand {
+            CtlCliCommand::Start(StartCommand::Actor(super::StartActorCommand {
                 opts,
                 host_id,
                 actor_ref,
@@ -1206,7 +1206,7 @@ mod test {
             "wasmcloud.azurecr.io/provider:v1",
         ])?;
         match start_provider_all.command {
-            CtlCliCommand::Start(UpCommand::Provider(super::StartProviderCommand {
+            CtlCliCommand::Start(StartCommand::Provider(super::StartProviderCommand {
                 opts,
                 host_id,
                 provider_ref,
