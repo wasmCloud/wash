@@ -110,7 +110,7 @@ pub(crate) async fn configure_host_env(
 
     host_config.insert(
         WASMCLOUD_RPC_TIMEOUT_MS.to_string(),
-        wasmcloud_opts.rpc_timeout_ms,
+        wasmcloud_opts.rpc_timeout_ms.to_string(),
     );
     if let Some(path) = wasmcloud_opts.rpc_credsfile {
         if let Ok((jwt, seed)) = parse_credsfile(path).await {
@@ -192,7 +192,7 @@ pub(crate) async fn configure_host_env(
     }
     host_config.insert(
         WASMCLOUD_PROV_SHUTDOWN_DELAY_MS.to_string(),
-        wasmcloud_opts.provider_delay,
+        wasmcloud_opts.provider_delay.to_string(),
     );
 
     // Extras configuration

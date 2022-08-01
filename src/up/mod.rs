@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use clap::Parser;
 use serde_json::json;
 use std::collections::HashMap;
+use std::fmt::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -113,7 +114,7 @@ pub(crate) struct WasmcloudOpts {
 
     ///
     #[clap(long = "rpc-timeout-ms", default_value = DEFAULT_RPC_TIMEOUT_MS, env = WASMCLOUD_RPC_TIMEOUT_MS)]
-    pub(crate) rpc_timeout_ms: String,
+    pub(crate) rpc_timeout_ms: u32,
 
     ///
     #[clap(long = "rpc-jwt", env = WASMCLOUD_RPC_JWT)]
@@ -189,7 +190,7 @@ pub(crate) struct WasmcloudOpts {
 
     ///
     #[clap(long = "provider-delay", default_value = DEFAULT_PROV_SHUTDOWN_DELAY_MS, env = WASMCLOUD_PROV_SHUTDOWN_DELAY_MS)]
-    pub(crate) provider_delay: String,
+    pub(crate) provider_delay: u32,
 
     ///
     #[clap(long = "allow-latest", env = WASMCLOUD_OCI_ALLOW_LATEST)]
@@ -396,10 +397,11 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     let nats_pid = if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
         out_json.insert("nats_pid".to_string(), json!(pid));
         out_json.insert("nats_url".to_string(), json!(nats_listen_address));
-        out_text.push_str(&format!(
+        let _ = write!(
+            out_text,
             "\n🕸  NATS is running in the background at http://{}",
             nats_listen_address
-        ));
+        );
         Some(pid)
     } else {
         None
@@ -407,10 +409,12 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     if !cmd.interactive {
         let url = "http://localhost:4000";
         out_json.insert("wasmcloud_url".to_string(), json!(url));
-        out_text.push_str(&format!(
+
+        let _ = write!(
+            out_text,
             "\n🌐 The wasmCloud dashboard is running at {}",
             url
-        ));
+        );
     }
 
     if let Some(pid) = nats_pid {
@@ -420,17 +424,19 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
             pid,
         );
         out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-        out_text.push_str(&format!(
+        let _ = write!(
+            out_text,
             "\n\n🛑 To stop the wasmCloud host and the NATS server, run:\n{}",
             kill_cmd
-        ));
+        );
     } else if !cmd.interactive {
         let kill_cmd = format!("{} stop", wasmcloud_executable.to_string_lossy());
         out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-        out_text.push_str(&format!(
+        let _ = write!(
+            out_text,
             "\n\n🛑 To stop the wasmCloud host, run:\n{}",
             kill_cmd
-        ));
+        );
     }
 
     Ok(CommandOutput::new(out_text, out_json))
@@ -460,6 +466,188 @@ where
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UpCommand;
+    use anyhow::Result;
+    use clap::Parser;
+
+    // Assert that our API doesn't unknowingly drift
+    #[test]
+    fn test_up_comprehensive() -> Result<()> {
+        // Not explicitly used, just a placeholder for a directory
+        const TESTDIR: &str = "./tests/fixtures";
+
+        let up_all_flags: UpCommand = Parser::try_parse_from(&[
+            "up",
+            "--allow-latest",
+            "--allowed-insecure",
+            "localhost:5000",
+            "--cluster-issuers",
+            "CBZZ6BLE7PIJNCEJMXOHAJ65KIXRVXDA74W6LUKXC4EPFHTJREXQCOYI",
+            "--cluster-seed",
+            "SCAKLQ2FFT4LZUUVQMH6N37US3IZUEVJBUR3V532VV3DAAHSZXPQY6DYIM",
+            "--config-service-enabled",
+            "--connect-only",
+            "--ctl-credsfile",
+            TESTDIR,
+            "--ctl-host",
+            "127.0.0.2",
+            "--ctl-jwt",
+            "eyyjWT",
+            "--ctl-port",
+            "4232",
+            "--ctl-seed",
+            "SUALIKDKMIUAKRT5536EXKC3CX73TJD3CFXZMJSHIKSP3LTYIIUQGCUVGA",
+            "--ctl-tls",
+            "--enable-ipv6",
+            "--enable-structured-logging",
+            "--host-seed",
+            "SNAP4UVNHVWSBJ5MHAQ6M3RB23S3ALA3O3A4RF25G2FQB5CCZJBBBWCKBY",
+            "--interactive",
+            "--nats-credsfile",
+            TESTDIR,
+            "--nats-host",
+            "127.0.0.2",
+            "--nats-js-domain",
+            "domain",
+            "--nats-port",
+            "4232",
+            "--nats-remote-url",
+            "tls://remote.global",
+            "--nats-version",
+            "v2.8.4",
+            "--prov-rpc-credsfile",
+            TESTDIR,
+            "--prov-rpc-host",
+            "127.0.0.2",
+            "--prov-rpc-jwt",
+            "eyyjWT",
+            "--prov-rpc-port",
+            "4232",
+            "--prov-rpc-seed",
+            "SUALIKDKMIUAKRT5536EXKC3CX73TJD3CFXZMJSHIKSP3LTYIIUQGCUVGA",
+            "--prov-rpc-tls",
+            "--provider-delay",
+            "500",
+            "--rpc-credsfile",
+            TESTDIR,
+            "--rpc-host",
+            "127.0.0.2",
+            "--rpc-jwt",
+            "eyyjWT",
+            "--rpc-port",
+            "4232",
+            "--rpc-seed",
+            "SUALIKDKMIUAKRT5536EXKC3CX73TJD3CFXZMJSHIKSP3LTYIIUQGCUVGA",
+            "--rpc-timeout-ms",
+            "500",
+            "--rpc-tls",
+            "--structured-log-level",
+            "warn",
+            "--wasmcloud-js-domain",
+            "domain",
+            "--wasmcloud-version",
+            "v0.55.1",
+            "--lattice-prefix",
+            "anotherprefix",
+        ])?;
+        assert!(up_all_flags.wasmcloud_opts.allow_latest);
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.allowed_insecure,
+            Some(vec!["localhost:5000".to_string()])
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.cluster_issuers,
+            Some(vec![
+                "CBZZ6BLE7PIJNCEJMXOHAJ65KIXRVXDA74W6LUKXC4EPFHTJREXQCOYI".to_string()
+            ])
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.cluster_seed,
+            Some("SCAKLQ2FFT4LZUUVQMH6N37US3IZUEVJBUR3V532VV3DAAHSZXPQY6DYIM".to_string())
+        );
+        assert!(up_all_flags.wasmcloud_opts.config_service_enabled);
+        assert!(up_all_flags.nats_opts.connect_only);
+        assert!(up_all_flags.wasmcloud_opts.ctl_credsfile.is_some());
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.ctl_host,
+            Some("127.0.0.2".to_string())
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.ctl_jwt,
+            Some("eyyjWT".to_string())
+        );
+        assert_eq!(up_all_flags.wasmcloud_opts.ctl_port, Some(4232));
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.ctl_seed,
+            Some("SUALIKDKMIUAKRT5536EXKC3CX73TJD3CFXZMJSHIKSP3LTYIIUQGCUVGA".to_string())
+        );
+        assert!(up_all_flags.wasmcloud_opts.ctl_tls);
+        assert!(up_all_flags.wasmcloud_opts.rpc_credsfile.is_some());
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.rpc_host,
+            Some("127.0.0.2".to_string())
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.rpc_jwt,
+            Some("eyyjWT".to_string())
+        );
+        assert_eq!(up_all_flags.wasmcloud_opts.rpc_port, Some(4232));
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.rpc_seed,
+            Some("SUALIKDKMIUAKRT5536EXKC3CX73TJD3CFXZMJSHIKSP3LTYIIUQGCUVGA".to_string())
+        );
+        assert!(up_all_flags.wasmcloud_opts.rpc_tls);
+        assert!(up_all_flags.wasmcloud_opts.prov_rpc_credsfile.is_some());
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.prov_rpc_host,
+            Some("127.0.0.2".to_string())
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.prov_rpc_jwt,
+            Some("eyyjWT".to_string())
+        );
+        assert_eq!(up_all_flags.wasmcloud_opts.prov_rpc_port, Some(4232));
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.prov_rpc_seed,
+            Some("SUALIKDKMIUAKRT5536EXKC3CX73TJD3CFXZMJSHIKSP3LTYIIUQGCUVGA".to_string())
+        );
+        assert!(up_all_flags.wasmcloud_opts.prov_rpc_tls);
+        assert!(up_all_flags.wasmcloud_opts.enable_ipv6);
+        assert!(up_all_flags.wasmcloud_opts.enable_structured_logging);
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.host_seed,
+            Some("SNAP4UVNHVWSBJ5MHAQ6M3RB23S3ALA3O3A4RF25G2FQB5CCZJBBBWCKBY".to_string())
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.structured_log_level,
+            "warn".to_string()
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.wasmcloud_version,
+            "v0.55.1".to_string()
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.lattice_prefix,
+            "anotherprefix".to_string()
+        );
+        assert_eq!(
+            up_all_flags.wasmcloud_opts.wasmcloud_js_domain,
+            Some("domain".to_string())
+        );
+        assert_eq!(up_all_flags.nats_opts.nats_version, "v2.8.4".to_string());
+        assert_eq!(
+            up_all_flags.nats_opts.nats_remote_url,
+            Some("tls://remote.global".to_string())
+        );
+        assert_eq!(up_all_flags.wasmcloud_opts.provider_delay, 500);
+        assert!(up_all_flags.interactive);
+
+        Ok(())
+    }
 }
 
 // #[cfg(test)]

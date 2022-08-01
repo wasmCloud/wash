@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use async_compression::tokio::bufread::GzipDecoder;
+#[cfg(target_family = "unix")]
 use command_group::AsyncCommandGroup;
 use futures::future::join_all;
 use std::collections::HashMap;
@@ -228,7 +229,7 @@ where
     }
     #[cfg(target_family = "windows")]
     {
-        Ok(cmd.spawn())
+        Ok(cmd.spawn()?)
     }
 }
 
