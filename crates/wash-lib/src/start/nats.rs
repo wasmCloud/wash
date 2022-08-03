@@ -18,7 +18,7 @@ pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
 pub(crate) const NATS_SERVER_BINARY: &str = "nats-server.exe";
 
 /// A wrapper around the [ensure_nats_server_for_os_arch_pair] function that uses the
-/// architecture and operating system of the current host.
+/// architecture and operating system of the current host machine.
 ///
 /// # Arguments
 ///
@@ -79,6 +79,115 @@ where
         // NATS already exists, return early
         return Ok(nats_bin_path);
     }
+    // Download NATS tarball
+    let url = nats_url(os, arch, version);
+    let body = match reqwest::get(url).await {
+        Ok(resp) => resp.bytes().await?,
+        Err(e) => return Err(anyhow!("Failed to request NATS release: {:?}", e)),
+    };
+    let cursor = Cursor::new(body);
+    let mut nats_server = Archive::new(Box::new(GzipDecoder::new(cursor)));
+
+    // Look for nats-server binary and only extract that
+    let mut entries = nats_server.entries()?;
+    while let Some(res) = entries.next().await {
+        let mut entry = res.map_err(|_e| {
+            anyhow!(
+                "Failed to retrieve file from archive, ensure NATS server {} exists",
+                version
+            )
+        })?;
+        if let Ok(tar_path) = entry.path() {
+            match tar_path.file_name() {
+                Some(name) if name == OsStr::new(NATS_SERVER_BINARY) => {
+                    // Ensure target directory exists
+                    create_dir_all(&dir).await?;
+                    let mut nats_server = File::create(&nats_bin_path).await?;
+                    // Make nats-server executable
+                    #[cfg(target_family = "unix")]
+                    {
+                        let mut permissions = nats_server.metadata().await?.permissions();
+                        // Read/write/execute for owner and read/execute for others. This is what `cargo install` does
+                        permissions.set_mode(0o755);
+                        nats_server.set_permissions(permissions).await?;
+                    }
+
+                    tokio::io::copy(&mut entry, &mut nats_server).await?;
+                    return Ok(nats_bin_path);
+                }
+                // Ignore LICENSE and README in the NATS tarball
+                _ => (),
+            }
+        }
+    }
+
+    Err(anyhow!(
+        "NATS Server binary could not be installed, please see logs"
+    ))
+}
+
+/// A wrapper around the [download_nats_server_for_os_arch_pair] function that uses the
+/// architecture and operating system of the current host machine.
+///
+/// # Arguments
+///
+/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
+/// * `dir` - Where to download the `nats-server` binary to
+/// # Examples
+///
+/// ```no_run
+/// # #[tokio::main]
+/// # async fn main() {
+/// use wash_lib::start::download_nats_server;
+/// let res = download_nats_server("v2.8.4", "/tmp/").await;
+/// assert!(res.is_ok());
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/nats-server");
+/// # }
+/// ```
+pub async fn download_nats_server<P>(version: &str, dir: P) -> Result<PathBuf>
+where
+    P: AsRef<Path>,
+{
+    download_nats_server_for_os_arch_pair(
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        version,
+        dir,
+    )
+    .await
+}
+
+/// Downloads the specified GitHub release version of nats-server from <https://github.com/nats-io/nats-server/releases/>
+/// and unpacking the binary for a specified OS/ARCH pair to a directory. Returns the path to the NATS executable.
+/// # Arguments
+///
+/// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
+/// * `arch` - Specifies the architecture of the binary to download, e.g. `amd64`
+/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
+/// * `dir` - Where to download the `nats-server` binary to
+/// # Examples
+///
+/// ```no_run
+/// # #[tokio::main]
+/// # async fn main() {
+/// use wash_lib::start::download_nats_server_for_os_arch_pair;
+/// let os = std::env::consts::OS;
+/// let arch = std::env::consts::ARCH;
+/// let res = download_nats_server_for_os_arch_pair(os, arch, "v2.8.4", "/tmp/").await;
+/// assert!(res.is_ok());
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/nats-server");
+/// # }
+/// ```
+pub async fn download_nats_server_for_os_arch_pair<P>(
+    os: &str,
+    arch: &str,
+    version: &str,
+    dir: P,
+) -> Result<PathBuf>
+where
+    P: AsRef<Path>,
+{
+    let nats_bin_path = dir.as_ref().join(NATS_SERVER_BINARY);
     // Download NATS tarball
     let url = nats_url(os, arch, version);
     let body = match reqwest::get(url).await {

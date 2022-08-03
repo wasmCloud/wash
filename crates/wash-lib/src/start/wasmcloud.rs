@@ -22,7 +22,7 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
 pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
 /// A wrapper around the [ensure_wasmcloud_for_os_arch_pair] function that uses the
-/// architecture and operating system of the current host.
+/// architecture and operating system of the current host machine.
 ///
 /// # Arguments
 ///
@@ -84,6 +84,66 @@ where
         return Ok(dir.as_ref().join(WASMCLOUD_HOST_BIN));
     }
     // Download wasmCloud host tarball
+    download_wasmcloud_for_os_arch_pair(os, arch, version, dir).await
+}
+
+/// A wrapper around the [download_wasmcloud_for_os_arch_pair] function that uses the
+/// architecture and operating system of the current host machine.
+///
+/// # Arguments
+///
+/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
+/// * `dir` - Where to unpack the wasmCloud host contents into
+/// # Examples
+///
+/// ```no_run
+/// # #[tokio::main]
+/// # async fn main() {
+/// use wash_lib::start::download_wasmcloud;
+/// let res = download_wasmcloud("v0.55.1", "/tmp/wasmcloud/").await;
+/// assert!(res.is_ok());
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
+/// # }
+/// ```
+pub async fn download_wasmcloud<P>(version: &str, dir: P) -> Result<PathBuf>
+where
+    P: AsRef<Path>,
+{
+    download_wasmcloud_for_os_arch_pair(std::env::consts::OS, std::env::consts::ARCH, version, dir)
+        .await
+}
+
+/// Downloads the specified GitHub release version of the wasmCloud host from <https://github.com/wasmCloud/wasmcloud-otp/releases/>
+/// and unpacking the contents for a specified OS/ARCH pair to a directory. Returns the path to the Elixir executable.
+///
+/// # Arguments
+///
+/// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
+/// * `arch` - Specifies the architecture of the binary to download, e.g. `amd64`
+/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
+/// * `dir` - Where to unpack the wasmCloud host contents into
+/// # Examples
+///
+/// ```no_run
+/// # #[tokio::main]
+/// # async fn main() {
+/// use wash_lib::start::download_wasmcloud_for_os_arch_pair;
+/// let os = std::env::consts::OS;
+/// let arch = std::env::consts::ARCH;
+/// let res = download_wasmcloud_for_os_arch_pair(os, arch, "v0.55.1", "/tmp/wasmcloud/").await;
+/// assert!(res.is_ok());
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
+/// # }
+/// ```
+pub async fn download_wasmcloud_for_os_arch_pair<P>(
+    os: &str,
+    arch: &str,
+    version: &str,
+    dir: P,
+) -> Result<PathBuf>
+where
+    P: AsRef<Path>,
+{
     let url = wasmcloud_url(os, arch, version);
     let body = reqwest::get(url).await?.bytes().await?;
     let cursor = Cursor::new(body);
@@ -144,7 +204,6 @@ where
         )),
     }
 }
-
 /// Helper function to start a wasmCloud host given the path to the elixir release script
 /// /// # Arguments
 ///
