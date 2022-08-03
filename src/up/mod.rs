@@ -518,7 +518,6 @@ mod tests {
             "--cluster-seed",
             "SCAKLQ2FFT4LZUUVQMH6N37US3IZUEVJBUR3V532VV3DAAHSZXPQY6DYIM",
             "--config-service-enabled",
-            "--nats-connect-only",
             "--ctl-credsfile",
             TESTDIR,
             "--ctl-host",
@@ -598,7 +597,7 @@ mod tests {
             Some("SCAKLQ2FFT4LZUUVQMH6N37US3IZUEVJBUR3V532VV3DAAHSZXPQY6DYIM".to_string())
         );
         assert!(up_all_flags.wasmcloud_opts.config_service_enabled);
-        assert!(up_all_flags.nats_opts.connect_only);
+        assert!(!up_all_flags.nats_opts.connect_only);
         assert!(up_all_flags.wasmcloud_opts.ctl_credsfile.is_some());
         assert_eq!(
             up_all_flags.wasmcloud_opts.ctl_host,
