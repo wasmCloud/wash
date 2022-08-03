@@ -12,7 +12,7 @@ fn integration_up_can_start_wasmcloud() {
     let stdout = std::fs::File::create(&path).expect("could not create log file for wash up test");
 
     let mut up_cmd = wash()
-        .args(&["up", "--nats-port", "5893", "-o", "json"])
+        .args(&["up", "--nats-port", "5893", "-o", "json", "--detached"])
         .stdout(stdout)
         .spawn()
         .expect("Could not spawn wash up process");
