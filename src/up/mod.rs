@@ -27,9 +27,9 @@ use config::*;
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct UpCommand {
-    /// Launch NATS and wasmCloud connected to the current terminal, exiting on CTRL+c
-    #[clap(short = 'i', long = "interactive")]
-    pub(crate) interactive: bool,
+    /// Launch NATS and wasmCloud detached from the current terminal as background processes
+    #[clap(short = 'd', long = "detached")]
+    pub(crate) detached: bool,
 
     #[clap(flatten)]
     pub(crate) nats_opts: NatsOpts,
@@ -288,17 +288,17 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
     };
 
-    // Redirect output (which is on stderr) to a log file, or use the terminal for interactive mode
+    // Redirect output (which is on stderr) to a log file in detached mode, or use the terminal
     spinner.update_spinner_message(" Starting wasmCloud ...".to_string());
     let wasmcloud_log_path = install_dir.join("wasmcloud.log");
-    let stderr: Stdio = if cmd.interactive {
-        Stdio::piped()
-    } else {
+    let stderr: Stdio = if cmd.detached {
         tokio::fs::File::create(&wasmcloud_log_path)
             .await?
             .into_std()
             .await
             .into()
+    } else {
+        Stdio::piped()
     };
 
     let host_env = configure_host_env(nats_opts, cmd.wasmcloud_opts).await;
@@ -321,7 +321,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     };
 
     spinner.finish_and_clear();
-    if cmd.interactive {
+    if !cmd.detached {
         run_wasmcloud_interactive(wasmcloud_child, output_kind).await?;
 
         let spinner = Spinner::new(&output_kind);
@@ -360,7 +360,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     } else {
         None
     };
-    if !cmd.interactive {
+    if cmd.detached {
         let url = "http://localhost:4000";
         out_json.insert("wasmcloud_url".to_string(), json!(url));
         out_json.insert("wasmcloud_log".to_string(), json!(wasmcloud_log_path));
@@ -384,7 +384,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
             "\n\n🛑 To stop the wasmCloud host and the NATS server, run:\n{}",
             kill_cmd
         );
-    } else if !cmd.interactive {
+    } else if cmd.detached {
         let kill_cmd = format!("{} stop", wasmcloud_executable.to_string_lossy());
         out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
         let _ = write!(
@@ -533,7 +533,7 @@ mod tests {
             "--enable-structured-logging",
             "--host-seed",
             "SNAP4UVNHVWSBJ5MHAQ6M3RB23S3ALA3O3A4RF25G2FQB5CCZJBBBWCKBY",
-            "--interactive",
+            "--detached",
             "--nats-credsfile",
             TESTDIR,
             "--nats-host",
@@ -671,7 +671,7 @@ mod tests {
             Some("tls://remote.global".to_string())
         );
         assert_eq!(up_all_flags.wasmcloud_opts.provider_delay, 500);
-        assert!(up_all_flags.interactive);
+        assert!(up_all_flags.detached);
 
         Ok(())
     }
