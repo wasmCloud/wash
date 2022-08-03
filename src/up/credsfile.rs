@@ -1,8 +1,9 @@
 //! A temporary module to parse NATS credsfiles and translate
 //! their contents into a JWT and Seed value
+use std::path::Path;
+
 use anyhow::{anyhow, Result};
 use regex::Regex;
-use std::path::Path;
 use tokio::fs::read_to_string;
 
 type Jwt = String;

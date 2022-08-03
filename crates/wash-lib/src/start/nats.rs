@@ -232,7 +232,7 @@ jetstream {{
             self.js_domain.unwrap_or_else(|| "core".to_string()),
             leafnode_section
         );
-        write(path, config).await.map_err(|e| anyhow!(e))
+        write(path, config).await.map_err(anyhow::Error::from)
     }
 }
 

@@ -1,7 +1,6 @@
-use crate::up::WasmcloudOpts;
 use std::collections::HashMap;
 
-use super::{credsfile::parse_credsfile, NatsOpts};
+use crate::up::{credsfile::parse_credsfile, NatsOpts, WasmcloudOpts};
 
 pub(crate) const DOWNLOADS_DIR: &str = "downloads";
 // NATS configuration values
