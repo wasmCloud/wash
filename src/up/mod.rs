@@ -397,6 +397,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     Ok(CommandOutput::new(out_text, out_json))
 }
 
+/// Helper function to start the NATS binary, redirecting output to nats.log
 async fn start_nats(install_dir: &Path, nats_binary: &Path, nats_opts: NatsOpts) -> Result<Child> {
     // Ensure that leaf node remote connection can be established before launching NATS
     let nats_opts = match (
@@ -429,6 +430,7 @@ async fn start_nats(install_dir: &Path, nats_binary: &Path, nats_opts: NatsOpts)
     Ok(start_nats_server(nats_binary, nats_log_file, nats_opts.into()).await?)
 }
 
+/// Helper function to run wasmCloud in interactive mode
 async fn run_wasmcloud_interactive(
     mut wasmcloud_child: Child,
     output_kind: OutputKind,
@@ -470,6 +472,7 @@ async fn run_wasmcloud_interactive(
     Ok(())
 }
 
+/// Helper function to send wasmCloud the `stop` command and wait for it to clean up
 async fn stop_wasmcloud<P>(bin_path: P) -> Result<()>
 where
     P: AsRef<Path>,
