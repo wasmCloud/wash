@@ -64,12 +64,20 @@ pub(crate) struct NatsOpts {
     #[clap(long = "nats-js-domain", env = "NATS_JS_DOMAIN")]
     pub(crate) nats_js_domain: Option<String>,
 
-    /// Optional remote URL of existing NATS infrastructure to extend. Must be provided with `nats-credentials`
-    #[clap(long = "nats-remote-url", env = "NATS_REMOTE_URL")]
+    /// Optional remote URL of existing NATS infrastructure to extend.
+    #[clap(
+        long = "nats-remote-url",
+        env = "NATS_REMOTE_URL",
+        requires = "nats-credsfile"
+    )]
     pub(crate) nats_remote_url: Option<String>,
 
-    /// Optional path to a NATS credentials file to authenticate and extend existing NATS infrastructure. Must be provided with `nats-remote-url`
-    #[clap(long = "nats-credsfile", env = "NATS_CREDSFILE")]
+    /// Optional path to a NATS credentials file to authenticate and extend existing NATS infrastructure.
+    #[clap(
+        long = "nats-credsfile",
+        env = "NATS_CREDSFILE",
+        requires = "nats-remote-url"
+    )]
     pub(crate) nats_credsfile: Option<PathBuf>,
 }
 
@@ -91,7 +99,7 @@ pub(crate) struct WasmcloudOpts {
     #[clap(long = "wasmcloud-version", default_value = WASMCLOUD_HOST_VERSION, env = "WASMCLOUD_VERSION")]
     pub(crate) wasmcloud_version: String,
 
-    /// The prefix used to isolate multiple lattices from each other within the same NATS topic space (default: `default`)
+    /// A lattice prefix is a unique identifier for a lattice, and is frequently used within NATS topics to isolate messages from different lattices
     #[clap(
         short = 'x',
         long = "lattice-prefix",
@@ -100,33 +108,31 @@ pub(crate) struct WasmcloudOpts {
     )]
     pub(crate) lattice_prefix: String,
 
-    ///
+    /// The seed key (a printable 256-bit Ed25519 private key) used by this host to generate it's public key  
     #[clap(long = "host-seed", env = WASMCLOUD_HOST_SEED)]
     pub(crate) host_seed: Option<String>,
 
-    // host, port, seed, timeout, jwt, tls, credsfile
-    /// Defaults to --nats-host if not supplied
+    /// An IP address or DNS name to use to connect to NATS for RPC messages, defaults to the value supplied to --nats-host if not supplied
     #[clap(long = "rpc-host", env = WASMCLOUD_RPC_HOST)]
     pub(crate) rpc_host: Option<String>,
 
-    ///
-    /// Defaults to --nats-port if not supplied
+    /// A port to use to connect to NATS for RPC messages, defaults to the value supplied to --nats-port if not supplied
     #[clap(long = "rpc-port", env = WASMCLOUD_RPC_PORT)]
     pub(crate) rpc_port: Option<u16>,
 
-    ///
-    #[clap(long = "rpc-seed", env = WASMCLOUD_RPC_SEED)]
+    /// A seed nkey to use to authenticate to NATS for RPC messages
+    #[clap(long = "rpc-seed", env = WASMCLOUD_RPC_SEED, requires = "rpc-jwt")]
     pub(crate) rpc_seed: Option<String>,
 
-    ///
+    /// Timeout in milliseconds for all RPC calls
     #[clap(long = "rpc-timeout-ms", default_value = DEFAULT_RPC_TIMEOUT_MS, env = WASMCLOUD_RPC_TIMEOUT_MS)]
     pub(crate) rpc_timeout_ms: u32,
 
-    ///
-    #[clap(long = "rpc-jwt", env = WASMCLOUD_RPC_JWT)]
+    /// A user JWT to use to authenticate to NATS for RPC messages
+    #[clap(long = "rpc-jwt", env = WASMCLOUD_RPC_JWT, requires = "rpc-seed")]
     pub(crate) rpc_jwt: Option<String>,
 
-    ///
+    /// Optional flag to enable host communication with a NATS server over TLS for RPC messages
     #[clap(long = "rpc-tls", env = WASMCLOUD_RPC_TLS)]
     pub(crate) rpc_tls: bool,
 
@@ -134,98 +140,94 @@ pub(crate) struct WasmcloudOpts {
     #[clap(long = "rpc-credsfile", env = WASMCLOUD_RPC_CREDSFILE)]
     pub(crate) rpc_credsfile: Option<PathBuf>,
 
-    ///
-    /// Defaults to --nats-host if not supplied
+    /// An IP address or DNS name to use to connect to NATS for Provider RPC messages, defaults to the value supplied to --nats-host if not supplied
     #[clap(long = "prov-rpc-host", env = WASMCLOUD_PROV_RPC_HOST)]
     pub(crate) prov_rpc_host: Option<String>,
 
-    ///
-    /// Defaults to --nats-port if not supplied
+    /// A port to use to connect to NATS for Provider RPC messages, defaults to the value supplied to --nats-port if not supplied
     #[clap(long = "prov-rpc-port", env = WASMCLOUD_PROV_RPC_PORT)]
     pub(crate) prov_rpc_port: Option<u16>,
 
-    ///
-    #[clap(long = "prov-rpc-seed", env = WASMCLOUD_PROV_RPC_SEED)]
+    /// A seed nkey to use to authenticate to NATS for Provider RPC messages
+    #[clap(long = "prov-rpc-seed", env = WASMCLOUD_PROV_RPC_SEED, requires = "prov-rpc-jwt")]
     pub(crate) prov_rpc_seed: Option<String>,
 
-    ///
+    /// Optional flag to enable host communication with a NATS server over TLS for Provider RPC messages
     #[clap(long = "prov-rpc-tls", env = WASMCLOUD_PROV_RPC_TLS)]
     pub(crate) prov_rpc_tls: bool,
 
-    ///
-    #[clap(long = "prov-rpc-jwt", env = WASMCLOUD_PROV_RPC_JWT)]
+    /// A user JWT to use to authenticate to NATS for Provider RPC messages
+    #[clap(long = "prov-rpc-jwt", env = WASMCLOUD_PROV_RPC_JWT, requires = "prov-rpc-seed")]
     pub(crate) prov_rpc_jwt: Option<String>,
 
     /// Convenience flag for Provider RPC authentication, internally this parses the JWT and seed from the credsfile
     #[clap(long = "prov-rpc-credsfile", env = WASMCLOUD_PROV_RPC_CREDSFILE)]
     pub(crate) prov_rpc_credsfile: Option<PathBuf>,
 
-    ///
-    /// Defaults to --nats-host if not supplied
+    /// An IP address or DNS name to use to connect to NATS for Control Interface (CTL) messages, defaults to the value supplied to --nats-host if not supplied
     #[clap(long = "ctl-host", env = WASMCLOUD_CTL_HOST)]
     pub(crate) ctl_host: Option<String>,
 
-    ///
-    /// Defaults to --nats-port if not supplied
+    /// A port to use to connect to NATS for CTL messages, defaults to the value supplied to --nats-port if not supplied
     #[clap(long = "ctl-port", env = WASMCLOUD_CTL_PORT)]
     pub(crate) ctl_port: Option<u16>,
 
-    ///
-    #[clap(long = "ctl-seed", env = WASMCLOUD_CTL_SEED)]
+    /// A seed nkey to use to authenticate to NATS for CTL messages
+    #[clap(long = "ctl-seed", env = WASMCLOUD_CTL_SEED, requires = "ctl-jwt")]
     pub(crate) ctl_seed: Option<String>,
 
-    ///
-    #[clap(long = "ctl-jwt", env = WASMCLOUD_CTL_JWT)]
+    /// A user JWT to use to authenticate to NATS for CTL messages
+    #[clap(long = "ctl-jwt", env = WASMCLOUD_CTL_JWT, requires = "ctl-seed")]
     pub(crate) ctl_jwt: Option<String>,
 
     /// Convenience flag for CTL authentication, internally this parses the JWT and seed from the credsfile
     #[clap(long = "ctl-credsfile", env = WASMCLOUD_CTL_CREDSFILE)]
     pub(crate) ctl_credsfile: Option<PathBuf>,
 
-    ///
+    /// Optional flag to enable host communication with a NATS server over TLS for CTL messages
     #[clap(long = "ctl-tls", env = WASMCLOUD_CTL_TLS)]
     pub(crate) ctl_tls: bool,
 
-    ///
+    /// The seed key (a printable 256-bit Ed25519 private key) used by this host to sign all invocations
     #[clap(long = "cluster-seed", env = WASMCLOUD_CLUSTER_SEED)]
     pub(crate) cluster_seed: Option<String>,
 
-    ///
+    /// A comma-delimited list of public keys that can be used as issuers on signed invocations
     #[clap(long = "cluster-issuers", env = WASMCLOUD_CLUSTER_ISSUERS)]
     pub(crate) cluster_issuers: Option<Vec<String>>,
 
-    ///
+    /// Delay, in milliseconds, between requesting a provider shut down and forcibly terminating its process
     #[clap(long = "provider-delay", default_value = DEFAULT_PROV_SHUTDOWN_DELAY_MS, env = WASMCLOUD_PROV_SHUTDOWN_DELAY_MS)]
     pub(crate) provider_delay: u32,
 
-    ///
+    /// Determines whether OCI images tagged latest are allowed to be pulled from OCI registries and started
     #[clap(long = "allow-latest", env = WASMCLOUD_OCI_ALLOW_LATEST)]
     pub(crate) allow_latest: bool,
 
-    ///
+    /// A comma-separated list of OCI hosts to which insecure (non-TLS) connections are allowed
     #[clap(long = "allowed-insecure", env = WASMCLOUD_OCI_ALLOWED_INSECURE)]
     pub(crate) allowed_insecure: Option<Vec<String>>,
 
-    /// Defaults to `core`
+    /// Jetstream domain name, configures a host to properly connect to a NATS supercluster, defaults to `core`
     #[clap(long = "wasmcloud-js-domain", env = WASMCLOUD_JS_DOMAIN)]
     pub(crate) wasmcloud_js_domain: Option<String>,
 
-    ///
+    /// Denotes if a wasmCloud host should issue requests to a config service on startup
     #[clap(long = "config-service-enabled", env = WASMCLOUD_CONFIG_SERVICE)]
     pub(crate) config_service_enabled: bool,
 
-    ///
+    /// Enable JSON structured logging from the wasmCloud host
     #[clap(
         long = "enable-structured-logging",
         env = WASMCLOUD_STRUCTURED_LOGGING_ENABLED
     )]
     pub(crate) enable_structured_logging: bool,
 
-    ///
+    /// Controls the verbosity of JSON structured logs from the wasmCloud host
     #[clap(long = "structured-log-level", default_value = DEFAULT_STRUCTURED_LOG_LEVEL, env = WASMCLOUD_STRUCTURED_LOG_LEVEL)]
     pub(crate) structured_log_level: String,
 
-    ///
+    /// Enables IPV6 addressing for wasmCloud hosts
     #[clap(long = "enable-ipv6", env = WASMCLOUD_ENABLE_IPV6)]
     pub(crate) enable_ipv6: bool,
 
