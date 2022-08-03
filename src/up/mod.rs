@@ -228,6 +228,10 @@ pub(crate) struct WasmcloudOpts {
     ///
     #[clap(long = "enable-ipv6", env = WASMCLOUD_ENABLE_IPV6)]
     pub(crate) enable_ipv6: bool,
+
+    /// If enabled, wasmCloud will not be downloaded if it's not installed
+    #[clap(long = "wasmcloud-start-only")]
+    pub(crate) start_only: bool,
 }
 
 pub(crate) async fn handle_command(
@@ -271,9 +275,16 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     };
 
     // Download wasmCloud if not already installed
-    spinner.update_spinner_message(" Downloading wasmCloud ...".to_string());
-    let wasmcloud_executable =
-        ensure_wasmcloud(&cmd.wasmcloud_opts.wasmcloud_version, &install_dir).await?;
+    let wasmcloud_executable = if !cmd.wasmcloud_opts.start_only {
+        spinner.update_spinner_message(" Downloading wasmCloud ...".to_string());
+        ensure_wasmcloud(&cmd.wasmcloud_opts.wasmcloud_version, &install_dir).await?
+    } else {
+        // Ensure we clean up the NATS server if we can't start wasmCloud
+        if let Some(mut process) = nats_process {
+            process.kill().await?;
+        }
+        return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
+    };
 
     // Redirect output (which is on stderr) to a log file, or use the terminal for interactive mode
     spinner.update_spinner_message(" Starting wasmCloud ...".to_string());
