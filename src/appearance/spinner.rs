@@ -20,11 +20,12 @@ impl Spinner {
             OutputKind::Text => {
                 let style = ProgressStyle::default_spinner()
                     .tick_strings(DOTS_12)
-                    .template("{prefix:.bold.dim} {spinner:.bold.dim} {wide_msg:.bold.dim}");
+                    .template("{prefix:.bold.dim} {spinner:.bold.dim} {wide_msg:.bold.dim}")
+                    .expect("bug in spinner style config");
 
                 let spinner = ProgressBar::new_spinner().with_style(style);
 
-                spinner.enable_steady_tick(80);
+                spinner.enable_steady_tick(std::time::Duration::from_millis(200));
                 Self {
                     spinner: Some(spinner),
                 }

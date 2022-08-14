@@ -427,7 +427,7 @@ async fn start_nats(install_dir: &Path, nats_binary: &Path, nats_opts: NatsOpts)
         .await?
         .into_std()
         .await;
-    Ok(start_nats_server(nats_binary, nats_log_file, nats_opts.into()).await?)
+    start_nats_server(nats_binary, nats_log_file, nats_opts.into()).await
 }
 
 /// Helper function to run wasmCloud in interactive mode

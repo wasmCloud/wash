@@ -95,6 +95,7 @@ pub(crate) fn spinner() -> ProgressStyle {
     ProgressStyle::default_spinner()
         .tick_chars("⠁⠂⠄⡀⢀⠠⠐⠈ ")
         .template("{prefix:.bold.dim} {spinner} {wide_msg}")
+        .expect("bug: creating default spinner")
 }
 
 pub(crate) fn process_template_dir(
