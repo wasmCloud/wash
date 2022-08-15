@@ -2215,18 +2215,18 @@ dependencies = [
 
 [[package]]
 name = "pin-project"
-version = "1.0.11"
+version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78203e83c48cffbe01e4a2d35d566ca4de445d79a85372fc64e378bfc812a260"
+checksum = "ad29a609b6bcd67fee905812e544992d216af9d755757c05ed2d0e15a74c6ecc"
 dependencies = [
  "pin-project-internal",
 ]
 
 [[package]]
 name = "pin-project-internal"
-version = "1.0.11"
+version = "1.0.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "710faf75e1b33345361201d36d04e98ac1ed8909151a017ed384700836104c74"
+checksum = "069bdb1e05adc7a8990dce9cc75370895fbe4e3d58b9b73bf1aee56359344a55"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3956,19 +3956,9 @@ checksum = "6598dd0bd3c7d51095ff6531a5b23e02acdc81804e30d8f07afb77b7215a140a"
 
 [[package]]
 name = "wasmbus-macros"
-version = "0.1.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "302b6c170bb936b14fdcc8dd8efd3023258865e093293c4edbb110bd94cdb276"
-dependencies = [
- "proc-macro-error",
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
-name = "wasmbus-macros"
 version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a29134584a9233fe941de00a84ef60006954c48f0b80fca29db54fbb799ac817"
 dependencies = [
  "proc-macro-error",
  "proc-macro2",
@@ -4015,13 +4005,15 @@ dependencies = [
  "tracing-subscriber",
  "uuid 1.1.2",
  "wascap",
- "wasmbus-macros 0.1.10",
+ "wasmbus-macros",
  "weld-codegen 0.4.6",
 ]
 
 [[package]]
 name = "wasmbus-rpc"
 version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "25e3ab2907e44494c1fdcabad972afec0ffcdb9becc13229252cfad8f503941a"
 dependencies = [
  "anyhow",
  "async-nats 0.18.0",
@@ -4053,7 +4045,7 @@ dependencies = [
  "tracing-subscriber",
  "uuid 1.1.2",
  "wascap",
- "wasmbus-macros 0.1.11",
+ "wasmbus-macros",
  "weld-codegen 0.5.0",
 ]
 
@@ -4190,6 +4182,8 @@ dependencies = [
 [[package]]
 name = "weld-codegen"
 version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a116c5da028abf02e952882a998e5aef9dabca49a86569c39904fe341386546"
 dependencies = [
  "Inflector",
  "anyhow",

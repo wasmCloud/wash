@@ -246,7 +246,7 @@ pub(crate) async fn handle_command(
 pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result<CommandOutput> {
     let install_dir = cfg_dir()?.join(DOWNLOADS_DIR);
     create_dir_all(&install_dir).await?;
-    let spinner = Spinner::new(&output_kind);
+    let spinner = Spinner::new(&output_kind)?;
     // Capture listen address to keep the value after the nats_opts are moved
     let nats_listen_address = format!("{}:{}", cmd.nats_opts.nats_host, cmd.nats_opts.nats_port);
 
@@ -324,7 +324,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     if !cmd.detached {
         run_wasmcloud_interactive(wasmcloud_child, output_kind).await?;
 
-        let spinner = Spinner::new(&output_kind);
+        let spinner = Spinner::new(&output_kind)?;
         spinner.update_spinner_message(
             "CTRL+c received, gracefully stopping wasmCloud and NATS...".to_string(),
         );

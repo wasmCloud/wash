@@ -140,7 +140,7 @@ pub(crate) async fn handle_pull(
 ) -> Result<CommandOutput> {
     let image: Reference = cmd.url.parse()?;
 
-    let spinner = Spinner::new(&output_kind);
+    let spinner = Spinner::new(&output_kind)?;
     spinner.update_spinner_message(format!(" Downloading {} ...", image.whole()));
 
     let artifact = pull_artifact(
@@ -337,7 +337,7 @@ pub(crate) async fn handle_push(
         warn!(" Unless an SSL certificate has been installed, pushing to localhost without the --insecure option will fail")
     }
 
-    let spinner = Spinner::new(&output_kind);
+    let spinner = Spinner::new(&output_kind)?;
     spinner.update_spinner_message(format!(" Pushing {} to {} ...", cmd.artifact, cmd.url));
 
     push_artifact(
