@@ -21,12 +21,15 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
 #[cfg(target_family = "windows")]
 pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
+// Any version of wasmCloud under 0.57.0 uses distillery releases and are incompatible
+const MINIMUM_WASMCLOUD_VERSION: &str = "v0.57.0";
+
 /// A wrapper around the [ensure_wasmcloud_for_os_arch_pair] function that uses the
 /// architecture and operating system of the current host machine.
 ///
 /// # Arguments
 ///
-/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
+/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`. Must be at least v0.57.0.
 /// * `dir` - Where to unpack the wasmCloud host contents into
 /// # Examples
 ///
@@ -34,7 +37,7 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 /// # #[tokio::main]
 /// # async fn main() {
 /// use wash_lib::start::ensure_wasmcloud;
-/// let res = ensure_wasmcloud("v0.55.1", "/tmp/wasmcloud/").await;
+/// let res = ensure_wasmcloud("v0.57.0", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -55,7 +58,7 @@ where
 ///
 /// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
 /// * `arch` - Specifies the architecture of the binary to download, e.g. `amd64`
-/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
+/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`. Must be at least v0.57.0.
 /// * `dir` - Where to unpack the wasmCloud host contents into
 /// # Examples
 ///
@@ -65,7 +68,7 @@ where
 /// use wash_lib::start::ensure_wasmcloud_for_os_arch_pair;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = ensure_wasmcloud_for_os_arch_pair(os, arch, "v0.55.1", "/tmp/wasmcloud/").await;
+/// let res = ensure_wasmcloud_for_os_arch_pair(os, arch, "v0.57.0", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -79,6 +82,7 @@ pub async fn ensure_wasmcloud_for_os_arch_pair<P>(
 where
     P: AsRef<Path>,
 {
+    check_version(version)?;
     if is_wasmcloud_installed(&dir).await {
         // wasmCloud already exists, return early
         return Ok(dir.as_ref().join(WASMCLOUD_HOST_BIN));
@@ -100,7 +104,7 @@ where
 /// # #[tokio::main]
 /// # async fn main() {
 /// use wash_lib::start::download_wasmcloud;
-/// let res = download_wasmcloud("v0.55.1", "/tmp/wasmcloud/").await;
+/// let res = download_wasmcloud("v0.57.0", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -130,7 +134,7 @@ where
 /// use wash_lib::start::download_wasmcloud_for_os_arch_pair;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = download_wasmcloud_for_os_arch_pair(os, arch, "v0.55.1", "/tmp/wasmcloud/").await;
+/// let res = download_wasmcloud_for_os_arch_pair(os, arch, "v0.57.0", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -175,6 +179,8 @@ where
                         if file_path.to_string_lossy().contains("bin")
                             || file_name.contains(".sh")
                             || file_name.contains(".bat")
+                            || file_name.eq("iex")
+                            || file_name.eq("elixir")
                             || file_name.eq("wasmcloud_host")
                         {
                             let mut perms = wasmcloud_file.metadata().await?.permissions();
@@ -239,36 +245,36 @@ where
 
     // Windows powershell will ping forever if it's the first command,
     // this is essentially an initialization
-    #[cfg(target_family = "windows")]
-    {
-        let tmp_log = std::env::temp_dir().join("init.log");
-        let init_run = tokio::fs::File::create(&tmp_log).await?.into_std().await;
-        let mut child = tokio::process::Command::new(bin_path.as_ref())
-            .stdout(init_run)
-            .arg("ping")
-            .spawn()?;
-        // Give the wasmcloud initialization a few seconds to unpack
-        for _ in 0..5 {
-            let log_contents = tokio::fs::read_to_string(&tmp_log).await?;
-            if log_contents.is_empty() {
-                // Give just a little bit of time for the startup logs to flow in
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-            } else {
-                tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-                break;
-            }
-        }
-        let _ = child.kill();
-    }
+    //TODO: Mix release version of this
+    // #[cfg(target_family = "windows")]
+    // {
+    //     let tmp_log = std::env::temp_dir().join("init.log");
+    //     let init_run = tokio::fs::File::create(&tmp_log).await?.into_std().await;
+    //     let mut child = tokio::process::Command::new(bin_path.as_ref())
+    //         .stdout(init_run)
+    //         .arg("ping")
+    //         .spawn()?;
+    //     // Give the wasmcloud initialization a few seconds to unpack
+    //     for _ in 0..5 {
+    //         let log_contents = tokio::fs::read_to_string(&tmp_log).await?;
+    //         if log_contents.is_empty() {
+    //             // Give just a little bit of time for the startup logs to flow in
+    //             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    //         } else {
+    //             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+    //             break;
+    //         }
+    //     }
+    //     let _ = child.kill();
+    // }
 
-    match Command::new(bin_path.as_ref()).arg("ping").output().await {
+    match Command::new(bin_path.as_ref()).arg("pid").output().await {
         // If ping was successful, returning "pong", another host is already running
         Ok(output) if output.status.success() => {
-            if String::from_utf8_lossy(&output.stdout).contains("pong") {
-                return Err(anyhow!(
-                    "Another wasmCloud host is already running on this machine"
-                ));
-            }
+            return Err(anyhow!(
+                "Another wasmCloud host is already running on this machine with PID {}",
+                String::from_utf8_lossy(&output.stdout)
+            ));
         }
         _ => (),
     }
@@ -280,7 +286,7 @@ where
         .stderr(stderr)
         .stdout(stdout)
         .envs(&env_vars)
-        .arg("foreground");
+        .arg("start");
 
     #[cfg(target_family = "unix")]
     {
@@ -319,9 +325,23 @@ fn wasmcloud_url(os: &str, arch: &str, version: &str) -> String {
         WASMCLOUD_GITHUB_RELEASE_URL, version, arch, os
     )
 }
+
+/// Helper function to ensure the version of wasmCloud is above the minimum
+/// supported version (v0.57.0) that runs mix releases
+fn check_version(version: &str) -> Result<()> {
+    if version < MINIMUM_WASMCLOUD_VERSION {
+        Err(anyhow!(
+            "wasmCloud version {} is earlier than the minimum supported version of {}",
+            version,
+            MINIMUM_WASMCLOUD_VERSION
+        ))
+    } else {
+        Ok(())
+    }
+}
 #[cfg(test)]
 mod test {
-    use super::{ensure_wasmcloud, wasmcloud_url};
+    use super::{check_version, ensure_wasmcloud, wasmcloud_url};
     use crate::start::{
         ensure_nats_server, ensure_wasmcloud_for_os_arch_pair, is_nats_installed,
         is_wasmcloud_installed, start_nats_server, start_wasmcloud_host, NatsConfig,
@@ -330,7 +350,7 @@ mod test {
     use reqwest::StatusCode;
     use std::{collections::HashMap, env::temp_dir};
     use tokio::fs::{create_dir_all, remove_dir_all};
-    const WASMCLOUD_VERSION: &str = "v0.55.1";
+    const WASMCLOUD_VERSION: &str = "v0.57.0";
 
     #[tokio::test]
     async fn can_request_supported_wasmcloud_urls() {
@@ -370,7 +390,7 @@ mod test {
     }
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
-    const WASMCLOUD_HOST_VERSION: &str = "v0.55.1";
+    const WASMCLOUD_HOST_VERSION: &str = "v0.57.0";
 
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> anyhow::Result<()> {
@@ -473,6 +493,29 @@ mod test {
         host_child.unwrap().kill().await?;
         nats_child.unwrap().kill().await?;
         let _ = remove_dir_all(install_dir).await;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn can_properly_deny_distillery_release_hosts() -> anyhow::Result<()> {
+        // Ensure we allow versions >= 0.57.0
+        assert!(check_version("v1.56.0").is_ok());
+        assert!(check_version("v0.57.0").is_ok());
+        assert!(check_version("v0.57.1").is_ok());
+        assert!(check_version("v0.57.2").is_ok());
+        assert!(check_version("v0.58.0").is_ok());
+
+        // Ensure we deny versions < 0.57.0
+        assert!(check_version("v0.48.0").is_err());
+        assert!(check_version("v0.56.0").is_err());
+        assert!(check_version("v0.12.0").is_err());
+        assert!(check_version("v0.56.999").is_err());
+        if let Err(e) = check_version("v0.56.0") {
+            assert_eq!(e.to_string(), "wasmCloud version v0.56.0 is earlier than the minimum supported version of v0.57.0");
+        } else {
+            panic!("v0.56.0 should be before the minimum version")
+        }
+
         Ok(())
     }
 }

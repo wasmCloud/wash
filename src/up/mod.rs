@@ -477,24 +477,21 @@ async fn stop_wasmcloud<P>(bin_path: P) -> Result<()>
 where
     P: AsRef<Path>,
 {
-    let child = Command::new(bin_path.as_ref())
+    Command::new(bin_path.as_ref())
         .stdout(Stdio::piped())
         .arg("stop")
-        .spawn()?;
+        .output()
+        .await?;
 
-    // Wait for the stop command to return "ok", then exit
-    tokio::spawn(async {
-        if let Some(stdout) = child.stdout {
-            let mut lines = BufReader::new(stdout).lines();
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line == "ok" {
-                    return;
-                }
-            }
-        }
-    })
-    .await?;
+    //TODO: evaluate necessity
+    // Wait for the stop command return "ok", then exit
+    // tokio::spawn(async {
+    //     if let Some(stdout) = child.stdout {
+    //         let mut lines = BufReader::new(stdout).lines();
+    //         while let Ok(Some(_line)) = lines.next_line().await {}
+    //     }
+    // })
+    // .await?;
 
     Ok(())
 }
@@ -580,7 +577,7 @@ mod tests {
             "--wasmcloud-js-domain",
             "domain",
             "--wasmcloud-version",
-            "v0.55.1",
+            "v0.57.0",
             "--lattice-prefix",
             "anotherprefix",
         ])?;
@@ -658,7 +655,7 @@ mod tests {
         );
         assert_eq!(
             up_all_flags.wasmcloud_opts.wasmcloud_version,
-            "v0.55.1".to_string()
+            "v0.57.0".to_string()
         );
         assert_eq!(
             up_all_flags.wasmcloud_opts.lattice_prefix,
