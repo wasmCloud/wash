@@ -78,5 +78,13 @@ Bootstrap a wasmCloud environment in one easy command, supporting both launching
 ### validate
 Perform validation checks on .smithy models, ensuring that your interfaces are valid and usable for codegen and development.
 
+
+## Shell auto-complete
+
+`wash` has support for autocomplete for Zsh, Bash, Fish, and PowerShell.
+See [Completions](./Completions.md) for instructions for installing
+autocomplete for your shell.
+
+
 ## Contributing to wash
 If you have any feature suggestions, find any bugs, or otherwise have a question, please submit an issue [here](https://github.com/wasmcloud/wash/issues/new/choose). Forking & submitting Pull Requests are welcome, and the [good first issue](https://github.com/wasmcloud/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) label is a great way to find a place to start if you're looking to contribute.
