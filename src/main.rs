@@ -150,13 +150,28 @@ async fn main() {
                     let mut map = out.map;
                     map.insert("success".to_string(), json!(true));
                     println!("\n{}", serde_json::to_string_pretty(&map).unwrap());
+                    0
                 }
                 OutputKind::Text => {
                     println!("\n{}", out.text);
+                    // on the first non-error, non-json use of wash, print info about shell completions
+                    match completions::first_run_suggestion() {
+                        Ok(Some(suggestion)) => {
+                            println!("\n{}", suggestion);
+                            0
+                        }
+                        Ok(None) => {
+                            // >1st run,  no message
+                            0
+                        }
+                        Err(e) => {
+                            // error creating first-run token file
+                            eprintln!("\nError: {}", e);
+                            1
+                        }
+                    }
                 }
             }
-
-            0
         }
         Err(e) => {
             let trace = e
