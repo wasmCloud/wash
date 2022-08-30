@@ -5,6 +5,7 @@ use app::AppCliCommand;
 use call::CallCli;
 use claims::ClaimsCliCommand;
 use clap::{Parser, Subcommand};
+use completions::CompletionOpts;
 use ctl::CtlCliCommand;
 use ctx::CtxCommand;
 use drain::DrainSelection;
@@ -24,6 +25,7 @@ mod appearance;
 mod call;
 mod cfg;
 mod claims;
+mod completions;
 mod ctl;
 mod ctx;
 mod drain;
@@ -72,6 +74,9 @@ enum CliCommand {
     /// Invoke a wasmCloud actor
     #[clap(name = "call")]
     Call(CallCli),
+    /// Generate shell completions
+    #[clap(name = "completions")]
+    Completions(CompletionOpts),
     /// Generate and manage JWTs for wasmCloud actors
     #[clap(name = "claims", subcommand)]
     Claims(ClaimsCliCommand),
@@ -112,6 +117,7 @@ enum CliCommand {
 
 #[tokio::main]
 async fn main() {
+    use clap::CommandFactory;
     if env_logger::try_init().is_err() {}
     let cli: Cli = Parser::parse();
 
@@ -121,6 +127,9 @@ async fn main() {
         CliCommand::App(app_cli) => app::handle_command(app_cli, output_kind).await,
         CliCommand::Call(call_cli) => call::handle_command(call_cli.command()).await,
         CliCommand::Claims(claims_cli) => claims::handle_command(claims_cli, output_kind).await,
+        CliCommand::Completions(completions_cli) => {
+            completions::handle_command(completions_cli, Cli::command())
+        }
         CliCommand::Ctl(ctl_cli) => ctl::handle_command(ctl_cli, output_kind).await,
         CliCommand::Ctx(ctx_cli) => ctx::handle_command(ctx_cli).await,
         CliCommand::Drain(drain_cli) => drain::handle_command(drain_cli),
