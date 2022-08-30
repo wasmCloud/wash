@@ -53,6 +53,8 @@ nix run github:wasmCloud/wash
 Invoke a wasmCloud actor directly with a specified payload. This allows you to test actor handlers without the need to manage capabilities and link definitions for a rapid development feedback loop.  
 ### claims
 Generate JWTs for actors, capability providers, accounts and operators. Sign actor modules with claims including capability IDs, expiration, and keys to verify identity. Inspect actor modules to view their claims.
+### completions
+Generate shell completion files for Zsh, Bash, Fish, or PowerShell.
 ### ctl
 Interact directly with a wasmCloud [control-interface](https://github.com/wasmCloud/control-interface), allowing you to imperatively schedule actors, providers and modify configurations of a wasmCloud host. Can be used to interact with local and remote control-interfaces.
 ### ctx
