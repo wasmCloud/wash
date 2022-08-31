@@ -524,6 +524,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "claims"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "70417827831b0ea25b74bb976a601915e8a82a6643fb2fe726b40287f1aa98ef"
+dependencies = [
+ "autocfg",
+]
+
+[[package]]
 name = "clap"
 version = "2.34.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3484,19 +3493,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tokio-test"
-version = "0.4.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53474327ae5e166530d17f2d956afcb4f8a004de581b3cae10f12006bc8163e3"
-dependencies = [
- "async-stream",
- "bytes",
- "futures-core",
- "tokio",
- "tokio-stream",
-]
-
-[[package]]
 name = "tokio-timer"
 version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3992,6 +3988,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-compression",
+ "claims",
  "command-group",
  "config",
  "futures 0.3.23",
@@ -4003,7 +4000,6 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tar",
- "tokio-test",
 ]
 
 [[package]]

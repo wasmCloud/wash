@@ -1,7 +1,7 @@
 use std::{fs, path::PathBuf};
 
+use claims::{assert_err, assert_ok};
 use semver::Version;
-use tokio_test::{assert_err, assert_ok};
 use wash_lib::parser::{
     get_config, ActorConfig, CommonConfig, LanguageConfig, RustConfig, TinyGoConfig, TypeConfig,
 };
