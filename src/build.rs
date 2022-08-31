@@ -154,7 +154,9 @@ pub fn build_rust_actor(
 
     // move the file out into the build/ folder for parity with tinygo and convienience for users.
     let copied_wasm_file = PathBuf::from(format!("build/{}.wasm", common_config.name));
-    fs::create_dir_all(copied_wasm_file.parent().unwrap())?;
+    if let Some(p) = copied_wasm_file.parent() {
+        fs::create_dir_all(p)?;
+    }
     fs::copy(&wasm_file, &copied_wasm_file)?;
     fs::remove_file(&wasm_file)?;
 
@@ -173,7 +175,9 @@ pub fn build_tinygo_actor(
         None => process::Command::new("tinygo"),
     };
 
-    fs::create_dir_all(PathBuf::from(&filename).parent().unwrap())?;
+    if let Some(p) = PathBuf::from(&filename).parent() {
+        fs::create_dir_all(p)?;
+    }
 
     let result = command
         .args([
