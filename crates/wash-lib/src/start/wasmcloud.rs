@@ -21,7 +21,7 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
 #[cfg(target_family = "windows")]
 pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
-// Any version of wasmCloud under 0.57.0 uses distillery releases and are incompatible
+// Any version of wasmCloud under 0.57.0 uses distillery releases and is incompatible
 const MINIMUM_WASMCLOUD_VERSION: &str = "v0.57.0";
 
 /// A wrapper around the [ensure_wasmcloud_for_os_arch_pair] function that uses the
@@ -243,38 +243,17 @@ where
         ));
     }
 
-    // Windows powershell will ping forever if it's the first command,
-    // this is essentially an initialization
-    //TODO: Mix release version of this
-    // #[cfg(target_family = "windows")]
-    // {
-    //     let tmp_log = std::env::temp_dir().join("init.log");
-    //     let init_run = tokio::fs::File::create(&tmp_log).await?.into_std().await;
-    //     let mut child = tokio::process::Command::new(bin_path.as_ref())
-    //         .stdout(init_run)
-    //         .arg("ping")
-    //         .spawn()?;
-    //     // Give the wasmcloud initialization a few seconds to unpack
-    //     for _ in 0..5 {
-    //         let log_contents = tokio::fs::read_to_string(&tmp_log).await?;
-    //         if log_contents.is_empty() {
-    //             // Give just a little bit of time for the startup logs to flow in
-    //             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-    //         } else {
-    //             tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-    //             break;
-    //         }
-    //     }
-    //     let _ = child.kill();
-    // }
-
     match Command::new(bin_path.as_ref()).arg("pid").output().await {
         // If ping was successful, returning "pong", another host is already running
-        Ok(output) if output.status.success() => {
-            return Err(anyhow!(
-                "Another wasmCloud host is already running on this machine with PID {}",
-                String::from_utf8_lossy(&output.stdout)
-            ));
+        Ok(output) => {
+            // Stderr will include :nodedown if no other host is running, otherwise
+            // stdout will contain the PID
+            if !String::from_utf8_lossy(&output.stderr).contains(":nodedown") {
+                return Err(anyhow!(
+                    "Another wasmCloud host is already running on this machine with PID {}",
+                    String::from_utf8_lossy(&output.stdout)
+                ));
+            }
         }
         _ => (),
     }
