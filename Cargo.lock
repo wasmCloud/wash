@@ -3959,6 +3959,7 @@ dependencies = [
  "rmp-serde 1.1.0",
  "rmpv",
  "sanitize-filename",
+ "scopeguard",
  "semver",
  "serde",
  "serde_json",

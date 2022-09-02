@@ -70,6 +70,7 @@ tempfile = "3"
 test-case = "2.2.1"
 test_bin = "0.4.0"
 assert-json-diff = "2.0.1"
+scopeguard = "1.1.0"
 
 [[bin]]
 bench = true
