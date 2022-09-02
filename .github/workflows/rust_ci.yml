@@ -18,7 +18,7 @@ jobs:
       - name: Run Rust check + clippy
         run: make rust-check
   unit_tests:
-    name: Unit tests
+    name: Unit Tests
     strategy:
       matrix:
         os: [ubuntu-latest, windows-2022, macos-11]
@@ -28,7 +28,7 @@ jobs:
       - name: Run unit tests
         run: make test
   integration_tests:
-    name: Integration tests
+    name: Integration Tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
