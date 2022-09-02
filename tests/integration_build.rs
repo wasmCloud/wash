@@ -3,17 +3,21 @@ use anyhow::Result;
 mod common;
 use common::wash;
 use scopeguard::defer;
+use serial_test::serial;
 use std::{
     env::temp_dir,
     fs::{create_dir_all, remove_dir_all},
 };
 
 #[test]
+#[serial]
 fn build_rust_actor() -> Result<()> {
     const SUBFOLDER: &str = "build_rust_actor";
 
     let test_dir = temp_dir().join(SUBFOLDER);
-    remove_dir_all(&test_dir)?;
+    if test_dir.exists() {
+        remove_dir_all(&test_dir)?;
+    }
     create_dir_all(&test_dir)?;
 
     defer! {
@@ -61,11 +65,14 @@ fn build_rust_actor() -> Result<()> {
 }
 
 #[test]
+#[serial]
 fn build_and_sign_rust_actor() -> Result<()> {
     const SUBFOLDER: &str = "build_and_sign_rust_actor";
 
     let test_dir = temp_dir().join(SUBFOLDER);
-    remove_dir_all(&test_dir)?;
+    if test_dir.exists() {
+        remove_dir_all(&test_dir)?;
+    }
     create_dir_all(&test_dir)?;
 
     defer! {
@@ -110,10 +117,14 @@ fn build_and_sign_rust_actor() -> Result<()> {
 }
 
 #[test]
+#[serial]
 fn build_and_sign_tinygo_actor() -> Result<()> {
     const SUBFOLDER: &str = "build_and_sign_tinygo_actor";
+
     let test_dir = temp_dir().join(SUBFOLDER);
-    remove_dir_all(&test_dir)?;
+    if test_dir.exists() {
+        remove_dir_all(&test_dir)?;
+    }
     create_dir_all(&test_dir)?;
 
     defer! {
