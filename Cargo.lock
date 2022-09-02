@@ -3874,6 +3874,7 @@ dependencies = [
  "futures 0.3.23",
  "log",
  "reqwest",
+ "semver",
  "tokio",
  "tokio-stream",
  "tokio-tar",

@@ -22,7 +22,7 @@ pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
 pub(crate) const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
 // Any version of wasmCloud under 0.57.0 uses distillery releases and is incompatible
-const MINIMUM_WASMCLOUD_VERSION: &str = "v0.57.0";
+const MINIMUM_WASMCLOUD_VERSION: &str = "0.57.0";
 
 /// A wrapper around the [ensure_wasmcloud_for_os_arch_pair] function that uses the
 /// architecture and operating system of the current host machine.
@@ -308,14 +308,20 @@ fn wasmcloud_url(os: &str, arch: &str, version: &str) -> String {
 /// Helper function to ensure the version of wasmCloud is above the minimum
 /// supported version (v0.57.0) that runs mix releases
 fn check_version(version: &str) -> Result<()> {
-    if version < MINIMUM_WASMCLOUD_VERSION {
-        Err(anyhow!(
-            "wasmCloud version {} is earlier than the minimum supported version of {}",
+    let version_req = semver::VersionReq::parse(&format!(">={}", MINIMUM_WASMCLOUD_VERSION))?;
+    match semver::Version::parse(version.trim_start_matches('v')) {
+        Ok(parsed_version) if !version_req.matches(&parsed_version) => Err(anyhow!(
+            "wasmCloud version {} is earlier than the minimum supported version of v{}",
             version,
             MINIMUM_WASMCLOUD_VERSION
-        ))
-    } else {
-        Ok(())
+        )),
+        Ok(_ver) => Ok(()),
+        Err(_parse_err) => {
+            log::warn!(
+                "Failed to parse wasmCloud version as a semantic version, download may fail"
+            );
+            Ok(())
+        }
     }
 }
 #[cfg(test)]
@@ -431,6 +437,7 @@ mod test {
                 // Give just a little bit of time for the startup logs to flow in, re-read logs
                 tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
                 let log_contents = tokio::fs::read_to_string(&stderr_log_path).await?;
+                println!("log contents: {:?}", log_contents);
                 assert!(log_contents
                     .contains("Connecting to control interface NATS without authentication"));
                 assert!(
@@ -484,6 +491,8 @@ mod test {
         assert!(check_version("v0.57.1").is_ok());
         assert!(check_version("v0.57.2").is_ok());
         assert!(check_version("v0.58.0").is_ok());
+        assert!(check_version("v0.100.0").is_ok());
+        assert!(check_version("v0.203.0").is_ok());
 
         // Ensure we deny versions < 0.57.0
         assert!(check_version("v0.48.0").is_err());
@@ -495,6 +504,10 @@ mod test {
         } else {
             panic!("v0.56.0 should be before the minimum version")
         }
+
+        // The check_version will allow bad semantic versions, rather than failing immediately
+        assert!(check_version("ungabunga").is_ok());
+        assert!(check_version("v11.1").is_ok());
 
         Ok(())
     }
