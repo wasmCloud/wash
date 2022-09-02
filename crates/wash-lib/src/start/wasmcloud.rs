@@ -233,18 +233,18 @@ where
         .get("PORT")
         .cloned()
         .unwrap_or_else(|| "4000".to_string());
-    if tokio::net::TcpStream::connect(format!("127.0.0.1:{}", port))
+    if tokio::net::TcpStream::connect(format!("localhost:{}", port))
         .await
         .is_ok()
     {
         return Err(anyhow!(
-            "Could not start wasmCloud, a process is already listening on 127.0.0.1:{}",
+            "Could not start wasmCloud, a process is already listening on localhost:{}",
             port
         ));
     }
 
+    #[cfg(target_family = "unix")]
     match Command::new(bin_path.as_ref()).arg("pid").output().await {
-        // If ping was successful, returning "pong", another host is already running
         Ok(output) => {
             // Stderr will include :nodedown if no other host is running, otherwise
             // stdout will contain the PID
@@ -418,6 +418,7 @@ mod test {
             host_env,
         )
         .await;
+        println!("child: {:?}", host_child);
         assert!(host_child.is_ok());
 
         // Give wasmCloud max 15 seconds to start up

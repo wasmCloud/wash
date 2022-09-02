@@ -457,7 +457,7 @@ async fn run_wasmcloud_interactive(
         tokio::spawn(async {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                //TODO(brooksmtownsend): in the future, would be great print these in a prettier format
+                //TODO(brooksmtownsend): in the future, would be great to print these in a prettier format
                 println!("{}", line)
             }
         })
@@ -482,16 +482,6 @@ where
         .arg("stop")
         .output()
         .await?;
-
-    //TODO: evaluate necessity
-    // Wait for the stop command return "ok", then exit
-    // tokio::spawn(async {
-    //     if let Some(stdout) = child.stdout {
-    //         let mut lines = BufReader::new(stdout).lines();
-    //         while let Ok(Some(_line)) = lines.next_line().await {}
-    //     }
-    // })
-    // .await?;
 
     Ok(())
 }
