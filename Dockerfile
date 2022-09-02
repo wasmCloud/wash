@@ -7,6 +7,9 @@ RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v3.15
     unzip protoc-3.15.8-linux-x86_64.zip -d $HOME/.local
 ENV PATH="${HOME}/.local/bin:${PATH}"
 
+COPY crates/wash-lib/Cargo.toml ./crates/wash-lib/Cargo.toml
+COPY crates/wash-lib/src ./crates/wash-lib/src
+
 COPY Cargo.toml .
 COPY Cargo.lock .
 COPY ./src ./src
