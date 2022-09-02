@@ -10,9 +10,9 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  clippy:
-    name: Clippy check
-    runs-on: ubuntu-20.04
+  fmt_clippy:
+    name: Fmt & Clippy Checks
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Run Rust check + clippy
@@ -21,7 +21,7 @@ jobs:
     name: Unit tests
     strategy:
       matrix:
-        os: [ubuntu-20.04, windows-2022, macos-11]
+        os: [ubuntu-latest, windows-2022, macos-11]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
@@ -29,7 +29,7 @@ jobs:
         run: make test
   integration_tests:
     name: Integration tests
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - name: Launch integration test services
