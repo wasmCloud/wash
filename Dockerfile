@@ -1,7 +1,7 @@
 FROM rust:alpine as builder
 
 WORKDIR /build
-RUN apk add --no-cache clang clang-dev libressl-dev ca-certificates musl-dev llvm-dev clang-libs curl gcompat
+RUN apk add --no-cache clang clang-dev libressl-dev ca-certificates musl-dev llvm-dev clang-libs curl gcompat libssh2 openssl
 RUN curl -LO https://github.com/protocolbuffers/protobuf/releases/download/v3.15.8/protoc-3.15.8-linux-x86_64.zip && \
     mkdir -p $HOME/.local/bin && \
     unzip protoc-3.15.8-linux-x86_64.zip -d $HOME/.local
