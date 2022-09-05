@@ -11,7 +11,7 @@ use crate::{
         DEFAULT_NATS_TIMEOUT_MS, DEFAULT_START_ACTOR_TIMEOUT_MS, DEFAULT_START_PROVIDER_TIMEOUT_MS,
     },
 };
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 pub(crate) use output::*;
 use std::{
@@ -664,24 +664,37 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CommandOutput>
                     labels_vec_to_hashmap(cmd.constraints.unwrap_or_default())?,
                 )
                 .await
-                .map_err(convert_error)?;
+                .map_err(convert_error)
+                .with_context(|| {
+                    format!(
+                        "Failed to auction actor {} to hosts in lattice",
+                        &cmd.actor_ref
+                    )
+                })?;
             if suitable_hosts.is_empty() {
                 bail!("No suitable hosts found for actor {}", cmd.actor_ref);
             } else {
-                suitable_hosts[0].host_id.parse()?
+                suitable_hosts[0].host_id.parse().with_context(|| {
+                    format!("Failed to parse host id: {}", suitable_hosts[0].host_id)
+                })?
             }
         }
     };
 
-    let mut receiver = client.events_receiver().await.map_err(convert_error)?;
+    let mut receiver = client
+        .events_receiver()
+        .await
+        .map_err(convert_error)
+        .context("Failed to get lattice event channel")?;
 
     let ack = client
         .start_actor(&host.to_string(), &cmd.actor_ref, cmd.count, None)
         .await
-        .map_err(convert_error)?;
+        .map_err(convert_error)
+        .with_context(|| format!("Failed to start actor: {}", &cmd.actor_ref))?;
 
     if !ack.accepted {
-        bail!("Operation failed: {}", ack.error);
+        bail!("Start actor ack not accepted: {}", ack.error);
     }
 
     if cmd.skip_wait {
@@ -700,14 +713,21 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CommandOutput>
         host.to_string(),
         cmd.actor_ref.clone(),
     )
-    .await?;
+    .await
+    .with_context(|| {
+        format!(
+            "Failed waiting for start event for actor {}",
+            &cmd.actor_ref
+        )
+    })?;
 
     match event {
         FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
             "result",
             format!("Actor {} started on host {}", cmd.actor_ref, host),
         )),
-        FindEventOutcome::Failure(err) => bail!("{}", err),
+        FindEventOutcome::Failure(err) => Err(err)
+            .with_context(|| format!("Never recieved start event for actor {}", &cmd.actor_ref)),
     }
 }
 
