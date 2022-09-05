@@ -174,7 +174,9 @@ async fn main() {
                     }
 
                     if cli.stack_trace {
-                        map.insert("stacktrace".to_string(), json!(e.backtrace().to_string()));
+                        if let Some(bt) = e.backtrace() {
+                            map.insert("stacktrace".to_string(), json!(e.backtrace().to_string()));
+                        }
                     }
 
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
@@ -186,7 +188,10 @@ async fn main() {
                         eprintln!("{}", error_chain.join("\n"));
                     }
                     if cli.stack_trace {
-                        eprintln!("\n{:?}", e.backtrace());
+                        if let Some(bt) = e.backtrace() {
+                            eprintln!("Stack trace:");
+                            eprintln!("\n{:?}", bt);
+                        }
                     }
                 }
             }
