@@ -175,7 +175,7 @@ async fn main() {
 
                     if cli.stack_trace {
                         if let Some(bt) = e.backtrace() {
-                            map.insert("stacktrace".to_string(), json!(e.backtrace().to_string()));
+                            map.insert("stacktrace".to_string(), json!(bt.to_string()));
                         }
                     }
 
