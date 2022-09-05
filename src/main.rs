@@ -59,6 +59,14 @@ struct Cli {
     )]
     pub(crate) output: OutputKind,
 
+    #[clap(
+        short = 't',
+        long = "stack-trace",
+        help = "Print stack trace on error",
+        global = true
+    )]
+    pub(crate) stack_trace: bool,
+
     #[clap(subcommand)]
     command: CliCommand,
 }
@@ -150,7 +158,7 @@ async fn main() {
             0
         }
         Err(e) => {
-            let trace = e
+            let error_chain = e
                 .chain()
                 .skip(1)
                 .map(|e| format!("{}", e))
@@ -161,17 +169,24 @@ async fn main() {
                     let mut map = HashMap::new();
                     map.insert("success".to_string(), json!(false));
                     map.insert("error".to_string(), json!(e.to_string()));
-                    if !trace.is_empty() {
-                        map.insert("trace".to_string(), json!(trace));
+                    if !error_chain.is_empty() {
+                        map.insert("chain".to_string(), json!(error_chain));
+                    }
+
+                    if cli.stack_trace {
+                        map.insert("stacktrace".to_string(), json!(e.backtrace().to_string()));
                     }
 
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
                 }
                 OutputKind::Text => {
                     eprintln!("\n{}", e);
-                    if !trace.is_empty() {
-                        eprintln!("Error trace:");
-                        eprintln!("{}", trace.join("\n"));
+                    if !error_chain.is_empty() {
+                        eprintln!("Error chain:");
+                        eprintln!("{}", error_chain.join("\n"));
+                    }
+                    if cli.stack_trace {
+                        eprintln!("\n{:?}", e.backtrace());
                     }
                 }
             }
