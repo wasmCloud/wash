@@ -174,8 +174,16 @@ async fn main() {
                     }
 
                     if cli.stack_trace {
-                        if let Some(bt) = e.backtrace() {
-                            map.insert("stacktrace".to_string(), json!(bt.to_string()));
+                        match e.backtrace() {
+                            Some(bt) => {
+                                map.insert("stack_trace".to_string(), json!(bt.to_string()));
+                            }
+                            None => {
+                                map.insert(
+                                    "stack_trace".to_string(),
+                                    json!("No stack trace available".to_string()),
+                                );
+                            }
                         }
                     }
 
@@ -188,9 +196,13 @@ async fn main() {
                         eprintln!("{}", error_chain.join("\n"));
                     }
                     if cli.stack_trace {
-                        if let Some(bt) = e.backtrace() {
-                            eprintln!("Stack trace:");
-                            eprintln!("\n{:?}", bt);
+                        match e.backtrace() {
+                            Some(bt) => {
+                                eprintln!("\nStack trace:\n{}", bt);
+                            }
+                            None => {
+                                eprintln!("\nNo stack trace available");
+                            }
                         }
                     }
                 }
