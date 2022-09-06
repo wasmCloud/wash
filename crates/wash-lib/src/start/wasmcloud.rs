@@ -472,19 +472,23 @@ mod test {
         assert!(child_res.is_err());
 
         // Should fail because another erlang wasmcloud_host node is running
-        let mut host_env = HashMap::new();
-        host_env.insert("PORT".to_string(), "4002".to_string());
-        host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
-        host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
-        host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
-        let child_res = start_wasmcloud_host(
-            &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
-            std::process::Stdio::null(),
-            std::process::Stdio::null(),
-            host_env,
-        )
-        .await;
-        assert!(child_res.is_err());
+        #[cfg(target_family = "unix")]
+        // Windows is unable to properly check running erlang nodes with `pid`
+        {
+            let mut host_env = HashMap::new();
+            host_env.insert("PORT".to_string(), "4002".to_string());
+            host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
+            host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
+            host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
+            let child_res = start_wasmcloud_host(
+                &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
+                std::process::Stdio::null(),
+                std::process::Stdio::null(),
+                host_env,
+            )
+            .await;
+            assert!(child_res.is_err());
+        }
 
         host_child.unwrap().kill().await?;
         nats_child.unwrap().kill().await?;
