@@ -150,45 +150,36 @@ async fn main() {
             0
         }
         Err(e) => {
-            let error_chain = e
-                .chain()
-                .skip(1)
-                .map(|e| format!("{}", e))
-                .collect::<Vec<String>>();
-
-            let backtrace = match e.backtrace().to_string() {
-                s if s.is_empty() => None,
-                s if s == "disabled backtrace" => None,
-                s => Some(s),
-            };
-
             match output_kind {
                 OutputKind::Json => {
                     let mut map = HashMap::new();
                     map.insert("success".to_string(), json!(false));
                     map.insert("error".to_string(), json!(e.to_string()));
 
+                    let error_chain = e
+                        .chain()
+                        .skip(1)
+                        .map(|e| format!("{}", e))
+                        .collect::<Vec<String>>();
+
                     if !error_chain.is_empty() {
-                        map.insert("chain".to_string(), json!(error_chain));
+                        map.insert("error_chain".to_string(), json!(error_chain));
                     }
 
+                    let backtrace = match e.backtrace().to_string() {
+                        s if s.is_empty() => None,
+                        s if s == "disabled backtrace" => None,
+                        s => Some(s),
+                    };
+
                     if let Some(bt) = backtrace {
-                        map.insert("stack_trace".to_string(), json!(bt));
+                        map.insert("backtrace".to_string(), json!(bt));
                     }
 
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
                 }
                 OutputKind::Text => {
-                    eprintln!("\n{}", e);
-
-                    if !error_chain.is_empty() {
-                        eprintln!("Error chain:");
-                        eprintln!("{}", error_chain.join("\n"));
-                    }
-
-                    if let Some(bt) = backtrace {
-                        eprintln!("\nStack trace:\n{}", bt);
-                    }
+                    eprintln!("\n{:?}", e);
                 }
             }
             1
