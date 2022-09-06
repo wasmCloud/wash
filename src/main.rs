@@ -59,14 +59,6 @@ struct Cli {
     )]
     pub(crate) output: OutputKind,
 
-    #[clap(
-        short = 't',
-        long = "stack-trace",
-        help = "Print stack trace on error",
-        global = true
-    )]
-    pub(crate) stack_trace: bool,
-
     #[clap(subcommand)]
     command: CliCommand,
 }
@@ -173,18 +165,10 @@ async fn main() {
                         map.insert("chain".to_string(), json!(error_chain));
                     }
 
-                    if cli.stack_trace {
-                        match e.backtrace() {
-                            Some(bt) => {
-                                map.insert("stack_trace".to_string(), json!(bt.to_string()));
-                            }
-                            None => {
-                                map.insert(
-                                    "stack_trace".to_string(),
-                                    json!("No stack trace available".to_string()),
-                                );
-                            }
-                        }
+                    let backtrace = e.backtrace().to_string();
+
+                    if !backtrace.is_empty() {
+                        map.insert("stack_trace".to_string(), json!(backtrace));
                     }
 
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
@@ -195,15 +179,11 @@ async fn main() {
                         eprintln!("Error chain:");
                         eprintln!("{}", error_chain.join("\n"));
                     }
-                    if cli.stack_trace {
-                        match e.backtrace() {
-                            Some(bt) => {
-                                eprintln!("\nStack trace:\n{}", bt);
-                            }
-                            None => {
-                                eprintln!("\nNo stack trace available");
-                            }
-                        }
+
+                    let backtrace = e.backtrace().to_string();
+
+                    if !backtrace.is_empty() {
+                        eprintln!("\nStack trace:\n{}", backtrace);
                     }
                 }
             }
