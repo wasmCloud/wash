@@ -379,12 +379,18 @@ mod test {
 
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> anyhow::Result<()> {
+        #[cfg(target_family = "unix")]
         let install_dir = temp_dir().join("can_download_and_start_wasmcloud");
+        // This is a very specific hack to download wasmCloud to the same _drive_ on Windows
+        // Turns out the mix release .bat file can't support executing an application that's installed
+        // on a different drive (e.g. running wasmCloud on the D: drive from the C: drive), which is what
+        // GitHub Actions does by default (runs in the D: drive, creates temp dir in the C: drive)
+        #[cfg(target_family = "windows")]
+        let install_dir = std::env::current_dir()?.join("can_download_and_start_wasmcloud");
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
         assert!(!is_wasmcloud_installed(&install_dir).await);
 
-        println!("Current directory: {:?}", std::env::current_dir());
         println!("Install dir: {:?}", install_dir);
 
         // Install and start NATS server for this test
@@ -420,19 +426,6 @@ mod test {
         host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
-        #[cfg(target_family = "windows")]
-        let host_child = start_wasmcloud_host(
-            &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
-            Stdio::null(),
-            Stdio::null(),
-            host_env.clone(),
-        )
-        .await;
-        #[cfg(target_family = "windows")]
-        println!("child: {:?}", host_child);
-        println!("trying the first");
-        tokio::time::sleep(std::time::Duration::from_millis(10000)).await;
-        println!("trying the second");
         let host_child = start_wasmcloud_host(
             &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
             stdout_log_file,
@@ -440,7 +433,7 @@ mod test {
             host_env,
         )
         .await;
-        println!("child2: {:?}", host_child);
+        println!("child: {:?}", host_child);
         assert!(host_child.is_ok());
 
         // Give wasmCloud max 15 seconds to start up
