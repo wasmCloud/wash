@@ -37,7 +37,7 @@ const MINIMUM_WASMCLOUD_VERSION: &str = "0.57.0";
 /// # #[tokio::main]
 /// # async fn main() {
 /// use wash_lib::start::ensure_wasmcloud;
-/// let res = ensure_wasmcloud("v0.57.0", "/tmp/wasmcloud/").await;
+/// let res = ensure_wasmcloud("v0.57.1", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -68,7 +68,7 @@ where
 /// use wash_lib::start::ensure_wasmcloud_for_os_arch_pair;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = ensure_wasmcloud_for_os_arch_pair(os, arch, "v0.57.0", "/tmp/wasmcloud/").await;
+/// let res = ensure_wasmcloud_for_os_arch_pair(os, arch, "v0.57.1", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -104,7 +104,7 @@ where
 /// # #[tokio::main]
 /// # async fn main() {
 /// use wash_lib::start::download_wasmcloud;
-/// let res = download_wasmcloud("v0.57.0", "/tmp/wasmcloud/").await;
+/// let res = download_wasmcloud("v0.57.1", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -134,7 +134,7 @@ where
 /// use wash_lib::start::download_wasmcloud_for_os_arch_pair;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = download_wasmcloud_for_os_arch_pair(os, arch, "v0.57.0", "/tmp/wasmcloud/").await;
+/// let res = download_wasmcloud_for_os_arch_pair(os, arch, "v0.57.1", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -333,9 +333,9 @@ mod test {
         NATS_SERVER_BINARY,
     };
     use reqwest::StatusCode;
-    use std::{collections::HashMap, env::temp_dir};
+    use std::{collections::HashMap, env::temp_dir, process::Stdio};
     use tokio::fs::{create_dir_all, remove_dir_all};
-    const WASMCLOUD_VERSION: &str = "v0.57.0";
+    const WASMCLOUD_VERSION: &str = "v0.57.1";
 
     #[tokio::test]
     async fn can_request_supported_wasmcloud_urls() {
@@ -375,7 +375,7 @@ mod test {
     }
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
-    const WASMCLOUD_HOST_VERSION: &str = "v0.57.0";
+    const WASMCLOUD_HOST_VERSION: &str = "v0.57.1";
 
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> anyhow::Result<()> {
@@ -383,6 +383,9 @@ mod test {
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
         assert!(!is_wasmcloud_installed(&install_dir).await);
+
+        println!("Current directory: {:?}", std::env::current_dir());
+        println!("Install dir: {:?}", install_dir);
 
         // Install and start NATS server for this test
         let nats_port = 10004;
@@ -417,6 +420,19 @@ mod test {
         host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
+        #[cfg(target_family = "windows")]
+        let host_child = start_wasmcloud_host(
+            &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
+            Stdio::null(),
+            Stdio::null(),
+            host_env.clone(),
+        )
+        .await;
+        #[cfg(target_family = "windows")]
+        println!("child: {:?}", host_child);
+        println!("trying the first");
+        tokio::time::sleep(std::time::Duration::from_millis(10000)).await;
+        println!("trying the second");
         let host_child = start_wasmcloud_host(
             &install_dir.join(crate::start::wasmcloud::WASMCLOUD_HOST_BIN),
             stdout_log_file,
@@ -424,7 +440,7 @@ mod test {
             host_env,
         )
         .await;
-        println!("child: {:?}", host_child);
+        println!("child2: {:?}", host_child);
         assert!(host_child.is_ok());
 
         // Give wasmCloud max 15 seconds to start up

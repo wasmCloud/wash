@@ -567,7 +567,7 @@ mod tests {
             "--wasmcloud-js-domain",
             "domain",
             "--wasmcloud-version",
-            "v0.57.0",
+            "v0.57.1",
             "--lattice-prefix",
             "anotherprefix",
         ])?;
@@ -645,7 +645,7 @@ mod tests {
         );
         assert_eq!(
             up_all_flags.wasmcloud_opts.wasmcloud_version,
-            "v0.57.0".to_string()
+            "v0.57.1".to_string()
         );
         assert_eq!(
             up_all_flags.wasmcloud_opts.lattice_prefix,

@@ -20,11 +20,16 @@ jobs:
   unit_tests:
     name: Unit Tests
     strategy:
+      fail-fast: false # Ensure we can run the full suite even if one OS fails
       matrix:
         os: [ubuntu-22.04, windows-2022, macos-11]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v2
+      # Ensure the host can find the C++ toolchain when running on Windows
+      - name: Set up Visual Studio C++ toolchain for Windows
+        uses: ilammy/msvc-dev-cmd@v1
+        if: ${{ startswith(matrix.os, 'windows') }}
       - name: Run unit tests
         run: make test
   integration_tests:
