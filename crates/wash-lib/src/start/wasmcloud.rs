@@ -391,8 +391,6 @@ mod test {
         create_dir_all(&install_dir).await?;
         assert!(!is_wasmcloud_installed(&install_dir).await);
 
-        println!("Install dir: {:?}", install_dir);
-
         // Install and start NATS server for this test
         let nats_port = 10004;
         assert!(ensure_nats_server(NATS_SERVER_VERSION, &install_dir)
@@ -433,7 +431,6 @@ mod test {
             host_env,
         )
         .await;
-        println!("child: {:?}", host_child);
         assert!(host_child.is_ok());
 
         // Give wasmCloud max 15 seconds to start up
@@ -446,7 +443,6 @@ mod test {
                 // Give just a little bit of time for the startup logs to flow in, re-read logs
                 tokio::time::sleep(std::time::Duration::from_millis(5000)).await;
                 let log_contents = tokio::fs::read_to_string(&stderr_log_path).await?;
-                println!("log contents: {:?}", log_contents);
                 assert!(log_contents
                     .contains("Connecting to control interface NATS without authentication"));
                 assert!(
