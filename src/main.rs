@@ -156,34 +156,38 @@ async fn main() {
                 .map(|e| format!("{}", e))
                 .collect::<Vec<String>>();
 
+            let backtrace = match e.backtrace().to_string() {
+                s if s.is_empty() => None,
+                s if s == "disabled backtrace" => None,
+                s => Some(s),
+            };
+
             match output_kind {
                 OutputKind::Json => {
                     let mut map = HashMap::new();
                     map.insert("success".to_string(), json!(false));
                     map.insert("error".to_string(), json!(e.to_string()));
+
                     if !error_chain.is_empty() {
                         map.insert("chain".to_string(), json!(error_chain));
                     }
 
-                    let backtrace = e.backtrace().to_string();
-
-                    if !backtrace.is_empty() {
-                        map.insert("stack_trace".to_string(), json!(backtrace));
+                    if let Some(bt) = backtrace {
+                        map.insert("stack_trace".to_string(), json!(bt));
                     }
 
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
                 }
                 OutputKind::Text => {
                     eprintln!("\n{}", e);
+
                     if !error_chain.is_empty() {
                         eprintln!("Error chain:");
                         eprintln!("{}", error_chain.join("\n"));
                     }
 
-                    let backtrace = e.backtrace().to_string();
-
-                    if !backtrace.is_empty() {
-                        eprintln!("\nStack trace:\n{}", backtrace);
+                    if let Some(bt) = backtrace {
+                        eprintln!("\nStack trace:\n{}", bt);
                     }
                 }
             }
