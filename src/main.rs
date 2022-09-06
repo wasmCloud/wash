@@ -166,14 +166,10 @@ async fn main() {
                         map.insert("error_chain".to_string(), json!(error_chain));
                     }
 
-                    let backtrace = match e.backtrace().to_string() {
-                        s if s.is_empty() => None,
-                        s if s == "disabled backtrace" => None,
-                        s => Some(s),
-                    };
+                    let backtrace = e.backtrace().to_string();
 
-                    if let Some(bt) = backtrace {
-                        map.insert("backtrace".to_string(), json!(bt));
+                    if !backtrace.is_empty() && backtrace != "disabled backtrace" {
+                        map.insert("backtrace".to_string(), json!(backtrace));
                     }
 
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
