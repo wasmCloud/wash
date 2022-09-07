@@ -477,11 +477,16 @@ async fn stop_wasmcloud<P>(bin_path: P) -> Result<()>
 where
     P: AsRef<Path>,
 {
-    Command::new(bin_path.as_ref())
+    if !Command::new(bin_path.as_ref())
         .stdout(Stdio::piped())
         .arg("stop")
         .output()
-        .await?;
+        .await?
+        .status
+        .success()
+    {
+        log::warn!("wasmCloud exited with a non-zero exit status, processes may need to be cleaned up manually")
+    }
 
     Ok(())
 }
