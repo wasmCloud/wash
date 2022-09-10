@@ -1,4 +1,4 @@
-name: Rust
+name: Rust CI
 
 on:
   push:
@@ -10,18 +10,29 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  rust_check:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-20.04, windows-2022, macos-11]
-    runs-on: ${{ matrix.os }}
+  fmt_clippy:
+    name: Fmt & Clippy Checks
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v2
       - name: Run Rust check + clippy
         run: make rust-check
+  unit_tests:
+    name: Unit Tests
+    strategy:
+      fail-fast: false # Ensure we can run the full suite even if one OS fails
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-11]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
       - name: Run unit tests
         run: make test
+  integration_tests:
+    name: Integration Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
       - name: Setup tinygo
         if: ${{ startswith(matrix.os, 'ubuntu') }}
         run: |
@@ -31,10 +42,8 @@ jobs:
         if: ${{ startswith(matrix.os, 'ubuntu') }}
         run: rustup target add wasm32-unknown-unknown
       - name: Launch integration test services
-        if: ${{ startswith(matrix.os, 'ubuntu') }}
         uses: sudo-bot/action-docker-compose@latest
         with:
           cli-args: "-f ./tools/docker-compose.yml up --detach"
       - name: Run integration tests
-        if: ${{ startswith(matrix.os, 'ubuntu') }}
         run: cargo test --no-fail-fast --bin wash --test "integration*" -- --nocapture
