@@ -34,12 +34,10 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Setup tinygo
-        if: ${{ startswith(matrix.os, 'ubuntu') }}
         run: |
           wget https://github.com/tinygo-org/tinygo/releases/download/v0.23.0/tinygo_0.23.0_amd64.deb
           sudo dpkg -i tinygo_0.23.0_amd64.deb
       - name: Add wasm32-unknown-unknown
-        if: ${{ startswith(matrix.os, 'ubuntu') }}
         run: rustup target add wasm32-unknown-unknown
       - name: Launch integration test services
         uses: sudo-bot/action-docker-compose@latest
