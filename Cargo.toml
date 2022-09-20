@@ -16,7 +16,7 @@ maintenance = {status = "actively-developed"}
 
 [dependencies]
 anyhow = {version = "1.0.51", features = ["backtrace"]}
-async-nats = "0.19.0"
+async-nats = "0.18.0"
 atelier_core = "0.2"
 bytes = "1.0"
 cargo_atelier = "0.2"
