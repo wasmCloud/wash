@@ -198,17 +198,6 @@ fn validate(command: &NewCliCommand) -> Result<()> {
     Ok(())
 }
 
-/*
-pub(crate) fn any_error(s: &str, e: anyhow::Error) -> anyhow::Error {
-    anyhow!(
-        "{} {} {}",
-        emoji::ERROR,
-        style(s).bold().red(),
-        style(e).bold().red()
-    )
-}
- */
-
 pub(crate) fn any_msg(s1: &str, s2: &str) -> anyhow::Error {
     anyhow!(
         "{} {} {}",
