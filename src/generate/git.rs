@@ -42,10 +42,10 @@ pub fn clone_git_template(opts: CloneTemplate) -> Result<()> {
 
     run_cmd! ( git clone $repo_url --depth 1 --no-checkout . )?;
     if let Some(sub_folder) = opts.sub_folder {
-        run_cmd! ( git sparse-checkout set "$sub_folder" )?;
+        run_cmd! ( git sparse-checkout set $sub_folder )?;
     }
     let branch = opts.repo_branch;
-    run_cmd! ( git checkout "$branch" )?;
+    run_cmd! ( git checkout $branch )?;
     std::env::set_current_dir(cwd)?;
     Ok(())
 }
