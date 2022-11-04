@@ -347,21 +347,18 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     out_json.insert("success".to_string(), json!(true));
     out_text.push_str("🛁 wash up completed successfully");
 
-    if nats_bin.is_some() {
-        out_json.insert("nats_url".to_string(), json!(nats_listen_address));
-        let _ = write!(
-            out_text,
-            "\n🕸  NATS is running in the background at http://{}",
-            nats_listen_address
-        );
-    };
-
     if cmd.detached {
         let url = "http://localhost:4000";
         out_json.insert("wasmcloud_url".to_string(), json!(url));
         out_json.insert("wasmcloud_log".to_string(), json!(wasmcloud_log_path));
         out_json.insert("kill_cmd".to_string(), json!("wash down"));
+        out_json.insert("nats_url".to_string(), json!(nats_listen_address));
 
+        let _ = write!(
+            out_text,
+            "\n🕸  NATS is running in the background at http://{}",
+            nats_listen_address
+        );
         let _ = write!(
             out_text,
             "\n🌐 The wasmCloud dashboard is running at {}\n📜 Logs for the host are being written to {}",
