@@ -9,8 +9,6 @@ use std::{
 #[test]
 fn integration_up_can_start_wasmcloud_and_actor() -> Result<(), anyhow::Error> {
     let dir = test_dir_with_subfolder("can_start_wasmcloud");
-    //let path = dir.join("washup.log");
-    //let stdout = std::fs::File::create(&path).expect("could not create log file for wash up test");
     let wash = env!("CARGO_BIN_EXE_wash");
 
     let mut proc = spawn_with_output!( $wash up --nats-port 5893 -o json --detached )?;
