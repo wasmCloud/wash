@@ -1,3 +1,6 @@
+use anyhow::{anyhow, Result};
+use clap::Parser;
+use serde_json::json;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::Path;
@@ -7,28 +10,25 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-
-use crate::appearance::spinner::Spinner;
-use crate::cfg::cfg_dir;
-use crate::util::{CommandOutput, OutputKind};
-use anyhow::{anyhow, Result};
-use clap::Parser;
-use serde_json::json;
 use tokio::fs::create_dir_all;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
     process::{Child, Command},
 };
 
+use crate::appearance::spinner::Spinner;
+use crate::cfg::cfg_dir;
+use crate::util::{CommandOutput, OutputKind};
 use wash_lib::start::*;
 mod config;
 mod credsfile;
+pub use config::DOWNLOADS_DIR;
 use config::*;
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct UpCommand {
     /// Launch NATS and wasmCloud detached from the current terminal as background processes
-    #[clap(short = 'd', long = "detached")]
+    #[clap(short = 'd', long = "detached", alias = "detach")]
     pub(crate) detached: bool,
 
     #[clap(flatten)]
@@ -348,7 +348,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     out_json.insert("success".to_string(), json!(true));
     out_text.push_str("🛁 wash up completed successfully");
 
-    let nats_pid = if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
+    if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
         out_json.insert("nats_pid".to_string(), json!(pid));
         out_json.insert("nats_url".to_string(), json!(nats_listen_address));
         let _ = write!(
@@ -356,42 +356,20 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
             "\n🕸  NATS is running in the background at http://{}",
             nats_listen_address
         );
-        Some(pid)
-    } else {
-        None
     };
+
     if cmd.detached {
         let url = "http://localhost:4000";
         out_json.insert("wasmcloud_url".to_string(), json!(url));
         out_json.insert("wasmcloud_log".to_string(), json!(wasmcloud_log_path));
+        out_json.insert("kill_cmd".to_string(), json!("wash down"));
 
         let _ = write!(
             out_text,
             "\n🌐 The wasmCloud dashboard is running at {}\n📜 Logs for the host are being written to {}",
             url, wasmcloud_log_path.to_string_lossy()
         );
-    }
-
-    if let Some(pid) = nats_pid {
-        let kill_cmd = format!(
-            "{} stop; kill {}",
-            wasmcloud_executable.to_string_lossy(),
-            pid,
-        );
-        out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-        let _ = write!(
-            out_text,
-            "\n\n🛑 To stop the wasmCloud host and the NATS server, run:\n{}",
-            kill_cmd
-        );
-    } else if cmd.detached {
-        let kill_cmd = format!("{} stop", wasmcloud_executable.to_string_lossy());
-        out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-        let _ = write!(
-            out_text,
-            "\n\n🛑 To stop the wasmCloud host, run:\n{}",
-            kill_cmd
-        );
+        let _ = write!(out_text, "\n\n🛑 To stop wasmCloud, run \"wash down\"");
     }
 
     Ok(CommandOutput::new(out_text, out_json))
