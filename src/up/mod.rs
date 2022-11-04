@@ -13,11 +13,13 @@ use std::sync::{
 use tokio::fs::create_dir_all;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    process::{Child, Command},
+    process::Child,
 };
 
 use crate::appearance::spinner::Spinner;
 use crate::cfg::cfg_dir;
+use crate::down::stop_nats;
+use crate::down::stop_wasmcloud;
 use crate::util::{CommandOutput, OutputKind};
 use wash_lib::start::*;
 mod config;
@@ -253,7 +255,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     // Avoid downloading + starting NATS if the user already runs their own server. Ignore connect_only
     // if this server has a remote and credsfile as we have to start a leafnode in that scenario
     let nats_opts = cmd.nats_opts.clone();
-    let mut nats_process = if !cmd.nats_opts.connect_only
+    let nats_bin = if !cmd.nats_opts.connect_only
         || cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some()
     {
         // Download NATS if not already installed
@@ -261,7 +263,8 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         let nats_binary = ensure_nats_server(&cmd.nats_opts.nats_version, &install_dir).await?;
 
         spinner.update_spinner_message(" Starting NATS ...".to_string());
-        Some(start_nats(&install_dir, &nats_binary, cmd.nats_opts.clone()).await?)
+        start_nats(&install_dir, &nats_binary, cmd.nats_opts.clone()).await?;
+        Some(nats_binary)
     } else {
         // If we can connect to NATS, return None as we aren't managing the child process.
         // Otherwise, exit with error since --nats-connect-only was specified
@@ -282,8 +285,8 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         ensure_wasmcloud(&cmd.wasmcloud_opts.wasmcloud_version, &install_dir).await?
     } else {
         // Ensure we clean up the NATS server if we can't start wasmCloud
-        if let Some(mut process) = nats_process {
-            process.kill().await?;
+        if nats_bin.is_some() {
+            stop_nats(install_dir).await?;
         }
         return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
     };
@@ -313,9 +316,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         Ok(child) => child,
         Err(e) => {
             // Ensure we clean up the NATS server if we can't start wasmCloud
-            if let Some(mut process) = nats_process {
-                process.kill().await?;
-            }
+            stop_nats(install_dir).await?;
             return Err(e);
         }
     };
@@ -330,14 +331,12 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         );
 
         // Terminate wasmCloud and NATS processes
-        stop_wasmcloud(wasmcloud_executable.clone()).await?;
-
-        if let Some(process) = nats_process.as_mut() {
-            match process.try_wait() {
-                Ok(Some(_)) => (),
-                _ => process.kill().await?,
-            }
+        let output = stop_wasmcloud(wasmcloud_executable.clone()).await?;
+        if !output.status.success() {
+            log::warn!("wasmCloud exited with a non-zero exit status, processes may need to be cleaned up manually")
         }
+
+        stop_nats(install_dir).await?;
 
         spinner.finish_and_clear();
     }
@@ -348,8 +347,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     out_json.insert("success".to_string(), json!(true));
     out_text.push_str("🛁 wash up completed successfully");
 
-    if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
-        out_json.insert("nats_pid".to_string(), json!(pid));
+    if nats_bin.is_some() {
         out_json.insert("nats_url".to_string(), json!(nats_listen_address));
         let _ = write!(
             out_text,
@@ -450,25 +448,6 @@ async fn run_wasmcloud_interactive(
     if let Some(handle) = handle {
         handle.abort()
     };
-    Ok(())
-}
-
-/// Helper function to send wasmCloud the `stop` command and wait for it to clean up
-async fn stop_wasmcloud<P>(bin_path: P) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    if !Command::new(bin_path.as_ref())
-        .stdout(Stdio::piped())
-        .arg("stop")
-        .output()
-        .await?
-        .status
-        .success()
-    {
-        log::warn!("wasmCloud exited with a non-zero exit status, processes may need to be cleaned up manually")
-    }
-
     Ok(())
 }
 
