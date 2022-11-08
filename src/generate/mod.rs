@@ -16,6 +16,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tempfile::TempDir;
+use tokio::process::Command;
 use weld_codegen::render::Renderer;
 
 use crate::{appearance::emoji, util::CommandOutput};
@@ -125,7 +126,7 @@ pub(crate) struct NewProjectArgs {
     pub(crate) no_git_init: bool,
 }
 
-pub(crate) fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
+pub(crate) async fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
     validate(&command)?;
 
     let kind = ProjectKind::from(&command);
@@ -153,7 +154,7 @@ pub(crate) fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
         cmd
     };
 
-    make_project(kind, cmd)?;
+    make_project(kind, cmd).await?;
     Ok(CommandOutput::default())
 }
 
@@ -211,7 +212,7 @@ pub(crate) fn any_warn(s: &str) -> anyhow::Error {
     anyhow!("{} {}", emoji::WARN, style(s).bold().red())
 }
 
-pub(crate) fn make_project(
+pub(crate) async fn make_project(
     kind: ProjectKind,
     args: NewProjectArgs,
 ) -> std::result::Result<(), anyhow::Error> {
@@ -219,7 +220,7 @@ pub(crate) fn make_project(
 
     // load optional values file
     let mut values = if let Some(values_file) = &args.values {
-        let bytes = fs::read(&values_file)
+        let bytes = fs::read(values_file)
             .with_context(|| format!("reading values file {}", &values_file.display()))?;
         let tm = toml::from_slice::<TomlMap>(&bytes)
             .with_context(|| format!("parsing values file {}", &values_file.display()))?;
@@ -246,7 +247,7 @@ pub(crate) fn make_project(
 
     // select the template from args or a favorite file,
     // and copy its contents into a local folder
-    let (template_base_dir, template_folder) = prepare_local_template(&args)?;
+    let (template_base_dir, template_folder) = prepare_local_template(&args).await?;
 
     // read configuration file `project-generate.toml` from template.
     let project_config_path = fs::canonicalize(
@@ -302,10 +303,18 @@ pub(crate) fn make_project(
     .map_err(|e| any_msg("generating project from templates:", &e.to_string()))?;
 
     if !args.no_git_init {
-        cmd_lib::run_cmd! {
-            cd $project_dir ;
-            git init --initial-branch main . ;
-        }?;
+        let cmd_out = Command::new("git")
+            .args(["init", "--initial-branch", "main", "."])
+            .current_dir(tokio::fs::canonicalize(&project_dir).await?)
+            .spawn()?
+            .wait_with_output()
+            .await?;
+        if !cmd_out.status.success() {
+            return Err(anyhow!(
+                "git init error: {}",
+                String::from_utf8_lossy(&cmd_out.stderr)
+            ));
+        }
     }
 
     pbar.clear().ok();
@@ -365,7 +374,7 @@ where
     }
 }
 
-pub(crate) fn prepare_local_template(args: &NewProjectArgs) -> Result<(TempDir, PathBuf)> {
+pub(crate) async fn prepare_local_template(args: &NewProjectArgs) -> Result<(TempDir, PathBuf)> {
     let (template_base_dir, template_folder) = match (&args.git, &args.path) {
         (Some(url), None) => {
             let template_base_dir = tempfile::tempdir()
@@ -375,7 +384,8 @@ pub(crate) fn prepare_local_template(args: &NewProjectArgs) -> Result<(TempDir, 
                 repo_url: url.to_string(),
                 sub_folder: args.subfolder.clone(),
                 repo_branch: args.branch.clone().unwrap_or_else(|| "main".to_string()),
-            })?;
+            })
+            .await?;
             let template_folder = resolve_template_dir(&template_base_dir, args)?;
             (template_base_dir, template_folder)
         }
@@ -444,7 +454,7 @@ fn copy_path_template_into_temp(args: &NewProjectArgs) -> Result<TempDir> {
     if !path.is_dir() {
         return Err(any_msg(&format!("template path {} not found - please try another template or fix the favorites path", &path.display()),""));
     }
-    copy_dir_all(&path, &path_clone_dir.path())
+    copy_dir_all(path, path_clone_dir.path())
         .with_context(|| format!("copying template project from {}", &path.display()))?;
     Ok(path_clone_dir)
 }
@@ -499,7 +509,7 @@ pub(crate) fn resolve_project_dir(name: &ProjectName) -> Result<PathBuf> {
 
     let project_dir = std::env::current_dir()
         .unwrap_or_else(|_e| ".".into())
-        .join(&dir_name);
+        .join(dir_name);
 
     if project_dir.exists() {
         Err(any_msg("Target directory already exists.", "aborting!"))

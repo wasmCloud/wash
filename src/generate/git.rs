@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
-use cmd_lib::run_cmd;
 use std::path::PathBuf;
+use tokio::process::Command;
 
 pub struct CloneTemplate {
     /// temp folder where project will be cloned - deleted after 'wash new' completes
@@ -16,7 +16,7 @@ pub struct CloneTemplate {
     pub repo_branch: String,
 }
 
-pub fn clone_git_template(opts: CloneTemplate) -> Result<()> {
+pub async fn clone_git_template(opts: CloneTemplate) -> Result<()> {
     let cwd =
         std::env::current_dir().map_err(|e| anyhow!("could not get current directory: {}", e))?;
     std::env::set_current_dir(&opts.clone_tmp).map_err(|e| {
@@ -40,12 +40,43 @@ pub fn clone_git_template(opts: CloneTemplate) -> Result<()> {
         }
     };
 
-    run_cmd! ( git clone $repo_url --depth 1 --no-checkout . )?;
-    if let Some(sub_folder) = opts.sub_folder {
-        run_cmd! ( git sparse-checkout set $sub_folder )?;
+    let cmd_out = Command::new("git")
+        .args(["clone", &repo_url, "--depth", "1", "--no-checkout", "."])
+        .spawn()?
+        .wait_with_output()
+        .await?;
+    if !cmd_out.status.success() {
+        return Err(anyhow!(
+            "git clone error: {}",
+            String::from_utf8_lossy(&cmd_out.stderr)
+        ));
     }
-    let branch = opts.repo_branch;
-    run_cmd! ( git checkout $branch )?;
+
+    if let Some(sub_folder) = opts.sub_folder {
+        let cmd_out = Command::new("git")
+            .args(["sparse-checkout", "set", &sub_folder])
+            .spawn()?
+            .wait_with_output()
+            .await?;
+        if !cmd_out.status.success() {
+            return Err(anyhow!(
+                "git sparse-checkout set error: {}",
+                String::from_utf8_lossy(&cmd_out.stderr)
+            ));
+        }
+    }
+
+    let cmd_out = Command::new("git")
+        .args(["checkout", &opts.repo_branch])
+        .spawn()?
+        .wait_with_output()
+        .await?;
+    if !cmd_out.status.success() {
+        return Err(anyhow!(
+            "git checkout error: {}",
+            String::from_utf8_lossy(&cmd_out.stderr)
+        ));
+    }
     std::env::set_current_dir(cwd)?;
     Ok(())
 }
