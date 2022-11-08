@@ -1107,7 +1107,7 @@ async fn ctl_client_from_opts(
     let auction_timeout_ms = auction_timeout_ms.unwrap_or(opts.timeout_ms);
 
     let nc =
-        crate::util::nats_client_from_opts(&ctl_host, &ctl_port, ctl_jwt, ctl_seed, ctl_credsfile)
+        wash_lib::natsclient::nats_client_from_opts(&ctl_host, &ctl_port, ctl_jwt, ctl_seed, ctl_credsfile)
             .await?;
 
     let ctl_client = if let Ok(topic_prefix) = std::env::var("WASMCLOUD_CTL_TOPIC_PREFIX") {

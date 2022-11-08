@@ -150,6 +150,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-nats"
+version = "0.21.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5788cd6eb396656c504ad4b2b7fd384715a4c188c03490a9d68f75931a1b182"
+dependencies = [
+ "base64 0.13.0",
+ "base64-url",
+ "bytes",
+ "futures 0.3.24",
+ "http",
+ "itertools",
+ "itoa",
+ "lazy_static",
+ "nkeys",
+ "nuid",
+ "once_cell",
+ "regex",
+ "ring",
+ "rustls-native-certs 0.6.2",
+ "rustls-pemfile 0.3.0",
+ "serde",
+ "serde_json",
+ "serde_nanos",
+ "serde_repr",
+ "subslice",
+ "time 0.3.14",
+ "tokio",
+ "tokio-rustls",
+ "tokio-util 0.7.4",
+ "tracing",
+ "url 2.3.0",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3965,7 +3999,7 @@ version = "0.13.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
- "async-nats",
+ "async-nats 0.18.0",
  "atelier_core 0.2.22",
  "bytes",
  "cargo_atelier",
@@ -4021,15 +4055,17 @@ dependencies = [
 
 [[package]]
 name = "wash-lib"
-version = "0.3.1"
+version = "0.3.2"
 dependencies = [
  "anyhow",
  "async-compression",
+ "async-nats 0.21.0",
  "claims",
  "command-group",
  "config",
  "futures 0.3.24",
  "log",
+ "nkeys",
  "reqwest",
  "semver",
  "serde",
@@ -4136,7 +4172,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84264f6ad19b3ed5802bbd4abfda11736a3b575d2a12f66d707fecec88c2efaf"
 dependencies = [
  "anyhow",
- "async-nats",
+ "async-nats 0.18.0",
  "async-trait",
  "atty",
  "base64 0.13.0",
@@ -4178,7 +4214,7 @@ version = "0.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55b5cfe6639a35e90871dee70673a11d70726ce2a17eb8114c07962df75f3ace"
 dependencies = [
- "async-nats",
+ "async-nats 0.18.0",
  "cloudevents-sdk",
  "futures 0.3.24",
  "rmp-serde",
@@ -4213,7 +4249,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5489a3747d59c4f03f595fad4a10d544d313701a9406aee92c2619dddbfb9a59"
 dependencies = [
  "anyhow",
- "async-nats",
+ "async-nats 0.18.0",
  "async-trait",
  "base64 0.13.0",
  "futures 0.3.24",

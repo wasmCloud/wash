@@ -8,3 +8,6 @@ pub mod start;
 
 #[cfg(feature = "parser")]
 pub mod parser;
+
+pub mod lattice_artifacts;
+pub mod natsclient;
