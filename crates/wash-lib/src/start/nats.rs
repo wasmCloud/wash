@@ -493,14 +493,14 @@ mod test {
 
         config.write_to_path(creds.clone()).await?;
 
-        let mut credsfile = tokio::fs::File::open(creds).await?;
+        let mut credsfile = tokio::fs::File::open(creds.clone()).await?;
         let mut contents = String::new();
         credsfile.read_to_string(&mut contents).await?;
 
-        #[cfg(target_family = "unix")]
-        assert_eq!(contents, "\njetstream {\n    domain=core\n}\n\nleafnodes {\n    remotes = [\n        {\n            url: \"connect.ngs.global\"\n            credentials: \"/Users/brooks/nats.creds\"\n        }\n    ]\n}\n                \n");
+        assert_eq!(contents, format!("\njetstream {{\n    domain={}\n}}\n\nleafnodes {{\n    remotes = [\n        {{\n            url: \"{}\"\n            credentials: {:?}\n        }}\n    ]\n}}\n                \n", "core", "connect.ngs.global", creds.to_string_lossy()));
+        // A simple check to ensure we are properly escaping quotes, remember \\\\ == \\ after escape
         #[cfg(target_family = "windows")]
-        assert_eq!(contents, "\njetstream {\n    domain=core\n}\n\nleafnodes {\n    remotes = [\n        {\n            url: \"connect.ngs.global\"\n            credentials: \"C:\\\\Users\\\\brooks\\\\nats.creds\"\n        }\n    ]\n}\n                \n");
+        assert!(creds.to_string_lossy().contains("\\\\"));
 
         let _ = remove_dir_all(install_dir).await;
         Ok(())
