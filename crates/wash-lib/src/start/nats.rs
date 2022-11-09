@@ -278,13 +278,13 @@ leafnodes {{
     remotes = [
         {{
             url: "{}"
-            credentials: "{}"
+            credentials: {:?}
         }}
     ]
 }}
                 "#,
                 url,
-                creds.display()
+                creds.to_string_lossy()
             ),
             _ => "".to_owned(),
         };
@@ -381,7 +381,7 @@ mod test {
     use std::{env::temp_dir, path::PathBuf};
     use tokio::{
         fs::{create_dir_all, remove_dir_all},
-        time::sleep,
+        io::AsyncReadExt,
     };
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
@@ -473,8 +473,8 @@ mod test {
     }
 
     #[tokio::test]
-    async fn can_start_nats_with_credentials() -> Result<()> {
-        let install_dir = temp_dir().join("can_start_nats_with_credentials");
+    async fn can_write_properly_formed_credsfile() -> Result<()> {
+        let install_dir = temp_dir().join("can_write_properly_formed_credsfile");
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
         assert!(!is_nats_installed(&install_dir).await);
@@ -482,7 +482,7 @@ mod test {
         let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
         assert!(res.is_ok());
 
-        let creds = PathBuf::from("./nats-creds.creds");
+        let creds = PathBuf::from(dirs::home_dir().unwrap().join("nats.creds"));
         let config: NatsConfig = NatsConfig::new_leaf(
             "127.0.0.1",
             4243,
@@ -491,22 +491,17 @@ mod test {
             creds.clone(),
         );
 
-        println!("creds: {:?}", creds);
-        println!("creds: {}", creds.display());
-        println!("creds: {:?}", creds.canonicalize());
+        config.write_to_path(creds.clone()).await?;
 
-        let nats_server = start_nats_server(
-            &install_dir.join(NATS_SERVER_BINARY),
-            std::process::Stdio::piped(),
-            config.clone(),
-        )
-        .await;
-        assert!(nats_server.is_ok());
-        let mut server_process = nats_server.unwrap();
-        sleep(std::time::Duration::from_secs(2)).await;
-        println!("output: {:?}", server_process.stdout);
+        let mut credsfile = tokio::fs::File::open(creds).await?;
+        let mut contents = String::new();
+        credsfile.read_to_string(&mut contents).await?;
 
-        server_process.kill().await?;
+        #[cfg(target_family = "unix")]
+        assert_eq!(contents, "\njetstream {\n    domain=core\n}\n\nleafnodes {\n    remotes = [\n        {\n            url: \"connect.ngs.global\"\n            credentials: \"/Users/brooks/nats.creds\"\n        }\n    ]\n}\n                \n");
+        #[cfg(target_family = "windows")]
+        assert_eq!(contents, "\njetstream {\n    domain=core\n}\n\nleafnodes {\n    remotes = [\n        {\n            url: \"connect.ngs.global\"\n            credentials: \"C:\\\\Users\\\\brooks\\\\nats.creds\"\n        }\n    ]\n}\n                \n");
+
         let _ = remove_dir_all(install_dir).await;
         Ok(())
     }
