@@ -343,7 +343,7 @@ where
             .arg("--pid")
             .arg(parent_path.join(NATS_SERVER_PID))
             .spawn()
-            .map_err(|e| anyhow!(e))
+            .map_err(anyhow::Error::from)
     } else {
         Err(anyhow!(
             "Could not write config to disk, couldn't find download directory"

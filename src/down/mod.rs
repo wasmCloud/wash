@@ -1,10 +1,11 @@
-use anyhow::{anyhow, Result};
-use clap::Parser;
-use serde_json::json;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::time::Duration;
+
+use anyhow::Result;
+use clap::Parser;
+use serde_json::json;
 use tokio::process::Command;
 
 use crate::appearance::spinner::Spinner;
@@ -83,7 +84,7 @@ where
         .arg("stop")
         .output()
         .await
-        .map_err(|e| anyhow!(e))
+        .map_err(anyhow::Error::from)
 }
 
 /// Helper function to send the nats-server the stop command
@@ -104,7 +105,7 @@ where
         .stdin(Stdio::null())
         .output()
         .await
-        .map_err(|e| anyhow!(e));
+        .map_err(anyhow::Error::from);
 
     // remove PID file
     if pid_file.is_file() {
