@@ -498,9 +498,9 @@ mod test {
         credsfile.read_to_string(&mut contents).await?;
 
         assert_eq!(contents, format!("\njetstream {{\n    domain={}\n}}\n\nleafnodes {{\n    remotes = [\n        {{\n            url: \"{}\"\n            credentials: {:?}\n        }}\n    ]\n}}\n                \n", "core", "connect.ngs.global", creds.to_string_lossy()));
-        // A simple check to ensure we are properly escaping quotes, remember \\\\ == \\ after escape
+        // A simple check to ensure we are properly escaping quotes, this is unescaped and checks for "\\"
         #[cfg(target_family = "windows")]
-        assert!(creds.to_string_lossy().contains("\\\\"));
+        assert!(creds.to_string_lossy().contains("\\"));
 
         let _ = remove_dir_all(install_dir).await;
         Ok(())
