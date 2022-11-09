@@ -284,7 +284,7 @@ leafnodes {{
 }}
                 "#,
                 url,
-                creds.to_string_lossy()
+                creds.display()
             ),
             _ => "".to_owned(),
         };
@@ -378,8 +378,11 @@ mod test {
         ensure_nats_server, is_nats_installed, start_nats_server, NatsConfig, NATS_SERVER_BINARY,
     };
     use anyhow::Result;
-    use std::env::temp_dir;
-    use tokio::fs::{create_dir_all, remove_dir_all};
+    use std::{env::temp_dir, path::PathBuf};
+    use tokio::{
+        fs::{create_dir_all, remove_dir_all},
+        time::sleep,
+    };
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
 
@@ -466,6 +469,45 @@ mod test {
         nats_one.unwrap().kill().await?;
         let _ = remove_dir_all(install_dir).await;
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn can_start_nats_with_credentials() -> Result<()> {
+        let install_dir = temp_dir().join("can_start_nats_with_credentials");
+        let _ = remove_dir_all(&install_dir).await;
+        create_dir_all(&install_dir).await?;
+        assert!(!is_nats_installed(&install_dir).await);
+
+        let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
+        assert!(res.is_ok());
+
+        let creds = PathBuf::from("./nats-creds.creds");
+        let config: NatsConfig = NatsConfig::new_leaf(
+            "127.0.0.1",
+            4243,
+            None,
+            "connect.ngs.global".to_string(),
+            creds.clone(),
+        );
+
+        println!("creds: {:?}", creds);
+        println!("creds: {}", creds.display());
+        println!("creds: {:?}", creds.canonicalize());
+
+        let nats_server = start_nats_server(
+            &install_dir.join(NATS_SERVER_BINARY),
+            std::process::Stdio::piped(),
+            config.clone(),
+        )
+        .await;
+        assert!(nats_server.is_ok());
+        let mut server_process = nats_server.unwrap();
+        sleep(std::time::Duration::from_secs(2)).await;
+        println!("output: {:?}", server_process.stdout);
+
+        server_process.kill().await?;
+        let _ = remove_dir_all(install_dir).await;
         Ok(())
     }
 }
