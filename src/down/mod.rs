@@ -93,7 +93,7 @@ where
     P: AsRef<Path>,
 {
     let bin_path = install_dir.as_ref().join(NATS_SERVER_BINARY);
-    let pid_file = nats_pid(install_dir);
+    let pid_file = nats_pid_path(install_dir);
     let signal = if pid_file.is_file() {
         format!("stop={}", &pid_file.display())
     } else {
@@ -115,7 +115,7 @@ where
 }
 
 /// Helper function to get the path to the NATS server pid file
-pub(crate) fn nats_pid<P>(install_dir: P) -> PathBuf
+pub(crate) fn nats_pid_path<P>(install_dir: P) -> PathBuf
 where
     P: AsRef<Path>,
 {
