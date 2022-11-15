@@ -345,10 +345,7 @@ impl RawProjectConfig {
                             None => Version::parse(cargo_toml.version.get()?.as_str())?,
                         };
 
-                        let name = match self.name {
-                            Some(name) => name,
-                            None => cargo_toml.name,
-                        };
+                        let name = self.name.unwrap_or(cargo_toml.name);
 
                         Ok(CommonConfig { name, version })
                     }
