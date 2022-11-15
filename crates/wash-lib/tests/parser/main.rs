@@ -266,7 +266,7 @@ fn minimal_rust_actor() {
 fn cargo_toml_actor() {
     let result = get_config(
         Some(PathBuf::from(
-            "./tests/parser/files/withcargotoml/minimal_rust_actor_with_cargo_toml.toml",
+            "./tests/parser/files/withcargotoml/minimal_rust_actor_with_cargo.toml",
         )),
         None,
     );

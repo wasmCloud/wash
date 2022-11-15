@@ -321,40 +321,47 @@ impl RawProjectConfig {
             }
         };
 
-        let common_config_result: Result<CommonConfig> = {
-            match language_config {
-                LanguageConfig::Rust(_) => {
-                    let cargo_toml_path = path.parent().unwrap().join("Cargo.toml");
-                    if !cargo_toml_path.is_file() {
-                        bail!("No Cargo.toml file found in the current directory");
+        let common_config_result: Result<CommonConfig> =
+            // don't depend on language files if we don't have to.
+            if self.name.is_some() && self.version.is_some() {
+                Ok(CommonConfig {
+                    name: self.name.unwrap(),
+                    version: self.version.unwrap(),
+                })
+            } else {
+                match language_config {
+                    LanguageConfig::Rust(_) => {
+                        let cargo_toml_path = path.parent().unwrap().join("Cargo.toml");
+                        if !cargo_toml_path.is_file() {
+                            bail!("No Cargo.toml file found in the current directory");
+                        }
+
+                        let cargo_toml = Manifest::from_path(cargo_toml_path)?
+                            .package
+                            .ok_or_else(|| anyhow!("Missing package information in Cargo.toml"))?;
+
+                        let version = match self.version {
+                            Some(version) => version,
+                            None => Version::parse(cargo_toml.version.get()?.as_str())?,
+                        };
+
+                        let name = match self.name {
+                            Some(name) => name,
+                            None => cargo_toml.name,
+                        };
+
+                        Ok(CommonConfig { name, version })
                     }
-
-                    let cargo_toml = Manifest::from_path(cargo_toml_path)?
-                        .package
-                        .ok_or_else(|| anyhow!("Missing package information in Cargo.toml"))?;
-
-                    let version = match self.version {
-                        Some(version) => version,
-                        None => Version::parse(cargo_toml.version.get()?.as_str())?,
-                    };
-
-                    let name = match self.name {
-                        Some(name) => name,
-                        None => cargo_toml.name,
-                    };
-
-                    Ok(CommonConfig { name, version })
+                    LanguageConfig::TinyGo(_) => Ok(CommonConfig {
+                        name: self
+                            .name
+                            .ok_or_else(|| anyhow!("Missing name in wasmcloud.toml"))?,
+                        version: self
+                            .version
+                            .ok_or_else(|| anyhow!("Missing version in wasmcloud.toml"))?,
+                    }),
                 }
-                LanguageConfig::TinyGo(_) => Ok(CommonConfig {
-                    name: self
-                        .name
-                        .ok_or_else(|| anyhow!("Missing name in wasmcloud.toml"))?,
-                    version: self
-                        .version
-                        .ok_or_else(|| anyhow!("Missing version in wasmcloud.toml"))?,
-                }),
-            }
-        };
+            };
 
         Ok(ProjectConfig {
             language: language_config,
