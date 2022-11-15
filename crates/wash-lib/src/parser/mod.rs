@@ -1,4 +1,5 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
+use cargo_toml::Manifest;
 use config::Config;
 use semver::Version;
 use std::{fs, path::PathBuf};
@@ -188,7 +189,7 @@ struct RawProjectConfig {
     /// Name of the project.
     pub name: String,
     /// Semantic version of the project.
-    pub version: Version,
+    pub version: Option<Version>,
     pub actor: Option<RawActorConfig>,
     pub provider: Option<RawProviderConfig>,
     pub rust: Option<RawRustConfig>,
@@ -332,12 +333,36 @@ impl TryFrom<RawProjectConfig> for ProjectConfig {
             }
         };
 
+        let version_result: Result<Version> = match raw_project_config.version {
+            Some(version) => Ok(version),
+            None => match language_config {
+                LanguageConfig::Rust(_) => {
+                    let cargo_toml_path = PathBuf::from("Cargo.toml");
+                    if !cargo_toml_path.is_file() {
+                        bail!("No Cargo.toml file found in the current directory");
+                    }
+
+                    Ok(Version::parse(
+                        Manifest::from_path(cargo_toml_path)?
+                            .package
+                            .ok_or_else(|| anyhow!("Missing package in Cargo.toml"))?
+                            .version
+                            .get()?
+                            .as_str(),
+                    )?)
+                }
+                LanguageConfig::TinyGo(_) => {
+                    bail!("Version must be specified in wasmcloud.toml for TinyGo projects.");
+                }
+            },
+        };
+
         Ok(Self {
             language: language_config,
             project_type: project_type_config,
             common: CommonConfig {
                 name: raw_project_config.name,
-                version: raw_project_config.version,
+                version: version_result?,
             },
         })
     }
