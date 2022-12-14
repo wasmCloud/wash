@@ -11,23 +11,23 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
-use config::{Config, CONFIG_FILE_NAME};
 use console::style;
+use genconfig::{Config, CONFIG_FILE_NAME};
 use indicatif::MultiProgress;
 use project_variables::*;
 use serde::Serialize;
 use tempfile::TempDir;
 use tokio::process::Command;
-use wash_lib::cli::CommandOutput;
 use weld_codegen::render::Renderer;
 
-use crate::appearance::emoji;
+use crate::cli::CommandOutput;
 
-mod config;
+pub mod emoji;
 mod favorites;
+mod genconfig;
 mod git;
-pub(crate) mod interactive;
-pub(crate) mod project_variables;
+pub mod interactive;
+pub mod project_variables;
 mod template;
 
 pub(crate) type TomlMap = std::collections::BTreeMap<String, toml::Value>;
@@ -38,7 +38,7 @@ pub(crate) const PROJECT_NAME_REGEX: &str = r"^([a-zA-Z][a-zA-Z0-9_-]+)$";
 
 /// Create a new project from template
 #[derive(Debug, Clone, Subcommand)]
-pub(crate) enum NewCliCommand {
+pub enum NewCliCommand {
     /// Generate actor project
     #[clap(name = "actor")]
     Actor(NewProjectArgs),
@@ -85,7 +85,7 @@ impl fmt::Display for ProjectKind {
 }
 
 #[derive(Args, Debug, Default, Clone)]
-pub(crate) struct NewProjectArgs {
+pub struct NewProjectArgs {
     /// Project name
     #[clap(help = "Project name")]
     pub(crate) project_name: Option<String>,
@@ -128,7 +128,7 @@ pub(crate) struct NewProjectArgs {
     pub(crate) no_git_init: bool,
 }
 
-pub(crate) async fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
+pub async fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
     validate(&command)?;
 
     let kind = ProjectKind::from(&command);
@@ -218,8 +218,6 @@ pub(crate) async fn make_project(
     kind: ProjectKind,
     args: NewProjectArgs,
 ) -> std::result::Result<(), anyhow::Error> {
-    let _ = env_logger::try_init();
-
     // load optional values file
     let mut values = if let Some(values_file) = &args.values {
         let bytes = fs::read(values_file)

@@ -2270,9 +2270,9 @@ dependencies = [
 
 [[package]]
 name = "portable-atomic"
-version = "0.3.15"
+version = "0.3.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "15eb2c6e362923af47e13c23ca5afb859e83d54452c55b0b9ac763b8f7c1ac16"
+checksum = "3ef946e2f765276038550e74abfbda40c84d73278417c071e0f19f8af6ba100b"
 
 [[package]]
 name = "ppv-lite86"
@@ -3785,18 +3785,14 @@ dependencies = [
  "console",
  "ctrlc",
  "derive_more",
- "dialoguer",
  "dirs",
  "env_logger 0.9.3",
  "envmnt",
- "heck 0.4.0",
- "ignore",
  "indicatif",
  "log",
  "nkeys",
  "oci-distribution",
  "once_cell",
- "path-absolutize",
  "provider-archive",
  "regex",
  "remove_dir_all 0.7.0",
@@ -3819,7 +3815,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
- "walkdir",
  "wascap",
  "wash-lib",
  "wasmbus-rpc",
@@ -3840,12 +3835,19 @@ dependencies = [
  "clap 4.0.26",
  "command-group",
  "config",
+ "console",
+ "dialoguer",
  "dirs",
  "futures",
+ "heck 0.4.0",
+ "ignore",
+ "indicatif",
  "log",
  "nkeys",
  "oci-distribution",
+ "path-absolutize",
  "provider-archive",
+ "regex",
  "reqwest",
  "semver",
  "serde",
@@ -3858,6 +3860,8 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tar",
+ "toml",
+ "walkdir",
  "wascap",
  "weld-codegen 0.6.0",
 ]

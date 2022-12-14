@@ -17,6 +17,8 @@ pub mod cli;
 pub mod config;
 pub mod context;
 pub mod drain;
+//TODO: consider cli feature
+pub mod generate;
 pub mod id;
 pub mod keys;
 pub mod registry;
