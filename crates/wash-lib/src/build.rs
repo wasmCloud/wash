@@ -1,10 +1,8 @@
 //! Build (and sign) a wasmCloud actor, provider, or interface. Depends on the "cli" feature
-//!
 
 use std::{fs, path::PathBuf, process, str::FromStr};
 
 use anyhow::{anyhow, bail, Result};
-use clap::Parser;
 
 use crate::cli::{
     claims::{sign_file, ActorMetadata, SignCommand},
@@ -15,34 +13,19 @@ use crate::parser::{
     RustConfig, TinyGoConfig, TypeConfig,
 };
 
-// This struct requires the `cli` feature, which this whole module is gated by. If that changes,
-// this struct needs to be adjusted with the derive macros
-#[derive(Parser, Debug, Clone)]
+/// Configuration for signing an artifact (actor or provider) including issuer and subject key, the path to where keys can be found, and an option to
+/// disable automatic key generation if keys cannot be found.
 pub struct SignConfig {
-    /// Location of key files for signing. Defaults to $WASH_KEYS ($HOME/.wash/keys)
-    #[clap(long = "keys-directory", env = "WASH_KEYS", hide_env_values = true)]
+    /// Location of key files for signing
     pub keys_directory: Option<PathBuf>,
 
-    /// Path to issuer seed key (account). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
-    #[clap(
-        short = 'i',
-        long = "issuer",
-        env = "WASH_ISSUER_KEY",
-        hide_env_values = true
-    )]
+    /// Path to issuer seed key (account). If this flag is not provided, the seed will be sourced from ($HOME/.wash/keys) or generated for you if it cannot be found.
     pub issuer: Option<String>,
 
-    /// Path to subject seed key (module or service). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
-    #[clap(
-        short = 's',
-        long = "subject",
-        env = "WASH_SUBJECT_KEY",
-        hide_env_values = true
-    )]
+    /// Path to subject seed key (module or service). If this flag is not provided, the seed will be sourced from ($HOME/.wash/keys) or generated for you if it cannot be found.
     pub subject: Option<String>,
 
     /// Disables autogeneration of keys if seed(s) are not provided
-    #[clap(long = "disable-keygen")]
     pub disable_keygen: bool,
 }
 
@@ -62,7 +45,7 @@ pub struct SignConfig {
 /// ```
 /// # Arguments
 /// * `config`: [ProjectConfig] for required information to find, build, and sign an actor
-/// * `signing`: Optional [SignConfig] for signing the actor
+/// * `signing`: Optional [SignConfig] with information for signing the project artifact. If omitted, the artifact will only be built
 pub fn build_project(config: &ProjectConfig, signing: Option<SignConfig>) -> Result<PathBuf> {
     match &config.project_type {
         TypeConfig::Actor(actor_config) => {
@@ -84,7 +67,7 @@ pub fn build_project(config: &ProjectConfig, signing: Option<SignConfig>) -> Res
 /// * `actor_config`: [ActorConfig] for required information to find, build, and sign an actor
 /// * `language_config`: [LanguageConfig] specifying which language the actor is written in
 /// * `common_config`: [CommonConfig] specifying common parameters like [CommonConfig::name] and [CommonConfig::version]
-/// * `no_sign`: If `true`, build the actor but don't sign. Useful for just checking build status without needing signing keys or fully referenced capabilities
+/// * `signing`: Optional [SignConfig] with information for signing the actor. If omitted, the actor will only be built
 pub fn build_actor(
     actor_config: &ActorConfig,
     language_config: &LanguageConfig,

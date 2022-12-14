@@ -16,10 +16,36 @@ pub(crate) struct BuildCommand {
     /// Path to the wasmcloud.toml file or parent folder to use for building
     #[clap(short = 'p', long = "config-path")]
     config_path: Option<PathBuf>,
-    //TODO(brooksmtownsend): In the future, when we support building capability providers
-    //for build, this will need to merge with the provider create options for a seamless build
-    #[clap(flatten)]
-    signing_config: SignConfig,
+
+    /// Location of key files for signing. Defaults to $WASH_KEYS ($HOME/.wash/keys)
+    #[clap(long = "keys-directory", env = "WASH_KEYS", hide_env_values = true)]
+    pub keys_directory: Option<PathBuf>,
+
+    /// Path to issuer seed key (account). If this flag is not provided, the seed will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
+    #[clap(
+        short = 'i',
+        long = "issuer",
+        env = "WASH_ISSUER_KEY",
+        hide_env_values = true
+    )]
+    pub issuer: Option<String>,
+
+    /// Path to subject seed key (module or service). If this flag is not provided, the seed will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
+    #[clap(
+        short = 's',
+        long = "subject",
+        env = "WASH_SUBJECT_KEY",
+        hide_env_values = true
+    )]
+    pub subject: Option<String>,
+
+    /// Disables autogeneration of keys if seed(s) are not provided
+    #[clap(long = "disable-keygen")]
+    pub disable_keygen: bool,
+
+    /// Skip signing the artifact and only use the native toolchain to build
+    #[clap(long = "build-only")]
+    pub build_only: bool,
 }
 
 pub(crate) fn handle_command(command: BuildCommand) -> Result<CommandOutput> {
@@ -27,16 +53,32 @@ pub(crate) fn handle_command(command: BuildCommand) -> Result<CommandOutput> {
 
     match config.project_type {
         TypeConfig::Actor(ref _actor_config) => {
-            let actor_path = build_project(&config, Some(command.signing_config))?;
+            let actor_path = build_project(
+                &config,
+                if command.build_only {
+                    None
+                } else {
+                    Some(SignConfig {
+                        keys_directory: command.keys_directory,
+                        issuer: command.issuer,
+                        subject: command.subject,
+                        disable_keygen: command.disable_keygen,
+                    })
+                },
+            )?;
             let json_output = HashMap::from([
                 ("actor_path".to_string(), json!(actor_path)),
-                ("signed".to_string(), json!(true)),
+                ("signed".to_string(), json!(command.build_only)),
             ]);
             Ok(CommandOutput::new(
-                format!(
-                    "Actor built and signed and can be found at {:?}",
-                    actor_path
-                ),
+                if command.build_only {
+                    format!("Actor built and can be found at {:?}", actor_path)
+                } else {
+                    format!(
+                        "Actor built and signed and can be found at {:?}",
+                        actor_path
+                    )
+                },
                 json_output,
             ))
         }
@@ -61,10 +103,10 @@ mod test {
     fn test_build_comprehensive() {
         let cmd: BuildCommand = Parser::try_parse_from(["build"]).unwrap();
         assert!(cmd.config_path.is_none());
-        assert!(!cmd.signing_config.disable_keygen);
-        assert!(cmd.signing_config.issuer.is_none());
-        assert!(cmd.signing_config.subject.is_none());
-        assert!(cmd.signing_config.keys_directory.is_none());
+        assert!(!cmd.disable_keygen);
+        assert!(cmd.issuer.is_none());
+        assert!(cmd.subject.is_none());
+        assert!(cmd.keys_directory.is_none());
 
         let cmd: BuildCommand = Parser::try_parse_from([
             "build",
@@ -80,12 +122,9 @@ mod test {
         ])
         .unwrap();
         assert_eq!(cmd.config_path, Some(PathBuf::from("/")));
-        assert!(cmd.signing_config.disable_keygen);
-        assert_eq!(cmd.signing_config.issuer, Some("/tmp/iss.nk".to_string()));
-        assert_eq!(cmd.signing_config.subject, Some("/tmp/sub.nk".to_string()));
-        assert_eq!(
-            cmd.signing_config.keys_directory,
-            Some(PathBuf::from("/tmp"))
-        );
+        assert!(cmd.disable_keygen);
+        assert_eq!(cmd.issuer, Some("/tmp/iss.nk".to_string()));
+        assert_eq!(cmd.subject, Some("/tmp/sub.nk".to_string()));
+        assert_eq!(cmd.keys_directory, Some(PathBuf::from("/tmp")));
     }
 }
