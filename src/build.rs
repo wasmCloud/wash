@@ -54,20 +54,38 @@ pub(crate) fn handle_command(command: BuildCommand) -> Result<CommandOutput> {
 #[cfg(test)]
 mod test {
 
-    // use super::*;
-    // use clap::Parser;
+    use super::*;
+    use clap::Parser;
 
     #[test]
     fn test_build_comprehensive() {
-        // let cmd: BuildCommand = Parser::try_parse_from(["build", "--push"]).unwrap();
-        // assert!(cmd.push);
+        let cmd: BuildCommand = Parser::try_parse_from(["build"]).unwrap();
+        assert!(cmd.config_path.is_none());
+        assert!(!cmd.signing_config.disable_keygen);
+        assert!(cmd.signing_config.issuer.is_none());
+        assert!(cmd.signing_config.subject.is_none());
+        assert!(cmd.signing_config.keys_directory.is_none());
 
-        // let cmd: BuildCommand = Parser::try_parse_from(["build", "--no-sign"]).unwrap();
-        // assert!(cmd.no_sign);
-
-        // let cmd: BuildCommand = Parser::try_parse_from(["build"]).unwrap();
-        // assert!(!cmd.push);
-        // assert!(!cmd.no_sign);
-        assert!(true)
+        let cmd: BuildCommand = Parser::try_parse_from([
+            "build",
+            "-p",
+            "/",
+            "--disable-keygen",
+            "--issuer",
+            "/tmp/iss.nk",
+            "--subject",
+            "/tmp/sub.nk",
+            "--keys-directory",
+            "/tmp",
+        ])
+        .unwrap();
+        assert_eq!(cmd.config_path, Some(PathBuf::from("/")));
+        assert!(cmd.signing_config.disable_keygen);
+        assert_eq!(cmd.signing_config.issuer, Some("/tmp/iss.nk".to_string()));
+        assert_eq!(cmd.signing_config.subject, Some("/tmp/sub.nk".to_string()));
+        assert_eq!(
+            cmd.signing_config.keys_directory,
+            Some(PathBuf::from("/tmp"))
+        );
     }
 }

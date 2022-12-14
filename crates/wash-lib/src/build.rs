@@ -107,7 +107,7 @@ pub fn build_actor(
 
         // Output the signed file in the same directory with a _s suffix
         let destination = source.replace(".wasm", "_s.wasm");
-        let destination_file = PathBuf::from_str(&destination);
+        let destination_file = PathBuf::from_str(&destination)?;
 
         let sign_options = SignCommand {
             source,
@@ -124,7 +124,7 @@ pub fn build_actor(
         };
         sign_file(sign_options, OutputKind::Json)?;
 
-        Ok(destination_file?)
+        Ok(destination_file)
     } else {
         // Exit without signing
         Ok(file_path)
