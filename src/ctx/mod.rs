@@ -360,7 +360,7 @@ fn prompt_for_context() -> Result<WashContext> {
     )?;
 
     let js_domain = match user_question(
-        "What JetStream domain will th host be running, if any?",
+        "What JetStream domain will the host be running, if any?",
         &Some("".to_string()),
     ) {
         Ok(s) if s.is_empty() => None,
