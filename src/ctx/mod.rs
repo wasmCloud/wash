@@ -353,10 +353,21 @@ fn prompt_for_context() -> Result<WashContext> {
         "What should the control interface timeout be (in milliseconds)?",
         &Some(DEFAULT_NATS_TIMEOUT_MS.to_string()),
     )?;
-    let ctl_lattice_prefix = user_question(
-        "What is the control interface connection lattice prefix?",
+
+    let lattice_prefix = user_question(
+        "What is the lattice prefix that the host will communicate on?",
         &Some(DEFAULT_LATTICE_PREFIX.to_string()),
     )?;
+
+    let js_domain = match user_question(
+        "What JetStream domain will th host be running, if any?",
+        &Some("".to_string()),
+    ) {
+        Ok(s) if s.is_empty() => None,
+        Ok(s) => Some(s),
+        _ => None,
+    };
+
     let rpc_host = user_question(
         "What is the RPC host?",
         &Some(DEFAULT_NATS_HOST.to_string()),
@@ -393,10 +404,6 @@ fn prompt_for_context() -> Result<WashContext> {
         "What should the RPC timeout be (in milliseconds)?",
         &Some(DEFAULT_NATS_TIMEOUT_MS.to_string()),
     )?;
-    let rpc_lattice_prefix = user_question(
-        "What is the RPC connection lattice prefix?",
-        &Some(DEFAULT_LATTICE_PREFIX.to_string()),
-    )?;
 
     Ok(WashContext {
         name,
@@ -407,14 +414,14 @@ fn prompt_for_context() -> Result<WashContext> {
         ctl_seed,
         ctl_credsfile: ctl_credsfile.map(PathBuf::from),
         ctl_timeout: ctl_timeout.parse()?,
-        ctl_lattice_prefix,
+        lattice_prefix,
+        js_domain,
         rpc_host,
         rpc_port: rpc_port.parse().unwrap_or_default(),
         rpc_jwt,
         rpc_seed,
         rpc_credsfile: rpc_credsfile.map(PathBuf::from),
         rpc_timeout: rpc_timeout.parse()?,
-        rpc_lattice_prefix,
     })
 }
 
