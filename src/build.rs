@@ -53,19 +53,18 @@ pub(crate) fn handle_command(command: BuildCommand) -> Result<CommandOutput> {
 
     match config.project_type {
         TypeConfig::Actor(ref _actor_config) => {
-            let actor_path = build_project(
-                &config,
-                if command.build_only {
-                    None
-                } else {
-                    Some(SignConfig {
-                        keys_directory: command.keys_directory,
-                        issuer: command.issuer,
-                        subject: command.subject,
-                        disable_keygen: command.disable_keygen,
-                    })
-                },
-            )?;
+            let sign_config = if command.build_only {
+                None
+            } else {
+                Some(SignConfig {
+                    keys_directory: command.keys_directory,
+                    issuer: command.issuer,
+                    subject: command.subject,
+                    disable_keygen: command.disable_keygen,
+                })
+            };
+
+            let actor_path = build_project(&config, sign_config)?;
             let json_output = HashMap::from([
                 ("actor_path".to_string(), json!(actor_path)),
                 ("signed".to_string(), json!(command.build_only)),
