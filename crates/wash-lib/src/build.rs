@@ -4,6 +4,7 @@
 use std::{fs, path::PathBuf, process, str::FromStr};
 
 use anyhow::{anyhow, bail, Result};
+use clap::Parser;
 
 use crate::cli::{
     claims::{sign_file, ActorMetadata, SignCommand},
@@ -13,6 +14,37 @@ use crate::parser::{
     ActorConfig, CommonConfig, InterfaceConfig, LanguageConfig, ProjectConfig, ProviderConfig,
     RustConfig, TinyGoConfig, TypeConfig,
 };
+
+// This struct requires the `cli` feature, which this whole module is gated by. If that changes,
+// this struct needs to be adjusted with the derive macros
+#[derive(Parser, Debug, Clone)]
+pub struct SignConfig {
+    /// Location of key files for signing. Defaults to $WASH_KEYS ($HOME/.wash/keys)
+    #[clap(long = "keys-directory", env = "WASH_KEYS", hide_env_values = true)]
+    pub keys_directory: Option<PathBuf>,
+
+    /// Path to issuer seed key (account). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
+    #[clap(
+        short = 'i',
+        long = "issuer",
+        env = "WASH_ISSUER_KEY",
+        hide_env_values = true
+    )]
+    pub issuer: Option<String>,
+
+    /// Path to subject seed key (module or service). If this flag is not provided, the will be sourced from $WASH_KEYS ($HOME/.wash/keys) or generated for you if it cannot be found.
+    #[clap(
+        short = 's',
+        long = "subject",
+        env = "WASH_SUBJECT_KEY",
+        hide_env_values = true
+    )]
+    pub subject: Option<String>,
+
+    /// Disables autogeneration of keys if seed(s) are not provided
+    #[clap(long = "disable-keygen")]
+    pub disable_keygen: bool,
+}
 
 /// Using a [ProjectConfig], usually parsed from a `wasmcloud.toml` file, build the project
 /// with the installed language toolchain. This will delegate to [build_actor] when the project is an actor,
@@ -28,10 +60,13 @@ use crate::parser::{
 /// let artifact_path = build_project(config)?;
 /// println!("Here is the signed artifact: {}", artifact_path.to_string_lossy());
 /// ```
-pub fn build_project(config: ProjectConfig) -> Result<PathBuf> {
-    match config.project_type {
+/// # Arguments
+/// * `config`: [ProjectConfig] for required information to find, build, and sign an actor
+/// * `signing`: Optional [SignConfig] for signing the actor
+pub fn build_project(config: &ProjectConfig, signing: Option<SignConfig>) -> Result<PathBuf> {
+    match &config.project_type {
         TypeConfig::Actor(actor_config) => {
-            build_actor(actor_config, config.language, config.common, false)
+            build_actor(actor_config, &config.language, &config.common, signing)
         }
         TypeConfig::Provider(_provider_config) => Err(anyhow!(
             "wash build has not be implemented for providers yet. Please use `make` for now!"
@@ -51,60 +86,64 @@ pub fn build_project(config: ProjectConfig) -> Result<PathBuf> {
 /// * `common_config`: [CommonConfig] specifying common parameters like [CommonConfig::name] and [CommonConfig::version]
 /// * `no_sign`: If `true`, build the actor but don't sign. Useful for just checking build status without needing signing keys or fully referenced capabilities
 pub fn build_actor(
-    actor_config: ActorConfig,
-    language_config: LanguageConfig,
-    common_config: CommonConfig,
-    no_sign: bool,
+    actor_config: &ActorConfig,
+    language_config: &LanguageConfig,
+    common_config: &CommonConfig,
+    signing_config: Option<SignConfig>,
 ) -> Result<PathBuf> {
     // Build actor based on language toolchain
     let file_path = match language_config {
         LanguageConfig::Rust(rust_config) => {
-            build_rust_actor(common_config.clone(), rust_config, actor_config.clone())
+            build_rust_actor(common_config, rust_config, actor_config)
         }
-        LanguageConfig::TinyGo(tinygo_config) => {
-            build_tinygo_actor(common_config.clone(), tinygo_config)
-        }
+        LanguageConfig::TinyGo(tinygo_config) => build_tinygo_actor(common_config, tinygo_config),
     }?;
 
-    // Exit early if signing isn't desired
-    if no_sign {
-        Ok(file_path)
-    } else {
+    if let Some(config) = signing_config {
         let source = file_path
             .to_str()
             .ok_or_else(|| anyhow!("Could not convert file path to string"))?
             .to_string();
 
-        let destination = format!("build/{}_s.wasm", common_config.name);
+        // Output the signed file in the same directory with a _s suffix
+        let destination = source.replace(".wasm", "_s.wasm");
         let destination_file = PathBuf::from_str(&destination);
 
         let sign_options = SignCommand {
             source,
             destination: Some(destination),
             metadata: ActorMetadata {
-                name: common_config.name,
+                name: common_config.name.clone(),
                 ver: Some(common_config.version.to_string()),
-                custom_caps: actor_config.claims,
-                call_alias: actor_config.call_alias,
+                custom_caps: actor_config.claims.clone(),
+                call_alias: actor_config.call_alias.clone(),
+                issuer: config.issuer,
+                subject: config.subject,
                 ..Default::default()
             },
         };
         sign_file(sign_options, OutputKind::Json)?;
 
         Ok(destination_file?)
+    } else {
+        // Exit without signing
+        Ok(file_path)
     }
 }
 
 /// Builds a rust actor and returns the path to the file.
 fn build_rust_actor(
-    common_config: CommonConfig,
-    rust_config: RustConfig,
-    actor_config: ActorConfig,
+    common_config: &CommonConfig,
+    rust_config: &RustConfig,
+    actor_config: &ActorConfig,
 ) -> Result<PathBuf> {
-    let mut command = match rust_config.cargo_path {
+    let mut command = match rust_config.cargo_path.as_ref() {
         Some(path) => process::Command::new(path),
         None => process::Command::new("cargo"),
     };
+
+    // Change directory into the project directory
+    std::env::set_current_dir(&common_config.path)?;
 
     let result = command.args(["build", "--release"]).status()?;
 
@@ -116,6 +155,7 @@ fn build_rust_actor(
         "{}/{}/release/{}.wasm",
         rust_config
             .target_path
+            .clone()
             .unwrap_or_else(|| PathBuf::from("target"))
             .to_string_lossy(),
         actor_config.wasm_target,
@@ -124,7 +164,7 @@ fn build_rust_actor(
 
     if !wasm_file.exists() {
         bail!(
-            "Could not find compiled wasm file to sign: {}",
+            "Could not find compiled wasm file, please ensure {} exists",
             wasm_file.display()
         );
     }
@@ -137,14 +177,21 @@ fn build_rust_actor(
     fs::copy(&wasm_file, &copied_wasm_file)?;
     fs::remove_file(&wasm_file)?;
 
-    Ok(copied_wasm_file)
+    // Return the full path to the compiled Wasm file
+    Ok(common_config.path.join(&copied_wasm_file))
 }
 
 /// Builds a tinygo actor and returns the path to the file.
-fn build_tinygo_actor(common_config: CommonConfig, tinygo_config: TinyGoConfig) -> Result<PathBuf> {
+fn build_tinygo_actor(
+    common_config: &CommonConfig,
+    tinygo_config: &TinyGoConfig,
+) -> Result<PathBuf> {
     let filename = format!("build/{}.wasm", common_config.name);
 
-    let mut command = match tinygo_config.tinygo_path {
+    // Change directory into the project directory
+    std::env::set_current_dir(&common_config.path)?;
+
+    let mut command = match &tinygo_config.tinygo_path {
         Some(path) => process::Command::new(path),
         None => process::Command::new("tinygo"),
     };
@@ -180,7 +227,7 @@ fn build_tinygo_actor(common_config: CommonConfig, tinygo_config: TinyGoConfig) 
         );
     }
 
-    Ok(wasm_file)
+    Ok(common_config.path.join(wasm_file))
 }
 
 /// Placeholder for future functionality for building providers
