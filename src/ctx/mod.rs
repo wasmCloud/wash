@@ -311,7 +311,7 @@ fn prompt_for_context() -> Result<WashContext> {
 
     let cluster_seed = match user_question(
         "What cluster seed do you want to use to sign invocations?",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s.parse::<ClusterSeed>()?),
@@ -327,7 +327,7 @@ fn prompt_for_context() -> Result<WashContext> {
     )?;
     let ctl_jwt = match user_question(
         "Enter your JWT that you use to authenticate to the control interface connection, if applicable",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s),
@@ -335,7 +335,7 @@ fn prompt_for_context() -> Result<WashContext> {
     };
     let ctl_seed = match user_question(
         "Enter your user seed that you use to authenticate to the control interface connection, if applicable",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s),
@@ -343,7 +343,7 @@ fn prompt_for_context() -> Result<WashContext> {
     };
     let ctl_credsfile = match user_question(
         "Enter the absolute path to control interface connection credsfile, if applicable",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s),
@@ -361,7 +361,7 @@ fn prompt_for_context() -> Result<WashContext> {
 
     let js_domain = match user_question(
         "What JetStream domain will the host be running, if any?",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s),
@@ -378,7 +378,7 @@ fn prompt_for_context() -> Result<WashContext> {
     )?;
     let rpc_jwt = match user_question(
         "Enter your JWT that you use to authenticate to the RPC connection, if applicable",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s),
@@ -386,7 +386,7 @@ fn prompt_for_context() -> Result<WashContext> {
     };
     let rpc_seed = match user_question(
         "Enter your user seed that you use to authenticate to the RPC connection, if applicable",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s),
@@ -394,7 +394,7 @@ fn prompt_for_context() -> Result<WashContext> {
     };
     let rpc_credsfile = match user_question(
         "Enter the absolute path to RPC connection credsfile, if applicable",
-        &Some("".to_string()),
+        &Some(String::new()),
     ) {
         Ok(s) if s.is_empty() => None,
         Ok(s) => Some(s),
