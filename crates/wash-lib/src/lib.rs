@@ -13,12 +13,12 @@ pub mod parser;
 pub mod build;
 #[cfg(feature = "cli")]
 pub mod cli;
+#[cfg(feature = "cli")]
+pub mod generate;
 
 pub mod config;
 pub mod context;
 pub mod drain;
-//TODO: consider cli feature
-pub mod generate;
 pub mod id;
 pub mod keys;
 pub mod registry;
