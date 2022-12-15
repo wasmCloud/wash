@@ -1,3 +1,4 @@
+//! Variables that assist the [crate::generate::interactive] module
 // This file is lightly modified from project_variables.rs from cargo-generate
 //   source: https://github.com/cargo-generate/cargo-generate
 //   version: 0.9.0

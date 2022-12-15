@@ -8,6 +8,7 @@ use clap::{Parser, Subcommand};
 use ctl::CtlCliCommand;
 use ctx::CtxCommand;
 use down::DownCommand;
+use generate::NewCliCommand;
 use keys::KeysCliCommand;
 use par::ParCliCommand;
 use reg::RegCliCommand;
@@ -17,7 +18,6 @@ use up::UpCommand;
 use wash_lib::cli::claims::ClaimsCliCommand;
 use wash_lib::cli::{CommandOutput, OutputKind};
 use wash_lib::drain::Drain as DrainSelection;
-use wash_lib::generate::NewCliCommand;
 
 mod app;
 mod appearance;
@@ -28,6 +28,7 @@ mod ctl;
 mod ctx;
 mod down;
 mod drain;
+mod generate;
 mod keys;
 mod par;
 mod reg;
@@ -138,7 +139,7 @@ async fn main() {
         CliCommand::Gen(generate_cli) => smithy::handle_gen_command(generate_cli),
         CliCommand::Keys(keys_cli) => keys::handle_command(keys_cli),
         CliCommand::Lint(lint_cli) => smithy::handle_lint_command(lint_cli).await,
-        CliCommand::New(new_cli) => wash_lib::generate::handle_command(new_cli).await,
+        CliCommand::New(new_cli) => generate::handle_command(new_cli).await,
         CliCommand::Par(par_cli) => par::handle_command(par_cli, output_kind).await,
         CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli, output_kind).await,
         CliCommand::Up(up_cli) => up::handle_command(up_cli, output_kind).await,

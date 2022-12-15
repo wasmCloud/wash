@@ -1,3 +1,4 @@
+//! Helpful utilities for retrieving user input from the command line
 // This file is lightly modified from interactive.rs from cargo-generate
 //   source: https://github.com/cargo-generate/cargo-generate
 //   version: 0.9.0

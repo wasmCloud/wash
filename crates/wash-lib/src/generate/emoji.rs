@@ -1,3 +1,4 @@
+//! A few standard emojis used in interactive prompting
 // This file is from emoji.rs from cargo-generate
 //   source: https://github.com/cargo-generate/cargo-generate
 //   version: 0.9.0
