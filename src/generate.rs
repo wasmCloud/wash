@@ -1,9 +1,10 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
+use serde_json::json;
 use wash_lib::{
-    cli::CommandOutput,
+    cli::{CommandOutput, OutputKind},
     generate::{generate_project, Project, ProjectKind},
 };
 
@@ -94,5 +95,14 @@ impl From<NewCliCommand> for Project {
 pub(crate) async fn handle_command(cmd: NewCliCommand) -> Result<CommandOutput> {
     generate_project(cmd.into())
         .await
-        .map(|_| CommandOutput::default())
+        .map(|path| CommandOutput {
+            map: HashMap::from([(
+                "project_path".to_string(),
+                json!(path.to_string_lossy().to_string()),
+            )]),
+            text: format!(
+                "Project generated and is located at: {}",
+                path.to_string_lossy()
+            ),
+        })
 }
