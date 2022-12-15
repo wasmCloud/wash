@@ -24,7 +24,6 @@ clap = { version="4", features=["derive", "env"] }
 cloudevents-sdk = "0.6.0"
 console = "0.15"
 ctrlc = "3.2.2"
-derive_more = {version = "0.99.16", default-features = false, features = ["display"]}
 dirs = "4.0"
 env_logger = "0.9"
 envmnt = "0.10.2"
