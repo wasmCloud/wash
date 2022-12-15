@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 use serde_json::json;
 use wash_lib::{
-    cli::{CommandOutput, OutputKind},
+    cli::CommandOutput,
     generate::{generate_project, Project, ProjectKind},
 };
 
