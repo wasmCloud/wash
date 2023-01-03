@@ -46,9 +46,9 @@ jobs:
         if: ${{ matrix.arch == "amd64"}}
         run: cargo build --release
       - uses: wasmcloud/common-actions/install-cross@main
-        if: ${{ matrix.arch == "arm64"}}
+        if: ${{ matrix.arch == 'arm64' }}
       - name: Compile wash
-        if: ${{ matrix.arch == "arm64"}}
+        if: ${{ matrix.arch == 'arm64' }}
         run: |
           cargo build --target aarch64-unknown-linux-gnu --release
       - name: Install NFPM
