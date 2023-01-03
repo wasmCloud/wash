@@ -30,7 +30,7 @@ jobs:
           args: --all-features
 
   package:
-    needs: [cargo_check, clippy_check]
+    # needs: [cargo_check, clippy_check]
     strategy:
       matrix:
         arch: [arm64, amd64]
@@ -50,7 +50,7 @@ jobs:
       - name: Compile wash
         if: ${{ matrix.arch }} == 'arm64'
         run: |
-          cargo build --target aarch64-unknown-linux-gnu --release
+          cross build --target aarch64-unknown-linux-gnu --release
       - name: Install NFPM
         run: |
           echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' | sudo tee /etc/apt/sources.list.d/goreleaser.list
