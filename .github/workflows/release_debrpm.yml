@@ -1,8 +1,6 @@
 name: Release - Deb / RPM
 
 on:
-  pull_request:
-    branches: [main]
   push:
     tags:
       - "v*" # Push events to matching v*, i.e. v1.0, v20.15.10
@@ -30,7 +28,7 @@ jobs:
           args: --all-features
 
   package:
-    # needs: [cargo_check, clippy_check]
+    needs: [cargo_check, clippy_check]
     strategy:
       matrix:
         arch: [arm64, amd64]
@@ -45,8 +43,10 @@ jobs:
       - name: Compile wash
         if: ${{ matrix.arch }} == 'amd64'
         run: cargo build --release
-      - uses: wasmcloud/common-actions/install-cross@main
+      - name: Install cross
         if: ${{ matrix.arch }} == 'arm64'
+        run: |
+          cargo install cross --git https://github.com/cross-rs/cross
       - name: Compile wash
         if: ${{ matrix.arch }} == 'arm64'
         run: |
@@ -61,15 +61,15 @@ jobs:
           export VERSION=$(echo $REF | cut -d/ -f3)
           nfpm pkg --packager deb -f build/nfpm.${{matrix.arch}}.yaml
           nfpm pkg --packager rpm -f build/nfpm.${{matrix.arch}}.yaml
-      # - name: Push amd64 (deb)
-      #   run: |
-      #     debs=(35 203 206 207 210 215 219 220 221 233 235 237 261)
-      #     for distro_version in "${debs[@]}"; do
-      #       curl -F "package[distro_version_id]=${distro_version}" -F "package[package_file]=@$(ls wash_*_amd64.deb)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/wasmcloud/core/packages.json;
-      #     done
-      # - name: Push x86_64 (rpm)
-      #   run: |
-      #     rpms=(194 204 209 216 226 231 236 239 240 244 260)
-      #     for distro_version in "${rpms[@]}"; do 
-      #       curl -F "package[distro_version_id]=${distro_version}" -F "package[package_file]=@$(ls wash-*.x86_64.rpm)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/wasmcloud/core/packages.json;
-      #     done
+      - name: Push amd64 (deb)
+        run: |
+          debs=(35 203 206 207 210 215 219 220 221 233 235 237 261)
+          for distro_version in "${debs[@]}"; do
+            curl -F "package[distro_version_id]=${distro_version}" -F "package[package_file]=@$(ls wash_*_amd64.deb)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/wasmcloud/core/packages.json;
+          done
+      - name: Push x86_64 (rpm)
+        run: |
+          rpms=(194 204 209 216 226 231 236 239 240 244 260)
+          for distro_version in "${rpms[@]}"; do 
+            curl -F "package[distro_version_id]=${distro_version}" -F "package[package_file]=@$(ls wash-*.x86_64.rpm)" https://$PACKAGECLOUD_TOKEN:@packagecloud.io/api/v1/repos/wasmcloud/core/packages.json;
+          done
