@@ -337,10 +337,8 @@ mod test {
         NATS_SERVER_BINARY,
     };
     use reqwest::StatusCode;
-    #[cfg(target_family = "unix")]
-    use std::os::unix::prelude::PermissionsExt;
     use std::{collections::HashMap, env::temp_dir};
-    use tokio::fs::{create_dir_all, remove_dir_all, File};
+    use tokio::fs::{create_dir_all, remove_dir_all};
     const WASMCLOUD_VERSION: &str = "v0.57.1";
 
     #[tokio::test]
@@ -360,12 +358,16 @@ mod test {
         }
     }
 
+    #[cfg(target_family = "unix")]
+    use std::os::unix::prelude::PermissionsExt;
+
     #[tokio::test]
     async fn can_download_wasmcloud_tarball() {
         let download_dir = temp_dir().join("can_download_wasmcloud_tarball");
         let res =
             ensure_wasmcloud_for_os_arch_pair("macos", "aarch64", WASMCLOUD_VERSION, &download_dir)
                 .await;
+
         assert!(res.is_ok());
         assert!(is_wasmcloud_installed(&download_dir).await);
 
@@ -373,10 +375,10 @@ mod test {
         #[cfg(target_family = "unix")]
         {
             let mut fs_dir: Option<std::path::PathBuf> = None;
-            let lib_dir = download_dir.join("lib");
+            let mut entries = tokio::fs::read_dir(download_dir.join("lib")).await.unwrap();
 
-            for entry in std::fs::read_dir(lib_dir).unwrap() {
-                let dir = entry.unwrap().path();
+            while let Some(entry) = entries.next_entry().await.unwrap() {
+                let dir = entry.path();
                 let file_name = dir.file_name().unwrap().to_string_lossy();
 
                 if file_name.contains("file_system") {
@@ -386,7 +388,7 @@ mod test {
             }
 
             let path = fs_dir.unwrap().join("priv/mac_listener");
-            let file = File::open(path).await.unwrap();
+            let file = tokio::fs::File::open(path).await.unwrap();
             let metadata = file.metadata().await.unwrap();
             let perms = metadata.permissions();
 
