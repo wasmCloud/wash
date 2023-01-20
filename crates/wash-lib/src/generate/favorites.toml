@@ -20,7 +20,7 @@ subfolder = "actor/hello"
 
 [[actor]]
 name = "echo-tinygo"
-description = "a hello-world actor (in TinyGo) that responds over an http connection"
+description = "a hello-world actor (in TinyGo) that echoes a request back over an http connection"
 git = "wasmcloud/project-templates"
 subfolder = "actor/echo-tinygo"
 
@@ -29,6 +29,12 @@ name = "echo-messaging"
 description = "a hello-world actor (in Rust) that echoes a request back over a NATS connection"
 git = "wasmcloud/project-templates"
 subfolder = "actor/echo-messaging"
+
+[[actor]]
+name = "kvcounter"
+description = "an actor (in Rust) that receives http requests and increments a counter in a key-value store"
+git = "wasmcloud/project-templates"
+subfolder = "actor/kvcounter"
 
 [[interface]]
 name = "converter-interface"
