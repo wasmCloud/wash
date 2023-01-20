@@ -26,7 +26,7 @@ subfolder = "actor/echo-tinygo"
 
 [[actor]]
 name = "echo-messaging"
-description = "a hello-world actor (in Rust) that echoes a request back over a NATS connection"
+description = "an actor (in Rust) that echoes a request back over a NATS connection"
 git = "wasmcloud/project-templates"
 subfolder = "actor/echo-messaging"
 
