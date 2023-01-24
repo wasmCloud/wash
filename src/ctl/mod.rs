@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use wash_lib::{
     cli::{labels_vec_to_hashmap, CommandOutput, OutputKind},

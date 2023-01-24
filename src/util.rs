@@ -1,6 +1,6 @@
 use std::{fs::File, io::Read, path::PathBuf};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use term_table::{Table, TableStyle};
 use wash_lib::config::DEFAULT_NATS_TIMEOUT_MS;
 
