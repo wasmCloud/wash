@@ -599,7 +599,11 @@ pub(crate) async fn handle_command(
 
 pub(crate) async fn get_hosts(cmd: GetHostsCommand) -> Result<Vec<Host>> {
     let client = ctl_client_from_opts(cmd.opts, None).await?;
-    client.get_hosts().await.map_err(convert_error)
+    client
+        .get_hosts()
+        .await
+        .map_err(convert_error)
+        .context("Was able to connect to NATS, but failed to get hosts.")
 }
 
 pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<HostInventory> {
@@ -608,37 +612,55 @@ pub(crate) async fn get_host_inventory(cmd: GetHostInventoryCommand) -> Result<H
         .get_host_inventory(&cmd.host_id.to_string())
         .await
         .map_err(convert_error)
+        .context("Was able to connect to NATS, but failed to get host inventory.")
 }
 
 pub(crate) async fn get_claims(cmd: GetClaimsCommand) -> Result<GetClaimsResponse> {
     let client = ctl_client_from_opts(cmd.opts, None).await?;
-    client.get_claims().await.map_err(convert_error)
+    client
+        .get_claims()
+        .await
+        .map_err(convert_error)
+        // TODO(mattwilkinsonn): Use Client Debug impl when merged: https://github.com/wasmCloud/control-interface-client/pull/35
+        .context("Was able to connect to NATS, but failed to get claims.")
 }
 
 pub(crate) async fn link_del(cmd: LinkDelCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts, None).await?;
+    let link_name = cmd.link_name.unwrap_or_else(|| "default".to_string());
     client
-        .remove_link(
-            &cmd.actor_id.to_string(),
-            &cmd.contract_id,
-            &cmd.link_name.unwrap_or_else(|| "default".to_string()),
-        )
+        .remove_link(&cmd.actor_id.to_string(), &cmd.contract_id, &link_name)
         .await
         .map_err(convert_error)
+        .with_context(|| {
+            format!(
+                "Failed to remove link between {} and {} with link name {}",
+                &cmd.actor_id, &cmd.contract_id, &link_name
+            )
+        })
 }
 
 pub(crate) async fn link_put(cmd: LinkPutCommand) -> Result<CtlOperationAck> {
     let client = ctl_client_from_opts(cmd.opts, None).await?;
+
+    let link_name = cmd.link_name.unwrap_or_else(|| "default".to_string());
+
     client
         .advertise_link(
             &cmd.actor_id.to_string(),
             &cmd.provider_id.to_string(),
             &cmd.contract_id,
-            &cmd.link_name.unwrap_or_else(|| "default".to_string()),
-            labels_vec_to_hashmap(cmd.values)?,
+            &link_name,
+            labels_vec_to_hashmap(cmd.values.clone())?,
         )
         .await
         .map_err(convert_error)
+        .with_context(|| {
+            format!(
+                "Failed to create link between {:?} and {:?} with contract {:?}. Link name: {}, values: {:?}",
+                &cmd.actor_id, &cmd.provider_id, &cmd.contract_id, &link_name, &cmd.values
+            )
+        })
 }
 
 pub(crate) async fn link_query(cmd: LinkQueryCommand) -> Result<LinkDefinitionList> {
@@ -716,8 +738,8 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CommandOutput>
     .await
     .with_context(|| {
         format!(
-            "Failed waiting for start event for actor {}",
-            &cmd.actor_ref
+            "Timed out waitng for start event for actor {} on host {}",
+            &cmd.actor_ref, &host
         )
     })?;
 
@@ -727,7 +749,7 @@ pub(crate) async fn start_actor(cmd: StartActorCommand) -> Result<CommandOutput>
             format!("Actor {} started on host {}", cmd.actor_ref, host),
         )),
         FindEventOutcome::Failure(err) => Err(err)
-            .with_context(|| format!("Never recieved start event for actor {}", &cmd.actor_ref)),
+            .with_context(|| format!("Failed to start actor {} on host {}", &cmd.actor_ref, &host)),
     }
 }
 
@@ -750,11 +772,19 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CommandO
                     labels_vec_to_hashmap(cmd.constraints.unwrap_or_default())?,
                 )
                 .await
-                .map_err(convert_error)?;
+                .map_err(convert_error)
+                .with_context(|| {
+                    format!(
+                        "Failed to auction provider {} with link name {} to hosts in lattice",
+                        &cmd.provider_ref, &cmd.link_name
+                    )
+                })?;
             if suitable_hosts.is_empty() {
                 bail!("No suitable hosts found for provider {}", cmd.provider_ref);
             } else {
-                suitable_hosts[0].host_id.parse()?
+                suitable_hosts[0].host_id.parse().with_context(|| {
+                    format!("Failed to parse host id: {}", suitable_hosts[0].host_id)
+                })?
             }
         }
     };
@@ -775,21 +805,31 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CommandO
         None
     };
 
-    let mut receiver = client.events_receiver().await.map_err(convert_error)?;
+    let mut receiver = client
+        .events_receiver()
+        .await
+        .map_err(convert_error)
+        .context("Failed to get lattice event channel")?;
 
     let ack = client
         .start_provider(
             &host.to_string(),
             &cmd.provider_ref,
-            Some(cmd.link_name),
+            Some(cmd.link_name.clone()),
             None,
-            config_json,
+            config_json.clone(),
         )
         .await
-        .map_err(convert_error)?;
+        .map_err(convert_error)
+        .with_context(|| {
+            format!(
+                "Failed to start provider {} on host {:?} with link name {} and configuration {:?}",
+                &cmd.provider_ref, &host, &cmd.link_name, &config_json
+            )
+        })?;
 
     if !ack.accepted {
-        bail!("Operation failed: {}", ack.error);
+        bail!("Start provider ack not accepted: {}", ack.error);
     }
 
     if cmd.skip_wait {
@@ -805,16 +845,25 @@ pub(crate) async fn start_provider(cmd: StartProviderCommand) -> Result<CommandO
         host.to_string(),
         cmd.provider_ref.clone(),
     )
-    .await?;
+    .await
+    .with_context(|| {
+        format!(
+            "Timed out waiting for start event for provider {} on host {}",
+            &cmd.provider_ref, &host
+        )
+    })?;
 
     match event {
         FindEventOutcome::Success(_) => Ok(CommandOutput::from_key_and_text(
             "result",
             format!("Provider {} started on host {}", cmd.provider_ref, host),
         )),
-        FindEventOutcome::Failure(err) => {
-            bail!("{}", err);
-        }
+        FindEventOutcome::Failure(err) => Err(err).with_context(|| {
+            format!(
+                "Failed starting provider {} on host {}",
+                &cmd.provider_ref, &host
+            )
+        }),
     }
 }
 
@@ -1126,9 +1175,15 @@ async fn ctl_client_from_opts(
     };
     let auction_timeout_ms = auction_timeout_ms.unwrap_or(opts.timeout_ms);
 
-    let nc =
-        crate::util::nats_client_from_opts(&ctl_host, &ctl_port, ctl_jwt, ctl_seed, ctl_credsfile)
-            .await?;
+    let nc = crate::util::nats_client_from_opts(
+        &ctl_host,
+        &ctl_port,
+        ctl_jwt.clone(),
+        ctl_seed.clone(),
+        ctl_credsfile.clone(),
+    )
+    .await
+    .context("Failed to create NATS client")?;
     let ctl_client = CtlClient::new(
         nc,
         Some(lattice_prefix),

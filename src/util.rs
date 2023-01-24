@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap, env::temp_dir, error::Error, fmt, fs::File, io::Read, path::PathBuf,
@@ -55,7 +55,8 @@ pub(crate) fn extract_arg_value(arg: &str) -> Result<String> {
     match File::open(arg) {
         Ok(mut f) => {
             let mut value = String::new();
-            f.read_to_string(&mut value)?;
+            f.read_to_string(&mut value)
+                .with_context(|| format!("Failed to read file {}", &arg))?;
             Ok(value)
         }
         Err(_) => Ok(arg.to_string()),
@@ -239,9 +240,14 @@ pub(crate) async fn nats_client_from_opts(
     use async_nats::ConnectOptions;
 
     let nc = if let Some(jwt_file) = jwt {
-        let jwt_contents = extract_arg_value(&jwt_file)?;
+        let jwt_contents =
+            extract_arg_value(&jwt_file).context("Failed to extract jwt contents")?;
         let kp = std::sync::Arc::new(if let Some(seed) = seed {
-            nkeys::KeyPair::from_seed(&extract_arg_value(&seed)?)?
+            nkeys::KeyPair::from_seed(
+                &extract_arg_value(&seed)
+                    .with_context(|| format!("Failed to extract seed value {}", &seed))?,
+            )
+            .with_context(|| format!("Failed to create keypair from seed value {}", &seed))?
         } else {
             nkeys::KeyPair::new_user()
         });
@@ -252,14 +258,32 @@ pub(crate) async fn nats_client_from_opts(
             async move { key_pair.sign(&nonce).map_err(async_nats::AuthError::new) }
         })
         .connect(&nats_url)
-        .await?
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to connect to NATS server {}:{} while creating client",
+                &host, &port
+            )
+        })?
     } else if let Some(credsfile_path) = credsfile {
-        ConnectOptions::with_credentials_file(credsfile_path)
-            .await?
+        ConnectOptions::with_credentials_file(credsfile_path.clone())
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to authenticate to NATS with credentials file {:?}",
+                    &credsfile_path
+                )
+            })?
             .connect(&nats_url)
-            .await?
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to connect to NATS {} with credentials file {:?}",
+                    &nats_url, &credsfile_path
+                )
+            })?
     } else {
-        async_nats::connect(&nats_url).await?
+        async_nats::connect(&nats_url).await.with_context(|| format!("Failed to connect to NATS {}\nNo credentials file was provided, you may need one to connect.", &nats_url))?
     };
     Ok(nc)
 }
