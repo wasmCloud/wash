@@ -1,4 +1,4 @@
-FROM rust:alpine as builder
+FROM rust:1.65-alpine3.16 as builder
 
 WORKDIR /build
 RUN apk add --no-cache clang clang-dev libressl-dev ca-certificates musl-dev llvm-dev clang-libs curl gcompat libgit2-dev
@@ -47,6 +47,7 @@ COPY --from=builder /usr/lib/libssl.so.* /usr/lib/
 COPY --from=builder /usr/lib/libcrypto.so.* /usr/lib/
 COPY --from=builder /usr/lib/libgcc_s.so.* /usr/lib/
 COPY --from=builder /lib/ld-musl-x86_64.so.* /lib/
+COPY --from=builder /lib/libz.so.* /lib/
 
 COPY --from=builder /build/target/release/wash /usr/local/bin/
 

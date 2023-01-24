@@ -1,18 +1,14 @@
-use crate::{
-    cfg::cfg_dir,
-    util::{set_permissions_keys, CommandOutput, OutputKind},
-};
-use anyhow::{bail, Context, Result};
+use std::{collections::HashMap, path::PathBuf};
+
+use anyhow::Result;
 use clap::Subcommand;
 use nkeys::{KeyPair, KeyPairType};
 use serde_json::json;
-use std::{
-    collections::HashMap,
-    fs,
-    fs::File,
-    io::prelude::*,
-    path::{Path, PathBuf},
-};
+use wash_lib::cli::CommandOutput;
+use wash_lib::config::cfg_dir;
+use wash_lib::keys::{fs::KeyDir, KeyManager};
+
+const NKEYS_EXTENSION: &str = ".nk";
 
 #[derive(Debug, Clone, Subcommand)]
 #[allow(clippy::enum_variant_names)]
@@ -77,40 +73,27 @@ pub(crate) fn generate(kt: &KeyPairType) -> Result<CommandOutput> {
 
 /// Retrieves a keypair by name in a specified directory, or $WASH_KEYS ($HOME/.wash/keys) if directory is not specified
 pub(crate) fn get(keyname: &str, directory: Option<PathBuf>) -> Result<CommandOutput> {
-    let keyfile = determine_directory(directory)?.join(keyname);
-    let mut f = File::open(&keyfile)
-        .with_context(|| format!("Please ensure {} exists.", keyfile.display()))?;
+    let key_dir = KeyDir::new(determine_directory(directory)?)?;
+    // Trim off the ".nk" for backwards compat
+    let key = key_dir
+        .get(keyname.trim_end_matches(NKEYS_EXTENSION))?
+        .ok_or_else(|| anyhow::anyhow!("Key {} doesn't exist", keyname))?;
 
-    let mut s = String::new();
-    let seed = match f.read_to_string(&mut s) {
-        Ok(_) => Ok(s),
-        Err(e) => Err(e),
-    }?;
-
-    Ok(CommandOutput::from_key_and_text("seed", seed.trim()))
+    Ok(CommandOutput::from_key_and_text("seed", key.seed()?))
 }
 
 /// Lists all keypairs (file extension .nk) in a specified directory or $WASH_KEYS($HOME/.wash/keys) if directory is not specified
 pub(crate) fn list(directory: Option<PathBuf>) -> Result<CommandOutput> {
-    let dir = determine_directory(directory)?;
+    let key_dir = KeyDir::new(determine_directory(directory)?)?;
 
-    let mut keys = vec![];
-    let paths = fs::read_dir(dir.clone())
-        .with_context(|| format!("please ensure directory {} exists", dir.display()))?;
-
-    for path in paths {
-        let f = String::from(path.unwrap().file_name().to_str().unwrap());
-        if f.ends_with(".nk") {
-            keys.push(f);
-        }
-    }
+    let keys = key_dir.list_names()?;
 
     let mut map = HashMap::new();
     map.insert("keys".to_string(), json!(keys));
     Ok(CommandOutput::new(
         format!(
             "====== Keys found in {} ======\n{}",
-            dir.display(),
+            key_dir.display(),
             keys.join("\n")
         ),
         map,
@@ -123,106 +106,6 @@ fn determine_directory(directory: Option<PathBuf>) -> Result<PathBuf> {
     } else {
         let d = cfg_dir()?.join("keys");
         Ok(d)
-    }
-}
-
-/// Helper function to locate and extract keypair from user input
-/// Returns a tuple of the keypair and optional autogenerate message
-pub(crate) fn extract_keypair(
-    input: Option<String>,
-    module_path: Option<String>,
-    directory: Option<PathBuf>,
-    keygen_type: KeyPairType,
-    disable_keygen: bool,
-    output_kind: OutputKind,
-) -> Result<KeyPair> {
-    let seed = if let Some(input_str) = input {
-        match File::open(input_str.clone()) {
-            // User provided file path to seed as argument
-            Ok(mut f) => {
-                let mut s = String::new();
-                f.read_to_string(&mut s)?;
-                s
-            }
-            // User provided seed as an argument
-            Err(_e) => input_str,
-        }
-    } else if let Some(module) = module_path {
-        // No seed value provided, attempting to source from provided or default directory
-        let dir = determine_directory(directory)?;
-        // Account key should be re-used, and will attempt to generate based on the terminal USER
-        let module_name = match keygen_type {
-            KeyPairType::Account => std::env::var("USER").unwrap_or_else(|_| "user".to_string()),
-            _ => PathBuf::from(module)
-                .file_stem()
-                .unwrap()
-                .to_str()
-                .unwrap()
-                .to_string(),
-        };
-        let path = dir.join(format!(
-            "{}_{}.nk",
-            module_name,
-            keypair_type_to_string(keygen_type.clone())
-        ));
-        match File::open(path.clone()) {
-            // Default key found
-            Ok(mut f) => {
-                let mut s = String::new();
-                f.read_to_string(&mut s)?;
-                s
-            }
-            // No default key, generating for user
-            Err(_e) if !disable_keygen => {
-                match output_kind {
-                    OutputKind::Text => println!(
-                        "No keypair found in \"{}\".
-                    We will generate one for you and place it there.
-                    If you'd like to use alternative keys, you can supply them as a flag.\n",
-                        path.display()
-                    ),
-                    OutputKind::Json => {
-                        println!(
-                            "{}",
-                            json!({"status": "No keypair found", "path": path, "keygen": "true"})
-                        )
-                    }
-                }
-
-                let kp = KeyPair::new(keygen_type);
-                let seed = kp.seed()?;
-                let key_path = Path::new(&path).parent().unwrap();
-                fs::create_dir_all(key_path)?;
-                set_permissions_keys(key_path)?;
-                let mut f = File::create(path.clone())?;
-                f.write_all(seed.as_bytes())?;
-                set_permissions_keys(&path)?;
-                seed
-            }
-            _ => {
-                bail!(
-                    "No keypair found in {}, please ensure key exists or supply one as a flag",
-                    path.display()
-                );
-            }
-        }
-    } else {
-        bail!("Keypair path or string not supplied. Ensure provided keypair is valid");
-    };
-
-    Ok(KeyPair::from_seed(&seed)?)
-}
-
-fn keypair_type_to_string(keypair_type: KeyPairType) -> String {
-    use KeyPairType::*;
-    match keypair_type {
-        Account => "account".to_string(),
-        Cluster => "cluster".to_string(),
-        Service => "service".to_string(),
-        Module => "module".to_string(),
-        Server => "server".to_string(),
-        Operator => "operator".to_string(),
-        User => "user".to_string(),
     }
 }
 
@@ -372,7 +255,7 @@ mod tests {
         ];
 
         key_gen_types.iter().for_each(|cmd| {
-            let gen_cmd: Cmd = clap::Parser::try_parse_from(&["keys", "gen", cmd]).unwrap();
+            let gen_cmd: Cmd = clap::Parser::try_parse_from(["keys", "gen", cmd]).unwrap();
             match gen_cmd.keys {
                 KeysCliCommand::GenCommand { keytype } => {
                     use KeyPairType::*;
@@ -391,7 +274,7 @@ mod tests {
         });
 
         key_gen_types.iter().for_each(|cmd| {
-            let gen_cmd: Cmd = clap::Parser::try_parse_from(&["keys", "gen", cmd]).unwrap();
+            let gen_cmd: Cmd = clap::Parser::try_parse_from(["keys", "gen", cmd]).unwrap();
             match gen_cmd.keys {
                 KeysCliCommand::GenCommand { keytype } => {
                     use KeyPairType::*;
@@ -416,8 +299,7 @@ mod tests {
         const KEYPATH: &str = "./tests/fixtures";
 
         let gen_basic: Cmd =
-            clap::Parser::try_parse_from(&["keys", "get", KEYNAME, "--directory", KEYPATH])
-                .unwrap();
+            clap::Parser::try_parse_from(["keys", "get", KEYNAME, "--directory", KEYPATH]).unwrap();
         match gen_basic.keys {
             KeysCliCommand::GetCommand { keyname, .. } => assert_eq!(keyname, KEYNAME),
             other_cmd => panic!("keys get generated other command {:?}", other_cmd),
@@ -433,7 +315,7 @@ mod tests {
         const KEYNAME: &str = "get_comprehensive_test.nk";
 
         let get_all_flags: Cmd =
-            clap::Parser::try_parse_from(&["keys", "get", KEYNAME, "-d", KEYPATH]).unwrap();
+            clap::Parser::try_parse_from(["keys", "get", KEYNAME, "-d", KEYPATH]).unwrap();
         match get_all_flags.keys {
             KeysCliCommand::GetCommand { keyname, directory } => {
                 assert_eq!(keyname, KEYNAME);
@@ -451,14 +333,14 @@ mod tests {
         const KEYPATH: &str = "./";
 
         let list_basic: Cmd =
-            clap::Parser::try_parse_from(&["keys", "list", "-d", KEYPATH]).unwrap();
+            clap::Parser::try_parse_from(["keys", "list", "-d", KEYPATH]).unwrap();
         match list_basic.keys {
             KeysCliCommand::ListCommand { .. } => (),
             other_cmd => panic!("keys get generated other command {:?}", other_cmd),
         }
 
         let list_all_flags: Cmd =
-            clap::Parser::try_parse_from(&["keys", "list", "-d", KEYPATH]).unwrap();
+            clap::Parser::try_parse_from(["keys", "list", "-d", KEYPATH]).unwrap();
         match list_all_flags.keys {
             KeysCliCommand::ListCommand { directory } => {
                 assert_eq!(directory, Some(PathBuf::from(KEYPATH)));

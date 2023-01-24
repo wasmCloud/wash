@@ -1,0 +1,47 @@
+name: Rust CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt_clippy:
+    name: Fmt & Clippy Checks
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Rust check + clippy
+        run: make rust-check
+  unit_tests:
+    name: Unit Tests
+    strategy:
+      fail-fast: false # Ensure we can run the full suite even if one OS fails
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-11]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run unit tests
+        run: make test
+  integration_tests:
+    name: Integration Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup tinygo
+        run: |
+          wget https://github.com/tinygo-org/tinygo/releases/download/v0.23.0/tinygo_0.23.0_amd64.deb
+          sudo dpkg -i tinygo_0.23.0_amd64.deb
+      - name: Add wasm32-unknown-unknown
+        run: rustup target add wasm32-unknown-unknown
+      - name: Launch integration test services
+        uses: sudo-bot/action-docker-compose@latest
+        with:
+          cli-args: "-f ./tools/docker-compose.yml up --detach"
+      - name: Run integration tests
+        run: cargo test --no-fail-fast --bin wash --test "integration*" -- --nocapture

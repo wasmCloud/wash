@@ -1,103 +1,41 @@
-//! ## Project generation from templates
-//!
-//! This module contains code for `wash new ...` commands
-//! to creating a new project from a template.
-//!
-//! This module has some functionality (and code) in common with
-//! `cargo-generate`, which can also can create a new project from
-//! a template folder on disk or from a template in github.
-//! We are thankful for the cargo-generate project and its contributors,
-//! and acknowledge that the following functionality is
-//! largely copied from that project:
-//! - github downloads, config file loading, directory tree traversal,
-//!   and terminal io (progress bars, emoji, and variable prompts)
-//!
-//! Some of the differences between this and cargo-generate:
-//! - Because it is integrated with wash, which has binary distributions,
-//!   users do not need to have cargo or the rust toolchain installed.
-//! - This implementation is intended to support more target languages,
-//!   and tries to be less rust/cargo centric.
-//! - uses handlebars templates instead of liquid, for consistency
-//!   with templates used for code generation from smithy files.
-//!   The syntax between these engines is very similar.
-//!   Handlebars (currently) has greater usage in the rust community,
-//!   and is more familiar with developers of javascript and other languages.
-//! - categorization of templates by kind: actor, interface, and provider.
-//! - project config file includes optional table for renaming files
-//! - template expansion may occur within file contents,
-//!   within file names, and within default values.
-//!   (cargo-generate supports the first 2/3)
-//! - fewer cli options for a simpler user experience
-//! - does not perform git init on the generated project
-//!
-// Some of this code is based on code from cargo-generate
-//   source: https://github.com/cargo-generate/cargo-generate
-//   version: 0.9.0
-//   license: MIT/Apache-2.0
-//
-use anyhow::{anyhow, Context, Result};
-use clap::{ArgEnum, Args, Subcommand};
-use config::{Config, CONFIG_FILE_NAME};
-use console::style;
-use git::GitConfig;
-use indicatif::MultiProgress;
-use project_variables::*;
-use serde::Serialize;
+//! Generate wasmCloud projects (WebAssembly actors, native capability providers, or contract interfaces) from templates
+
 use std::{
     borrow::Borrow,
     fmt, fs,
     path::{Path, PathBuf},
 };
+
+use anyhow::{anyhow, Context, Result};
+use console::style;
+use genconfig::{Config, CONFIG_FILE_NAME};
+use indicatif::MultiProgress;
+use project_variables::*;
+use serde::Serialize;
 use tempfile::TempDir;
+use tokio::process::Command;
 use weld_codegen::render::Renderer;
 
-use crate::{appearance::emoji, util::CommandOutput};
-
-mod config;
+pub mod emoji;
 mod favorites;
+mod genconfig;
 mod git;
-pub(crate) mod interactive;
-pub(crate) mod project_variables;
+pub mod interactive;
+pub mod project_variables;
 mod template;
 
-pub(crate) type TomlMap = std::collections::BTreeMap<String, toml::Value>;
-pub(crate) type ParamMap = std::collections::BTreeMap<String, serde_json::Value>;
+type TomlMap = std::collections::BTreeMap<String, toml::Value>;
+type ParamMap = std::collections::BTreeMap<String, serde_json::Value>;
 /// pattern for project name and identifier are the same:
 /// start with letter, then letter/digit/underscore/dash
-pub(crate) const PROJECT_NAME_REGEX: &str = r"^([a-zA-Z][a-zA-Z0-9_-]+)$";
-
-/// Create a new project from template
-#[derive(Debug, Clone, Subcommand)]
-pub(crate) enum NewCliCommand {
-    /// Generate actor project
-    #[clap(name = "actor")]
-    Actor(NewProjectArgs),
-
-    /// Generate a new interface project
-    #[clap(name = "interface")]
-    Interface(NewProjectArgs),
-
-    /// Generate a new capability provider project
-    #[clap(name = "provider")]
-    Provider(NewProjectArgs),
-}
+const PROJECT_NAME_REGEX: &str = r"^([a-zA-Z][a-zA-Z0-9_-]+)$";
 
 /// Type of project to be generated
-#[derive(Debug, Clone, ArgEnum)]
-pub(crate) enum ProjectKind {
+#[derive(Debug, Clone, Copy)]
+pub enum ProjectKind {
     Actor,
     Interface,
     Provider,
-}
-
-impl From<&NewCliCommand> for ProjectKind {
-    fn from(cmd: &NewCliCommand) -> ProjectKind {
-        match cmd {
-            NewCliCommand::Actor(_) => ProjectKind::Actor,
-            NewCliCommand::Interface(_) => ProjectKind::Interface,
-            NewCliCommand::Provider(_) => ProjectKind::Provider,
-        }
-    }
 }
 
 impl fmt::Display for ProjectKind {
@@ -114,101 +52,96 @@ impl fmt::Display for ProjectKind {
     }
 }
 
-#[derive(Args, Debug, Default, Clone)]
-pub(crate) struct NewProjectArgs {
-    /// Project name
-    #[clap(help = "Project name")]
-    pub(crate) project_name: Option<String>,
-
-    /// Github repository url
-    #[clap(long)]
-    pub(crate) git: Option<String>,
-
-    /// Optional subfolder of the git repository
-    #[clap(long, alias = "subdir")]
-    pub(crate) subfolder: Option<PathBuf>,
-
-    /// Optional github branch
-    #[clap(long)]
-    pub(crate) branch: Option<String>,
-
-    /// Optional path for template project
-    #[clap(short, long)]
-    pub(crate) path: Option<PathBuf>,
-
-    /// optional path to file containing placeholder values
-    #[clap(short, long)]
-    pub(crate) values: Option<PathBuf>,
-
-    /// ssh identity file, for ssh authentication
-    #[clap(short = 'i', long)]
-    pub(crate) ssh_identity: Option<PathBuf>,
-
-    /// silent - do not prompt user. Placeholder values in the templates
-    /// will be resolved from a '--values' file and placeholder defaults.
-    #[clap(long)]
-    pub(crate) silent: bool,
-
-    /// favorites file - to use for project selection
-    #[clap(long)]
-    pub(crate) favorites: Option<PathBuf>,
-
-    /// template name - name of template to use
-    #[clap(short, long)]
-    pub(crate) template_name: Option<String>,
-
-    /// Don't create a git repository. Will create one if this is not passed.
-    #[clap(long)]
-    pub(crate) no_git_init: bool,
+impl Default for ProjectKind {
+    fn default() -> Self {
+        ProjectKind::Actor
+    }
 }
 
-pub(crate) fn handle_command(command: NewCliCommand) -> Result<CommandOutput> {
-    validate(&command)?;
+#[derive(Debug, Default, Clone)]
+/// Contains information for generating a wasmCloud project, including fields for generating locally from a path
+/// or from a remote git repository.
+pub struct Project {
+    /// Project kind
+    pub kind: ProjectKind,
 
-    let kind = ProjectKind::from(&command);
-    let cmd = match command {
-        NewCliCommand::Actor(gc) | NewCliCommand::Interface(gc) | NewCliCommand::Provider(gc) => gc,
-    };
+    /// Project name
+    pub project_name: Option<String>,
+
+    /// Optional path to file containing placeholder values
+    pub values: Option<PathBuf>,
+
+    /// Silent - do not prompt user. Placeholder values in the templates
+    /// will be resolved from a '--values' file and placeholder defaults.
+    pub silent: bool,
+
+    /// Favorites file - to use for project selection
+    pub favorites: Option<PathBuf>,
+
+    /// Template name - name of template to use
+    pub template_name: Option<String>,
+
+    /// Don't run 'git init' on the new folder
+    pub no_git_init: bool,
+
+    /// Optional path for template project (alternative to --git)
+    pub path: Option<PathBuf>,
+
+    /// Github repository url. Requires 'git' to be installed in PATH.
+    pub git: Option<String>,
+
+    /// Optional subfolder of the git repository
+    pub subfolder: Option<String>,
+
+    /// Optional github branch. Defaults to "main"
+    pub branch: Option<String>,
+}
+
+/// From a [Project] specification, generate a project of kind [ProjectKind]
+///
+/// # Arguments
+/// - project: a [Project] struct containing required information to generate a wasmCloud project
+///
+/// # Returns
+/// A Result containing a [PathBuf] with the location of the generated project
+pub async fn generate_project(project: Project) -> Result<PathBuf> {
+    validate(&project)?;
 
     // if user did not specify path to template dir or path to git repo,
     // pick one of the favorites for this kind
-    let cmd = if cmd.path.is_none() && cmd.git.is_none() {
+    let project = if project.path.is_none() && project.git.is_none() {
         let fav = favorites::pick_favorite(
-            cmd.favorites.as_ref(),
-            &kind,
-            cmd.silent,
-            cmd.template_name.as_ref(),
+            project.favorites.as_ref(),
+            &project.kind,
+            project.silent,
+            project.template_name.as_ref(),
         )?;
-        NewProjectArgs {
+        Project {
             path: fav.path.as_ref().map(PathBuf::from),
-            git: fav.git.clone(),
-            branch: fav.branch.clone(),
-            subfolder: fav.subfolder.as_ref().map(PathBuf::from),
-            ..cmd
+            git: fav.git,
+            branch: fav.branch,
+            subfolder: fav.subfolder,
+            ..project
         }
     } else {
-        cmd
+        project
     };
 
-    make_project(kind, cmd)?;
-    Ok(CommandOutput::default())
+    make_project(project).await
 }
 
-fn validate(command: &NewCliCommand) -> Result<()> {
-    let cmd = match command {
-        NewCliCommand::Actor(gc) | NewCliCommand::Interface(gc) | NewCliCommand::Provider(gc) => gc,
-    };
-
-    if cmd.path.is_some() && (cmd.git.is_some() || cmd.subfolder.is_some() || cmd.branch.is_some())
+fn validate(project: &Project) -> Result<()> {
+    if project.path.is_some()
+        && (project.git.is_some() || project.subfolder.is_some() || project.branch.is_some())
     {
         return Err(anyhow!("Error in 'new {}' options: You may use --path or --git ( --branch, --subfolder ) to specify a template source, but not both. If neither is specified, you will be prompted to select a project template.",
-            &ProjectKind::from(command)
+            &ProjectKind::from(project.kind)
         ));
     }
-    if let Some(name) = &cmd.project_name {
+    if let Some(name) = &project.project_name {
         crate::generate::project_variables::validate_project_name(name)?;
     }
-    if let Some(path) = &cmd.path {
+    if let Some(path) = &project.path {
         if !path.is_dir() {
             return Err(anyhow!(
                 "Error in --path option: '{}' is not an existing directory",
@@ -216,7 +149,7 @@ fn validate(command: &NewCliCommand) -> Result<()> {
             ));
         }
     }
-    if let Some(path) = &cmd.values {
+    if let Some(path) = &project.values {
         if !path.is_file() {
             return Err(anyhow!(
                 "Error in --values option: '{}' is not an existing file",
@@ -224,15 +157,7 @@ fn validate(command: &NewCliCommand) -> Result<()> {
             ));
         }
     }
-    if let Some(path) = &cmd.ssh_identity {
-        if !path.is_file() {
-            return Err(anyhow!(
-                "Error in --ssh_identity option: '{}' is not an existing file",
-                &path.display()
-            ));
-        }
-    }
-    if let Some(path) = &cmd.favorites {
+    if let Some(path) = &project.favorites {
         if !path.is_file() {
             return Err(anyhow!(
                 "Error in --favorites option: '{}' is not an existing file",
@@ -243,16 +168,7 @@ fn validate(command: &NewCliCommand) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn any_error(s: &str, e: anyhow::Error) -> anyhow::Error {
-    anyhow!(
-        "{} {} {}",
-        emoji::ERROR,
-        style(s).bold().red(),
-        style(e).bold().red()
-    )
-}
-
-pub(crate) fn any_msg(s1: &str, s2: &str) -> anyhow::Error {
+fn any_msg(s1: &str, s2: &str) -> anyhow::Error {
     anyhow!(
         "{} {} {}",
         emoji::ERROR,
@@ -261,19 +177,14 @@ pub(crate) fn any_msg(s1: &str, s2: &str) -> anyhow::Error {
     )
 }
 
-pub(crate) fn any_warn(s: &str) -> anyhow::Error {
+fn any_warn(s: &str) -> anyhow::Error {
     anyhow!("{} {}", emoji::WARN, style(s).bold().red())
 }
 
-pub(crate) fn make_project(
-    kind: ProjectKind,
-    args: NewProjectArgs,
-) -> std::result::Result<(), anyhow::Error> {
-    let _ = env_logger::try_init();
-
+async fn make_project(project: Project) -> std::result::Result<PathBuf, anyhow::Error> {
     // load optional values file
-    let mut values = if let Some(values_file) = &args.values {
-        let bytes = fs::read(&values_file)
+    let mut values = if let Some(values_file) = &project.values {
+        let bytes = fs::read(values_file)
             .with_context(|| format!("reading values file {}", &values_file.display()))?;
         let tm = toml::from_slice::<TomlMap>(&bytes)
             .with_context(|| format!("parsing values file {}", &values_file.display()))?;
@@ -287,24 +198,24 @@ pub(crate) fn make_project(
     };
 
     let project_name =
-        resolve_project_name(&values.get("project-name"), &args.project_name.as_ref())?;
+        resolve_project_name(&values.get("project-name"), &project.project_name.as_ref())?;
     values.insert(
         "project-name".into(),
         project_name.user_input.clone().into(),
     );
     values.insert(
         "project-type".into(),
-        serde_json::Value::String(kind.to_string()),
+        serde_json::Value::String(project.kind.to_string()),
     );
     let project_dir = resolve_project_dir(&project_name)?;
 
     // select the template from args or a favorite file,
     // and copy its contents into a local folder
-    let (template_base_dir, template_folder, _branch) = prepare_local_template(&args)?;
+    let (template_base_dir, template_folder) = prepare_local_template(&project).await?;
 
     // read configuration file `project-generate.toml` from template.
     let project_config_path = fs::canonicalize(
-        locate_project_config_file(CONFIG_FILE_NAME, &template_base_dir, &args.subfolder)
+        locate_project_config_file(CONFIG_FILE_NAME, &template_base_dir, &project.subfolder)
             .with_context(|| {
                 format!(
                     "Invalid template folder: Required configuration file `{}` is missing.",
@@ -327,9 +238,10 @@ pub(crate) fn make_project(
     // resolve all project values, prompting if necessary,
     // and expanding templates in default values
     let renderer = Renderer::default();
-    let undefined = fill_project_variables(&config, &mut values, &renderer, args.silent, |slot| {
-        crate::generate::interactive::variable(slot)
-    })?;
+    let undefined =
+        fill_project_variables(&config, &mut values, &renderer, project.silent, |slot| {
+            crate::generate::interactive::variable(slot)
+        })?;
     if !undefined.is_empty() {
         return Err(any_msg("The following variables were not defined. Either add them to the --values file, or disable --silent: {}",
             &undefined.join(",")
@@ -355,9 +267,19 @@ pub(crate) fn make_project(
     )
     .map_err(|e| any_msg("generating project from templates:", &e.to_string()))?;
 
-    if !args.no_git_init {
-        let repo = git2::Repository::init(&project_dir)?;
-        repo.set_head("refs/heads/main")?;
+    if !project.no_git_init {
+        let cmd_out = Command::new("git")
+            .args(["init", "--initial-branch", "main", "."])
+            .current_dir(tokio::fs::canonicalize(&project_dir).await?)
+            .spawn()?
+            .wait_with_output()
+            .await?;
+        if !cmd_out.status.success() {
+            return Err(anyhow!(
+                "git init error: {}",
+                String::from_utf8_lossy(&cmd_out.stderr)
+            ));
+        }
     }
 
     pbar.clear().ok();
@@ -369,7 +291,8 @@ pub(crate) fn make_project(
         style("New project created").bold(),
         style(&project_dir.display()).underlined()
     );
-    Ok(())
+
+    Ok(project_dir)
 }
 
 // convert from TOML map to JSON map
@@ -384,7 +307,7 @@ fn toml_to_json<T: Serialize>(map: &T) -> Result<ParamMap> {
 fn locate_project_config_file<T>(
     name: &str,
     template_folder: T,
-    subfolder: &Option<PathBuf>,
+    subfolder: &Option<String>,
 ) -> Result<PathBuf>
 where
     T: AsRef<Path>,
@@ -417,18 +340,25 @@ where
     }
 }
 
-pub(crate) fn prepare_local_template(args: &NewProjectArgs) -> Result<(TempDir, PathBuf, String)> {
-    let (template_base_dir, template_folder, branch) = match (&args.git, &args.path) {
-        (Some(_), None) => {
-            let (template_base_dir, branch) = clone_git_template_into_temp(args)?;
-            let template_folder = resolve_template_dir(&template_base_dir, args)?;
-            (template_base_dir, template_folder, branch)
+async fn prepare_local_template(project: &Project) -> Result<(TempDir, PathBuf)> {
+    let (template_base_dir, template_folder) = match (&project.git, &project.path) {
+        (Some(url), None) => {
+            let template_base_dir = tempfile::tempdir()
+                .map_err(|e| any_msg("Creating temp folder for staging:", &e.to_string()))?;
+            git::clone_git_template(git::CloneTemplate {
+                clone_tmp: template_base_dir.path().to_path_buf(),
+                repo_url: url.to_string(),
+                sub_folder: project.subfolder.clone(),
+                repo_branch: project.branch.clone().unwrap_or_else(|| "main".to_string()),
+            })
+            .await?;
+            let template_folder = resolve_template_dir(&template_base_dir, project)?;
+            (template_base_dir, template_folder)
         }
         (None, Some(_)) => {
-            let template_base_dir = copy_path_template_into_temp(args)?;
-            let branch = args.branch.clone().unwrap_or_else(|| String::from("main"));
+            let template_base_dir = copy_path_template_into_temp(project)?;
             let template_folder = template_base_dir.path().into();
-            (template_base_dir, template_folder, branch)
+            (template_base_dir, template_folder)
         }
         _ => {
             return Err(anyhow!(
@@ -440,11 +370,11 @@ pub(crate) fn prepare_local_template(args: &NewProjectArgs) -> Result<(TempDir, 
             ))
         }
     };
-    Ok((template_base_dir, template_folder, branch))
+    Ok((template_base_dir, template_folder))
 }
 
-fn resolve_template_dir(template_base_dir: &TempDir, args: &NewProjectArgs) -> Result<PathBuf> {
-    match &args.subfolder {
+fn resolve_template_dir(template_base_dir: &TempDir, project: &Project) -> Result<PathBuf> {
+    match &project.subfolder {
         Some(subfolder) => {
             let template_base_dir = fs::canonicalize(template_base_dir.path())
                 .map_err(|e| any_msg("Invalid template path:", &e.to_string()))?;
@@ -452,7 +382,7 @@ fn resolve_template_dir(template_base_dir: &TempDir, args: &NewProjectArgs) -> R
             // NOTE(thomastaylor312): Yeah, this is weird, but if you just `join` the PathBuf here
             // then you end up with mixed slashes, which doesn't work when file paths are
             // canonicalized on Windows
-            template_dir.extend(subfolder.iter());
+            template_dir.extend(PathBuf::from(subfolder).iter());
             let template_dir = fs::canonicalize(template_dir)
                 .map_err(|e| any_msg("Invalid subfolder path:", &e.to_string()))?;
 
@@ -473,7 +403,7 @@ fn resolve_template_dir(template_base_dir: &TempDir, args: &NewProjectArgs) -> R
                 "{} {} `{}`{}",
                 emoji::WRENCH,
                 style("Using template subfolder").bold(),
-                style(subfolder.display()).bold().yellow(),
+                style(subfolder).bold().yellow(),
                 style("...").bold()
             );
             Ok(template_dir)
@@ -482,41 +412,20 @@ fn resolve_template_dir(template_base_dir: &TempDir, args: &NewProjectArgs) -> R
     }
 }
 
-fn copy_path_template_into_temp(args: &NewProjectArgs) -> Result<TempDir> {
+fn copy_path_template_into_temp(project: &Project) -> Result<TempDir> {
     let path_clone_dir = tempfile::tempdir()
         .map_err(|e| any_msg("Creating temp folder for staging:", &e.to_string()))?;
     // args.path is already Some() when we get here
-    let path = args.path.as_ref().unwrap();
+    let path = project.path.as_ref().unwrap();
     if !path.is_dir() {
         return Err(any_msg(&format!("template path {} not found - please try another template or fix the favorites path", &path.display()),""));
     }
-    copy_dir_all(&path, &path_clone_dir.path())
+    copy_dir_all(path, path_clone_dir.path())
         .with_context(|| format!("copying template project from {}", &path.display()))?;
     Ok(path_clone_dir)
 }
 
-fn clone_git_template_into_temp(args: &NewProjectArgs) -> Result<(TempDir, String)> {
-    let git_clone_dir = tempfile::tempdir()
-        .map_err(|e| any_msg("Creating temp folder for staging:", &e.to_string()))?;
-
-    let remote = args
-        .git
-        .clone()
-        .with_context(|| "Missing option git, path or a favorite")?;
-
-    let git_config = GitConfig::new_abbr(
-        remote.into(),
-        args.branch.to_owned(),
-        args.ssh_identity.clone(),
-    )?;
-
-    let branch =
-        git::create(git_clone_dir.path(), git_config).map_err(|e| any_error("Git Error:", e))?;
-
-    Ok((git_clone_dir, branch))
-}
-
-pub(crate) fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
     fn check_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
         if !dst.as_ref().exists() {
             return Ok(());
@@ -561,12 +470,12 @@ pub(crate) fn copy_dir_all(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Resu
     copy_all(src, dst)
 }
 
-pub(crate) fn resolve_project_dir(name: &ProjectName) -> Result<PathBuf> {
+fn resolve_project_dir(name: &ProjectName) -> Result<PathBuf> {
     let dir_name = name.kebab_case();
 
     let project_dir = std::env::current_dir()
         .unwrap_or_else(|_e| ".".into())
-        .join(&dir_name);
+        .join(dir_name);
 
     if project_dir.exists() {
         Err(any_msg("Target directory already exists.", "aborting!"))
@@ -588,18 +497,18 @@ fn resolve_project_name(
 
 /// Stores user inputted name and provides convenience methods
 /// for handling casing.
-pub(crate) struct ProjectName {
-    pub(crate) user_input: String,
+struct ProjectName {
+    user_input: String,
 }
 
 impl ProjectName {
-    pub(crate) fn new(name: impl Into<String>) -> ProjectName {
+    fn new(name: impl Into<String>) -> ProjectName {
         ProjectName {
             user_input: name.into(),
         }
     }
 
-    pub(crate) fn kebab_case(&self) -> String {
+    fn kebab_case(&self) -> String {
         use heck::ToKebabCase as _;
         self.user_input.to_kebab_case()
     }

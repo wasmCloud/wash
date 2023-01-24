@@ -8,27 +8,32 @@ use std::sync::{
     Arc,
 };
 
-use crate::appearance::spinner::Spinner;
-use crate::cfg::cfg_dir;
-use crate::util::{CommandOutput, OutputKind};
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use serde_json::json;
+
 use tokio::fs::create_dir_all;
 use tokio::{
     io::{AsyncBufReadExt, BufReader},
-    process::{Child, Command},
+    process::Child,
 };
-
+use wash_lib::cli::{CommandOutput, OutputKind};
 use wash_lib::start::*;
+
+use crate::appearance::spinner::Spinner;
+use crate::cfg::cfg_dir;
+use crate::down::stop_nats;
+use crate::down::stop_wasmcloud;
+
 mod config;
 mod credsfile;
+pub use config::DOWNLOADS_DIR;
 use config::*;
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct UpCommand {
     /// Launch NATS and wasmCloud detached from the current terminal as background processes
-    #[clap(short = 'd', long = "detached")]
+    #[clap(short = 'd', long = "detached", alias = "detach")]
     pub(crate) detached: bool,
 
     #[clap(flatten)]
@@ -40,11 +45,27 @@ pub(crate) struct UpCommand {
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct NatsOpts {
+    /// Optional path to a NATS credentials file to authenticate and extend existing NATS infrastructure.
+    #[clap(
+        long = "nats-credsfile",
+        env = "NATS_CREDSFILE",
+        requires = "nats_remote_url"
+    )]
+    pub(crate) nats_credsfile: Option<PathBuf>,
+
+    /// Optional remote URL of existing NATS infrastructure to extend.
+    #[clap(
+        long = "nats-remote-url",
+        env = "NATS_REMOTE_URL",
+        requires = "nats_credsfile"
+    )]
+    pub(crate) nats_remote_url: Option<String>,
+
     /// If a connection can't be established, exit and don't start a NATS server. Will be ignored if a remote_url and credsfile are specified
     #[clap(
         long = "nats-connect-only",
         env = "NATS_CONNECT_ONLY",
-        conflicts_with = "nats-remote-url"
+        conflicts_with = "nats_remote_url"
     )]
     pub(crate) connect_only: bool,
 
@@ -63,22 +84,6 @@ pub(crate) struct NatsOpts {
     /// NATS Server Jetstream domain, defaults to `core`
     #[clap(long = "nats-js-domain", env = "NATS_JS_DOMAIN")]
     pub(crate) nats_js_domain: Option<String>,
-
-    /// Optional remote URL of existing NATS infrastructure to extend.
-    #[clap(
-        long = "nats-remote-url",
-        env = "NATS_REMOTE_URL",
-        requires = "nats-credsfile"
-    )]
-    pub(crate) nats_remote_url: Option<String>,
-
-    /// Optional path to a NATS credentials file to authenticate and extend existing NATS infrastructure.
-    #[clap(
-        long = "nats-credsfile",
-        env = "NATS_CREDSFILE",
-        requires = "nats-remote-url"
-    )]
-    pub(crate) nats_credsfile: Option<PathBuf>,
 }
 
 impl From<NatsOpts> for NatsConfig {
@@ -121,7 +126,7 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) rpc_port: Option<u16>,
 
     /// A seed nkey to use to authenticate to NATS for RPC messages
-    #[clap(long = "rpc-seed", env = WASMCLOUD_RPC_SEED, requires = "rpc-jwt")]
+    #[clap(long = "rpc-seed", env = WASMCLOUD_RPC_SEED, requires = "rpc_jwt")]
     pub(crate) rpc_seed: Option<String>,
 
     /// Timeout in milliseconds for all RPC calls
@@ -129,7 +134,7 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) rpc_timeout_ms: u32,
 
     /// A user JWT to use to authenticate to NATS for RPC messages
-    #[clap(long = "rpc-jwt", env = WASMCLOUD_RPC_JWT, requires = "rpc-seed")]
+    #[clap(long = "rpc-jwt", env = WASMCLOUD_RPC_JWT, requires = "rpc_seed")]
     pub(crate) rpc_jwt: Option<String>,
 
     /// Optional flag to enable host communication with a NATS server over TLS for RPC messages
@@ -149,7 +154,7 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) prov_rpc_port: Option<u16>,
 
     /// A seed nkey to use to authenticate to NATS for Provider RPC messages
-    #[clap(long = "prov-rpc-seed", env = WASMCLOUD_PROV_RPC_SEED, requires = "prov-rpc-jwt")]
+    #[clap(long = "prov-rpc-seed", env = WASMCLOUD_PROV_RPC_SEED, requires = "prov_rpc_jwt")]
     pub(crate) prov_rpc_seed: Option<String>,
 
     /// Optional flag to enable host communication with a NATS server over TLS for Provider RPC messages
@@ -157,7 +162,7 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) prov_rpc_tls: bool,
 
     /// A user JWT to use to authenticate to NATS for Provider RPC messages
-    #[clap(long = "prov-rpc-jwt", env = WASMCLOUD_PROV_RPC_JWT, requires = "prov-rpc-seed")]
+    #[clap(long = "prov-rpc-jwt", env = WASMCLOUD_PROV_RPC_JWT, requires = "prov_rpc_seed")]
     pub(crate) prov_rpc_jwt: Option<String>,
 
     /// Convenience flag for Provider RPC authentication, internally this parses the JWT and seed from the credsfile
@@ -173,11 +178,11 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) ctl_port: Option<u16>,
 
     /// A seed nkey to use to authenticate to NATS for CTL messages
-    #[clap(long = "ctl-seed", env = WASMCLOUD_CTL_SEED, requires = "ctl-jwt")]
+    #[clap(long = "ctl-seed", env = WASMCLOUD_CTL_SEED, requires = "ctl_jwt")]
     pub(crate) ctl_seed: Option<String>,
 
     /// A user JWT to use to authenticate to NATS for CTL messages
-    #[clap(long = "ctl-jwt", env = WASMCLOUD_CTL_JWT, requires = "ctl-seed")]
+    #[clap(long = "ctl-jwt", env = WASMCLOUD_CTL_JWT, requires = "ctl_seed")]
     pub(crate) ctl_jwt: Option<String>,
 
     /// Convenience flag for CTL authentication, internally this parses the JWT and seed from the credsfile
@@ -253,7 +258,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     // Avoid downloading + starting NATS if the user already runs their own server. Ignore connect_only
     // if this server has a remote and credsfile as we have to start a leafnode in that scenario
     let nats_opts = cmd.nats_opts.clone();
-    let mut nats_process = if !cmd.nats_opts.connect_only
+    let nats_bin = if !cmd.nats_opts.connect_only
         || cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some()
     {
         // Download NATS if not already installed
@@ -261,7 +266,8 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         let nats_binary = ensure_nats_server(&cmd.nats_opts.nats_version, &install_dir).await?;
 
         spinner.update_spinner_message(" Starting NATS ...".to_string());
-        Some(start_nats(&install_dir, &nats_binary, cmd.nats_opts.clone()).await?)
+        start_nats(&install_dir, &nats_binary, cmd.nats_opts.clone()).await?;
+        Some(nats_binary)
     } else {
         // If we can connect to NATS, return None as we aren't managing the child process.
         // Otherwise, exit with error since --nats-connect-only was specified
@@ -282,8 +288,8 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         ensure_wasmcloud(&cmd.wasmcloud_opts.wasmcloud_version, &install_dir).await?
     } else {
         // Ensure we clean up the NATS server if we can't start wasmCloud
-        if let Some(mut process) = nats_process {
-            process.kill().await?;
+        if nats_bin.is_some() {
+            stop_nats(install_dir).await?;
         }
         return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
     };
@@ -313,9 +319,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         Ok(child) => child,
         Err(e) => {
             // Ensure we clean up the NATS server if we can't start wasmCloud
-            if let Some(mut process) = nats_process {
-                process.kill().await?;
-            }
+            stop_nats(install_dir).await?;
             return Err(e);
         }
     };
@@ -330,14 +334,12 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         );
 
         // Terminate wasmCloud and NATS processes
-        stop_wasmcloud(wasmcloud_executable.clone()).await?;
-
-        if let Some(process) = nats_process.as_mut() {
-            match process.try_wait() {
-                Ok(Some(_)) => (),
-                _ => process.kill().await?,
-            }
+        let output = stop_wasmcloud(wasmcloud_executable.clone()).await?;
+        if !output.status.success() {
+            log::warn!("wasmCloud exited with a non-zero exit status, processes may need to be cleaned up manually")
         }
+
+        stop_nats(install_dir).await?;
 
         spinner.finish_and_clear();
     }
@@ -348,50 +350,24 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     out_json.insert("success".to_string(), json!(true));
     out_text.push_str("🛁 wash up completed successfully");
 
-    let nats_pid = if let Some(Some(pid)) = nats_process.map(|child| child.id()) {
-        out_json.insert("nats_pid".to_string(), json!(pid));
+    if cmd.detached {
+        let url = "http://localhost:4000";
+        out_json.insert("wasmcloud_url".to_string(), json!(url));
+        out_json.insert("wasmcloud_log".to_string(), json!(wasmcloud_log_path));
+        out_json.insert("kill_cmd".to_string(), json!("wash down"));
         out_json.insert("nats_url".to_string(), json!(nats_listen_address));
+
         let _ = write!(
             out_text,
             "\n🕸  NATS is running in the background at http://{}",
             nats_listen_address
         );
-        Some(pid)
-    } else {
-        None
-    };
-    if cmd.detached {
-        let url = "http://localhost:4000";
-        out_json.insert("wasmcloud_url".to_string(), json!(url));
-        out_json.insert("wasmcloud_log".to_string(), json!(wasmcloud_log_path));
-
         let _ = write!(
             out_text,
             "\n🌐 The wasmCloud dashboard is running at {}\n📜 Logs for the host are being written to {}",
             url, wasmcloud_log_path.to_string_lossy()
         );
-    }
-
-    if let Some(pid) = nats_pid {
-        let kill_cmd = format!(
-            "{} stop; kill {}",
-            wasmcloud_executable.to_string_lossy(),
-            pid,
-        );
-        out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-        let _ = write!(
-            out_text,
-            "\n\n🛑 To stop the wasmCloud host and the NATS server, run:\n{}",
-            kill_cmd
-        );
-    } else if cmd.detached {
-        let kill_cmd = format!("{} stop", wasmcloud_executable.to_string_lossy());
-        out_json.insert("kill_cmd".to_string(), json!(kill_cmd));
-        let _ = write!(
-            out_text,
-            "\n\n🛑 To stop the wasmCloud host, run:\n{}",
-            kill_cmd
-        );
+        let _ = write!(out_text, "\n\n🛑 To stop wasmCloud, run \"wash down\"");
     }
 
     Ok(CommandOutput::new(out_text, out_json))
@@ -435,12 +411,14 @@ async fn run_wasmcloud_interactive(
     mut wasmcloud_child: Child,
     output_kind: OutputKind,
 ) -> Result<()> {
+    use std::sync::mpsc::channel;
+    let (running_sender, running_receiver) = channel();
     let running = Arc::new(AtomicBool::new(true));
-    let r = running.clone();
 
     ctrlc::set_handler(move || {
-        if r.load(Ordering::SeqCst) {
-            r.store(false, Ordering::SeqCst);
+        if running.load(Ordering::SeqCst) {
+            running.store(false, Ordering::SeqCst);
+            let _ = running_sender.send(true);
         } else {
             log::warn!("\nRepeated CTRL+C received, killing wasmCloud and NATS. This may result in zombie processes")
         }
@@ -457,45 +435,19 @@ async fn run_wasmcloud_interactive(
         tokio::spawn(async {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                //TODO(brooksmtownsend): in the future, would be great print these in a prettier format
+                //TODO(brooksmtownsend): in the future, would be great to print these in a prettier format
                 println!("{}", line)
             }
         })
     });
 
     // Wait for the user to send Ctrl+C in a thread where blocking is acceptable
-    tokio::task::spawn_blocking(move || while running.load(Ordering::SeqCst) {}).await?;
+    let _ = running_receiver.recv();
+
     // Prevent extraneous messages from the host getting printed as the host shuts down
     if let Some(handle) = handle {
         handle.abort()
     };
-    Ok(())
-}
-
-/// Helper function to send wasmCloud the `stop` command and wait for it to clean up
-async fn stop_wasmcloud<P>(bin_path: P) -> Result<()>
-where
-    P: AsRef<Path>,
-{
-    let child = Command::new(bin_path.as_ref())
-        .stdout(Stdio::piped())
-        .arg("stop")
-        .spawn()?;
-
-    // Wait for the stop command to return "ok", then exit
-    tokio::spawn(async {
-        if let Some(stdout) = child.stdout {
-            let mut lines = BufReader::new(stdout).lines();
-
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line == "ok" {
-                    return;
-                }
-            }
-        }
-    })
-    .await?;
-
     Ok(())
 }
 
@@ -505,17 +457,19 @@ mod tests {
     use anyhow::Result;
     use clap::Parser;
 
+    const LOCAL_REGISTRY: &str = "localhost:5001";
+
     // Assert that our API doesn't unknowingly drift
     #[test]
     fn test_up_comprehensive() -> Result<()> {
         // Not explicitly used, just a placeholder for a directory
         const TESTDIR: &str = "./tests/fixtures";
 
-        let up_all_flags: UpCommand = Parser::try_parse_from(&[
+        let up_all_flags: UpCommand = Parser::try_parse_from([
             "up",
             "--allow-latest",
             "--allowed-insecure",
-            "localhost:5000",
+            LOCAL_REGISTRY,
             "--cluster-issuers",
             "CBZZ6BLE7PIJNCEJMXOHAJ65KIXRVXDA74W6LUKXC4EPFHTJREXQCOYI",
             "--cluster-seed",
@@ -580,14 +534,14 @@ mod tests {
             "--wasmcloud-js-domain",
             "domain",
             "--wasmcloud-version",
-            "v0.55.1",
+            "v0.57.1",
             "--lattice-prefix",
             "anotherprefix",
         ])?;
         assert!(up_all_flags.wasmcloud_opts.allow_latest);
         assert_eq!(
             up_all_flags.wasmcloud_opts.allowed_insecure,
-            Some(vec!["localhost:5000".to_string()])
+            Some(vec![LOCAL_REGISTRY.to_string()])
         );
         assert_eq!(
             up_all_flags.wasmcloud_opts.cluster_issuers,
@@ -658,7 +612,7 @@ mod tests {
         );
         assert_eq!(
             up_all_flags.wasmcloud_opts.wasmcloud_version,
-            "v0.55.1".to_string()
+            "v0.57.1".to_string()
         );
         assert_eq!(
             up_all_flags.wasmcloud_opts.lattice_prefix,

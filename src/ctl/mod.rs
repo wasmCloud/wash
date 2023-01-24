@@ -1,29 +1,35 @@
-extern crate wasmcloud_control_interface;
-
-use crate::{
-    appearance::spinner::Spinner,
-    ctl::manifest::HostManifest,
-    ctx::{context_dir, get_default_context, load_context},
-    id::{ModuleId, ServerId, ServiceId},
-    util::{
-        convert_error, default_timeout_ms, labels_vec_to_hashmap, validate_contract_id,
-        CommandOutput, OutputKind, DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT,
-        DEFAULT_NATS_TIMEOUT_MS, DEFAULT_START_ACTOR_TIMEOUT_MS, DEFAULT_START_PROVIDER_TIMEOUT_MS,
-    },
-};
-use anyhow::{bail, Context, Result};
-use clap::{Args, Parser, Subcommand};
-pub(crate) use output::*;
 use std::{
     path::{Path, PathBuf},
     time::Duration,
+};
+
+use anyhow::{bail, Result};
+use clap::{Args, Parser, Subcommand};
+use wash_lib::{
+    cli::{labels_vec_to_hashmap, CommandOutput, OutputKind},
+    config::{
+        DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT, DEFAULT_NATS_TIMEOUT_MS,
+        DEFAULT_START_ACTOR_TIMEOUT_MS, DEFAULT_START_PROVIDER_TIMEOUT_MS,
+    },
+    context::{
+        fs::{load_context, ContextDir},
+        ContextManager,
+    },
+    id::{ModuleId, ServerId, ServiceId},
 };
 use wasmcloud_control_interface::{
     Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
     LinkDefinitionList,
 };
 
-use self::wait::{
+use crate::{
+    appearance::spinner::Spinner,
+    ctl::manifest::HostManifest,
+    ctx::{context_dir, ensure_host_config_context},
+    util::{convert_error, default_timeout_ms, validate_contract_id},
+};
+pub(crate) use output::*;
+use wait::{
     wait_for_actor_start_event, wait_for_actor_stop_event, wait_for_provider_start_event,
     wait_for_provider_stop_event, FindEventOutcome,
 };
@@ -124,7 +130,7 @@ pub(crate) enum CtlCliCommand {
 #[derive(Args, Debug, Clone)]
 pub(crate) struct ApplyCommand {
     /// Public key of the target host for the manifest application
-    #[clap(name = "host-key", parse(try_from_str))]
+    #[clap(name = "host-key", value_parser)]
     pub(crate) host_key: ServerId,
 
     /// Path to the manifest file. Note that all the entries in this file are imperative instructions, and all actor and provider references MUST be valid OCI references.
@@ -181,7 +187,7 @@ pub(crate) struct LinkDelCommand {
     opts: ConnectionOpts,
 
     /// Public key ID of actor
-    #[clap(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", value_parser)]
     pub(crate) actor_id: ModuleId,
 
     /// Capability contract ID between actor and provider
@@ -202,11 +208,11 @@ pub(crate) struct LinkPutCommand {
     opts: ConnectionOpts,
 
     /// Public key ID of actor
-    #[clap(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", value_parser)]
     pub(crate) actor_id: ModuleId,
 
     /// Public key ID of provider
-    #[clap(name = "provider-id", parse(try_from_str))]
+    #[clap(name = "provider-id", value_parser)]
     pub(crate) provider_id: ServiceId,
 
     /// Capability contract ID between actor and provider
@@ -268,11 +274,11 @@ pub struct ScaleActorCommand {
     opts: ConnectionOpts,
 
     /// Id of host
-    #[clap(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", value_parser)]
     host_id: ServerId,
 
     /// Actor Id, e.g. the public key for the actor
-    #[clap(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", value_parser)]
     pub(crate) actor_id: ModuleId,
 
     /// Actor reference, e.g. the OCI URL for the actor.
@@ -301,7 +307,7 @@ pub(crate) struct GetHostInventoryCommand {
     opts: ConnectionOpts,
 
     /// Id of host
-    #[clap(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", value_parser)]
     pub(crate) host_id: ServerId,
 }
 
@@ -317,7 +323,7 @@ pub(crate) struct StartActorCommand {
     opts: ConnectionOpts,
 
     /// Id of host, if omitted the actor will be auctioned in the lattice to find a suitable host
-    #[clap(long = "host-id", name = "host-id", parse(try_from_str))]
+    #[clap(long = "host-id", name = "host-id", value_parser)]
     pub(crate) host_id: Option<ServerId>,
 
     /// Actor reference, e.g. the OCI URL for the actor.
@@ -349,7 +355,7 @@ pub(crate) struct StartProviderCommand {
     opts: ConnectionOpts,
 
     /// Id of host, if omitted the provider will be auctioned in the lattice to find a suitable host
-    #[clap(long = "host-id", name = "host-id", parse(try_from_str))]
+    #[clap(long = "host-id", name = "host-id", value_parser)]
     host_id: Option<ServerId>,
 
     /// Provider reference, e.g. the OCI URL for the provider
@@ -385,11 +391,11 @@ pub(crate) struct StopActorCommand {
     opts: ConnectionOpts,
 
     /// Id of host
-    #[clap(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", value_parser)]
     pub(crate) host_id: ServerId,
 
     /// Actor Id, e.g. the public key for the actor
-    #[clap(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", value_parser)]
     pub(crate) actor_id: ModuleId,
 
     /// Number of actors to stop
@@ -408,11 +414,11 @@ pub(crate) struct StopProviderCommand {
     opts: ConnectionOpts,
 
     /// Id of host
-    #[clap(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", value_parser)]
     host_id: ServerId,
 
     /// Provider Id, e.g. the public key for the provider
-    #[clap(name = "provider-id", parse(try_from_str))]
+    #[clap(name = "provider-id", value_parser)]
     pub(crate) provider_id: ServiceId,
 
     /// Link name of provider
@@ -435,7 +441,7 @@ pub(crate) struct StopHostCommand {
     opts: ConnectionOpts,
 
     /// Id of host
-    #[clap(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", value_parser)]
     host_id: ServerId,
 
     /// The timeout in ms for how much time to give the host for graceful shutdown
@@ -452,11 +458,11 @@ pub(crate) struct UpdateActorCommand {
     opts: ConnectionOpts,
 
     /// Id of host
-    #[clap(name = "host-id", parse(try_from_str))]
+    #[clap(name = "host-id", value_parser)]
     pub(crate) host_id: ServerId,
 
     /// Actor Id, e.g. the public key for the actor
-    #[clap(name = "actor-id", parse(try_from_str))]
+    #[clap(name = "actor-id", value_parser)]
     pub(crate) actor_id: ModuleId,
 
     /// Actor reference, e.g. the OCI URL for the actor.
@@ -1129,16 +1135,18 @@ async fn ctl_client_from_opts(
 ) -> Result<CtlClient> {
     // Attempt to load a context, falling back on the default if not supplied
     let ctx = if let Some(context) = opts.context {
-        load_context(&context).ok()
+        Some(load_context(context)?)
     } else if let Ok(ctx_dir) = context_dir(None) {
-        get_default_context(&ctx_dir).ok()
+        let ctx_dir = ContextDir::new(ctx_dir)?;
+        ensure_host_config_context(&ctx_dir)?;
+        Some(ctx_dir.load_default_context()?)
     } else {
         None
     };
 
     let lattice_prefix = opts.lattice_prefix.unwrap_or_else(|| {
         ctx.as_ref()
-            .map(|c| c.ctl_lattice_prefix.clone())
+            .map(|c| c.lattice_prefix.clone())
             .unwrap_or_else(|| DEFAULT_LATTICE_PREFIX.to_string())
     });
 
@@ -1175,21 +1183,27 @@ async fn ctl_client_from_opts(
     };
     let auction_timeout_ms = auction_timeout_ms.unwrap_or(opts.timeout_ms);
 
-    let nc = crate::util::nats_client_from_opts(
-        &ctl_host,
-        &ctl_port,
-        ctl_jwt.clone(),
-        ctl_seed.clone(),
-        ctl_credsfile.clone(),
-    )
-    .await
-    .context("Failed to create NATS client")?;
-    let ctl_client = CtlClient::new(
-        nc,
-        Some(lattice_prefix),
-        Duration::from_millis(opts.timeout_ms),
-        Duration::from_millis(auction_timeout_ms),
-    );
+    let nc =
+        crate::util::nats_client_from_opts(&ctl_host, &ctl_port, ctl_jwt, ctl_seed, ctl_credsfile)
+            .await
+            .context("Failed to create NATS client")?;
+
+    let ctl_client = if let Ok(topic_prefix) = std::env::var("WASMCLOUD_CTL_TOPIC_PREFIX") {
+        CtlClient::new_with_topic_prefix(
+            nc,
+            &topic_prefix,
+            Some(lattice_prefix),
+            Duration::from_millis(opts.timeout_ms),
+            Duration::from_millis(auction_timeout_ms),
+        )
+    } else {
+        CtlClient::new(
+            nc,
+            Some(lattice_prefix),
+            Duration::from_millis(opts.timeout_ms),
+            Duration::from_millis(auction_timeout_ms),
+        )
+    };
 
     Ok(ctl_client)
 }
@@ -1218,7 +1232,7 @@ mod test {
     /// change between versions. This test will fail if any subcommand of `wash ctl`
     /// changes syntax, ordering of required elements, or flags.
     fn test_ctl_comprehensive() -> Result<()> {
-        let start_actor_all: Cmd = Parser::try_parse_from(&[
+        let start_actor_all: Cmd = Parser::try_parse_from([
             "ctl",
             "start",
             "actor",
@@ -1257,7 +1271,7 @@ mod test {
             }
             cmd => panic!("ctl start actor constructed incorrect command {:?}", cmd),
         }
-        let start_provider_all: Cmd = Parser::try_parse_from(&[
+        let start_provider_all: Cmd = Parser::try_parse_from([
             "ctl",
             "start",
             "provider",
@@ -1305,7 +1319,7 @@ mod test {
             }
             cmd => panic!("ctl start provider constructed incorrect command {:?}", cmd),
         }
-        let stop_actor_all: Cmd = Parser::try_parse_from(&[
+        let stop_actor_all: Cmd = Parser::try_parse_from([
             "ctl",
             "stop",
             "actor",
@@ -1341,7 +1355,7 @@ mod test {
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
-        let stop_provider_all: Cmd = Parser::try_parse_from(&[
+        let stop_provider_all: Cmd = Parser::try_parse_from([
             "ctl",
             "stop",
             "provider",
@@ -1379,7 +1393,7 @@ mod test {
             }
             cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
         }
-        let get_hosts_all: Cmd = Parser::try_parse_from(&[
+        let get_hosts_all: Cmd = Parser::try_parse_from([
             "ctl",
             "get",
             "hosts",
@@ -1401,7 +1415,7 @@ mod test {
             }
             cmd => panic!("ctl get hosts constructed incorrect command {:?}", cmd),
         }
-        let get_host_inventory_all: Cmd = Parser::try_parse_from(&[
+        let get_host_inventory_all: Cmd = Parser::try_parse_from([
             "ctl",
             "get",
             "inventory",
@@ -1428,7 +1442,7 @@ mod test {
             }
             cmd => panic!("ctl get inventory constructed incorrect command {:?}", cmd),
         }
-        let get_claims_all: Cmd = Parser::try_parse_from(&[
+        let get_claims_all: Cmd = Parser::try_parse_from([
             "ctl",
             "get",
             "claims",
@@ -1450,7 +1464,7 @@ mod test {
             }
             cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
         }
-        let link_all: Cmd = Parser::try_parse_from(&[
+        let link_all: Cmd = Parser::try_parse_from([
             "ctl",
             "link",
             "put",
@@ -1490,7 +1504,7 @@ mod test {
             }
             cmd => panic!("ctl link put constructed incorrect command {:?}", cmd),
         }
-        let update_all: Cmd = Parser::try_parse_from(&[
+        let update_all: Cmd = Parser::try_parse_from([
             "ctl",
             "update",
             "actor",
@@ -1524,7 +1538,7 @@ mod test {
             cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
         }
 
-        let scale_actor_all: Cmd = Parser::try_parse_from(&[
+        let scale_actor_all: Cmd = Parser::try_parse_from([
             "ctl",
             "scale",
             "actor",

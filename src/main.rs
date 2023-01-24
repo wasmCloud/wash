@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use app::AppCliCommand;
+use build::BuildCommand;
 use call::CallCli;
-use claims::ClaimsCliCommand;
 use clap::{Parser, Subcommand};
 use ctl::CtlCliCommand;
 use ctx::CtxCommand;
-use drain::DrainSelection;
+use down::DownCommand;
 use generate::NewCliCommand;
 use keys::KeysCliCommand;
 use par::ParCliCommand;
@@ -15,20 +15,20 @@ use reg::RegCliCommand;
 use serde_json::json;
 use smithy::{GenerateCli, LintCli, ValidateCli};
 use up::UpCommand;
-use util::CommandOutput;
-
-use crate::util::OutputKind;
+use wash_lib::cli::claims::ClaimsCliCommand;
+use wash_lib::cli::{CommandOutput, OutputKind};
+use wash_lib::drain::Drain as DrainSelection;
 
 mod app;
 mod appearance;
+mod build;
 mod call;
 mod cfg;
-mod claims;
 mod ctl;
 mod ctx;
+mod down;
 mod drain;
 mod generate;
-mod id;
 mod keys;
 mod par;
 mod reg;
@@ -37,12 +37,14 @@ mod up;
 mod util;
 
 const ASCII: &str = r#"
+_________________________________________________________________________________
                                _____ _                 _    _____ _          _ _
                               / ____| |               | |  / ____| |        | | |
  __      ____ _ ___ _ __ ___ | |    | | ___  _   _  __| | | (___ | |__   ___| | |
  \ \ /\ / / _` / __| '_ ` _ \| |    | |/ _ \| | | |/ _` |  \___ \| '_ \ / _ \ | |
   \ V  V / (_| \__ \ | | | | | |____| | (_) | |_| | (_| |  ____) | | | |  __/ | |
    \_/\_/ \__,_|___/_| |_| |_|\_____|_|\___/ \__,_|\__,_| |_____/|_| |_|\___|_|_|
+_________________________________________________________________________________
 
 A single CLI to handle all of your wasmCloud tooling needs
 "#;
@@ -69,6 +71,9 @@ enum CliCommand {
     /// Manage declarative applications and deployments (wadm) (experimental)
     #[clap(name = "app", subcommand)]
     App(AppCliCommand),
+    /// Build (and sign) a wasmCloud actor, provider, or interface
+    #[clap(name = "build")]
+    Build(BuildCommand),
     /// Invoke a wasmCloud actor
     #[clap(name = "call")]
     Call(CallCli),
@@ -81,6 +86,9 @@ enum CliCommand {
     /// Manage wasmCloud host configuration contexts
     #[clap(name = "ctx", subcommand)]
     Ctx(CtxCommand),
+    /// Tear down a wasmCloud environment launched with wash up
+    #[clap(name = "down")]
+    Down(DownCommand),
     /// Manage contents of local wasmCloud caches
     #[clap(name = "drain", subcommand)]
     Drain(DrainSelection),
@@ -119,15 +127,19 @@ async fn main() {
 
     let res: Result<CommandOutput> = match cli.command {
         CliCommand::App(app_cli) => app::handle_command(app_cli, output_kind).await,
+        CliCommand::Build(build_cli) => build::handle_command(build_cli),
         CliCommand::Call(call_cli) => call::handle_command(call_cli.command()).await,
-        CliCommand::Claims(claims_cli) => claims::handle_command(claims_cli, output_kind).await,
+        CliCommand::Claims(claims_cli) => {
+            wash_lib::cli::claims::handle_command(claims_cli, output_kind).await
+        }
         CliCommand::Ctl(ctl_cli) => ctl::handle_command(ctl_cli, output_kind).await,
         CliCommand::Ctx(ctx_cli) => ctx::handle_command(ctx_cli).await,
+        CliCommand::Down(down_cli) => down::handle_command(down_cli, output_kind).await,
         CliCommand::Drain(drain_cli) => drain::handle_command(drain_cli),
         CliCommand::Gen(generate_cli) => smithy::handle_gen_command(generate_cli),
         CliCommand::Keys(keys_cli) => keys::handle_command(keys_cli),
         CliCommand::Lint(lint_cli) => smithy::handle_lint_command(lint_cli).await,
-        CliCommand::New(new_cli) => generate::handle_command(new_cli),
+        CliCommand::New(new_cli) => generate::handle_command(new_cli).await,
         CliCommand::Par(par_cli) => par::handle_command(par_cli, output_kind).await,
         CliCommand::Reg(reg_cli) => reg::handle_command(reg_cli, output_kind).await,
         CliCommand::Up(up_cli) => up::handle_command(up_cli, output_kind).await,
@@ -150,29 +162,32 @@ async fn main() {
             0
         }
         Err(e) => {
-            let trace = e
-                .chain()
-                .skip(1)
-                .map(|e| format!("{}", e))
-                .collect::<Vec<String>>();
-
             match output_kind {
                 OutputKind::Json => {
                     let mut map = HashMap::new();
                     map.insert("success".to_string(), json!(false));
                     map.insert("error".to_string(), json!(e.to_string()));
-                    if !trace.is_empty() {
-                        map.insert("trace".to_string(), json!(trace));
+
+                    let error_chain = e
+                        .chain()
+                        .skip(1)
+                        .map(|e| format!("{}", e))
+                        .collect::<Vec<String>>();
+
+                    if !error_chain.is_empty() {
+                        map.insert("error_chain".to_string(), json!(error_chain));
+                    }
+
+                    let backtrace = e.backtrace().to_string();
+
+                    if !backtrace.is_empty() && backtrace != "disabled backtrace" {
+                        map.insert("backtrace".to_string(), json!(backtrace));
                     }
 
                     eprintln!("\n{}", serde_json::to_string_pretty(&map).unwrap());
                 }
                 OutputKind::Text => {
-                    eprintln!("\n{}", e);
-                    if !trace.is_empty() {
-                        eprintln!("Error trace:");
-                        eprintln!("{}", trace.join("\n"));
-                    }
+                    eprintln!("\n{:?}", e);
                 }
             }
             1
