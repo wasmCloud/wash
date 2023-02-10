@@ -25,6 +25,7 @@ use wascap::{
     },
     wasm::{days_from_now_to_jwt_time, sign_buffer_with_claims},
 };
+use log::warn;
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum ClaimsCliCommand {
@@ -672,11 +673,12 @@ async fn render_caps(cmd: InspectCommand) -> Result<CommandOutput> {
         }
         None => bail!("No capabilities discovered in : {}", module_name),
     };
+    warn!("claims inspect will be deprecated in future versions. Use inspect instead.");
     Ok(out)
 }
 
 /// Renders actor claims into provided output format
-pub(crate) fn render_actor_claims(
+pub fn render_actor_claims(
     claims: Claims<Actor>,
     validation: TokenValidation,
 ) -> CommandOutput {

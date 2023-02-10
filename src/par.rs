@@ -14,6 +14,7 @@ use wash_lib::{
     cli::{cached_oci_file, extract_keypair, CommandOutput, OutputKind},
     registry::OciPullOptions,
 };
+use log::warn;
 
 use crate::util::{self, convert_error};
 
@@ -195,7 +196,7 @@ pub(crate) async fn handle_command(
 ) -> Result<CommandOutput> {
     match command {
         ParCliCommand::Create(cmd) => handle_create(cmd, output_kind).await,
-        ParCliCommand::Inspect(cmd) => handle_inspect(cmd).await,
+        ParCliCommand::Inspect(cmd) => handle_par_inspect(cmd).await,
         ParCliCommand::Insert(cmd) => handle_insert(cmd, output_kind).await,
     }
 }
@@ -269,7 +270,7 @@ pub(crate) async fn handle_create(
 }
 
 /// Loads a provider archive and outputs the contents of the claims
-pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<CommandOutput> {
+pub(crate) async fn handle_par_inspect(cmd: InspectCommand) -> Result<CommandOutput> {
     let cache_file = (!cmd.no_cache).then(|| cached_oci_file(&cmd.archive));
     let artifact_bytes = wash_lib::registry::get_oci_artifact(
         cmd.archive,
@@ -359,6 +360,7 @@ pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<CommandOutput>
 
         table.render()
     };
+    warn!("par inspect will be deprecated in future versions. Use inspect instead.");
 
     Ok(CommandOutput::new(text_table, map))
 }

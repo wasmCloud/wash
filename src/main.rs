@@ -10,6 +10,7 @@ use ctl::CtlCliCommand;
 use ctx::CtxCommand;
 use down::DownCommand;
 use generate::NewCliCommand;
+use inspect::InspectCliCommand;
 use keys::KeysCliCommand;
 use par::ParCliCommand;
 use reg::RegCliCommand;
@@ -31,6 +32,7 @@ mod ctx;
 mod down;
 mod drain;
 mod generate;
+mod inspect;
 mod keys;
 mod par;
 mod reg;
@@ -100,6 +102,9 @@ enum CliCommand {
     /// Generate code from smithy IDL files
     #[clap(name = "gen")]
     Gen(GenerateCli),
+    /// Inspect capability provider or actor module
+    #[clap(name = "inspect")]
+    Inspect(InspectCliCommand),
     /// Utilities for generating and managing keys
     #[clap(name = "keys", subcommand)]
     Keys(KeysCliCommand),
@@ -146,6 +151,7 @@ async fn main() {
         CliCommand::Down(down_cli) => down::handle_command(down_cli, output_kind).await,
         CliCommand::Drain(drain_cli) => drain::handle_command(drain_cli),
         CliCommand::Gen(generate_cli) => smithy::handle_gen_command(generate_cli),
+        CliCommand::Inspect(inspect_cli) => inspect::handle_command(inspect_cli, output_kind).await,
         CliCommand::Keys(keys_cli) => keys::handle_command(keys_cli),
         CliCommand::Lint(lint_cli) => smithy::handle_lint_command(lint_cli).await,
         CliCommand::New(new_cli) => generate::handle_command(new_cli).await,
