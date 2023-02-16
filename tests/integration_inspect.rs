@@ -7,7 +7,6 @@ use std::{
     env::temp_dir,
     fs::{remove_dir_all, remove_file},
 };
-
 #[test]
 fn integration_inspect_actor() {
     const SUBFOLDER: &str = "inspect";
@@ -108,7 +107,7 @@ fn integration_inspect_actor() {
 
 #[test]
 fn integration_inspect_provider() {
-    const SUBFOLDER: &str = "inspect";
+    const SUBFOLDER: &str = "inspect_test";
     const HTTP_OCI: &str = "wasmcloud.azurecr.io/httpclient:0.3.5";
     const HTTP_ISSUER: &str = "ACOJJN6WUP4ODD75XEBKKTCCUJJCY5ZKQ56XVKYK4BEJWGVAOOQHZMCW";
     const HTTP_SERVICE: &str = "VCCVLH4XWGI3SGARFNYKYT2A32SUYA2KVAIV2U2Q34DQA7WWJPFRKIKM";

@@ -1,5 +1,5 @@
 use clap::{Parser};
-use std::{collections::HashMap, fs::{File}, io::{Read},};
+use std::{collections::HashMap, fs::{File}, io::{Read},path::{PathBuf}};
 use serde_json::json;
 use anyhow::{anyhow, bail,Result};
 use provider_archive::*;
@@ -8,7 +8,7 @@ use wash_lib::{
     registry::OciPullOptions,
 };
 use wascap::{
-    jwt::{Actor, Token,}
+    jwt::{Actor, Token}
 };
 use term_table::{row::Row, table_cell::*, Table};
 use crate::util::{self};
@@ -60,11 +60,11 @@ pub struct InspectCliCommand {
 
 }
 
-fn is_wasm(input: &[u8]) -> Result<bool> {
+fn is_wasm(input: &[u8]) -> bool {
     if input.len() < 4 {
-        bail!("Not enough bytes to be a valid claim file")
+        return false
     }
-    Ok(input[0..4] == WASM_MAGIC)
+    return input[0..4] == WASM_MAGIC
 }
 
 async fn get_caps(cmd: InspectCliCommand) -> Result<Option<Token<Actor>>> {
@@ -81,7 +81,6 @@ async fn get_caps(cmd: InspectCliCommand) -> Result<Option<Token<Actor>>> {
         },
     )
     .await?;
-
     // Extract will return an error if it encounters an invalid hash in the claims
     Ok(wascap::wasm::extract_claims(artifact_bytes)?)
 }
@@ -90,7 +89,6 @@ async fn handle_actor_module(cmd: InspectCliCommand) -> Result<CommandOutput> {
     let module_name = cmd.module.clone();
     let jwt_only = cmd.jwt_only;
     let caps = get_caps(cmd).await?;
-
     let out = match caps {
         Some(token) => {
             if jwt_only {
@@ -204,12 +202,27 @@ pub async fn handle_command(
     _output_kind: OutputKind,
 ) -> Result<CommandOutput> {
     let mut buf = Vec::new();
-    let mut f = File::open(command.module.clone())?;
-    f.read_to_end(&mut buf)?;
+    if PathBuf::from(command.module.clone()).as_path().is_dir() {
+        let mut f = File::open(command.module.clone())?;
+        f.read_to_end(&mut buf)?;     
+    }else{
+        let cache_file = (!command.no_cache.clone()).then(|| cached_oci_file(&command.module.clone()));
+        buf = wash_lib::registry::get_oci_artifact(
+            command.module.clone(),
+            cache_file,
+            OciPullOptions {
+                digest: command.digest.clone(),
+                allow_latest: command.allow_latest.clone(),
+                user: command.user.clone(),
+                password: command.password.clone(),
+                insecure: command.insecure.clone(),
+            },
+        ).await?;
+    }
 
-    let jwt_only = command.jwt_only;
+    let jwt_only = command.jwt_only.clone();
 
-    if is_wasm(&buf).is_ok() || jwt_only {
+    if is_wasm(&buf) || jwt_only{
         handle_actor_module(command).await
     }else{
         handle_provider_archive(command).await
