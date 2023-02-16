@@ -1,15 +1,17 @@
-extern crate provider_archive;
-use crate::{
-    keys::extract_keypair,
-    util::{self, convert_error, CommandOutput, OutputKind},
-};
+use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
+
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use nkeys::KeyPairType;
 use provider_archive::*;
 use serde_json::json;
-use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
 use term_table::{row::Row, table_cell::*, Table};
+use wash_lib::{
+    cli::{cached_oci_file, extract_keypair, CommandOutput, OutputKind},
+    registry::OciPullOptions,
+};
+
+use crate::util::{self, convert_error};
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
@@ -264,14 +266,17 @@ pub(crate) async fn handle_create(
 
 /// Loads a provider archive and outputs the contents of the claims
 pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<CommandOutput> {
-    let artifact_bytes = crate::reg::get_artifact(
+    let cache_file = (!cmd.no_cache).then(|| cached_oci_file(&cmd.archive));
+    let artifact_bytes = wash_lib::registry::get_oci_artifact(
         cmd.archive,
-        cmd.digest,
-        cmd.allow_latest,
-        cmd.user,
-        cmd.password,
-        cmd.insecure,
-        cmd.no_cache,
+        cache_file,
+        OciPullOptions {
+            digest: cmd.digest,
+            allow_latest: cmd.allow_latest,
+            user: cmd.user,
+            password: cmd.password,
+            insecure: cmd.insecure,
+        },
     )
     .await?;
     let artifact = ProviderArchive::try_load(&artifact_bytes)
@@ -429,7 +434,7 @@ mod test {
     fn test_par_create_comprehensive() {
         const ISSUER: &str = "SAAJLQZDZO57THPTIIEELEY7FJYOJZQWQD7FF4J67TUYTSCOXTF7R4Y3VY";
         const SUBJECT: &str = "SVAH7IN6QE6XODCGIIWZQDZ5LNSSS4FNEO6SNHZSSASW4BBBKSZ6KWTKWY";
-        let create_long: Cmd = clap::Parser::try_parse_from(&[
+        let create_long: Cmd = clap::Parser::try_parse_from([
             "par",
             "create",
             "--arch",
@@ -490,7 +495,7 @@ mod test {
             }
             cmd => panic!("par insert constructed incorrect command {:?}", cmd),
         }
-        let create_short: Cmd = clap::Parser::try_parse_from(&[
+        let create_short: Cmd = clap::Parser::try_parse_from([
             "par",
             "create",
             "-a",
@@ -557,7 +562,7 @@ mod test {
     fn test_par_insert_comprehensive() {
         const ISSUER: &str = "SAAJLQZDZO57THPTQLEELEY7FJYOJZQWQD7FF4J67TUYTSCOXTF7R4Y3VY";
         const SUBJECT: &str = "SVAH7IN6QE6XODCGQAWZQDZ5LNSSS4FNEO6SNHZSSASW4BBBKSZ6KWTKWY";
-        let insert_short: Cmd = clap::Parser::try_parse_from(&[
+        let insert_short: Cmd = clap::Parser::try_parse_from([
             "par",
             "insert",
             "libtest.par.gz",
@@ -594,7 +599,7 @@ mod test {
             }
             cmd => panic!("par insert constructed incorrect command {:?}", cmd),
         }
-        let insert_long: Cmd = clap::Parser::try_parse_from(&[
+        let insert_long: Cmd = clap::Parser::try_parse_from([
             "par",
             "insert",
             "libtest.par.gz",
@@ -639,7 +644,7 @@ mod test {
         const LOCAL: &str = "./coolthing.par.gz";
         const REMOTE: &str = "wasmcloud.azurecr.io/coolthing.par.gz";
 
-        let inspect_long: Cmd = clap::Parser::try_parse_from(&[
+        let inspect_long: Cmd = clap::Parser::try_parse_from([
             "par",
             "inspect",
             LOCAL,
@@ -672,7 +677,7 @@ mod test {
             }
             cmd => panic!("par inspect constructed incorrect command {:?}", cmd),
         }
-        let inspect_short: Cmd = clap::Parser::try_parse_from(&[
+        let inspect_short: Cmd = clap::Parser::try_parse_from([
             "par",
             "inspect",
             REMOTE,

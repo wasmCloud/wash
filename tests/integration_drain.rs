@@ -58,7 +58,7 @@ fn integration_drain_lib() {
     std::env::set_var("TMP", test_dir.clone());
 
     let drain_basic = wash()
-        .args(&["drain", "lib", "-o", "json"])
+        .args(["drain", "lib", "-o", "json"])
         .output()
         .unwrap_or_else(|_| panic!("failed to drain {:?}", lib_dir.clone()));
     assert!(drain_basic.status.success());
@@ -97,7 +97,7 @@ fn integration_drain_oci() {
     std::env::set_var("TMP", test_dir.clone());
 
     let drain_basic = wash()
-        .args(&["drain", "oci", "-o", "json"])
+        .args(["drain", "oci", "-o", "json"])
         .output()
         .unwrap_or_else(|_| panic!("failed to drain {:?}", oci_dir.clone()));
     assert!(drain_basic.status.success());
@@ -142,7 +142,7 @@ fn integration_drain_all() {
     std::env::set_var("TMP", test_dir.clone());
 
     let drain_basic = wash()
-        .args(&["drain", "all", "-o", "json"])
+        .args(["drain", "all", "-o", "json"])
         .output()
         .unwrap_or_else(|_| panic!("failed to drain {:?}", oci_dir.clone()));
     assert!(drain_basic.status.success());
@@ -179,11 +179,11 @@ fn set_smithy_cache_dir() -> (PathBuf, String) {
 #[cfg(target_os = "macos")]
 fn set_smithy_cache_dir() -> (PathBuf, String) {
     let tmp_dir = test_dir_with_subfolder("drain_smithy");
-    std::env::set_var("HOME", &format!("{}", &tmp_dir.display()));
+    std::env::set_var("HOME", format!("{}", &tmp_dir.display()));
     let smithy_cache = format!("{}/Library/Caches/smithy", &tmp_dir.display());
-    create_dir_all(&PathBuf::from(&smithy_cache)).unwrap();
+    create_dir_all(PathBuf::from(&smithy_cache)).unwrap();
     // write a dummy file inside the smithy cache folder
-    std::fs::write(&path_to_test_file(&smithy_cache), b"junk").unwrap();
+    std::fs::write(path_to_test_file(&smithy_cache), b"junk").unwrap();
     (tmp_dir, smithy_cache)
 }
 
@@ -192,7 +192,7 @@ fn test_smithy_cache_drain() {
     println!("temp dir is {}", &std::env::temp_dir().display());
     let (_sys_tmp_cache, smithy_cache) = set_smithy_cache_dir();
     let drain_basic = wash()
-        .args(&["drain", "smithy", "-o", "json"])
+        .args(["drain", "smithy", "-o", "json"])
         .output()
         .unwrap_or_else(|_| panic!("failed to drain {:?}", &smithy_cache));
     assert!(drain_basic.status.success());

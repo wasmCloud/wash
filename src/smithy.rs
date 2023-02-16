@@ -1,15 +1,18 @@
 //! smithy model lint and validation
 //!
-use crate::{appearance::emoji, util::CommandOutput};
+use std::path::PathBuf;
+
 use anyhow::{anyhow, bail, Result};
 use atelier_core::model::Model;
 use clap::Parser;
 use console::style;
-use std::path::PathBuf;
+use wash_lib::cli::CommandOutput;
 use weld_codegen::{
     config::{CodegenConfig, ModelSource, OutputLanguage},
     sources_to_model,
 };
+
+use wash_lib::generate::emoji;
 
 type TomlValue = toml::Value;
 const CODEGEN_CONFIG_FILE: &str = "codegen.toml";
@@ -95,7 +98,7 @@ pub(crate) struct GenerateOptions {
 
     /// Additional defines in the form of key=value to be passed to renderer
     /// Use `-D key=value` for each term to be added.
-    #[clap(short = 'D', parse(try_from_str = parse_key_val), number_of_values = 1)]
+    #[clap(short = 'D', value_parser = parse_key_val, number_of_values = 1)]
     defines: Vec<(String, TomlValue)>,
 
     /// Enable verbose logging
@@ -118,8 +121,8 @@ pub(crate) async fn handle_lint_command(command: LintCli) -> Result<CommandOutpu
     let model = build_model(opt.input, config.models, config.base_dir, verbose)?;
     let report = run_linter_actions(
         &mut [
-            Box::new(NamingConventions::default()),
-            Box::new(UnwelcomeTerms::default()),
+            Box::<NamingConventions>::default(),
+            Box::<UnwelcomeTerms>::default(),
         ],
         &model,
         false,
@@ -156,8 +159,8 @@ pub(crate) async fn handle_validate_command(command: ValidateCli) -> Result<Comm
 
     let report = run_validation_actions(
         &mut [
-            Box::new(CorrectTypeReferences::default()),
-            Box::new(NoUnresolvedReferences::default()),
+            Box::<CorrectTypeReferences>::default(),
+            Box::<NoUnresolvedReferences>::default(),
         ],
         &model,
         false,

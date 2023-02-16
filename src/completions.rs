@@ -63,7 +63,7 @@ pub(crate) fn first_run_suggestion() -> Result<Option<String>> {
 
 pub(crate) fn handle_command(
     opts: CompletionOpts,
-    mut command: clap::builder::Command<'_>,
+    mut command: clap::builder::Command,
 ) -> Result<CommandOutput> {
     let output_dir = opts.dir.unwrap_or_else(|| PathBuf::from("."));
 

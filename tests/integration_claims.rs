@@ -1,4 +1,5 @@
 mod common;
+use crate::common::LOCAL_REGISTRY;
 use assert_json_diff::assert_json_include;
 use common::{get_json_output, output_to_string, test_dir_file, test_dir_with_subfolder, wash};
 use serde_json::json;
@@ -20,7 +21,7 @@ fn integration_claims_sign() {
     // as signing an unsigned wasm
     let echo = test_dir_file(SUBFOLDER, "echo.wasm");
     let get_hello_wasm = wash()
-        .args(&[
+        .args([
             "reg",
             "pull",
             "wasmcloud.azurecr.io/echo:0.2.1",
@@ -33,7 +34,7 @@ fn integration_claims_sign() {
 
     let signed_wasm_path = test_dir_file(SUBFOLDER, "echo_signed.wasm");
     let sign_echo = wash()
-        .args(&[
+        .args([
             "claims",
             "sign",
             echo.to_str().unwrap(),
@@ -69,11 +70,12 @@ fn integration_claims_inspect() {
     const ECHO_ACC: &str = "ACOJJN6WUP4ODD75XEBKKTCCUJJCY5ZKQ56XVKYK4BEJWGVAOOQHZMCW";
     const ECHO_MOD: &str = "MBCFOPM6JW2APJLXJD3Z5O4CN7CPYJ2B4FTKLJUR5YR5MITIU7HD3WD5";
     let inspect_dir = test_dir_with_subfolder(SUBFOLDER);
+    let echo_claims = &format!("{}/echo:claimsinspect", LOCAL_REGISTRY);
 
     // Pull the echo module and push to local registry to test local inspect
     let echo = test_dir_file(SUBFOLDER, "echo.wasm");
     let get_hello_wasm = wash()
-        .args(&[
+        .args([
             "reg",
             "pull",
             ECHO_OCI,
@@ -84,10 +86,10 @@ fn integration_claims_inspect() {
         .expect("failed to pull echo for claims sign test");
     assert!(get_hello_wasm.status.success());
     let push_echo = wash()
-        .args(&[
+        .args([
             "reg",
             "push",
-            "localhost:5000/echo:claimsinspect",
+            echo_claims,
             echo.to_str().unwrap(),
             "--insecure",
         ])
@@ -97,7 +99,7 @@ fn integration_claims_inspect() {
 
     // Inspect local, local registry, and remote registry actor wasm
     let local_inspect = wash()
-        .args(&[
+        .args([
             "claims",
             "inspect",
             echo.to_str().unwrap(),
@@ -123,18 +125,11 @@ fn integration_claims_inspect() {
 
     assert_json_include!(
         actual: local_inspect_output,
-        expected: expected_inspect_output.clone()
+        expected: expected_inspect_output
     );
 
     let local_reg_inspect = wash()
-        .args(&[
-            "claims",
-            "inspect",
-            "localhost:5000/echo:claimsinspect",
-            "--insecure",
-            "-o",
-            "json",
-        ])
+        .args(["claims", "inspect", echo_claims, "--insecure", "-o", "json"])
         .output()
         .expect("failed to inspect local registry wasm");
     assert!(local_reg_inspect.status.success());
@@ -142,11 +137,11 @@ fn integration_claims_inspect() {
 
     assert_json_include!(
         actual: local_reg_inspect_output,
-        expected: expected_inspect_output.clone()
+        expected: expected_inspect_output
     );
 
     let remote_inspect = wash()
-        .args(&[
+        .args([
             "claims",
             "inspect",
             ECHO_OCI,
@@ -181,7 +176,7 @@ fn integration_claims_inspect_cached() {
     echo_cache_path.set_extension("bin");
 
     let get_hello_wasm = wash()
-        .args(&[
+        .args([
             "reg",
             "pull",
             ECHO_OCI,
@@ -193,7 +188,7 @@ fn integration_claims_inspect_cached() {
     assert!(get_hello_wasm.status.success());
 
     let remote_inspect = wash()
-        .args(&[
+        .args([
             "claims",
             "inspect",
             ECHO_FAKE_OCI,
@@ -222,7 +217,7 @@ fn integration_claims_inspect_cached() {
     );
 
     let remote_inspect_no_cache = wash()
-        .args(&[
+        .args([
             "claims",
             "inspect",
             ECHO_FAKE_OCI,
@@ -255,7 +250,7 @@ fn integration_claims_call_alias() {
     // as signing an unsigned wasm
     let logger = test_dir_file(SUBFOLDER, "logger.wasm");
     let get_wasm = wash()
-        .args(&[
+        .args([
             "reg",
             "pull",
             "wasmcloud.azurecr.io/logger:0.1.0",
@@ -268,7 +263,7 @@ fn integration_claims_call_alias() {
 
     let signed_wasm_path = test_dir_file(SUBFOLDER, "logger_signed.wasm");
     let sign_logger = wash()
-        .args(&[
+        .args([
             "claims",
             "sign",
             logger.to_str().unwrap(),
@@ -299,7 +294,7 @@ fn integration_claims_call_alias() {
 
     // inspect actor
     let local_inspect = wash()
-        .args(&[
+        .args([
             "claims",
             "inspect",
             signed_wasm_path.to_str().unwrap(),

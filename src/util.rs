@@ -1,50 +1,8 @@
-use anyhow::{anyhow, bail, Result};
-use serde::{Deserialize, Serialize};
-use std::{
-    collections::HashMap, env::temp_dir, error::Error, fmt, fs::File, io::Read, path::PathBuf,
-    str::FromStr,
-};
+use std::{fs::File, io::Read, path::PathBuf};
+
+use anyhow::{anyhow, bail, Context, Result};
 use term_table::{Table, TableStyle};
-
-pub const DEFAULT_NATS_HOST: &str = "127.0.0.1";
-pub const DEFAULT_NATS_PORT: &str = "4222";
-pub const DEFAULT_LATTICE_PREFIX: &str = "default";
-pub const DEFAULT_NATS_TIMEOUT_MS: u64 = 2_000;
-pub const DEFAULT_START_ACTOR_TIMEOUT_MS: u64 = 5_000;
-pub const DEFAULT_START_PROVIDER_TIMEOUT_MS: u64 = 60_000;
-
-/// Used for displaying human-readable output vs JSON format
-#[derive(Debug, Copy, Clone, Eq, Serialize, Deserialize, PartialEq)]
-pub(crate) enum OutputKind {
-    Text,
-    Json,
-}
-
-impl FromStr for OutputKind {
-    type Err = OutputParseErr;
-
-    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        match s {
-            "json" => Ok(OutputKind::Json),
-            "text" => Ok(OutputKind::Text),
-            _ => Err(OutputParseErr),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OutputParseErr;
-
-impl Error for OutputParseErr {}
-
-impl fmt::Display for OutputParseErr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "error parsing output type, see help for the list of accepted outputs"
-        )
-    }
-}
+use wash_lib::config::DEFAULT_NATS_TIMEOUT_MS;
 
 pub(crate) fn format_optional(value: Option<String>) -> String {
     value.unwrap_or_else(|| "N/A".into())
@@ -55,59 +13,11 @@ pub(crate) fn extract_arg_value(arg: &str) -> Result<String> {
     match File::open(arg) {
         Ok(mut f) => {
             let mut value = String::new();
-            f.read_to_string(&mut value)?;
+            f.read_to_string(&mut value)
+                .with_context(|| format!("Failed to read file {}", &arg))?;
             Ok(value)
         }
         Err(_) => Ok(arg.to_string()),
-    }
-}
-
-pub(crate) struct CommandOutput {
-    pub map: std::collections::HashMap<String, serde_json::Value>,
-    pub text: String,
-}
-
-impl CommandOutput {
-    pub(crate) fn new(
-        text: String,
-        map: std::collections::HashMap<String, serde_json::Value>,
-    ) -> Self {
-        CommandOutput { map, text }
-    }
-
-    /// shorthand to create a new CommandOutput with a single key-value pair for JSON, and simply the text for text output.
-    pub fn from_key_and_text(key: &str, text: String) -> Self {
-        let mut map = std::collections::HashMap::new();
-        map.insert(key.to_string(), serde_json::Value::String(text.clone()));
-        CommandOutput { map, text }
-    }
-}
-
-impl From<String> for CommandOutput {
-    /// Create a basic CommandOutput from a String. Puts the string a a "result" key in the JSON output.
-    fn from(text: String) -> Self {
-        let mut map = std::collections::HashMap::new();
-        map.insert(
-            "result".to_string(),
-            serde_json::Value::String(text.clone()),
-        );
-        CommandOutput { map, text }
-    }
-}
-
-impl From<&str> for CommandOutput {
-    /// Create a basic CommandOutput from a &str. Puts the string a a "result" key in the JSON output.
-    fn from(text: &str) -> Self {
-        CommandOutput::from(text.to_string())
-    }
-}
-
-impl Default for CommandOutput {
-    fn default() -> Self {
-        CommandOutput {
-            map: std::collections::HashMap::new(),
-            text: "".to_string(),
-        }
     }
 }
 
@@ -118,22 +28,6 @@ pub(crate) fn default_timeout_ms() -> u64 {
 /// Converts error from Send + Sync error to standard anyhow error
 pub(crate) fn convert_error(e: Box<dyn ::std::error::Error + Send + Sync>) -> anyhow::Error {
     anyhow!(e.to_string())
-}
-
-/// Transforms a list of labels in the form of (label=value) to a hashmap
-pub(crate) fn labels_vec_to_hashmap(constraints: Vec<String>) -> Result<HashMap<String, String>> {
-    let mut hm: HashMap<String, String> = HashMap::new();
-    for constraint in constraints {
-        match constraint.split_once('=') {
-            Some((key, value)) => {
-                hm.insert(key.to_string(), value.to_string());
-            }
-            None => {
-                bail!("Constraints were not properly formatted. Ensure they are formatted as label=value")
-            }
-        };
-    }
-    Ok(hm)
 }
 
 /// Transform a json string (e.g. "{"hello": "world"}") into msgpack bytes
@@ -232,9 +126,14 @@ pub(crate) async fn nats_client_from_opts(
     use async_nats::ConnectOptions;
 
     let nc = if let Some(jwt_file) = jwt {
-        let jwt_contents = extract_arg_value(&jwt_file)?;
+        let jwt_contents =
+            extract_arg_value(&jwt_file).context("Failed to extract jwt contents")?;
         let kp = std::sync::Arc::new(if let Some(seed) = seed {
-            nkeys::KeyPair::from_seed(&extract_arg_value(&seed)?)?
+            nkeys::KeyPair::from_seed(
+                &extract_arg_value(&seed)
+                    .with_context(|| format!("Failed to extract seed value {}", &seed))?,
+            )
+            .with_context(|| format!("Failed to create keypair from seed value {}", &seed))?
         } else {
             nkeys::KeyPair::new_user()
         });
@@ -245,33 +144,34 @@ pub(crate) async fn nats_client_from_opts(
             async move { key_pair.sign(&nonce).map_err(async_nats::AuthError::new) }
         })
         .connect(&nats_url)
-        .await?
+        .await
+        .with_context(|| {
+            format!(
+                "Failed to connect to NATS server {}:{} while creating client",
+                &host, &port
+            )
+        })?
     } else if let Some(credsfile_path) = credsfile {
-        ConnectOptions::with_credentials_file(credsfile_path)
-            .await?
+        ConnectOptions::with_credentials_file(credsfile_path.clone())
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to authenticate to NATS with credentials file {:?}",
+                    &credsfile_path
+                )
+            })?
             .connect(&nats_url)
-            .await?
+            .await
+            .with_context(|| {
+                format!(
+                    "Failed to connect to NATS {} with credentials file {:?}",
+                    &nats_url, &credsfile_path
+                )
+            })?
     } else {
-        async_nats::connect(&nats_url).await?
+        async_nats::connect(&nats_url).await.with_context(|| format!("Failed to connect to NATS {}\nNo credentials file was provided, you may need one to connect.", &nats_url))?
     };
     Ok(nc)
-}
-
-pub(crate) const OCI_CACHE_DIR: &str = "wasmcloud_ocicache";
-
-pub(crate) fn cached_file(img: &str) -> PathBuf {
-    let path = temp_dir();
-    let path = path.join(OCI_CACHE_DIR);
-    let _ = ::std::fs::create_dir_all(&path);
-    // should produce a file like wasmcloud_azurecr_io_kvcounter_v1.bin
-    let mut path = path.join(img_name_to_file_name(img));
-    path.set_extension("bin");
-
-    path
-}
-
-pub(crate) fn img_name_to_file_name(img: &str) -> String {
-    img.replace(':', "_").replace('/', "_").replace('.', "_")
 }
 
 // Check if the contract ID parameter is a 56 character key and suggest that the user
@@ -291,24 +191,6 @@ pub fn validate_contract_id(contract_id: &str) -> Result<()> {
     }
 }
 
-#[cfg(all(unix))]
-/// Set file and folder permissions for keys.
-pub(crate) fn set_permissions_keys(path: &std::path::Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-
-    let metadata = path.metadata()?;
-    match metadata.file_type().is_dir() {
-        true => std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))?,
-        false => std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?,
-    };
-    Ok(())
-}
-
-#[cfg(target_os = "windows")]
-pub(crate) fn set_permissions_keys(_path: &std::path::Path) -> Result<()> {
-    Ok(())
-}
-
 mod test {
     #[test]
     fn test_safe_base64_parse_option() {
@@ -318,7 +200,7 @@ mod test {
             "config_b64".to_string(),
             "eyJhZGRyZXNzIjogIjAuMC4wLjA6ODA4MCJ9Cg==".to_string(),
         );
-        let output = super::labels_vec_to_hashmap(vec![base64_option]).unwrap();
+        let output = wash_lib::cli::labels_vec_to_hashmap(vec![base64_option]).unwrap();
         assert_eq!(expected, output);
     }
 }

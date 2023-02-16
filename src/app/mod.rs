@@ -1,16 +1,22 @@
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 
-use crate::{
-    appearance::spinner::Spinner,
-    ctl::ConnectionOpts,
-    ctx::{context_dir, get_default_context, load_context},
-    util::{CommandOutput, OutputKind, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT},
-};
 use anyhow::{bail, Result};
 use async_nats::Client;
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use wash_lib::cli::{CommandOutput, OutputKind};
+use wash_lib::config::{DEFAULT_NATS_HOST, DEFAULT_NATS_PORT};
+use wash_lib::context::{
+    fs::{load_context, ContextDir},
+    ContextManager,
+};
+
+use crate::{
+    appearance::spinner::Spinner,
+    ctl::ConnectionOpts,
+    ctx::{context_dir, ensure_host_config_context},
+};
 
 mod output;
 
@@ -282,9 +288,9 @@ fn show_undeploy_results(results: bool) -> CommandOutput {
     map.insert("results".to_string(), json!(results));
     CommandOutput::new(
         if results {
-            "Undeploy request acknowledged".to_string()
+            "Undeploy request acknowledged"
         } else {
-            "Undeploy request not acknowledged".to_string()
+            "Undeploy request not acknowledged"
         },
         map,
     )
@@ -293,13 +299,14 @@ fn show_undeploy_results(results: bool) -> CommandOutput {
 fn show_del_results(results: bool) -> CommandOutput {
     let mut map = HashMap::new();
     map.insert("deleted".to_string(), json!(results));
-    let txt = if results {
-        "Model version deleted"
-    } else {
-        "Model version was not deleted"
-    }
-    .to_string();
-    CommandOutput::new(txt, map)
+    CommandOutput::new(
+        if results {
+            "Model version deleted"
+        } else {
+            "Model version was not deleted"
+        },
+        map,
+    )
 }
 
 fn show_deploy_results(results: bool) -> CommandOutput {
@@ -338,9 +345,11 @@ fn write_model(model: ModelDetails) -> Result<(PathBuf, PathBuf)> {
 async fn nats_client_from_opts(opts: ConnectionOpts) -> Result<(Client, Duration)> {
     // Attempt to load a context, falling back on the default if not supplied
     let ctx = if let Some(context) = opts.context {
-        load_context(&context).ok()
+        Some(load_context(context)?)
     } else if let Ok(ctx_dir) = context_dir(None) {
-        get_default_context(&ctx_dir).ok()
+        let ctx_dir = ContextDir::new(ctx_dir)?;
+        ensure_host_config_context(&ctx_dir)?;
+        Some(ctx_dir.load_default_context()?)
     } else {
         None
     };
@@ -439,7 +448,7 @@ async fn raw_request(
             if env.result == "success" {
                 Ok(env.data)
             } else {
-                bail!("{}", env.message.unwrap_or_else(|| "".to_string()))
+                bail!("{}", env.message.unwrap_or_default())
             }
         }
         Ok(Err(e)) => bail!("Error making message request: {}", e),

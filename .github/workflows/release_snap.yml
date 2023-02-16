@@ -14,7 +14,7 @@ jobs:
       - name: Build
         run: cargo build --verbose
       - name: Run tests
-        run: make test-all
+        run: make test
       - name: Check fmt
         run: cargo fmt -- --check
 
@@ -36,7 +36,8 @@ jobs:
       - uses: snapcore/action-build@v1
         id: build
       - uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAP_STORE_LOGIN }}
         with:
-          store_login: ${{ secrets.SNAP_STORE_LOGIN }}
           snap: ${{ steps.build.outputs.snap }}
           release: edge

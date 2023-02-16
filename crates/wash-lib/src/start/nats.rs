@@ -11,11 +11,12 @@ use tokio_stream::StreamExt;
 use tokio_tar::Archive;
 
 const NATS_GITHUB_RELEASE_URL: &str = "https://github.com/nats-io/nats-server/releases/download";
-pub(crate) const NATS_SERVER_CONF: &str = "nats.conf";
+pub const NATS_SERVER_CONF: &str = "nats.conf";
+pub const NATS_SERVER_PID: &str = "nats.pid";
 #[cfg(target_family = "unix")]
-pub(crate) const NATS_SERVER_BINARY: &str = "nats-server";
+pub const NATS_SERVER_BINARY: &str = "nats-server";
 #[cfg(target_family = "windows")]
-pub(crate) const NATS_SERVER_BINARY: &str = "nats-server.exe";
+pub const NATS_SERVER_BINARY: &str = "nats-server.exe";
 
 /// A wrapper around the [ensure_nats_server_for_os_arch_pair] function that uses the
 /// architecture and operating system of the current host machine.
@@ -275,10 +276,10 @@ impl NatsConfig {
             (Some(url), Some(creds)) => format!(
                 r#"
 leafnodes {{
-    remotes = [ 
-        {{ 
+    remotes = [
+        {{
             url: "{}"
-            credentials: "{}"
+            credentials: {:?}
         }}
     ]
 }}
@@ -324,12 +325,14 @@ where
             config.port
         ));
     }
-    if let Some(config_path) = bin_path.as_ref().parent().map(|p| p.join(NATS_SERVER_CONF)) {
+    if let Some(parent_path) = bin_path.as_ref().parent() {
+        let config_path = parent_path.join(NATS_SERVER_CONF);
         let host = config.host.to_owned();
         let port = config.port;
         config.write_to_path(&config_path).await?;
         Command::new(bin_path.as_ref())
             .stderr(stderr)
+            .stdin(Stdio::null())
             .arg("-js")
             .arg("--config")
             .arg(config_path)
@@ -337,10 +340,14 @@ where
             .arg(host)
             .arg("--port")
             .arg(port.to_string())
+            .arg("--pid")
+            .arg(parent_path.join(NATS_SERVER_PID))
             .spawn()
-            .map_err(|e| anyhow!(e))
+            .map_err(anyhow::Error::from)
     } else {
-        Err(anyhow!("Could not write config to disk"))
+        Err(anyhow!(
+            "Could not write config to disk, couldn't find download directory"
+        ))
     }
 }
 
@@ -378,7 +385,10 @@ mod test {
     };
     use anyhow::Result;
     use std::env::temp_dir;
-    use tokio::fs::{create_dir_all, remove_dir_all};
+    use tokio::{
+        fs::{create_dir_all, remove_dir_all},
+        io::AsyncReadExt,
+    };
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
 
@@ -465,6 +475,43 @@ mod test {
         nats_one.unwrap().kill().await?;
         let _ = remove_dir_all(install_dir).await;
 
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn can_write_properly_formed_credsfile() -> Result<()> {
+        let install_dir = temp_dir().join("can_write_properly_formed_credsfile");
+        let _ = remove_dir_all(&install_dir).await;
+        create_dir_all(&install_dir).await?;
+        assert!(
+            !is_nats_installed(&install_dir).await,
+            "NATS should not be installed"
+        );
+
+        let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
+        assert!(res.is_ok(), "NATS should be able to start");
+
+        let creds = dirs::home_dir().unwrap().join("nats.creds");
+        let config: NatsConfig = NatsConfig::new_leaf(
+            "127.0.0.1",
+            4243,
+            None,
+            "connect.ngs.global".to_string(),
+            creds.clone(),
+        );
+
+        config.write_to_path(creds.clone()).await?;
+
+        let mut credsfile = tokio::fs::File::open(creds.clone()).await?;
+        let mut contents = String::new();
+        credsfile.read_to_string(&mut contents).await?;
+
+        assert_eq!(contents, format!("\njetstream {{\n    domain={}\n}}\n\nleafnodes {{\n    remotes = [\n        {{\n            url: \"{}\"\n            credentials: {:?}\n        }}\n    ]\n}}\n                \n", "core", "connect.ngs.global", creds.to_string_lossy()));
+        // A simple check to ensure we are properly escaping quotes, this is unescaped and checks for "\\"
+        #[cfg(target_family = "windows")]
+        assert!(creds.to_string_lossy().contains("\\"));
+
+        let _ = remove_dir_all(install_dir).await;
         Ok(())
     }
 }
