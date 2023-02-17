@@ -1,21 +1,19 @@
-use clap::{Parser};
-use std::{collections::HashMap, fs::{File}, io::{Read},path::{PathBuf}};
-use serde_json::json;
-use anyhow::{anyhow, bail,Result};
+use crate::util::{self};
+use anyhow::{anyhow, bail, Result};
+use clap::Parser;
 use provider_archive::*;
+use serde_json::json;
+use std::{collections::HashMap, fs::File, io::Read, path::PathBuf};
+use term_table::{row::Row, table_cell::*, Table};
+use wascap::jwt::{Actor, Token};
 use wash_lib::{
-    cli::{cached_oci_file, CommandOutput, OutputKind, claims::render_actor_claims},
+    cli::{cached_oci_file, claims::render_actor_claims, CommandOutput, OutputKind},
     registry::OciPullOptions,
 };
-use wascap::{
-    jwt::{Actor, Token}
-};
-use term_table::{row::Row, table_cell::*, Table};
-use crate::util::{self};
 
 const WASM_MAGIC: [u8; 4] = [0x00, 0x61, 0x73, 0x6D];
 
-#[derive(Debug,Parser, Clone)]
+#[derive(Debug, Parser, Clone)]
 pub struct InspectCliCommand {
     /// Path to signed actor module or provider archive or OCI URL of signed actor module or provider archive
     pub module: String,
@@ -57,16 +55,50 @@ pub struct InspectCliCommand {
     /// skip the local OCI cache
     #[clap(long = "no-cache")]
     no_cache: bool,
-
 }
 
+/// Attempts to inspect a provider module or signed actor module
+pub async fn handle_command(
+    command: InspectCliCommand,
+    _output_kind: OutputKind,
+) -> Result<CommandOutput> {
+    let mut buf = Vec::new();
+    if PathBuf::from(command.module.clone()).as_path().is_dir() {
+        let mut f = File::open(command.module.clone())?;
+        f.read_to_end(&mut buf)?;
+    } else {
+        let cache_file =
+            (!command.no_cache.clone()).then(|| cached_oci_file(&command.module.clone()));
+        buf = wash_lib::registry::get_oci_artifact(
+            command.module.clone(),
+            cache_file,
+            OciPullOptions {
+                digest: command.digest.clone(),
+                allow_latest: command.allow_latest.clone(),
+                user: command.user.clone(),
+                password: command.password.clone(),
+                insecure: command.insecure.clone(),
+            },
+        )
+        .await?;
+    }
+
+    if is_wasm(&buf) {
+        handle_actor_module(command).await
+    } else {
+        handle_provider_archive(command).await
+    }
+}
+
+/// Checks if the given file is a wasm file by searching a WASM magic number at the start of a binary
 fn is_wasm(input: &[u8]) -> bool {
     if input.len() < 4 {
-        return false
+        return false;
     }
-    return input[0..4] == WASM_MAGIC
+    return input[0..4] == WASM_MAGIC;
 }
 
+/// Extracts claims for a given OCI artifact
 async fn get_caps(cmd: InspectCliCommand) -> Result<Option<Token<Actor>>> {
     let cache_path = (!cmd.no_cache).then(|| cached_oci_file(&cmd.module));
     let artifact_bytes = wash_lib::registry::get_oci_artifact(
@@ -85,6 +117,7 @@ async fn get_caps(cmd: InspectCliCommand) -> Result<Option<Token<Actor>>> {
     Ok(wascap::wasm::extract_claims(artifact_bytes)?)
 }
 
+/// Inspects an actor module
 async fn handle_actor_module(cmd: InspectCliCommand) -> Result<CommandOutput> {
     let module_name = cmd.module.clone();
     let jwt_only = cmd.jwt_only;
@@ -103,6 +136,7 @@ async fn handle_actor_module(cmd: InspectCliCommand) -> Result<CommandOutput> {
     Ok(out)
 }
 
+/// Inspects a provider archive
 pub(crate) async fn handle_provider_archive(cmd: InspectCliCommand) -> Result<CommandOutput> {
     let cache_file = (!cmd.no_cache).then(|| cached_oci_file(&cmd.module));
     let artifact_bytes = wash_lib::registry::get_oci_artifact(
@@ -127,10 +161,9 @@ pub(crate) async fn handle_provider_archive(cmd: InspectCliCommand) -> Result<Co
         .metadata
         .ok_or_else(|| anyhow!("No metadata found"))?;
 
-    let friendly_rev = match metadata.rev {
-        Some(rev) => format!("{}", rev),
-        None => "None".to_string(),
-    };
+    let friendly_rev = metadata
+        .rev
+        .map_or("None".to_string(), |rev| rev.to_string());
     let friendly_ver = metadata.ver.unwrap_or_else(|| "None".to_string());
     let name = metadata.name.unwrap_or_else(|| "None".to_string());
     let mut map = HashMap::new();
@@ -197,38 +230,6 @@ pub(crate) async fn handle_provider_archive(cmd: InspectCliCommand) -> Result<Co
     Ok(CommandOutput::new(text_table, map))
 }
 
-pub async fn handle_command(
-    command: InspectCliCommand,
-    _output_kind: OutputKind,
-) -> Result<CommandOutput> {
-    let mut buf = Vec::new();
-    if PathBuf::from(command.module.clone()).as_path().is_dir() {
-        let mut f = File::open(command.module.clone())?;
-        f.read_to_end(&mut buf)?;     
-    }else{
-        let cache_file = (!command.no_cache.clone()).then(|| cached_oci_file(&command.module.clone()));
-        buf = wash_lib::registry::get_oci_artifact(
-            command.module.clone(),
-            cache_file,
-            OciPullOptions {
-                digest: command.digest.clone(),
-                allow_latest: command.allow_latest.clone(),
-                user: command.user.clone(),
-                password: command.password.clone(),
-                insecure: command.insecure.clone(),
-            },
-        ).await?;
-    }
-
-    let jwt_only = command.jwt_only.clone();
-
-    if is_wasm(&buf) || jwt_only{
-        handle_actor_module(command).await
-    }else{
-        handle_provider_archive(command).await
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
@@ -262,7 +263,7 @@ mod test {
         ])
         .unwrap();
         match inspect_long.command {
-            InspectCliCommand{
+            InspectCliCommand {
                 module,
                 jwt_only,
                 digest,
@@ -298,7 +299,7 @@ mod test {
         ])
         .unwrap();
         match inspect_short.command {
-            InspectCliCommand{
+            InspectCliCommand {
                 module,
                 jwt_only,
                 digest,
@@ -336,7 +337,7 @@ mod test {
         .unwrap();
 
         match cmd.command {
-            InspectCliCommand{
+            InspectCliCommand {
                 module,
                 jwt_only,
                 digest,
@@ -345,7 +346,7 @@ mod test {
                 password,
                 insecure,
                 no_cache,
-            }=> {
+            } => {
                 assert_eq!(module, SUBSCRIBER_OCI);
                 assert_eq!(
                     digest.unwrap(),
@@ -377,7 +378,7 @@ mod test {
         .unwrap();
 
         match short_cmd.command {
-            InspectCliCommand{
+            InspectCliCommand {
                 module,
                 jwt_only,
                 digest,

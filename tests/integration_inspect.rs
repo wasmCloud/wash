@@ -43,12 +43,7 @@ fn integration_inspect_actor() {
 
     // Inspect local, local registry, and remote registry actor wasm
     let local_inspect = wash()
-        .args([
-            "inspect",
-            echo.to_str().unwrap(),
-            "--output",
-            "json",
-        ])
+        .args(["inspect", echo.to_str().unwrap(), "--output", "json"])
         .output()
         .expect("failed to inspect local wasm");
     assert!(local_inspect.status.success());
@@ -162,13 +157,7 @@ fn integration_inspect_provider() {
     assert_json_include!(actual: local_inspect_output, expected: inspect_expected);
 
     let local_reg_inspect = wash()
-        .args([
-            "inspect",
-            httpclient_inspect,
-            "--insecure",
-            "-o",
-            "json",
-        ])
+        .args(["inspect", httpclient_inspect, "--insecure", "-o", "json"])
         .output()
         .expect("failed to inspect local registry wasm");
     assert!(local_reg_inspect.status.success());

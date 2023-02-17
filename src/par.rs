@@ -2,6 +2,7 @@ use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
 
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
+use log::warn;
 use nkeys::KeyPairType;
 use provider_archive::ProviderArchive;
 use serde_json::json;
@@ -14,7 +15,6 @@ use wash_lib::{
     cli::{cached_oci_file, extract_keypair, CommandOutput, OutputKind},
     registry::OciPullOptions,
 };
-use log::warn;
 
 use crate::util::{self, convert_error};
 
