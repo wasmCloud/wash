@@ -19,7 +19,7 @@ fn build_rust_actor_unsigned() -> Result<()> {
     } = init(
         /* test_name= */ "build_rust_actor_unsigned",
         /* actor_name= */ "hello",
-        /* template_name= */ "actor/hello",
+        /* template_name= */ "hello",
     )?;
     defer! {
         remove_dir_all(test_dir).unwrap();
@@ -50,7 +50,7 @@ fn build_rust_actor_signed() -> Result<()> {
     } = init(
         /* test_name= */ "build_rust_actor_signed",
         /* actor_name= */ "hello",
-        /* template_name= */ "actor/hello",
+        /* template_name= */ "hello",
     )?;
     defer! {
         remove_dir_all(test_dir).unwrap();
@@ -66,6 +66,37 @@ fn build_rust_actor_signed() -> Result<()> {
     assert!(unsigned_file.exists(), "unsigned file not found!");
     let signed_file = project_dir.join("build/hello_s.wasm");
     assert!(signed_file.exists(), "signed file not found!");
+    Ok(())
+}
+
+#[test]
+#[serial]
+fn build_tinygo_actor_unsigned() -> Result<()> {
+    let TestSetup {
+        project_dir,
+        test_dir,
+    } = init(
+        /* test_name= */ "build_tinygo_actor_unsigned",
+        /* actor_name= */ "echo",
+        /* template_name= */ "echo-tinygo",
+    )?;
+    defer! {
+        remove_dir_all(test_dir).unwrap();
+    }
+
+    let status = wash()
+        .args(["build", "--build-only"])
+        .status()
+        .expect("Failed to build project");
+
+    assert!(status.success());
+    let unsigned_file = project_dir.join("build/hello.wasm");
+    assert!(unsigned_file.exists(), "unsigned file not found!");
+    let signed_file = project_dir.join("build/hello_s.wasm");
+    assert!(
+        !signed_file.exists(),
+        "signed file should not exist when using --build-only!"
+    );
     Ok(())
 }
 
@@ -108,7 +139,9 @@ struct TestSetup {
 /// Returns the paths of the test directory and actor directory.
 fn init(test_name: &str, actor_name: &str, template_name: &str) -> Result<TestSetup> {
     let test_dir = setup_test_dir(test_name)?;
+    std::env::set_current_dir(&test_dir)?;
     let project_dir = init_actor_from_template(actor_name, template_name)?;
+    std::env::set_current_dir(&project_dir)?;
     Ok(TestSetup {
         test_dir,
         project_dir,
@@ -123,8 +156,6 @@ fn setup_test_dir(subfolder: &str) -> Result<PathBuf> {
         remove_dir_all(&test_dir)?;
     }
     create_dir_all(&test_dir)?;
-    std::env::set_current_dir(&test_dir)?;
-
     Ok(test_dir)
 }
 
@@ -148,6 +179,5 @@ fn init_actor_from_template(actor_name: &str, template_name: &str) -> Result<Pat
     assert!(status.success());
 
     let project_dir = std::env::current_dir()?.join(actor_name);
-    std::env::set_current_dir(&project_dir)?;
     Ok(project_dir)
 }

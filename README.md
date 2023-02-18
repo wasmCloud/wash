@@ -121,3 +121,8 @@ Perform validation checks on .smithy models, ensuring that your interfaces are v
 ## Contributing to wash
 
 If you have any feature suggestions, find any bugs, or otherwise have a question, please submit an issue [here](https://github.com/wasmcloud/wash/issues/new/choose). Forking & submitting Pull Requests are welcome, and the [good first issue](https://github.com/wasmcloud/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) label is a great way to find a place to start if you're looking to contribute.
+
+### Development Prereqs
+
+**Note: this is only for developing `wash` itself.**
+To successfully run the integration tests, you must have Rust and TinyGo installed. You also must add the `wasm32-unknown-unknown` target to Rust with `rustup target add wasm32-unknown-unknown`.
