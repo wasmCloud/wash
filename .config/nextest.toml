@@ -95,7 +95,7 @@ fail-fast = false
 [test-groups]
 serial-integration = { max-threads = 1 }
 
-# Forces all integration tests (in the `tests` directory) to run serially.
+# Forces the build and up integration tests (in the `tests` directory) to run serially.
 [[profile.default.overrides]]
-filter = 'kind(test)'
+filter = 'binary(integration_build) + binary(integration_up)'
 test-group = 'serial-integration'

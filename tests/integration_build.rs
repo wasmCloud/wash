@@ -3,7 +3,6 @@ use cmd_lib::run_cmd;
 
 mod common;
 use scopeguard::defer;
-use serial_test::serial;
 use std::{
     env::temp_dir,
     fs::{create_dir_all, remove_dir_all},
@@ -11,19 +10,16 @@ use std::{
 };
 
 #[test]
-#[serial]
 fn build_rust_actor_unsigned() -> Result<()> {
     build_new_project("actor/hello", "hello", "build/hello.wasm", false)
 }
 
 #[test]
-#[serial]
 fn build_rust_actor_signed() -> Result<()> {
     build_new_project("actor/hello", "hello", "build/hello_s.wasm", true)
 }
 
 #[test]
-#[serial]
 fn build_tinygo_actor() -> Result<()> {
     build_new_project("actor/echo-tinygo", "echo", "build/echo_s.wasm", true)
 }

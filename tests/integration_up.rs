@@ -1,11 +1,9 @@
 mod common;
 use common::{output_to_string, test_dir_with_subfolder, wash};
-use serial_test::serial;
 use std::fs::{read_to_string, remove_dir_all};
 use sysinfo::{ProcessExt, SystemExt};
 
 #[test]
-#[serial]
 fn integration_up_can_start_wasmcloud_and_actor() {
     let dir = test_dir_with_subfolder("can_start_wasmcloud");
     let path = dir.join("washup.log");
@@ -65,7 +63,6 @@ fn integration_up_can_start_wasmcloud_and_actor() {
 }
 
 #[test]
-#[serial]
 fn can_stop_detached_host() {
     let dir = test_dir_with_subfolder("can_stop_wasmcloud");
     let path = dir.join("washup.log");
