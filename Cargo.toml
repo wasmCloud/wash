@@ -57,7 +57,6 @@ wasmbus-rpc = { workspace = true }
 wasmcloud-test-util = { workspace = true }
 
 [dev-dependencies]
-cmd_lib = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 tempfile = { workspace = true }
 test-case = { workspace = true }
