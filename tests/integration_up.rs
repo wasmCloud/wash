@@ -146,7 +146,6 @@ async fn doesnt_kill_unowned_nats() -> Result<()> {
             "-o",
             "json",
             "--detached",
-            "--kill-in-use",
         ])
         .stdout(stdout)
         .spawn()
