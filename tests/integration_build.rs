@@ -90,9 +90,9 @@ fn build_tinygo_actor_unsigned() -> Result<()> {
         .expect("Failed to build project");
 
     assert!(status.success());
-    let unsigned_file = project_dir.join("build/hello.wasm");
+    let unsigned_file = project_dir.join("build/echo.wasm");
     assert!(unsigned_file.exists(), "unsigned file not found!");
-    let signed_file = project_dir.join("build/hello_s.wasm");
+    let signed_file = project_dir.join("build/echo_s.wasm");
     assert!(
         !signed_file.exists(),
         "signed file should not exist when using --build-only!"
