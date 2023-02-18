@@ -12,8 +12,7 @@ pub(crate) fn show_model_details(raw: PathBuf, vetted: PathBuf) -> String {
     // TODO: in a forthcoming release, do something more meaningful than just
     // dump the file paths
     format!(
-        "Wrote model details to files:\nRaw: {:?}\nJSON: {:?}",
-        raw, vetted
+        "Wrote model details to files:\nRaw: {raw:?}\nJSON: {vetted:?}"
     )
 }
 

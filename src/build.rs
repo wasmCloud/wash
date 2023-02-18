@@ -71,11 +71,10 @@ pub(crate) fn handle_command(command: BuildCommand) -> Result<CommandOutput> {
             ]);
             Ok(CommandOutput::new(
                 if command.build_only {
-                    format!("Actor built and can be found at {:?}", actor_path)
+                    format!("Actor built and can be found at {actor_path:?}")
                 } else {
                     format!(
-                        "Actor built and signed and can be found at {:?}",
-                        actor_path
+                        "Actor built and signed and can be found at {actor_path:?}"
                     )
                 },
                 json_output,
@@ -85,7 +84,7 @@ pub(crate) fn handle_command(command: BuildCommand) -> Result<CommandOutput> {
             // Until providers and interfaces have build support, this codepath won't be exercised
             let path = build_project(&config, None)?;
             Ok(CommandOutput::new(
-                format!("Built artifact can be found at {:?}", path),
+                format!("Built artifact can be found at {path:?}"),
                 HashMap::from([("path".to_string(), json!(path))]),
             ))
         }

@@ -259,7 +259,7 @@ pub(crate) async fn handle_create(
     let mut map = HashMap::new();
     map.insert("file".to_string(), json!(outfile));
     Ok(CommandOutput::new(
-        format!("Successfully created archive {}", outfile),
+        format!("Successfully created archive {outfile}"),
         map,
     ))
 }
@@ -290,7 +290,7 @@ pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<CommandOutput>
         .ok_or_else(|| anyhow!("No metadata found"))?;
 
     let friendly_rev = match metadata.rev {
-        Some(rev) => format!("{}", rev),
+        Some(rev) => format!("{rev}"),
         None => "None".to_string(),
     };
     let friendly_ver = metadata.ver.unwrap_or_else(|| "None".to_string());
@@ -309,7 +309,7 @@ pub(crate) async fn handle_inspect(cmd: InspectCommand) -> Result<CommandOutput>
         util::configure_table_style(&mut table);
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
-            format!("{} - Provider Archive", name),
+            format!("{name} - Provider Archive"),
             2,
             Alignment::Center,
         )]));
@@ -493,7 +493,7 @@ mod test {
                 assert!(disable_keygen);
                 assert!(compress);
             }
-            cmd => panic!("par insert constructed incorrect command {:?}", cmd),
+            cmd => panic!("par insert constructed incorrect command {cmd:?}"),
         }
         let create_short: Cmd = clap::Parser::try_parse_from([
             "par",
@@ -552,7 +552,7 @@ mod test {
                 assert!(!disable_keygen);
                 assert!(!compress);
             }
-            cmd => panic!("par insert constructed incorrect command {:?}", cmd),
+            cmd => panic!("par insert constructed incorrect command {cmd:?}"),
         }
     }
 
@@ -597,7 +597,7 @@ mod test {
                 assert_eq!(subject.unwrap(), SUBJECT);
                 assert!(disable_keygen);
             }
-            cmd => panic!("par insert constructed incorrect command {:?}", cmd),
+            cmd => panic!("par insert constructed incorrect command {cmd:?}"),
         }
         let insert_long: Cmd = clap::Parser::try_parse_from([
             "par",
@@ -633,7 +633,7 @@ mod test {
                 assert_eq!(subject.unwrap(), SUBJECT);
                 assert!(!disable_keygen);
             }
-            cmd => panic!("par insert constructed incorrect command {:?}", cmd),
+            cmd => panic!("par insert constructed incorrect command {cmd:?}"),
         }
     }
 
@@ -675,7 +675,7 @@ mod test {
                 assert_eq!(password.unwrap(), "secret");
                 assert!(no_cache);
             }
-            cmd => panic!("par inspect constructed incorrect command {:?}", cmd),
+            cmd => panic!("par inspect constructed incorrect command {cmd:?}"),
         }
         let inspect_short: Cmd = clap::Parser::try_parse_from([
             "par",
@@ -710,7 +710,7 @@ mod test {
                 assert_eq!(password.unwrap(), "secret");
                 assert!(no_cache);
             }
-            cmd => panic!("par inspect constructed incorrect command {:?}", cmd),
+            cmd => panic!("par inspect constructed incorrect command {cmd:?}"),
         }
     }
 }
