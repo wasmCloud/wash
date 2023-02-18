@@ -373,8 +373,7 @@ fn nats_url(os: &str, arch: &str, version: &str) -> String {
         _ => arch,
     };
     format!(
-        "{}/{}/nats-server-{}-{}-{}.tar.gz",
-        NATS_GITHUB_RELEASE_URL, version, version, os, arch
+        "{NATS_GITHUB_RELEASE_URL}/{version}/nats-server-{version}-{os}-{arch}.tar.gz"
     )
 }
 
