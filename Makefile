@@ -5,12 +5,10 @@
 ##@ Testing
 
 test: ## Run unit test suite
-	cargo install cargo-nextest --locked
 	cargo nextest run --no-fail-fast -p wash-lib
 	cargo nextest run --no-fail-fast --bin wash
 
 test-integration: ##Run integration test suite
-	cargo install cargo-nextest --locked
 	docker compose -f ./tools/docker-compose.yml up --detach
 	cargo nextest run --profile integration -E 'kind(test)'
 	docker compose -f ./tools/docker-compose.yml down
