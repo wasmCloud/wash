@@ -5,12 +5,12 @@
 ##@ Testing
 
 test: ## Run unit test suite
-	cargo test --no-fail-fast --bin wash -- --nocapture
-	cargo test --no-fail-fast -p wash-lib -- --nocapture
+	cargo nextest run --no-fail-fast -p wash-lib
+	cargo nextest run --no-fail-fast --bin wash
 
 test-integration: ##Run integration test suite
 	docker compose -f ./tools/docker-compose.yml up --detach
-	cargo test --no-fail-fast --test "integration*" -- --nocapture
+	cargo nextest run --profile integration -E 'kind(test)'
 	docker compose -f ./tools/docker-compose.yml down
 
 rust-check:

@@ -83,7 +83,13 @@ slow-timeout = { period = "60s" }
 leak-timeout = "100ms"
 
 [profile.ci]
+retries = { backoff = "exponential", count = 10, delay = "1s", jitter = true, max-delay = "10s" }
+fail-fast = false
+
+[profile.integration]
 retries = { backoff = "fixed", count = 2, delay = "1s" }
+fail-fast = false
+
 
 # See https://nexte.st/book/test-groups.html
 [test-groups]
