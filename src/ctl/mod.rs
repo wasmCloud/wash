@@ -1039,9 +1039,7 @@ async fn apply_manifest_actors(
         {
             Ok(ack) => {
                 if ack.accepted {
-                    results.push(format!(
-                        "Instruction to start actor {actor} acknowledged."
-                    ));
+                    results.push(format!("Instruction to start actor {actor} acknowledged."));
                 } else {
                     results.push(format!(
                         "Instruction to start actor {} not acked: {}",

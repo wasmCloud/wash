@@ -309,9 +309,7 @@ where
 
 /// Helper function to determine the wasmCloud host release path given an os/arch and version
 fn wasmcloud_url(os: &str, arch: &str, version: &str) -> String {
-    format!(
-        "{WASMCLOUD_GITHUB_RELEASE_URL}/{version}/{arch}-{os}.tar.gz"
-    )
+    format!("{WASMCLOUD_GITHUB_RELEASE_URL}/{version}/{arch}-{os}.tar.gz")
 }
 
 /// Helper function to ensure the version of wasmCloud is above the minimum

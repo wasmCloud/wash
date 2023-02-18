@@ -73,9 +73,7 @@ pub(crate) fn handle_command(command: BuildCommand) -> Result<CommandOutput> {
                 if command.build_only {
                     format!("Actor built and can be found at {actor_path:?}")
                 } else {
-                    format!(
-                        "Actor built and signed and can be found at {actor_path:?}"
-                    )
+                    format!("Actor built and signed and can be found at {actor_path:?}")
                 },
                 json_output,
             ))

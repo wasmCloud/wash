@@ -156,9 +156,7 @@ pub(crate) async fn handle_pull(
     let mut map = HashMap::new();
     map.insert("file".to_string(), json!(outfile));
     Ok(CommandOutput::new(
-        format!(
-            "\n{SHOWER_EMOJI} Successfully pulled and validated {outfile}"
-        ),
+        format!("\n{SHOWER_EMOJI} Successfully pulled and validated {outfile}"),
         map,
     ))
 }
@@ -240,9 +238,7 @@ pub(crate) async fn handle_push(
     let mut map = HashMap::new();
     map.insert("url".to_string(), json!(cmd.url));
     Ok(CommandOutput::new(
-        format!(
-            "{SHOWER_EMOJI} Successfully validated and pushed to {artifact_url}"
-        ),
+        format!("{SHOWER_EMOJI} Successfully validated and pushed to {artifact_url}"),
         map,
     ))
 }

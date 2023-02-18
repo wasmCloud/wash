@@ -47,7 +47,5 @@ pub(crate) fn test_dir_with_subfolder(subfolder: &str) -> PathBuf {
 /// so the test is responsible for initialization and modification of this file
 pub(crate) fn test_dir_file(subfolder: &str, file: &str) -> PathBuf {
     let root_dir = &env::var("CARGO_MANIFEST_DIR").expect("$CARGO_MANIFEST_DIR");
-    PathBuf::from(format!(
-        "{root_dir}/tests/fixtures/{subfolder}/{file}"
-    ))
+    PathBuf::from(format!("{root_dir}/tests/fixtures/{subfolder}/{file}"))
 }

@@ -40,9 +40,7 @@ pub(crate) fn link_del_output(
             map.insert("contract_id".to_string(), json!(contract_id));
             map.insert("link_name".to_string(), json!(link_name));
             Ok(CommandOutput::new(
-                format!(
-                    "Deleted link for {actor_id} on {contract_id} ({link_name}) successfully"
-                ),
+                format!("Deleted link for {actor_id} on {contract_id} ({link_name}) successfully"),
                 map,
             ))
         }
@@ -61,9 +59,7 @@ pub(crate) fn link_put_output(
             map.insert("actor_id".to_string(), json!(actor_id));
             map.insert("provider_id".to_string(), json!(provider_id));
             Ok(CommandOutput::new(
-                format!(
-                    "Published link ({actor_id}) <-> ({provider_id}) successfully"
-                ),
+                format!("Published link ({actor_id}) <-> ({provider_id}) successfully"),
                 map,
             ))
         }
