@@ -125,4 +125,4 @@ If you have any feature suggestions, find any bugs, or otherwise have a question
 ### Development Prereqs
 
 **Note: this is only for developing `wash` itself.**
-To successfully run the integration tests, you must have Rust and TinyGo installed. You also must add the `wasm32-unknown-unknown` target to Rust with `rustup target add wasm32-unknown-unknown`.
+To successfully run the integration tests, you must have [Rust](https://rustup.rs/), [Go](https://go.dev/doc/install) and [TinyGo](https://tinygo.org/getting-started/install/) installed. You also must add the `wasm32-unknown-unknown` target to Rust with `rustup target add wasm32-unknown-unknown`.
