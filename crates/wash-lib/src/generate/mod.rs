@@ -353,13 +353,13 @@ async fn prepare_local_template(project: &Project) -> Result<(TempDir, PathBuf)>
             println!(
                 "{} {} {}{} {}",
                 emoji::WRENCH,
-                style("Cloning template from repo:").bold(),
+                style("Cloning template from repo").bold(),
                 style(url).bold().yellow(),
                 project.subfolder.clone().map_or_else(
                     || style("".to_string()),
                     |s| style(format!(
                         " {} {}",
-                        style("subfolder:").bold(),
+                        style("subfolder").bold(),
                         style(s).bold().yellow()
                     ))
                 ),
@@ -421,7 +421,7 @@ fn resolve_template_dir(template_base_dir: &TempDir, project: &Project) -> Resul
             }
 
             println!(
-                "{} {} `{}`{}",
+                "{} {} {}{}",
                 emoji::WRENCH,
                 style("Using template subfolder").bold(),
                 style(subfolder).bold().yellow(),
