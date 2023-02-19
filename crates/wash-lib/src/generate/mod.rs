@@ -351,15 +351,18 @@ async fn prepare_local_template(project: &Project) -> Result<(TempDir, PathBuf)>
                 .map_err(|e| any_msg("Creating temp folder for staging:", &e.to_string()))?;
 
             println!(
-                "{} {} `{}`{}",
+                "{} {} {}{} {}",
                 emoji::WRENCH,
-                style("Cloning template from").bold(),
-                style(format!(
-                    "{url}/{}",
-                    project.subfolder.clone().unwrap_or_default()
-                ))
-                .bold()
-                .yellow(),
+                style("Cloning template from repo:").bold(),
+                style(url).bold().yellow(),
+                project.subfolder.clone().map_or_else(
+                    || style("".to_string()),
+                    |s| style(format!(
+                        " {} {}",
+                        style("subfolder:").bold(),
+                        style(s).bold().yellow()
+                    ))
+                ),
                 style("...").bold()
             );
 
