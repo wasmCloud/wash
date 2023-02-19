@@ -250,7 +250,7 @@ async fn make_project(project: Project) -> std::result::Result<PathBuf, anyhow::
     }
 
     println!(
-        "{} {} {}",
+        "{} {}{}",
         emoji::WRENCH,
         style("Generating template").bold(),
         style("...").bold()
@@ -351,7 +351,7 @@ async fn prepare_local_template(project: &Project) -> Result<(TempDir, PathBuf)>
                 .map_err(|e| any_msg("Creating temp folder for staging:", &e.to_string()))?;
 
             println!(
-                "{} {} {}{} {}",
+                "{} {} {}{}{}",
                 emoji::WRENCH,
                 style("Cloning template from repo").bold(),
                 style(url).bold().yellow(),
