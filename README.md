@@ -14,21 +14,32 @@
    \_/\_/ \__,_|___/_| |_| |_|\_____|_|\___/ \__,_|\__,_| |_____/|_| |_|\___|_|_|
 ```
 
-## Why wash
+`wash` is the comprehensive CLI to [wasmCloud][wasmcloud]. `wash` helps you:
 
-`wash` is a bundle of command line tools that, together, form a comprehensive CLI for [wasmCloud](https://wasmcloud.dev) development. Everything from generating new wasmCloud projects, managing cryptographic signing keys, and interacting with OCI compliant registries is contained within the subcommands of `wash`. Our goal with `wash` is to encapsulate our tools into a single binary to make developing WebAssembly with wasmCloud painless and simple.
+- [Start wasmCloud](#wash-up)
+- [Generate new wasmCloud projects](#wash-new)
+- [Push and pull from OCI compliant registries](#wash-reg)
+- [Interact directly with a wasmCloud instance](#wash-ctl)
+- [Manage cryptographic signing keys](./docs/cli/README.md#wash-claims)
 
-## Installing wash
+`wash` is a single binary that makes developing WebAssembly with wasmCloud painless and simple.
 
-### Cargo
+## Getting started
 
-```
+<details open>
+<summary>🦀 Cargo</summary>
+
+The easiest way to get started with `wash` is via [`cargo`][cargo]
+
+```console
 cargo install wash-cli
 ```
+</details>
 
-### Linux (deb/rpm + apt)
+<details>
+<summary>🐧 Linux (deb/rpm + apt)</summary>
 
-```
+```console
 # Debian / Ubuntu (deb)
 curl -s https://packagecloud.io/install/repositories/wasmcloud/core/script.deb.sh | sudo bash
 # Fedora (rpm)
@@ -36,92 +47,85 @@ curl -s https://packagecloud.io/install/repositories/wasmcloud/core/script.rpm.s
 
 sudo apt install wasmcloud wash
 ```
+</details>
 
-### Linux (snap)
+<details>
+<summary>🐧 Linux (snap)</summary>
 
-```
+```console
 sudo snap install wash --edge --devmode
 ```
+</details>
 
-### MacOS (brew)
+<details>
+<summary>🍎 MacOS (brew)</summary>
 
-```
+```console
 brew tap wasmcloud/wasmcloud
 brew install wasmcloud wash
 ```
+</details>
 
-### Windows (choco)
+<details>
+<summary>🪟 Windows (choco)</summary>
 
 ```powershell
 choco install wash
 ```
+</details>
 
-### Nix
+<details>
+<summary>❄️ NixOS</summary>
 
-```
+```console
 nix run github:wasmCloud/wash
 ```
+</details>
 
-## Using wash
+## Using `wash`
 
-`wash` has multiple subcommands, each specializing in one specific area of the wasmCloud development process.
+`wash` provides subcommands for usage and development of wasmCloud.
 
-### call
+### `wash up`
 
-Invoke a wasmCloud actor directly with a specified payload. This allows you to test actor handlers without the need to manage capabilities and link definitions for a rapid development feedback loop.
+Bootstrap a [wasmCloud][wasmcloud-otp] environment in one easy command.
 
-### claims
+`wash up` supports both launching NATS and wasmCloud in the background as well as an "interactive" mode for shorter lived hosts.
 
-Generate JWTs for actors, capability providers, accounts and operators. Sign actor modules with claims including capability IDs, expiration, and keys to verify identity. Inspect actor modules to view their claims.
+After you run `wash up`, visit the [wasmCloud dashboard][washboard] at `http://localhost:4000`.
 
-### ctl
+[washboard]: https://wasmcloud.com/docs/getting-started#viewing-the-wasmcloud-dashboard
+
+### `wash new`
+
+Create new wasmCloud projects from [predefined templates](https://github.com/wasmCloud/project-templates).
+
+This command is a one-stop-shop for creating new actors, providers, and interfaces for all aspects of your application.
+
+### `wash reg`
+
+Push and Pull actors and capability providers to/from OCI compliant registries.
+
+Useful for local development and CI/CD and in local development, with a local container/artifact registry.
+
+### `wash ctl`
 
 Interact directly with a wasmCloud [control-interface](https://github.com/wasmCloud/control-interface), allowing you to imperatively schedule actors, providers and modify configurations of a wasmCloud host. Can be used to interact with local and remote control-interfaces.
 
-### ctx
+### `wash ctx`
 
 Automatically connect to your previously launched wasmCloud lattice with a managed context or use contexts to administer remote wasmCloud lattices.
 
-### drain
+### ...and much more
 
-Manage contents of the local wasmCloud cache. wasmCloud manages a local cache that will avoid redundant fetching of content when possible. `drain` allows you to manually clear that cache to ensure you're always pulling the latest versions of actors and providers that are hosted in remote OCI registries.
+For the full listing of commands [see the CLI documentation](./docs/cli/README.md).
 
-### gen
+## Contributing to `wash`
 
-Generate code from [smithy](https://awslabs.github.io/smithy/index.html) files using [weld codegen](https://github.com/wasmCloud/weld/tree/main/codegen). This is the primary method of generating actor and capability provider code from .smithy interfaces. Currently has first class support for Rust actors and providers, along with autogenerated HTML documentation.
+Feature suggestions? Find a bug? Have a question? [Submit an issue](https://github.com/wasmcloud/wash/issues/new/choose).
 
-### keys
+Contributions of all kinds (filling issues, creating pull requests) are welcome, and the [good first issue label](https://github.com/wasmcloud/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) is a great place to start.
 
-Generate ed25519 keys for securely signing and identifying wasmCloud entities (actors, providers, hosts). Read more about our decision to use ed25519 keys in our [ADR](https://wasmcloud.github.io/adr/0005-security-nkeys.html).
-
-### lint
-
-Perform lint checks on .smithy models, outputting warnings for best practices with interfaces.
-
-### new
-
-Create new wasmCloud projects from predefined [templates](https://github.com/wasmCloud/project-templates). This command is a one-stop-shop for creating new actors, providers, and interfaces for all aspects of your application.
-
-### par
-
-Create, modify and inspect [provider archives](https://github.com/wasmCloud/wasmCloud/tree/main/crates/provider-archive), a TAR format that contains a signed JWT and OS/Architecture specific binaries for native capability providers.
-
-### reg
-
-Push and Pull actors and capability providers to/from OCI compliant registries. Used extensively in our own CI/CD and in local development, where a local registry is used to store your development artifacts.
-
-### up
-
-Bootstrap a wasmCloud environment in one easy command, supporting both launching NATS and wasmCloud in the background as well as an "interactive" mode for shorter lived hosts.
-
-### validate
-
-Perform validation checks on .smithy models, ensuring that your interfaces are valid and usable for codegen and development.
-
-## Contributing to wash
-
-If you have any feature suggestions, find any bugs, or otherwise have a question, please submit an issue [here](https://github.com/wasmcloud/wash/issues/new/choose). Forking & submitting Pull Requests are welcome, and the [good first issue](https://github.com/wasmcloud/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) label is a great way to find a place to start if you're looking to contribute.
-
-### Developer guide
-
-For more information on getting started developing `wash`, see the [developers guide](./docs/guides/development/README.md).
+[cargo]: https://doc.rust-lang.org/cargo/
+[wasmcloud]: https://wasmcloud.com
+[wasmcloud-otp]: https://github.com/wasmCloud/wasmcloud-otp
