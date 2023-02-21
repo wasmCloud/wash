@@ -2,6 +2,29 @@
 
 This document serves as a guide and reference for people looking to develop `wash`.
 
+- [Developer guide](#developer-guide)
+  - [Development Prerequistes](#development-prerequistes)
+    - [`build` Integration Tests](#build-integration-tests)
+  - [Creature comforts](#creature-comforts)
+  - [Building the project](#building-the-project)
+  - [Testing the project](#testing-the-project)
+
+## Development Prerequistes
+
+To contribute to `wash`, you just need [Rust](https://rustup.rs/) installed.
+
+### `build` Integration Tests
+
+To run the `wash build` integration tests that compile actors using actual language toolchains, you must have those toolchains installed. Currently the requirements for this are:
+
+- [Rust](https://rustup.rs/)
+  - The `wasm32-unknown-unknown` target must be installed.
+    - You can install this with: `rustup target add wasm32-unknown-unknown`.
+- [TinyGo](https://tinygo.org/getting-started/install/)
+  - TinyGo also requires [Go](https://go.dev/doc/install) to be installed.
+
+To make it easy to ensure you have all the right tools installed to run all `wash` tests, we've created a Python script at `./tools/deps_check.py`. You can run this using `python3 ./tools/deps_check.py`.
+
 ## Creature comforts
 
 While developing `wash`, consider installing the following:
