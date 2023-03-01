@@ -56,8 +56,9 @@ Generate JWTs for actors, capability providers, accounts and operators. Sign act
 
 ### `wash par`
 
-Create, modify and inspect [provider archives](https://github.com/wasmCloud/wasmCloud/tree/main/crates/provider-archive), a TAR format that contains a signed JWT and OS/Architecture specific binaries for native capability providers.
+Create, modify and inspect [provider archives][par], a TAR format that contains a signed JWT and OS/Architecture specific binaries for native capability providers.
 
+[par]: https://wasmcloud.com/docs/reference/host-runtime/provider-archive
 ### `wash reg`
 
 Push and Pull actors and capability providers to/from OCI compliant registries. Used extensively in our own CI/CD and in local development, where a local registry is used to store your development artifacts.
