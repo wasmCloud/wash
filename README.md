@@ -149,4 +149,4 @@ If you have any feature suggestions, find any bugs, or otherwise have a question
 
 ### Developer guide
 
-For more information on getting started developing `wash`, see the [developers guide](./docs/guides/development/README.md).
+For more information on getting started developing `wash`, see the [developers guide](./docs/DEVELOPMENT.md).
