@@ -41,7 +41,7 @@ test-unit: ## Run one or more unit tests
 ifeq ("","$(TARGET)")
 	@$(CARGO) nextest run
 else
-	@$(CARGO) test $(TARGET) -- --nocapture
+	@$(CARGO) nextest run $(TARGET) -- --nocapture
 endif
 
 test-unit-watch: ## Run tests continuously
