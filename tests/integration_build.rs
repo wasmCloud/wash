@@ -73,7 +73,6 @@ fn build_tinygo_actor_unsigned() -> Result<()> {
 }
 
 #[test]
-#[serial]
 fn build_tinygo_actor_signed() -> Result<()> {
     let test_setup = init(
         /* actor_name= */ "echo",

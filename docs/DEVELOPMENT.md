@@ -5,13 +5,20 @@ This document serves as a guide and reference for people looking to develop `was
 - [Developer guide](#developer-guide)
   - [Development Prerequistes](#development-prerequistes)
     - [`build` Integration Tests](#build-integration-tests)
+    - [Dependency Check Script](#dependency-check-script)
   - [Creature comforts](#creature-comforts)
   - [Building the project](#building-the-project)
   - [Testing the project](#testing-the-project)
 
 ## Development Prerequistes
 
-To contribute to `wash`, you just need [Rust](https://rustup.rs/) installed.
+To contribute to `wash`, you just need [Rust](https://rustup.rs/) installed. To run any `wash` tests, you need to install [`nextest`](https://nexte.st/index.html). With a Rust toolchain already installed, you can simply install this with:
+
+```bash
+cargo install cargo-nextest --locked
+```
+
+The dependency check script will also install this for you, see that section below.
 
 ### `build` Integration Tests
 
@@ -23,7 +30,9 @@ To run the `wash build` integration tests that compile actors using actual langu
 - [TinyGo](https://tinygo.org/getting-started/install/)
   - TinyGo also requires [Go](https://go.dev/doc/install) to be installed.
 
-To make it easy to ensure you have all the right tools installed to run all `wash` tests, we've created a Python script at `tools/deps_check.py`. You can run this using `make deps-check` or `python3 ./tools/deps_check.py`.
+### Dependency Check Script
+
+To make it easy to ensure you have all the right tools installed to run all of the `wash` tests, we've created a Python script at `tools/deps_check.py`. You can run this using `make deps-check` or `python3 ./tools/deps_check.py`.
 
 ## Creature comforts
 

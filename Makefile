@@ -4,6 +4,7 @@
 
 CARGO ?= cargo
 DOCKER ?= docker
+PYTHON ?= python3
 
 ##@ Helpers
 
@@ -15,7 +16,7 @@ clean: ## Clean all tests
 	wash drain all
 
 deps-check:
-	python3 tools/deps_check.py
+	@$(PYTHON) tools/deps_check.py
 
 ##@ Building
 
@@ -38,7 +39,7 @@ test-integration: ##Run integration test suite
 
 test-unit: ## Run one or more unit tests
 ifeq ("","$(TARGET)")
-	@$(CARGO) test -- --nocapture
+	@$(CARGO) nextest run
 else
 	@$(CARGO) test $(TARGET) -- --nocapture
 endif
