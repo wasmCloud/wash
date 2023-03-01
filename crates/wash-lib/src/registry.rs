@@ -7,7 +7,11 @@ use std::{
 
 use anyhow::{anyhow, bail, Result};
 use oci_distribution::manifest::OciImageManifest;
-use oci_distribution::{client::*, secrets::RegistryAuth, Reference};
+use oci_distribution::{
+    client::{Client, ClientConfig, ClientProtocol, Config, ImageLayer},
+    secrets::RegistryAuth,
+    Reference,
+};
 use provider_archive::ProviderArchive;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -118,7 +122,7 @@ pub async fn pull_oci_artifact(url: String, options: OciPullOptions) -> Result<V
     // Reformatting digest in case the sha256: prefix is left off
     let digest = match options.digest {
         Some(d) if d.starts_with("sha256:") => Some(d),
-        Some(d) => Some(format!("sha256:{}", d)),
+        Some(d) => Some(format!("sha256:{d}")),
         None => None,
     };
 

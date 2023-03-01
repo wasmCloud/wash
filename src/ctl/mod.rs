@@ -3,7 +3,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{Args, Parser, Subcommand};
 use wash_lib::{
     cli::{labels_vec_to_hashmap, CommandOutput, OutputKind},
@@ -18,8 +18,8 @@ use wash_lib::{
     id::{ModuleId, ServerId, ServiceId},
 };
 use wasmcloud_control_interface::{
-    Client as CtlClient, CtlOperationAck, GetClaimsResponse, Host, HostInventory,
-    LinkDefinitionList,
+    Client as CtlClient, ClientBuilder as CtlClientBuilder, CtlOperationAck, GetClaimsResponse,
+    Host, HostInventory, LinkDefinitionList,
 };
 
 use crate::{
@@ -64,6 +64,14 @@ pub(crate) struct ConnectionOpts {
     #[clap(long = "ctl-credsfile", env = "WASH_CTL_CREDS", hide_env_values = true)]
     pub(crate) ctl_credsfile: Option<PathBuf>,
 
+    /// JS domain for wasmcloud control interface. Defaults to None
+    #[clap(
+        long = "js-domain",
+        env = "WASMCLOUD_JS_DOMAIN",
+        hide_env_values = true
+    )]
+    pub(crate) js_domain: Option<String>,
+
     /// Lattice prefix for wasmcloud control interface, defaults to "default"
     #[clap(short = 'x', long = "lattice-prefix", env = "WASMCLOUD_LATTICE_PREFIX")]
     pub(crate) lattice_prefix: Option<String>,
@@ -90,6 +98,7 @@ impl Default for ConnectionOpts {
             ctl_jwt: None,
             ctl_seed: None,
             ctl_credsfile: None,
+            js_domain: None,
             lattice_prefix: Some(DEFAULT_LATTICE_PREFIX.to_string()),
             timeout_ms: DEFAULT_NATS_TIMEOUT_MS,
             context: None,
@@ -515,7 +524,7 @@ pub(crate) async fn handle_command(
 
             let failure = link_del(cmd.clone())
                 .await
-                .map_or_else(|e| Some(format!("{}", e)), |_| None);
+                .map_or_else(|e| Some(format!("{e}")), |_| None);
             link_del_output(&cmd.actor_id, &cmd.contract_id, link_name, failure)?
         }
         Link(LinkCommand::Put(cmd)) => {
@@ -528,7 +537,7 @@ pub(crate) async fn handle_command(
 
             let failure = link_put(cmd.clone())
                 .await
-                .map_or_else(|e| Some(format!("{}", e)), |_| None);
+                .map_or_else(|e| Some(format!("{e}")), |_| None);
             link_put_output(&cmd.actor_id, &cmd.provider_id, failure)?
         }
         Link(LinkCommand::Query(cmd)) => {
@@ -539,14 +548,14 @@ pub(crate) async fn handle_command(
         Start(StartCommand::Actor(cmd)) => {
             let actor_ref = &cmd.actor_ref.to_string();
 
-            sp.update_spinner_message(format!(" Starting actor {} ... ", actor_ref));
+            sp.update_spinner_message(format!(" Starting actor {actor_ref} ... "));
 
             start_actor(cmd).await?
         }
         Start(StartCommand::Provider(cmd)) => {
             let provider_ref = &cmd.provider_ref.to_string();
 
-            sp.update_spinner_message(format!(" Starting provider {} ... ", provider_ref));
+            sp.update_spinner_message(format!(" Starting provider {provider_ref} ... "));
 
             start_provider(cmd).await?
         }
@@ -1039,10 +1048,7 @@ async fn apply_manifest_actors(
         {
             Ok(ack) => {
                 if ack.accepted {
-                    results.push(format!(
-                        "Instruction to start actor {} acknowledged.",
-                        actor
-                    ));
+                    results.push(format!("Instruction to start actor {actor} acknowledged."));
                 } else {
                     results.push(format!(
                         "Instruction to start actor {} not acked: {}",
@@ -1050,7 +1056,7 @@ async fn apply_manifest_actors(
                     ));
                 }
             }
-            Err(e) => results.push(format!("Failed to send start actor: {}", e)),
+            Err(e) => results.push(format!("Failed to send start actor: {e}")),
         }
     }
 
@@ -1084,7 +1090,7 @@ async fn apply_manifest_linkdefs(client: &CtlClient, hm: &HostManifest) -> Resul
                     ));
                 }
             }
-            Err(e) => results.push(format!("Failed to send link def: {}", e)),
+            Err(e) => results.push(format!("Failed to send link def: {e}")),
         }
     }
 
@@ -1122,7 +1128,7 @@ async fn apply_manifest_providers(
                     ));
                 }
             }
-            Err(e) => results.push(format!("Failed to send start capability message: {}", e)),
+            Err(e) => results.push(format!("Failed to send start capability message: {e}")),
         }
     }
 
@@ -1188,22 +1194,31 @@ async fn ctl_client_from_opts(
             .await
             .context("Failed to create NATS client")?;
 
-    let ctl_client = if let Ok(topic_prefix) = std::env::var("WASMCLOUD_CTL_TOPIC_PREFIX") {
-        CtlClient::new_with_topic_prefix(
-            nc,
-            &topic_prefix,
-            Some(lattice_prefix),
-            Duration::from_millis(opts.timeout_ms),
-            Duration::from_millis(auction_timeout_ms),
-        )
-    } else {
-        CtlClient::new(
-            nc,
-            Some(lattice_prefix),
-            Duration::from_millis(opts.timeout_ms),
-            Duration::from_millis(auction_timeout_ms),
-        )
+    let mut builder = CtlClientBuilder::new(nc)
+        .lattice_prefix(lattice_prefix)
+        .rpc_timeout(Duration::from_millis(opts.timeout_ms))
+        .auction_timeout(Duration::from_millis(auction_timeout_ms));
+
+    let opts_js_domain = opts.js_domain;
+    let ctx_js_domain = ctx.and_then(|c| c.js_domain);
+    let js_domain = match (opts_js_domain, ctx_js_domain) {
+        (Some(opts_domain), _) => Some(opts_domain), // flag takes priority
+        (None, Some(ctx_domain)) => Some(ctx_domain),
+        _ => None,
     };
+
+    if let Some(js_domain) = js_domain {
+        builder = builder.js_domain(js_domain);
+    }
+
+    if let Ok(topic_prefix) = std::env::var("WASMCLOUD_CTL_TOPIC_PREFIX") {
+        builder = builder.topic_prefix(topic_prefix);
+    }
+
+    let ctl_client = builder
+        .build()
+        .await
+        .map_err(|err| anyhow!("Failed to create control interface client: {err:?}"))?;
 
     Ok(ctl_client)
 }
@@ -1222,6 +1237,7 @@ mod test {
     const CTL_HOST: &str = "127.0.0.1";
     const CTL_PORT: &str = "4222";
     const LATTICE_PREFIX: &str = "default";
+    const JS_DOMAIN: &str = "custom-domain";
 
     const ACTOR_ID: &str = "MDPDJEYIAK6MACO67PRFGOSSLODBISK4SCEYDY3HEOY4P5CVJN6UCWUK";
     const PROVIDER_ID: &str = "VBKTSBG2WKP6RJWLQ5O7RDVIIB4LMW6U5R67A7QMIDBZDGZWYTUE3TSI";
@@ -1269,7 +1285,7 @@ mod test {
                 assert_eq!(actor_ref, "wasmcloud.azurecr.io/actor:v1".to_string());
                 assert_eq!(constraints.unwrap(), vec!["arch=x86_64".to_string()]);
             }
-            cmd => panic!("ctl start actor constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl start actor constructed incorrect command {cmd:?}"),
         }
         let start_provider_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1317,7 +1333,7 @@ mod test {
                 assert_eq!(provider_ref, "wasmcloud.azurecr.io/provider:v1".to_string());
                 assert!(skip_wait);
             }
-            cmd => panic!("ctl start provider constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl start provider constructed incorrect command {cmd:?}"),
         }
         let stop_actor_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1353,7 +1369,7 @@ mod test {
                 assert_eq!(count, 2);
                 assert!(!skip_wait);
             }
-            cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl stop actor constructed incorrect command {cmd:?}"),
         }
         let stop_provider_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1391,7 +1407,7 @@ mod test {
                 assert_eq!(contract_id, "wasmcloud:provider".to_string());
                 assert!(!skip_wait);
             }
-            cmd => panic!("ctl stop actor constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl stop actor constructed incorrect command {cmd:?}"),
         }
         let get_hosts_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1413,7 +1429,7 @@ mod test {
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms, 2001);
             }
-            cmd => panic!("ctl get hosts constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl get hosts constructed incorrect command {cmd:?}"),
         }
         let get_host_inventory_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1440,7 +1456,7 @@ mod test {
                 assert_eq!(opts.timeout_ms, 2001);
                 assert_eq!(host_id, HOST_ID.parse()?);
             }
-            cmd => panic!("ctl get inventory constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl get inventory constructed incorrect command {cmd:?}"),
         }
         let get_claims_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1454,6 +1470,8 @@ mod test {
             CTL_PORT,
             "--timeout-ms",
             "2001",
+            "--js-domain",
+            JS_DOMAIN,
         ])?;
         match get_claims_all.command {
             CtlCliCommand::Get(GetCommand::Claims(GetClaimsCommand { opts })) => {
@@ -1461,8 +1479,9 @@ mod test {
                 assert_eq!(&opts.ctl_port.unwrap(), CTL_PORT);
                 assert_eq!(&opts.lattice_prefix.unwrap(), LATTICE_PREFIX);
                 assert_eq!(opts.timeout_ms, 2001);
+                assert_eq!(opts.js_domain.unwrap(), JS_DOMAIN);
             }
-            cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl get claims constructed incorrect command {cmd:?}"),
         }
         let link_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1502,7 +1521,7 @@ mod test {
                 assert_eq!(link_name.unwrap(), "default".to_string());
                 assert_eq!(values, vec!["THING=foo".to_string()]);
             }
-            cmd => panic!("ctl link put constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl link put constructed incorrect command {cmd:?}"),
         }
         let update_all: Cmd = Parser::try_parse_from([
             "ctl",
@@ -1535,7 +1554,7 @@ mod test {
                 assert_eq!(actor_id, ACTOR_ID.parse()?);
                 assert_eq!(new_actor_ref, "wasmcloud.azurecr.io/actor:v2".to_string());
             }
-            cmd => panic!("ctl get claims constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl get claims constructed incorrect command {cmd:?}"),
         }
 
         let scale_actor_all: Cmd = Parser::try_parse_from([
@@ -1578,7 +1597,7 @@ mod test {
                 assert_eq!(count, 1);
                 assert_eq!(annotations, vec!["foo=bar".to_string()]);
             }
-            cmd => panic!("ctl scale actor constructed incorrect command {:?}", cmd),
+            cmd => panic!("ctl scale actor constructed incorrect command {cmd:?}"),
         }
 
         Ok(())

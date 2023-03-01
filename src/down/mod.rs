@@ -8,7 +8,7 @@ use clap::Parser;
 use serde_json::json;
 use tokio::process::Command;
 use wash_lib::cli::{CommandOutput, OutputKind};
-use wash_lib::start::*;
+use wash_lib::start::{find_wasmcloud_binary, NATS_SERVER_BINARY, NATS_SERVER_PID};
 
 use crate::appearance::spinner::Spinner;
 use crate::cfg::cfg_dir;
@@ -65,8 +65,7 @@ pub(crate) async fn handle_down(
         if let Err(e) = stop_nats(install_dir).await {
             out_json.insert("nats_stopped".to_string(), json!(false));
             out_text.push_str(&format!(
-                "❌ NATS server did not stop successfully: {:?}\n",
-                e
+                "❌ NATS server did not stop successfully: {e:?}\n"
             ));
         } else {
             out_json.insert("nats_stopped".to_string(), json!(true));
