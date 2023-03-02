@@ -6,7 +6,7 @@ This document serves as a guide and reference for people looking to develop `was
   - [Development Prerequistes](#development-prerequistes)
     - [`build` Integration Tests](#build-integration-tests)
     - [Dependency Check Script](#dependency-check-script)
-  - [Creature comforts](#creature-comforts)
+    - [Creature comforts](#creature-comforts)
   - [Building the project](#building-the-project)
   - [Testing the project](#testing-the-project)
 
@@ -34,13 +34,13 @@ To run the `wash build` integration tests that compile actors using actual langu
 
 To make it easy to ensure you have all the right tools installed to run all of the `wash` tests, we've created a Python script at `tools/deps_check.py`. You can run this using `make deps-check` or `python3 ./tools/deps_check.py`.
 
-## Creature comforts
+### Creature comforts
 
 While developing `wash`, consider installing the following:
 
-- [`cargo-watch`][cargo-watch] (`cargo install cargo-watch`) to enable the `*-watch` commands
+- [`cargo-watch`](https://crates.io/crates/cargo-watch) (`cargo install cargo-watch`) to enable the `*-watch` commands
 
-[cargo-watch]: https://crates.io/crates/cargo-watch
+These will be automatically installed using the `deps_check.py` script as well.
 
 ## Building the project
 
@@ -50,7 +50,7 @@ To build the project:
 make build
 ```
 
-To build continuously (thanks to [`cargo-watch`][cargo-watch]):
+To build continuously (thanks to [`cargo-watch`](https://crates.io/crates/cargo-watch)):
 
 ```console
 make build-watch
@@ -58,21 +58,20 @@ make build-watch
 
 ## Testing the project
 
-To test the project:
+To test all unit tests:
 
 ```console
 make test
-make test-unit
 ```
 
-To test the project continuously:
+To test all unit tests continuously:
 
 ```console
 make test-watch
 ```
 
-To test a *specific* unit test continuously:
+To test a *specific* target test(s) continuously:
 
 ```console
-TARGET=integration_new_handles_dashed_names make test-unit-watch
+TARGET=integration_new_handles_dashed_names make test-watch
 ```

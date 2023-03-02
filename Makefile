@@ -28,24 +28,17 @@ build-watch: ## Continuously build the project
 
 ##@ Testing
 
-test: ## Run unit test suite
+test: ## Run the entire unit test suite
 	@$(CARGO) nextest run --no-fail-fast -p wash-lib
 	@$(CARGO) nextest run --no-fail-fast --bin wash
 
-test-integration: ##Run integration test suite
+test-integration: ## Run the entire integration test suite
 	@$(DOCKER) compose -f ./tools/docker-compose.yml up --detach
 	@$(CARGO) nextest run --profile integration -E 'kind(test)'
 	@$(DOCKER) compose -f ./tools/docker-compose.yml down
 
-test-unit: ## Run one or more unit tests
-ifeq ("","$(TARGET)")
-	@$(CARGO) nextest run
-else
-	@$(CARGO) nextest run $(TARGET) -- --nocapture
-endif
-
-test-unit-watch: ## Run tests continuously
-	@$(CARGO) watch -- $(MAKE) test-unit
+test-watch: ## Run unit tests continously, can optionally specify a target test filter.
+	@$(CARGO) watch -- $(CARGO) nextest run $(TARGET)
 
 rust-check: ## Run rust checks
 	@$(CARGO) fmt --all --check
