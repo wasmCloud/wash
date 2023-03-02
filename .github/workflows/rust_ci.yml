@@ -50,4 +50,4 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - name: Run integration tests
-        run: cargo nextest run --profile ci --bin wash -E 'kind(test)'
+        run: cargo nextest run --profile ci -E 'kind(test)'
