@@ -2,13 +2,8 @@ use anyhow::Result;
 
 mod common;
 use common::wash;
-use scopeguard::defer;
 use serial_test::serial;
-use std::{
-    env::temp_dir,
-    fs::{create_dir_all, remove_dir_all, File},
-    path::PathBuf,
-};
+use std::{fs::File, path::PathBuf};
 use tempfile::TempDir;
 
 #[test]

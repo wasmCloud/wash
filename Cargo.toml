@@ -65,6 +65,7 @@ assert-json-diff = { workspace = true }
 scopeguard = { workspace = true }
 sysinfo = { workspace = true }
 chrono = { workspace = true }
+serial_test = { workspace = true }
 
 [[bin]]
 bench = true
