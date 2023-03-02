@@ -6,7 +6,7 @@ This document serves as a guide and reference for people looking to develop `was
   - [Development Prerequistes](#development-prerequistes)
     - [`build` Integration Tests](#build-integration-tests)
     - [Dependency Check Script](#dependency-check-script)
-    - [Creature comforts](#creature-comforts)
+    - [Optional Tools](#optional-tools)
   - [Building the project](#building-the-project)
   - [Testing the project](#testing-the-project)
 
@@ -34,9 +34,9 @@ To run the `wash build` integration tests that compile actors using actual langu
 
 To make it easy to ensure you have all the right tools installed to run all of the `wash` tests, we've created a Python script at `tools/deps_check.py`. You can run this using `make deps-check` or `python3 ./tools/deps_check.py`.
 
-### Creature comforts
+### Optional Tools
 
-While developing `wash`, consider installing the following:
+While developing `wash`, consider installing the following optional development tools:
 
 - [`cargo-watch`](https://crates.io/crates/cargo-watch) (`cargo install cargo-watch`) to enable the `*-watch` commands
 
