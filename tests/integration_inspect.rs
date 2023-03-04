@@ -109,7 +109,7 @@ fn integration_inspect_provider() {
     let inspect_dir = test_dir_with_subfolder(SUBFOLDER);
     let httpclient_inspect = &format!("{}/httpclient:inspect", LOCAL_REGISTRY);
 
-    // Pull the echo module and push to local registry to test local inspect
+    // Pull the httpclient provider and push to local registry to test local inspect
     let local_http_client_path = test_dir_file(SUBFOLDER, "httpclient.wasm");
     let get_http_client = wash()
         .args([
@@ -122,7 +122,7 @@ fn integration_inspect_provider() {
         .output()
         .expect("failed to pull https server for inspect test");
     assert!(get_http_client.status.success());
-    let push_echo = wash()
+    let push_http_client = wash()
         .args([
             "reg",
             "push",
@@ -132,7 +132,7 @@ fn integration_inspect_provider() {
         ])
         .output()
         .expect("failed to push echo.wasm to local registry");
-    assert!(push_echo.status.success());
+    assert!(push_http_client.status.success());
 
     // Inspect local, local registry, and remote registry actor wasm
     // `String.contains` is used here to ensure we aren't relying on relative json field position.
