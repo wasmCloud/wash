@@ -1,14 +1,15 @@
-use crate::util::{self};
+use super::{cached_oci_file, CommandOutput, OutputKind};
+use crate::registry::{get_oci_artifact, OciPullOptions};
 use anyhow::{anyhow, Result};
 use clap::Parser;
 use provider_archive::*;
+use serde::de::DeserializeOwned;
 use serde_json::json;
 use std::{collections::HashMap, fs::File, io::Read, path::PathBuf};
 use term_table::{row::Row, table_cell::*, Table};
-use wascap::jwt::{Actor, Token};
-use wash_lib::{
-    cli::{cached_oci_file, claims::render_actor_claims, CommandOutput, OutputKind},
-    registry::OciPullOptions,
+use wascap::{
+    caps::capability_name,
+    jwt::{Actor, Claims, Token, TokenValidation, WascapEntity},
 };
 
 // The magic number 0061 736D is present at the beginning of all wasm files.
@@ -21,15 +22,15 @@ pub struct InspectCliCommand {
 
     /// Extract the raw JWT from the file and print to stdout
     #[clap(name = "jwt_only", long = "jwt-only")]
-    jwt_only: bool,
+    pub jwt_only: bool,
 
     /// Digest to verify artifact against (if OCI URL is provided for <module> or <archive>)
     #[clap(short = 'd', long = "digest")]
-    digest: Option<String>,
+    pub digest: Option<String>,
 
     /// Allow latest artifact tags (if OCI URL is provided for <module> or <archive>)
     #[clap(long = "allow-latest")]
-    allow_latest: bool,
+    pub allow_latest: bool,
 
     /// OCI username, if omitted anonymous authentication will be used
     #[clap(
@@ -38,7 +39,7 @@ pub struct InspectCliCommand {
         env = "WASH_REG_USER",
         hide_env_values = true
     )]
-    user: Option<String>,
+    pub user: Option<String>,
 
     /// OCI password, if omitted anonymous authentication will be used
     #[clap(
@@ -47,29 +48,30 @@ pub struct InspectCliCommand {
         env = "WASH_REG_PASSWORD",
         hide_env_values = true
     )]
-    password: Option<String>,
+    pub password: Option<String>,
 
     /// Allow insecure (HTTP) registry connections
     #[clap(long = "insecure")]
-    insecure: bool,
+    pub insecure: bool,
 
     /// skip the local OCI cache
     #[clap(long = "no-cache")]
-    no_cache: bool,
+    pub no_cache: bool,
 }
 
 /// Attempts to inspect a provider archive or signed actor module
 pub async fn handle_command(
-    command: InspectCliCommand,
+    command: impl Into<InspectCliCommand>,
     _output_kind: OutputKind,
 ) -> Result<CommandOutput> {
+    let command = command.into();
     let mut buf = Vec::new();
     if PathBuf::from(command.target.clone()).as_path().is_dir() {
         let mut f = File::open(command.target.clone())?;
         f.read_to_end(&mut buf)?;
     } else {
         let cache_file = (!command.no_cache).then(|| cached_oci_file(&command.target.clone()));
-        buf = wash_lib::registry::get_oci_artifact(
+        buf = get_oci_artifact(
             command.target.clone(),
             cache_file,
             OciPullOptions {
@@ -118,6 +120,151 @@ async fn get_caps(cmd: InspectCliCommand, artifact_bytes: &[u8]) -> Result<Optio
     Ok(wascap::wasm::extract_claims(artifact_bytes)?)
 }
 
+/// Renders actor claims into provided output format
+pub fn render_actor_claims(claims: Claims<Actor>, validation: TokenValidation) -> CommandOutput {
+    let md = claims.metadata.clone().unwrap();
+    let name = md.name();
+    let friendly_rev = md.rev.unwrap_or(0);
+    let friendly_ver = md.ver.unwrap_or_else(|| "None".to_string());
+    let friendly = format!("{} ({})", friendly_ver, friendly_rev);
+    let provider = if md.provider {
+        "Capability Provider"
+    } else {
+        "Capabilities"
+    };
+
+    let tags = if let Some(tags) = &claims.metadata.as_ref().unwrap().tags {
+        if tags.is_empty() {
+            "None".to_string()
+        } else {
+            tags.join(",")
+        }
+    } else {
+        "None".to_string()
+    };
+
+    let friendly_caps: Vec<String> = if let Some(caps) = &claims.metadata.as_ref().unwrap().caps {
+        caps.iter().map(|c| capability_name(c)).collect()
+    } else {
+        vec![]
+    };
+
+    let call_alias = claims
+        .metadata
+        .as_ref()
+        .unwrap()
+        .call_alias
+        .clone()
+        .unwrap_or_else(|| "(Not set)".to_string());
+
+    let iss_label = token_label(&claims.issuer).to_ascii_lowercase();
+    let sub_label = token_label(&claims.subject).to_ascii_lowercase();
+    let provider_json = provider.replace(' ', "_").to_ascii_lowercase();
+
+    let mut map = HashMap::new();
+    map.insert(iss_label, json!(claims.issuer));
+    map.insert(sub_label, json!(claims.subject));
+    map.insert("expires".to_string(), json!(validation.expires_human));
+    map.insert(
+        "can_be_used".to_string(),
+        json!(validation.not_before_human),
+    );
+    map.insert("version".to_string(), json!(friendly_ver));
+    map.insert("revision".to_string(), json!(friendly_rev));
+    map.insert(provider_json, json!(friendly_caps));
+    map.insert("tags".to_string(), json!(tags));
+    map.insert("call_alias".to_string(), json!(call_alias));
+    map.insert("name".to_string(), json!(name));
+
+    let mut table = render_core(&claims, validation);
+
+    table.add_row(Row::new(vec![
+        TableCell::new("Version"),
+        TableCell::new_with_alignment(friendly, 1, Alignment::Right),
+    ]));
+
+    table.add_row(Row::new(vec![
+        TableCell::new("Call Alias"),
+        TableCell::new_with_alignment(call_alias, 1, Alignment::Right),
+    ]));
+
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        provider,
+        2,
+        Alignment::Center,
+    )]));
+
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        friendly_caps.join("\n"),
+        2,
+        Alignment::Left,
+    )]));
+
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        "Tags",
+        2,
+        Alignment::Center,
+    )]));
+
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        tags,
+        2,
+        Alignment::Left,
+    )]));
+
+    CommandOutput::new(table.render(), map)
+}
+
+// * - we don't need render impls for Operator or Account because those tokens are never embedded into a module,
+// only actors.
+
+fn token_label(pk: &str) -> String {
+    match pk.chars().next().unwrap() {
+        'A' => "Account".to_string(),
+        'M' => "Module".to_string(),
+        'O' => "Operator".to_string(),
+        'S' => "Server".to_string(),
+        'U' => "User".to_string(),
+        _ => "<Unknown>".to_string(),
+    }
+}
+
+fn render_core<T>(claims: &Claims<T>, validation: TokenValidation) -> Table
+where
+    T: serde::Serialize + DeserializeOwned + WascapEntity,
+{
+    let mut table = Table::new();
+    super::configure_table_style(&mut table);
+
+    let headline = format!("{} - {}", claims.name(), token_label(&claims.subject));
+    table.add_row(Row::new(vec![TableCell::new_with_alignment(
+        headline,
+        2,
+        Alignment::Center,
+    )]));
+
+    table.add_row(Row::new(vec![
+        TableCell::new(token_label(&claims.issuer)),
+        TableCell::new_with_alignment(&claims.issuer, 1, Alignment::Right),
+    ]));
+    table.add_row(Row::new(vec![
+        TableCell::new(token_label(&claims.subject)),
+        TableCell::new_with_alignment(&claims.subject, 1, Alignment::Right),
+    ]));
+
+    table.add_row(Row::new(vec![
+        TableCell::new("Expires"),
+        TableCell::new_with_alignment(validation.expires_human, 1, Alignment::Right),
+    ]));
+
+    table.add_row(Row::new(vec![
+        TableCell::new("Can Be Used"),
+        TableCell::new_with_alignment(validation.not_before_human, 1, Alignment::Right),
+    ]));
+
+    table
+}
+
 /// Inspects a provider archive
 pub(crate) async fn handle_provider_archive(
     cmd: InspectCliCommand,
@@ -150,7 +297,7 @@ pub(crate) async fn handle_provider_archive(
     map.insert("targets".to_string(), json!(artifact.targets()));
     let text_table = {
         let mut table = Table::new();
-        util::configure_table_style(&mut table);
+        super::configure_table_style(&mut table);
 
         table.add_row(Row::new(vec![TableCell::new_with_alignment(
             format!("{} - Provider Archive", name),
@@ -235,27 +382,25 @@ mod test {
             "--no-cache",
         ])
         .unwrap();
-        match inspect_long.command {
-            InspectCliCommand {
-                target,
-                jwt_only,
-                digest,
-                allow_latest,
-                user,
-                password,
-                insecure,
-                no_cache,
-            } => {
-                assert_eq!(target, LOCAL);
-                assert_eq!(digest.unwrap(), "sha256:blah");
-                assert!(!allow_latest);
-                assert!(!insecure);
-                assert_eq!(user.unwrap(), "name");
-                assert_eq!(password.unwrap(), "secret");
-                assert!(jwt_only);
-                assert!(no_cache);
-            }
-        }
+        let InspectCliCommand {
+            target,
+            jwt_only,
+            digest,
+            allow_latest,
+            user,
+            password,
+            insecure,
+            no_cache,
+        } = inspect_long.command;
+        assert_eq!(target, LOCAL);
+        assert_eq!(digest.unwrap(), "sha256:blah");
+        assert!(!allow_latest);
+        assert!(!insecure);
+        assert_eq!(user.unwrap(), "name");
+        assert_eq!(password.unwrap(), "secret");
+        assert!(jwt_only);
+        assert!(no_cache);
+
         let inspect_short: Cmd = Parser::try_parse_from([
             "inspect",
             REMOTE,
@@ -271,27 +416,24 @@ mod test {
             "--no-cache",
         ])
         .unwrap();
-        match inspect_short.command {
-            InspectCliCommand {
-                target,
-                jwt_only,
-                digest,
-                allow_latest,
-                user,
-                password,
-                insecure,
-                no_cache,
-            } => {
-                assert_eq!(target, REMOTE);
-                assert_eq!(digest.unwrap(), "sha256:blah");
-                assert!(allow_latest);
-                assert!(insecure);
-                assert_eq!(user.unwrap(), "name");
-                assert_eq!(password.unwrap(), "secret");
-                assert!(jwt_only);
-                assert!(no_cache);
-            }
-        }
+        let InspectCliCommand {
+            target,
+            jwt_only,
+            digest,
+            allow_latest,
+            user,
+            password,
+            insecure,
+            no_cache,
+        } = inspect_short.command;
+        assert_eq!(target, REMOTE);
+        assert_eq!(digest.unwrap(), "sha256:blah");
+        assert!(allow_latest);
+        assert!(insecure);
+        assert_eq!(user.unwrap(), "name");
+        assert_eq!(password.unwrap(), "secret");
+        assert!(jwt_only);
+        assert!(no_cache);
 
         let cmd: Cmd = Parser::try_parse_from([
             "inspect",
@@ -309,30 +451,27 @@ mod test {
         ])
         .unwrap();
 
-        match cmd.command {
-            InspectCliCommand {
-                target,
-                jwt_only,
-                digest,
-                allow_latest,
-                user,
-                password,
-                insecure,
-                no_cache,
-            } => {
-                assert_eq!(target, SUBSCRIBER_OCI);
-                assert_eq!(
-                    digest.unwrap(),
-                    "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8"
-                );
-                assert_eq!(user.unwrap(), "name");
-                assert_eq!(password.unwrap(), "opensesame");
-                assert!(allow_latest);
-                assert!(insecure);
-                assert!(jwt_only);
-                assert!(no_cache);
-            }
-        }
+        let InspectCliCommand {
+            target,
+            jwt_only,
+            digest,
+            allow_latest,
+            user,
+            password,
+            insecure,
+            no_cache,
+        } = cmd.command;
+        assert_eq!(target, SUBSCRIBER_OCI);
+        assert_eq!(
+            digest.unwrap(),
+            "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8"
+        );
+        assert_eq!(user.unwrap(), "name");
+        assert_eq!(password.unwrap(), "opensesame");
+        assert!(allow_latest);
+        assert!(insecure);
+        assert!(jwt_only);
+        assert!(no_cache);
 
         let short_cmd: Cmd = Parser::try_parse_from([
             "inspect",
@@ -350,29 +489,26 @@ mod test {
         ])
         .unwrap();
 
-        match short_cmd.command {
-            InspectCliCommand {
-                target,
-                jwt_only,
-                digest,
-                allow_latest,
-                user,
-                password,
-                insecure,
-                no_cache,
-            } => {
-                assert_eq!(target, SUBSCRIBER_OCI);
-                assert_eq!(
-                    digest.unwrap(),
-                    "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8"
-                );
-                assert_eq!(user.unwrap(), "name");
-                assert_eq!(password.unwrap(), "opensesame");
-                assert!(allow_latest);
-                assert!(insecure);
-                assert!(jwt_only);
-                assert!(no_cache);
-            }
-        }
+        let InspectCliCommand {
+            target,
+            jwt_only,
+            digest,
+            allow_latest,
+            user,
+            password,
+            insecure,
+            no_cache,
+        } = short_cmd.command;
+        assert_eq!(target, SUBSCRIBER_OCI);
+        assert_eq!(
+            digest.unwrap(),
+            "sha256:5790f650cff526fcbc1271107a05111a6647002098b74a9a5e2e26e3c0a116b8"
+        );
+        assert_eq!(user.unwrap(), "name");
+        assert_eq!(password.unwrap(), "opensesame");
+        assert!(allow_latest);
+        assert!(insecure);
+        assert!(jwt_only);
+        assert!(no_cache);
     }
 }
