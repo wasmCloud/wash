@@ -14,10 +14,7 @@ use nkeys::{KeyPair, KeyPairType};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use wascap::{
-    caps::capability_name,
-    jwt::{
-        Account, Actor, CapabilityProvider, Claims, Operator, Token, TokenValidation, WascapEntity,
-    },
+    jwt::{Account, Actor, CapabilityProvider, Claims, Operator},
     wasm::{days_from_now_to_jwt_time, sign_buffer_with_claims},
 };
 

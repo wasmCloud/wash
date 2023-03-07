@@ -1,15 +1,12 @@
 use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
 
+use crate::util::convert_error;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use nkeys::KeyPairType;
 use provider_archive::ProviderArchive;
 use serde_json::json;
-use term_table::{row::Row, table_cell::*, Table};
 use wash_lib::cli::{extract_keypair, inspect, CommandOutput, OutputKind};
-use wash_lib::registry::OciPullOptions;
-
-use crate::util::convert_error;
 
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
 
