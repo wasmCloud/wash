@@ -3,6 +3,7 @@ use std::{collections::HashMap, fs::File, io::prelude::*, path::PathBuf};
 use crate::util::convert_error;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
+use log::warn;
 use nkeys::KeyPairType;
 use provider_archive::ProviderArchive;
 use serde_json::json;
@@ -200,7 +201,10 @@ pub(crate) async fn handle_command(
 ) -> Result<CommandOutput> {
     match command {
         ParCliCommand::Create(cmd) => handle_create(cmd, output_kind).await,
-        ParCliCommand::Inspect(cmd) => inspect::handle_command(cmd, output_kind).await,
+        ParCliCommand::Inspect(cmd) => {
+            warn!("par inspect will be deprecated in future versions. Use inspect instead.");
+            inspect::handle_command(cmd, output_kind).await
+        }
         ParCliCommand::Insert(cmd) => handle_insert(cmd, output_kind).await,
     }
 }
