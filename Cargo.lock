@@ -3880,7 +3880,8 @@ dependencies = [
 [[package]]
 name = "wascap"
 version = "0.10.0"
-source = "git+https://github.com/wasmCloud/wascap#48eafc861099b08a531b7eeb033802ab8a215baf"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86d4cb21a92b02469a7586135a2f52753815ff8599992744de5a9e7db54873b3"
 dependencies = [
  "base64 0.13.1",
  "data-encoding",
