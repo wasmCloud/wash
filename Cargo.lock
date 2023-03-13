@@ -649,7 +649,7 @@ dependencies = [
  "rust-ini",
  "serde",
  "serde_json",
- "toml 0.5.10",
+ "toml 0.5.11",
  "yaml-rust",
 ]
 
@@ -3504,9 +3504,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "0.5.10"
+version = "0.5.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1333c76748e868a4d9d1017b5ab53171dfd095f70c712fdb4653a406547f598f"
+checksum = "f4f7f0dd8d50a853a531c426359045b1998f04219d88799810762cd4ad314234"
 dependencies = [
  "serde",
 ]
@@ -3985,7 +3985,7 @@ dependencies = [
  "test_bin",
  "thiserror",
  "tokio",
- "toml 0.5.10",
+ "toml 0.7.2",
  "wascap 0.9.2",
  "wash-lib",
  "wasmbus-rpc",
@@ -4032,7 +4032,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tar",
- "toml 0.5.10",
+ "toml 0.7.2",
  "walkdir",
  "wascap 0.9.2",
  "weld-codegen 0.6.0",
@@ -4189,7 +4189,7 @@ dependencies = [
  "thiserror",
  "time 0.3.17",
  "tokio",
- "toml 0.5.10",
+ "toml 0.5.11",
  "tracing",
  "tracing-futures",
  "tracing-opentelemetry",
@@ -4254,7 +4254,7 @@ dependencies = [
  "serde_json",
  "termcolor",
  "tokio",
- "toml 0.5.10",
+ "toml 0.5.11",
  "wasmbus-rpc",
  "wasmcloud-interface-testing",
 ]
@@ -4330,7 +4330,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
- "toml 0.5.10",
+ "toml 0.5.11",
 ]
 
 [[package]]
@@ -4360,7 +4360,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
- "toml 0.5.10",
+ "toml 0.5.11",
 ]
 
 [[package]]
