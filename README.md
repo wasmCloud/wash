@@ -14,6 +14,31 @@
    \_/\_/ \__,_|___/_| |_| |_|\_____|_|\___/ \__,_|\__,_| |_____/|_| |_|\___|_|_|
 ```
 
+- [Why wash](#why-wash)
+- [Installing wash](#installing-wash)
+  - [Cargo](#cargo)
+  - [Linux (deb/rpm + apt)](#linux-debrpm--apt)
+  - [Linux (snap)](#linux-snap)
+  - [MacOS (brew)](#macos-brew)
+  - [Windows (choco)](#windows-choco)
+  - [Nix](#nix)
+- [Using wash](#using-wash)
+  - [call](#call)
+  - [claims](#claims)
+  - [ctl](#ctl)
+  - [ctx](#ctx)
+  - [drain](#drain)
+  - [gen](#gen)
+  - [keys](#keys)
+  - [lint](#lint)
+  - [new](#new)
+  - [par](#par)
+  - [reg](#reg)
+  - [up](#up)
+  - [validate](#validate)
+- [Contributing to wash](#contributing-to-wash)
+  - [Developer guide](#developer-guide)
+
 ## Why wash
 
 `wash` is a bundle of command line tools that, together, form a comprehensive CLI for [wasmCloud](https://wasmcloud.dev) development. Everything from generating new wasmCloud projects, managing cryptographic signing keys, and interacting with OCI compliant registries is contained within the subcommands of `wash`. Our goal with `wash` is to encapsulate our tools into a single binary to make developing WebAssembly with wasmCloud painless and simple.
@@ -34,7 +59,7 @@ curl -s https://packagecloud.io/install/repositories/wasmcloud/core/script.deb.s
 # Fedora (rpm)
 curl -s https://packagecloud.io/install/repositories/wasmcloud/core/script.rpm.sh | sudo bash
 
-sudo apt install wasmcloud wash
+sudo apt install wash
 ```
 
 ### Linux (snap)
@@ -47,7 +72,7 @@ sudo snap install wash --edge --devmode
 
 ```
 brew tap wasmcloud/wasmcloud
-brew install wasmcloud wash
+brew install wash
 ```
 
 ### Windows (choco)
@@ -56,7 +81,7 @@ brew install wasmcloud wash
 choco install wash
 ```
 
-### NixOS
+### Nix
 
 ```
 nix run github:wasmCloud/wash
@@ -73,6 +98,10 @@ Invoke a wasmCloud actor directly with a specified payload. This allows you to t
 ### claims
 
 Generate JWTs for actors, capability providers, accounts and operators. Sign actor modules with claims including capability IDs, expiration, and keys to verify identity. Inspect actor modules to view their claims.
+
+### completions
+
+Generate shell completion files for Zsh, Bash, Fish, or PowerShell.
 
 ### ctl
 
@@ -118,10 +147,18 @@ Bootstrap a wasmCloud environment in one easy command, supporting both launching
 
 Perform validation checks on .smithy models, ensuring that your interfaces are valid and usable for codegen and development.
 
+
+## Shell auto-complete
+
+`wash` has support for autocomplete for Zsh, Bash, Fish, and PowerShell.
+See [Completions](./Completions.md) for instructions for installing
+autocomplete for your shell.
+
+
 ## Contributing to wash
 
 If you have any feature suggestions, find any bugs, or otherwise have a question, please submit an issue [here](https://github.com/wasmcloud/wash/issues/new/choose). Forking & submitting Pull Requests are welcome, and the [good first issue](https://github.com/wasmcloud/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) label is a great way to find a place to start if you're looking to contribute.
 
 ### Developer guide
 
-For more information on getting started developing `wash`, see the [developers guide](./docs/guides/development/README.md).
+For more information on getting started developing `wash`, see the [developers guide](./docs/DEVELOPMENT.md).

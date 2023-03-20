@@ -19,6 +19,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run Rust check + clippy
         run: make rust-check
+
   unit_tests:
     name: Unit Tests
     strategy:
@@ -33,8 +34,11 @@ jobs:
         with:
           # Additional key to ensure OS specific caches are separated
           key: "${{ matrix.os }}-cache"
-      - name: Run unit tests
-        run: make test
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run all wash & wash-lib unit tests
+        run: make test-wash-ci
+
   integration_tests:
     name: Integration Tests
     runs-on: ubuntu-22.04
@@ -52,5 +56,7 @@ jobs:
         uses: sudo-bot/action-docker-compose@latest
         with:
           cli-args: "-f ./tools/docker-compose.yml up --detach"
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Run integration tests
-        run: cargo test --no-fail-fast --bin wash --test "integration*" -- --nocapture
+        run: make test-integration-ci
