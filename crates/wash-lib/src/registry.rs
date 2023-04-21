@@ -149,7 +149,6 @@ pub async fn pull_oci_artifact(url: String, options: OciPullOptions) -> Result<V
         None => None,
     };
 
-    println!("digest: {:?}", image_data.digest);
     match (digest, image_data.digest) {
         (Some(digest), Some(image_digest)) if digest != image_digest => {
             return Err(anyhow!(
