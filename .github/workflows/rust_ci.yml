@@ -14,9 +14,12 @@ jobs:
     name: Fmt & Clippy Checks
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
+      # Cache Rust builds between runs
+      - uses: Swatinem/rust-cache@v2
       - name: Run Rust check + clippy
         run: make rust-check
+
   unit_tests:
     name: Unit Tests
     strategy:
@@ -25,23 +28,35 @@ jobs:
         os: [ubuntu-22.04, windows-2022, macos-11]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
-      - name: Run unit tests
-        run: make test
+      - uses: actions/checkout@v3
+      # Cache Rust builds between runs
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # Additional key to ensure OS specific caches are separated
+          key: "${{ matrix.os }}-cache"
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
+      - name: Run all wash & wash-lib unit tests
+        run: make test-wash-ci
+
   integration_tests:
     name: Integration Tests
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v2
-      - name: Setup tinygo
-        run: |
-          wget https://github.com/tinygo-org/tinygo/releases/download/v0.23.0/tinygo_0.23.0_amd64.deb
-          sudo dpkg -i tinygo_0.23.0_amd64.deb
+      - uses: actions/checkout@v3
+      # Cache Rust builds between runs
+      - uses: Swatinem/rust-cache@v2
+      - uses: acifani/setup-tinygo@v1
+        with:
+          tinygo-version: '0.27.0'
+          install-binaryen: 'false'
       - name: Add wasm32-unknown-unknown
         run: rustup target add wasm32-unknown-unknown
       - name: Launch integration test services
         uses: sudo-bot/action-docker-compose@latest
         with:
           cli-args: "-f ./tools/docker-compose.yml up --detach"
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Run integration tests
-        run: cargo test --no-fail-fast --bin wash --test "integration*" -- --nocapture
+        run: make test-integration-ci

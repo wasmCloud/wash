@@ -3,12 +3,15 @@ use std::collections::HashMap;
 use crate::up::{credsfile::parse_credsfile, NatsOpts, WasmcloudOpts};
 
 pub const DOWNLOADS_DIR: &str = "downloads";
+pub const WASMCLOUD_PID_FILE: &str = "wasmcloud.pid";
 // NATS configuration values
-pub(crate) const NATS_SERVER_VERSION: &str = "v2.8.4";
+pub(crate) const NATS_SERVER_VERSION: &str = "v2.9.14";
 pub(crate) const DEFAULT_NATS_HOST: &str = "127.0.0.1";
 pub(crate) const DEFAULT_NATS_PORT: &str = "4222";
 // wasmCloud configuration values, https://wasmcloud.dev/reference/host-runtime/host_configure/
-pub(crate) const WASMCLOUD_HOST_VERSION: &str = "v0.58.2";
+pub(crate) const WASMCLOUD_HOST_VERSION: &str = "v0.62.1";
+pub(crate) const WASMCLOUD_DASHBOARD_PORT: &str = "WASMCLOUD_DASHBOARD_PORT";
+pub(crate) const DEFAULT_DASHBOARD_PORT: &str = "4000";
 // NATS isolation configuration variables
 pub(crate) const WASMCLOUD_LATTICE_PREFIX: &str = "WASMCLOUD_LATTICE_PREFIX";
 pub(crate) const DEFAULT_LATTICE_PREFIX: &str = "default";
@@ -51,6 +54,8 @@ pub(crate) const WASMCLOUD_ENABLE_IPV6: &str = "WASMCLOUD_ENABLE_IPV6";
 pub(crate) const WASMCLOUD_STRUCTURED_LOGGING_ENABLED: &str =
     "WASMCLOUD_STRUCTURED_LOGGING_ENABLED";
 pub(crate) const WASMCLOUD_CONFIG_SERVICE: &str = "WASMCLOUD_CONFIG_SERVICE";
+pub(crate) const WASMCLOUD_ALLOW_FILE_LOAD: &str = "WASMCLOUD_ALLOW_FILE_LOAD";
+pub(crate) const DEFAULT_ALLOW_FILE_LOAD: &str = "true";
 
 /// Helper function to convert WasmcloudOpts to the host environment map.
 /// Takes NatsOpts as well to provide reasonable defaults
@@ -194,9 +199,20 @@ pub(crate) async fn configure_host_env(
         wasmcloud_opts.provider_delay.to_string(),
     );
 
+    host_config.insert(
+        WASMCLOUD_DASHBOARD_PORT.to_string(),
+        wasmcloud_opts
+            .dashboard_port
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| DEFAULT_DASHBOARD_PORT.to_string()),
+    );
+
     // Extras configuration
     if wasmcloud_opts.config_service_enabled {
         host_config.insert(WASMCLOUD_CONFIG_SERVICE.to_string(), "1".to_string());
+    }
+    if wasmcloud_opts.allow_file_load.unwrap_or_default() {
+        host_config.insert(WASMCLOUD_ALLOW_FILE_LOAD.to_string(), "1".to_string());
     }
     if wasmcloud_opts.enable_structured_logging {
         host_config.insert(

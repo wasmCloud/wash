@@ -9,9 +9,11 @@ jobs:
   cargo_check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Build
         run: cargo build --verbose
+      - name: Install nextest
+        uses: taiki-e/install-action@nextest
       - name: Run tests
         run: make test
       - name: Check fmt
@@ -20,7 +22,7 @@ jobs:
   clippy_check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - run: rustup component add clippy
       - uses: actions-rs/clippy-check@v1
         with:
@@ -31,11 +33,11 @@ jobs:
     runs-on: windows-latest
     needs: [cargo_check]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
       - name: Compile wash
         run: cargo build --release
       - name: Upload artifact
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v3
         with:
           name: windows
           path: target/release/wash.exe
@@ -46,7 +48,7 @@ jobs:
     steps:
       # We need to put windows on the release so that chocolatey can download it
       - name: Download windows release
-        uses: actions/download-artifact@v2
+        uses: actions/download-artifact@v3
         with:
           path: release
       - name: Release
@@ -64,7 +66,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v1
+      - uses: actions/checkout@v3
       - id: crates-release-action
         uses: wasmcloud/common-actions/crates-release@main
         with:

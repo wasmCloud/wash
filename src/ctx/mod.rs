@@ -133,7 +133,7 @@ fn handle_list(cmd: ListCommand) -> Result<CommandOutput> {
         .iter()
         .map(|f| {
             if f == &default_context {
-                format!("{} (default)", f)
+                format!("{f} (default)")
             } else {
                 f.clone()
             }
@@ -259,7 +259,8 @@ pub(crate) fn ensure_host_config_context(context_dir: &ContextDir) -> Result<()>
 fn create_host_config_context(context_dir: &ContextDir) -> Result<()> {
     let host_config_ctx = WashContext {
         name: HOST_CONFIG_NAME.to_string(),
-        ..load_context(cfg_dir()?.join(format!("{}.json", HOST_CONFIG_NAME)))?
+        ..load_context(cfg_dir()?.join(format!("{HOST_CONFIG_NAME}.json")))
+            .unwrap_or_else(|_| WashContext::default())
     };
     context_dir.save_context(&host_config_ctx)?;
     // Set the default context if it isn't set yet

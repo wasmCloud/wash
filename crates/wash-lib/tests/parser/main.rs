@@ -44,7 +44,8 @@ fn rust_actor() {
             version: Version::parse("0.1.0").unwrap(),
             path: PathBuf::from("./tests/parser/files/")
                 .canonicalize()
-                .unwrap()
+                .unwrap(),
+            wasm_bin_name: None,
         }
     );
 }
@@ -85,7 +86,8 @@ fn tinygo_actor() {
             version: Version::parse("0.1.0").unwrap(),
             path: PathBuf::from("./tests/parser/files/")
                 .canonicalize()
-                .unwrap()
+                .unwrap(),
+            wasm_bin_name: None,
         }
     );
 }
@@ -110,7 +112,7 @@ fn folder_path() {
 fn get_full_path(path: &str) -> String {
     match fs::canonicalize(path) {
         Ok(path) => path.to_str().unwrap().to_string(),
-        Err(_) => panic!("get_full_path helper error. Could not find path: {}", path),
+        Err(_) => panic!("get_full_path helper error. Could not find path: {path}"),
     }
 }
 
@@ -266,7 +268,8 @@ fn minimal_rust_actor() {
             version: Version::parse("0.1.0").unwrap(),
             path: PathBuf::from("./tests/parser/files/")
                 .canonicalize()
-                .unwrap()
+                .unwrap(),
+            wasm_bin_name: None,
         }
     )
 }
@@ -310,7 +313,8 @@ fn cargo_toml_actor() {
             version: Version::parse("0.200.0").unwrap(),
             path: PathBuf::from("./tests/parser/files/withcargotoml")
                 .canonicalize()
-                .unwrap()
+                .unwrap(),
+            wasm_bin_name: None,
         }
     )
 }

@@ -18,7 +18,10 @@ use tokio::{
     process::Child,
 };
 use wash_lib::cli::{CommandOutput, OutputKind};
-use wash_lib::start::*;
+use wash_lib::start::{
+    ensure_nats_server, ensure_wasmcloud, start_nats_server, start_wasmcloud_host, wait_for_server,
+    NatsConfig,
+};
 
 use crate::appearance::spinner::Spinner;
 use crate::cfg::cfg_dir;
@@ -28,6 +31,7 @@ use crate::down::stop_wasmcloud;
 mod config;
 mod credsfile;
 pub use config::DOWNLOADS_DIR;
+pub use config::WASMCLOUD_PID_FILE;
 use config::*;
 
 #[derive(Parser, Debug, Clone)]
@@ -221,6 +225,10 @@ pub(crate) struct WasmcloudOpts {
     #[clap(long = "config-service-enabled", env = WASMCLOUD_CONFIG_SERVICE)]
     pub(crate) config_service_enabled: bool,
 
+    /// Denotes if a wasmCloud host should allow starting actors from the file system
+    #[clap(long = "allow-file-load", default_value = DEFAULT_ALLOW_FILE_LOAD, env = WASMCLOUD_ALLOW_FILE_LOAD)]
+    pub(crate) allow_file_load: Option<bool>,
+
     /// Enable JSON structured logging from the wasmCloud host
     #[clap(
         long = "enable-structured-logging",
@@ -231,6 +239,10 @@ pub(crate) struct WasmcloudOpts {
     /// Controls the verbosity of JSON structured logs from the wasmCloud host
     #[clap(long = "structured-log-level", default_value = DEFAULT_STRUCTURED_LOG_LEVEL, env = WASMCLOUD_STRUCTURED_LOG_LEVEL)]
     pub(crate) structured_log_level: String,
+
+    /// Port to listen on for the wasmCloud dashboard, defaults to 4000
+    #[clap(long = "dashboard-port", env = WASMCLOUD_DASHBOARD_PORT)]
+    pub(crate) dashboard_port: Option<u16>,
 
     /// Enables IPV6 addressing for wasmCloud hosts
     #[clap(long = "enable-ipv6", env = WASMCLOUD_ENABLE_IPV6)]
@@ -306,7 +318,12 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     } else {
         Stdio::piped()
     };
-
+    let dashboard_port = cmd
+        .wasmcloud_opts
+        .dashboard_port
+        .map(|p| p.to_string())
+        .unwrap_or_else(|| DEFAULT_DASHBOARD_PORT.to_string());
+    let version = cmd.wasmcloud_opts.wasmcloud_version.clone();
     let host_env = configure_host_env(nats_opts, cmd.wasmcloud_opts).await;
     let wasmcloud_child = match start_wasmcloud_host(
         &wasmcloud_executable,
@@ -319,10 +336,20 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         Ok(child) => child,
         Err(e) => {
             // Ensure we clean up the NATS server if we can't start wasmCloud
-            stop_nats(install_dir).await?;
+            if !cmd.nats_opts.connect_only {
+                stop_nats(install_dir).await?;
+            }
             return Err(e);
         }
     };
+
+    let url = format!("{}:{}", "127.0.0.1", dashboard_port);
+    if wait_for_server(&url, "Washboard").await.is_err() {
+        if nats_bin.is_some() {
+            stop_nats(install_dir).await?;
+        }
+        return Err(anyhow!("wasmCloud host did not start. Failed to connect to washboard. Check host-logs at {:?}.", wasmcloud_log_path));
+    }
 
     spinner.finish_and_clear();
     if !cmd.detached {
@@ -338,8 +365,9 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         if !output.status.success() {
             log::warn!("wasmCloud exited with a non-zero exit status, processes may need to be cleaned up manually")
         }
-
-        stop_nats(install_dir).await?;
+        if !cmd.nats_opts.connect_only {
+            stop_nats(&install_dir).await?;
+        }
 
         spinner.finish_and_clear();
     }
@@ -351,7 +379,9 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     out_text.push_str("🛁 wash up completed successfully");
 
     if cmd.detached {
-        let url = "http://localhost:4000";
+        // Write the pid file with the selected version
+        tokio::fs::write(install_dir.join(config::WASMCLOUD_PID_FILE), version).await?;
+        let url = format!("http://localhost:{}", dashboard_port);
         out_json.insert("wasmcloud_url".to_string(), json!(url));
         out_json.insert("wasmcloud_log".to_string(), json!(wasmcloud_log_path));
         out_json.insert("kill_cmd".to_string(), json!("wash down"));
@@ -359,9 +389,9 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
 
         let _ = write!(
             out_text,
-            "\n🕸  NATS is running in the background at http://{}",
-            nats_listen_address
+            "\n🕸  NATS is running in the background at http://{nats_listen_address}"
         );
+
         let _ = write!(
             out_text,
             "\n🌐 The wasmCloud dashboard is running at {}\n📜 Logs for the host are being written to {}",
@@ -436,7 +466,7 @@ async fn run_wasmcloud_interactive(
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 //TODO(brooksmtownsend): in the future, would be great to print these in a prettier format
-                println!("{}", line)
+                println!("{line}")
             }
         })
     });

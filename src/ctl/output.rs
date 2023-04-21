@@ -2,10 +2,14 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 use serde_json::json;
-use term_table::{row::Row, table_cell::*, Table};
+use term_table::{
+    row::Row,
+    table_cell::{Alignment, TableCell},
+    Table,
+};
 use wash_lib::cli::CommandOutput;
 use wash_lib::id::{ModuleId, ServiceId};
-use wasmcloud_control_interface::*;
+use wasmcloud_control_interface::{GetClaimsResponse, Host, HostInventory, LinkDefinitionList};
 
 use crate::util::format_optional;
 
@@ -40,10 +44,7 @@ pub(crate) fn link_del_output(
             map.insert("contract_id".to_string(), json!(contract_id));
             map.insert("link_name".to_string(), json!(link_name));
             Ok(CommandOutput::new(
-                format!(
-                    "Deleted link for {} on {} ({}) successfully",
-                    actor_id, contract_id, link_name
-                ),
+                format!("Deleted link for {actor_id} on {contract_id} ({link_name}) successfully"),
                 map,
             ))
         }
@@ -62,10 +63,7 @@ pub(crate) fn link_put_output(
             map.insert("actor_id".to_string(), json!(actor_id));
             map.insert("provider_id".to_string(), json!(provider_id));
             Ok(CommandOutput::new(
-                format!(
-                    "Published link ({}) <-> ({}) successfully",
-                    actor_id, provider_id
-                ),
+                format!("Published link ({actor_id}) <-> ({provider_id}) successfully"),
                 map,
             ))
         }

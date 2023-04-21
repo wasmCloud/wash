@@ -1,12 +1,15 @@
 mod common;
-use cmd_lib::run_fun;
+use common::{output_to_string, wash};
 
 #[test]
 fn integration_help_subcommand_check() {
-    let wash = env!("CARGO_BIN_EXE_wash");
-    let output = run_fun!( $wash --help ).expect("failed to display help text");
+    let help_output = wash()
+        .args(["--help"])
+        .output()
+        .expect("failed to display help text");
+    let output = output_to_string(help_output).unwrap();
 
-    println!("output: \n{}", output);
+    println!("output: \n{output}");
 
     assert!(output.contains("claims"));
     assert!(output.contains("ctl"));

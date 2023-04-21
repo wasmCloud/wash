@@ -1,3 +1,4 @@
+use crate::start::wait_for_server;
 use anyhow::{anyhow, Result};
 use async_compression::tokio::bufread::GzipDecoder;
 #[cfg(target_family = "unix")]
@@ -158,10 +159,10 @@ where
     // Look for nats-server binary and only extract that
     let mut entries = nats_server.entries()?;
     while let Some(res) = entries.next().await {
-        let mut entry = res.map_err(|_e| {
+        let mut entry = res.map_err(|e| {
             anyhow!(
-                "Failed to retrieve file from archive, ensure NATS server {} exists",
-                version
+                "Failed to retrieve file from archive, ensure NATS server {} exists. Original error: {}",
+                version, e
             )
         })?;
         if let Ok(tar_path) = entry.path() {
@@ -314,18 +315,16 @@ where
     P: AsRef<Path>,
     T: Into<Stdio>,
 {
+    let host_addr = format!("{}:{}", config.host, config.port);
     // If we can connect to the local port, NATS won't be able to listen on that port
-    if tokio::net::TcpStream::connect(format!("{}:{}", config.host, config.port))
-        .await
-        .is_ok()
-    {
+    if tokio::net::TcpStream::connect(&host_addr).await.is_ok() {
         return Err(anyhow!(
             "Could not start NATS server, a process is already listening on {}:{}",
             config.host,
             config.port
         ));
     }
-    if let Some(parent_path) = bin_path.as_ref().parent() {
+    let child = if let Some(parent_path) = bin_path.as_ref().parent() {
         let config_path = parent_path.join(NATS_SERVER_CONF);
         let host = config.host.to_owned();
         let port = config.port;
@@ -348,7 +347,10 @@ where
         Err(anyhow!(
             "Could not write config to disk, couldn't find download directory"
         ))
-    }
+    }?;
+    wait_for_server(&host_addr, "NATS server")
+        .await
+        .map(|_| child)
 }
 
 /// Helper function to indicate if the NATS server binary is successfully
@@ -372,10 +374,7 @@ fn nats_url(os: &str, arch: &str, version: &str) -> String {
         "x86_64" => "amd64",
         _ => arch,
     };
-    format!(
-        "{}/{}/nats-server-{}-{}-{}.tar.gz",
-        NATS_GITHUB_RELEASE_URL, version, version, os, arch
-    )
+    format!("{NATS_GITHUB_RELEASE_URL}/{version}/nats-server-{version}-{os}-{arch}.tar.gz")
 }
 
 #[cfg(test)]
