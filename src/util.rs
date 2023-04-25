@@ -1,8 +1,44 @@
 use std::{fs::File, io::Read, path::PathBuf};
 
+use crate::up::{DEFAULT_NATS_HOST, DEFAULT_NATS_PORT};
 use anyhow::{anyhow, bail, Context, Result};
+use std::path::Path;
 use term_table::{Table, TableStyle};
 use wash_lib::config::DEFAULT_NATS_TIMEOUT_MS;
+use wash_lib::start::is_wasmcloud_running;
+use wasmcloud_control_interface::{ClientBuilder, Host};
+
+// filter based on pid
+pub(crate) async fn get_wasmcloud_hosts<P>(bin_path: P) -> Result<Vec<Host>>
+where
+    P: AsRef<Path>,
+{
+    let dummy_nats_client = async_nats::ConnectOptions::default()
+        .connect(format!("{DEFAULT_NATS_HOST}:{DEFAULT_NATS_PORT}"))
+        .await?;
+
+    let control_client = ClientBuilder::new(dummy_nats_client)
+        // .js_domain(WASMCLOUD_JS_DOMAIN.to_string()) // accept this as a var from wash up or env vars
+        .build()
+        .await
+        .map_err(|err| {
+            anyhow!(format!(
+                "Failed to construct local control interface client: {err:?}"
+            ))
+        })?;
+    let hosts = control_client.get_hosts().await.map_err(|err| {
+        anyhow!(format!(
+            "Was able to connect to NATS, but failed to get hosts: {err:?}"
+        ))
+    })?;
+    let mut running_hosts = Vec::new();
+    for host in hosts {
+        if is_wasmcloud_running(&bin_path, host.clone().id).await? {
+            running_hosts.push(host);
+        }
+    }
+    Ok(running_hosts)
+}
 
 pub(crate) fn format_optional(value: Option<String>) -> String {
     value.unwrap_or_else(|| "N/A".into())

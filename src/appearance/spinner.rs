@@ -52,4 +52,11 @@ impl Spinner {
             None => {}
         }
     }
+
+    pub fn println<I: AsRef<str>>(&self, msg: I) {
+        match &self.spinner {
+            Some(progress_bar) => progress_bar.println(msg),
+            None => {}
+        }
+    }
 }

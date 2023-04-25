@@ -26,13 +26,14 @@ use wash_lib::start::{
 use crate::appearance::spinner::Spinner;
 use crate::cfg::cfg_dir;
 use crate::down::stop_nats;
-use crate::down::stop_wasmcloud;
+use crate::down::{nats_pid_path, stop_wasmcloud};
+use crate::util::get_wasmcloud_hosts;
 
 mod config;
 mod credsfile;
 pub use config::DOWNLOADS_DIR;
 pub use config::WASMCLOUD_PID_FILE;
-use config::*;
+pub use config::*;
 
 #[derive(Parser, Debug, Clone)]
 pub(crate) struct UpCommand {
@@ -269,30 +270,35 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
 
     // Avoid downloading + starting NATS if the user already runs their own server. Ignore connect_only
     // if this server has a remote and credsfile as we have to start a leafnode in that scenario
+    let nats_is_running = is_nats_running(nats_listen_address.clone(), &install_dir).await?;
     let nats_opts = cmd.nats_opts.clone();
-    let nats_bin = if !cmd.nats_opts.connect_only
-        || cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some()
-    {
-        // Download NATS if not already installed
-        spinner.update_spinner_message(" Downloading NATS ...".to_string());
-        let nats_binary = ensure_nats_server(&cmd.nats_opts.nats_version, &install_dir).await?;
+    if !nats_is_running {
+        if !cmd.nats_opts.connect_only
+            || cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some()
+        {
+            // Download NATS if not already installed
+            spinner.update_spinner_message(" Downloading NATS ...".to_string());
+            let nats_binary = ensure_nats_server(&cmd.nats_opts.nats_version, &install_dir).await?;
 
-        spinner.update_spinner_message(" Starting NATS ...".to_string());
-        start_nats(&install_dir, &nats_binary, cmd.nats_opts.clone()).await?;
-        Some(nats_binary)
+            spinner.update_spinner_message(" Starting NATS ...".to_string());
+            start_nats(&install_dir, &nats_binary, cmd.nats_opts.clone()).await?;
+            Some(nats_binary)
+        } else {
+            // If we can connect to NATS, return None as we aren't managing the child process.
+            // Otherwise, exit with error since --nats-connect-only was specified
+            tokio::net::TcpStream::connect(&nats_listen_address)
+                .await
+                .map(|_| None)
+                .map_err(|_| {
+                    anyhow!(
+                        "Could not connect to NATS at {}, exiting since --nats-connect-only was set",
+                        nats_listen_address
+                    )
+                })?
+        };
     } else {
-        // If we can connect to NATS, return None as we aren't managing the child process.
-        // Otherwise, exit with error since --nats-connect-only was specified
-        tokio::net::TcpStream::connect(&nats_listen_address)
-            .await
-            .map(|_| None)
-            .map_err(|_| {
-                anyhow!(
-                    "Could not connect to NATS at {}, exiting since --nats-connect-only was set",
-                    nats_listen_address
-                )
-            })?
-    };
+        spinner.println("Detected a running NATS server");
+    }
 
     // Download wasmCloud if not already installed
     let wasmcloud_executable = if !cmd.wasmcloud_opts.start_only {
@@ -300,15 +306,40 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         ensure_wasmcloud(&cmd.wasmcloud_opts.wasmcloud_version, &install_dir).await?
     } else {
         // Ensure we clean up the NATS server if we can't start wasmCloud
-        if nats_bin.is_some() {
+        if nats_is_running {
             stop_nats(install_dir).await?;
         }
         return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
     };
 
+    // Find an open port for the host
+    let host_port = if let Some(port_number) = cmd.wasmcloud_opts.dashboard_port {
+        port_number
+    } else {
+        match find_open_port().await {
+            Ok(port_number) => port_number,
+            Err(e) => {
+                // Find number of hosts running. If they are 0, stop nats
+                if nats_is_running {
+                    let hosts = get_wasmcloud_hosts(wasmcloud_executable.clone()).await?;
+                    if hosts.is_empty() {
+                        stop_nats(install_dir).await?;
+                    }
+                }
+                return Err(anyhow!("Error finding an open port {:?}", e));
+            }
+        }
+    };
+
+    let mut host_config_values = HashMap::new();
+    host_config_values.insert(
+        "WASMCLOUD_DASHBOARD_PORT".to_string(),
+        host_port.to_string(),
+    );
+
     // Redirect output (which is on stderr) to a log file in detached mode, or use the terminal
     spinner.update_spinner_message(" Starting wasmCloud ...".to_string());
-    let wasmcloud_log_path = install_dir.join("wasmcloud.log");
+    let wasmcloud_log_path = install_dir.join(format!("wasmcloud_host_{}.log", host_port));
     let stderr: Stdio = if cmd.detached {
         tokio::fs::File::create(&wasmcloud_log_path)
             .await?
@@ -318,24 +349,22 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     } else {
         Stdio::piped()
     };
-    let dashboard_port = cmd
-        .wasmcloud_opts
-        .dashboard_port
-        .map(|p| p.to_string())
-        .unwrap_or_else(|| DEFAULT_DASHBOARD_PORT.to_string());
+
     let version = cmd.wasmcloud_opts.wasmcloud_version.clone();
-    let host_env = configure_host_env(nats_opts, cmd.wasmcloud_opts).await;
+
+    let host_env = configure_host_env(nats_opts, cmd.wasmcloud_opts, host_config_values).await;
     let wasmcloud_child = match start_wasmcloud_host(
         &wasmcloud_executable,
         std::process::Stdio::null(),
         stderr,
-        host_env,
+        host_env.clone(),
     )
     .await
     {
         Ok(child) => child,
         Err(e) => {
             // Ensure we clean up the NATS server if we can't start wasmCloud
+            // TODO: check number of hosts before stopping nats
             if !cmd.nats_opts.connect_only {
                 stop_nats(install_dir).await?;
             }
@@ -343,9 +372,9 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         }
     };
 
-    let url = format!("{}:{}", "127.0.0.1", dashboard_port);
+    let url = format!("{}:{}", LOCALHOST, host_port);
     if wait_for_server(&url, "Washboard").await.is_err() {
-        if nats_bin.is_some() {
+        if nats_is_running {
             stop_nats(install_dir).await?;
         }
         return Err(anyhow!("wasmCloud host did not start. Failed to connect to washboard. Check host-logs at {:?}.", wasmcloud_log_path));
@@ -361,13 +390,22 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         );
 
         // Terminate wasmCloud and NATS processes
-        let output = stop_wasmcloud(wasmcloud_executable.clone()).await?;
+        let output = stop_wasmcloud(
+            wasmcloud_executable.clone(),
+            host_env.get("RELEASE_NODE").cloned(),
+        )
+        .await?;
         if !output.status.success() {
             log::warn!("wasmCloud exited with a non-zero exit status, processes may need to be cleaned up manually")
         }
-        if !cmd.nats_opts.connect_only {
-            stop_nats(&install_dir).await?;
-        }
+        // The following code does nothing as NATS is killed as soon as Ctrl+C is hit.
+        // This results in zombie processes if the non-detatched host was the first one to be run and NATS was spawned along with this first host.
+        // The zombie processes are the other hosts that were connected to this NATS server. Ref spawn vs group-spawn for these processes.
+
+        // let hosts = get_wasmcloud_hosts(wasmcloud_executable.clone()).await?;
+        // if !cmd.nats_opts.connect_only && hosts.is_empty() {
+        //     stop_nats(&install_dir).await?;
+        // }
 
         spinner.finish_and_clear();
     }
@@ -381,7 +419,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     if cmd.detached {
         // Write the pid file with the selected version
         tokio::fs::write(install_dir.join(config::WASMCLOUD_PID_FILE), version).await?;
-        let url = format!("http://localhost:{}", dashboard_port);
+        let url = format!("{}:{}", "http://localhost", host_port);
         out_json.insert("wasmcloud_url".to_string(), json!(url));
         out_json.insert("wasmcloud_log".to_string(), json!(wasmcloud_log_path));
         out_json.insert("kill_cmd".to_string(), json!("wash down"));
@@ -401,6 +439,50 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     }
 
     Ok(CommandOutput::new(out_text, out_json))
+}
+
+pub(crate) async fn is_nats_running(
+    nats_listen_address: String,
+    install_dir: &Path,
+) -> Result<bool> {
+    let is_nats_listening = tokio::net::TcpStream::connect(&nats_listen_address)
+        .await
+        .is_ok();
+    let pid_file_path = nats_pid_path(install_dir);
+    let pid_file_exists = pid_file_path.is_file();
+
+    match (is_nats_listening, pid_file_exists) {
+        (true, true) => {
+            // Nats server is running and PID file exists: it's our wasm NATS server
+            Ok(true)
+        }
+        (true, false) => {
+            // NATS is running, PID file doesn't exist: someone else is running NATS
+            Err(anyhow!(
+                "Cannot start NATS server. An unknown process is listening on {nats_listen_address}. Kill it and try again"
+            ))
+        }
+        (false, true) => {
+            // NATS isn't running but PID file exists: clean PID file and start server
+            let _ = tokio::fs::remove_file(&pid_file_path).await;
+            Ok(false)
+        }
+        (false, false) => {
+            // NATS server isn't running PID file doesn't exist: start a new NATS server
+            Ok(false)
+        }
+    }
+}
+
+pub(crate) async fn find_open_port() -> Result<u16> {
+    for i in HOST_PORT_RANGE_START..=HOST_PORT_RANGE_END {
+        if let Ok(conn) = tokio::net::TcpStream::connect((LOCALHOST, i)).await {
+            drop(conn);
+        } else {
+            return Ok(i);
+        }
+    }
+    Err(anyhow!("Failed to find open port for host"))
 }
 
 /// Helper function to start the NATS binary, redirecting output to nats.log
@@ -433,7 +515,15 @@ async fn start_nats(install_dir: &Path, nats_binary: &Path, nats_opts: NatsOpts)
         .await?
         .into_std()
         .await;
-    start_nats_server(nats_binary, nats_log_file, nats_opts.into()).await
+    let nats_process = start_nats_server(nats_binary, nats_log_file, nats_opts.into()).await?;
+    let nats_pid = nats_process.id();
+
+    // save the PID
+    if let Some(pid) = nats_pid {
+        let pid_file = nats_pid_path(install_dir);
+        tokio::fs::write(&pid_file, pid.to_string()).await?;
+    }
+    Ok(nats_process)
 }
 
 /// Helper function to run wasmCloud in interactive mode

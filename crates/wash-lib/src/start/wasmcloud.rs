@@ -212,6 +212,26 @@ where
         )),
     }
 }
+
+pub async fn is_wasmcloud_running<P>(bin_path: P, host_id: String) -> Result<bool>
+where
+    P: AsRef<Path>,
+{
+    if let Ok(output) = Command::new(bin_path.as_ref())
+        .arg("pid")
+        .env("RELEASE_NODE", host_id)
+        .output()
+        .await
+    {
+        // Stderr will include :nodedown if no other host is running, otherwise
+        // stdout will contain the PID
+        if String::from_utf8_lossy(&output.stderr).contains(":nodedown") {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 /// Helper function to start a wasmCloud host given the path to the elixir release script
 /// /// # Arguments
 ///
@@ -231,10 +251,10 @@ where
     S: Into<Stdio>,
 {
     // If we can connect to the local port, a wasmCloud host won't be able to listen on that port
-    let port = env_vars
-        .get("WASMCLOUD_DASHBOARD_PORT")
-        .cloned()
-        .unwrap_or_else(|| "4000".to_string());
+    let port = match env_vars.get("WASMCLOUD_DASHBOARD_PORT").cloned() {
+        Some(port) => port,
+        None => return Err(anyhow!("wasmCloud host port is not set")),
+    };
     if tokio::net::TcpStream::connect(format!("localhost:{port}"))
         .await
         .is_ok()

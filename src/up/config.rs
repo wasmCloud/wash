@@ -1,17 +1,20 @@
 use std::collections::HashMap;
 
 use crate::up::{credsfile::parse_credsfile, NatsOpts, WasmcloudOpts};
+use nkeys::KeyPair;
 
 pub const DOWNLOADS_DIR: &str = "downloads";
 pub const WASMCLOUD_PID_FILE: &str = "wasmcloud.pid";
 // NATS configuration values
 pub(crate) const NATS_SERVER_VERSION: &str = "v2.9.14";
-pub(crate) const DEFAULT_NATS_HOST: &str = "127.0.0.1";
-pub(crate) const DEFAULT_NATS_PORT: &str = "4222";
+pub const DEFAULT_NATS_HOST: &str = "127.0.0.1";
+pub const DEFAULT_NATS_PORT: &str = "4222";
 // wasmCloud configuration values, https://wasmcloud.dev/reference/host-runtime/host_configure/
 pub(crate) const WASMCLOUD_HOST_VERSION: &str = "v0.62.1";
 pub(crate) const WASMCLOUD_DASHBOARD_PORT: &str = "WASMCLOUD_DASHBOARD_PORT";
-pub(crate) const DEFAULT_DASHBOARD_PORT: &str = "4000";
+pub(crate) const LOCALHOST: &str = "127.0.0.1";
+pub(crate) const HOST_PORT_RANGE_START: u16 = 4000;
+pub(crate) const HOST_PORT_RANGE_END: u16 = 5000;
 // NATS isolation configuration variables
 pub(crate) const WASMCLOUD_LATTICE_PREFIX: &str = "WASMCLOUD_LATTICE_PREFIX";
 pub(crate) const DEFAULT_LATTICE_PREFIX: &str = "default";
@@ -20,6 +23,7 @@ pub(crate) const WASMCLOUD_JS_DOMAIN: &str = "WASMCLOUD_JS_DOMAIN";
 pub(crate) const WASMCLOUD_CLUSTER_ISSUERS: &str = "WASMCLOUD_CLUSTER_ISSUERS";
 pub(crate) const WASMCLOUD_CLUSTER_SEED: &str = "WASMCLOUD_CLUSTER_SEED";
 pub(crate) const WASMCLOUD_HOST_SEED: &str = "WASMCLOUD_HOST_SEED";
+pub(crate) const RELEASE_NODE: &str = "RELEASE_NODE";
 // NATS RPC connection configuration
 pub(crate) const WASMCLOUD_RPC_HOST: &str = "WASMCLOUD_RPC_HOST";
 pub(crate) const WASMCLOUD_RPC_PORT: &str = "WASMCLOUD_RPC_PORT";
@@ -62,6 +66,7 @@ pub(crate) const DEFAULT_ALLOW_FILE_LOAD: &str = "true";
 pub(crate) async fn configure_host_env(
     nats_opts: NatsOpts,
     wasmcloud_opts: WasmcloudOpts,
+    other_host_config_values: HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut host_config = HashMap::new();
     // NATS isolation configuration variables
@@ -74,9 +79,26 @@ pub(crate) async fn configure_host_env(
     }
 
     // Host / Cluster configuration
+    if let Some(port) = other_host_config_values.get(WASMCLOUD_DASHBOARD_PORT) {
+        host_config.insert(WASMCLOUD_DASHBOARD_PORT.to_string(), port.to_string());
+    }
     if let Some(seed) = wasmcloud_opts.host_seed {
         host_config.insert(WASMCLOUD_HOST_SEED.to_string(), seed);
+    } else {
+        host_config.insert(
+            WASMCLOUD_HOST_SEED.to_string(),
+            KeyPair::new_server()
+                .seed()
+                .unwrap_or_else(|_| "None".to_string()),
+        );
     }
+    if let Some(value) = host_config.get("WASMCLOUD_HOST_SEED") {
+        host_config.insert(
+            RELEASE_NODE.to_string(),
+            nkeys::KeyPair::from_seed(value).unwrap().public_key(),
+        );
+    }
+
     if let Some(seed) = wasmcloud_opts.cluster_seed {
         host_config.insert(WASMCLOUD_CLUSTER_SEED.to_string(), seed);
     }
@@ -197,14 +219,6 @@ pub(crate) async fn configure_host_env(
     host_config.insert(
         WASMCLOUD_PROV_SHUTDOWN_DELAY_MS.to_string(),
         wasmcloud_opts.provider_delay.to_string(),
-    );
-
-    host_config.insert(
-        WASMCLOUD_DASHBOARD_PORT.to_string(),
-        wasmcloud_opts
-            .dashboard_port
-            .map(|p| p.to_string())
-            .unwrap_or_else(|| DEFAULT_DASHBOARD_PORT.to_string()),
     );
 
     // Extras configuration
