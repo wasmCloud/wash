@@ -18,6 +18,9 @@ use tokio::{
     process::Child,
 };
 use wash_lib::cli::{CommandOutput, OutputKind};
+use wash_lib::start::ensure_wadm;
+use wash_lib::start::start_wadm;
+use wash_lib::start::WadmConfig;
 use wash_lib::start::{
     ensure_nats_server, ensure_wasmcloud, start_nats_server, start_wasmcloud_host, wait_for_server,
     NatsConfig,
@@ -45,6 +48,9 @@ pub(crate) struct UpCommand {
 
     #[clap(flatten)]
     pub(crate) wasmcloud_opts: WasmcloudOpts,
+
+    #[clap(flatten)]
+    pub(crate) wadm_opts: WadmOpts,
 }
 
 #[derive(Parser, Debug, Clone)]
@@ -253,6 +259,16 @@ pub(crate) struct WasmcloudOpts {
     pub(crate) start_only: bool,
 }
 
+#[derive(Parser, Debug, Clone)]
+pub(crate) struct WadmOpts {
+    /// wadm version to download, e.g. `v0.4.0`. See https://github.com/wasmCloud/wadm/releases for releases
+    #[clap(long = "wadm-version", default_value = WADM_VERSION, env = "WADM_VERSION")]
+    pub(crate) wadm_version: String,
+
+    #[clap(long = "disable-wadm")]
+    pub(crate) disable_wadm: bool,
+}
+
 pub(crate) async fn handle_command(
     command: UpCommand,
     output_kind: OutputKind,
@@ -292,6 +308,41 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
                     nats_listen_address
                 )
             })?
+    };
+
+    let wadm_process = if !cmd.wadm_opts.disable_wadm {
+        spinner.update_spinner_message(" Starting wadm ...".to_string());
+        let config = WadmConfig {
+            structured_logging: cmd.wasmcloud_opts.enable_structured_logging,
+            js_domain: cmd.nats_opts.nats_js_domain.clone(),
+            nats_server_url: format!("{}:{}", cmd.nats_opts.nats_host, cmd.nats_opts.nats_port),
+            nats_credsfile: cmd.nats_opts.nats_credsfile,
+        };
+        // Start wadm, redirecting output to a log file
+        let wadm_log_path = install_dir.join("wadm.log");
+        let wadm_log_file = tokio::fs::File::create(&wadm_log_path)
+            .await?
+            .into_std()
+            .await;
+
+        let wadm_path = ensure_wadm(&cmd.wadm_opts.wadm_version, &install_dir).await;
+        match wadm_path {
+            Ok(path) => {
+                let wadm_child = start_wadm(&path, wadm_log_file, Some(config)).await;
+                if let Err(e) = &wadm_child {
+                    println!("🟨 Couldn't start wadm: {e}");
+                    None
+                } else {
+                    Some(wadm_child.unwrap())
+                }
+            }
+            Err(e) => {
+                println!("🟨 Couldn't download wadm {WADM_VERSION}: {e}");
+                None
+            }
+        }
+    } else {
+        None
     };
 
     // Download wasmCloud if not already installed
@@ -335,9 +386,15 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     {
         Ok(child) => child,
         Err(e) => {
-            // Ensure we clean up the NATS server if we can't start wasmCloud
+            // Ensure we clean up the NATS server and wadm if we can't start wasmCloud
             if !cmd.nats_opts.connect_only {
                 stop_nats(install_dir).await?;
+            }
+            match (wadm_process, cmd.wadm_opts.disable_wadm) {
+                (Some(mut child), true) => {
+                    child.kill().await?;
+                }
+                _ => (),
             }
             return Err(e);
         }
@@ -357,7 +414,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
 
         let spinner = Spinner::new(&output_kind)?;
         spinner.update_spinner_message(
-            "CTRL+c received, gracefully stopping wasmCloud and NATS...".to_string(),
+            "CTRL+c received, gracefully stopping wasmCloud, wadm, and NATS...".to_string(),
         );
 
         // Terminate wasmCloud and NATS processes
@@ -368,6 +425,9 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         if !cmd.nats_opts.connect_only {
             stop_nats(&install_dir).await?;
         }
+
+        // remove wadm pidfile, the process is stopped automatically by CTRL+c
+        tokio::fs::remove_file(&install_dir.join("wadm.pid")).await?;
 
         spinner.finish_and_clear();
     }
@@ -397,7 +457,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
             "\n🌐 The wasmCloud dashboard is running at {}\n📜 Logs for the host are being written to {}",
             url, wasmcloud_log_path.to_string_lossy()
         );
-        let _ = write!(out_text, "\n\n🛑 To stop wasmCloud, run \"wash down\"");
+        let _ = write!(out_text, "\n\n⬇️  To stop wasmCloud, run \"wash down\"");
     }
 
     Ok(CommandOutput::new(out_text, out_json))

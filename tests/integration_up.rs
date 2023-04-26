@@ -115,6 +115,9 @@ fn can_stop_detached_host() {
         .output()
         .expect("Could not spawn wash down process");
 
+    // After `wash down` exits, sometimes Erlang things stick around for a few seconds
+    std::thread::sleep(std::time::Duration::from_millis(5000));
+
     // Check to see if process was removed
     let mut info = sysinfo::System::new_with_specifics(
         sysinfo::RefreshKind::new().with_processes(sysinfo::ProcessRefreshKind::new()),

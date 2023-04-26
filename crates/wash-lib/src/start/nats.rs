@@ -300,9 +300,7 @@ mod test {
         let install_dir = temp_dir().join("can_handle_missing_nats_version");
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
-        assert!(
-            !is_bin_installed(&install_dir, &std::path::PathBuf::from(NATS_SERVER_BINARY)).await
-        );
+        assert!(!is_bin_installed(&install_dir, NATS_SERVER_BINARY).await);
 
         let res = ensure_nats_server("v300.22.1111223", &install_dir).await;
         assert!(res.is_err());
@@ -316,9 +314,7 @@ mod test {
         let install_dir = temp_dir().join("can_download_and_start_nats");
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
-        assert!(
-            !is_bin_installed(&install_dir, &std::path::PathBuf::from(NATS_SERVER_BINARY)).await
-        );
+        assert!(!is_bin_installed(&install_dir, NATS_SERVER_BINARY).await);
 
         let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
         assert!(res.is_ok());
@@ -358,9 +354,7 @@ mod test {
         let install_dir = temp_dir().join("can_gracefully_fail_running_nats");
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
-        assert!(
-            !is_bin_installed(&install_dir, &std::path::PathBuf::from(NATS_SERVER_BINARY)).await
-        );
+        assert!(!is_bin_installed(&install_dir, NATS_SERVER_BINARY).await);
 
         let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
         assert!(res.is_ok());
@@ -393,7 +387,7 @@ mod test {
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
         assert!(
-            !is_bin_installed(&install_dir, &std::path::PathBuf::from(NATS_SERVER_BINARY)).await,
+            !is_bin_installed(&install_dir, NATS_SERVER_BINARY).await,
             "NATS should not be installed"
         );
 

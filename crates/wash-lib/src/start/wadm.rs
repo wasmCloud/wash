@@ -1,23 +1,19 @@
-use crate::start::wait_for_server;
-use anyhow::{anyhow, Result};
-use async_compression::tokio::bufread::GzipDecoder;
+use anyhow::{bail, Result};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::{ffi::OsStr, io::Cursor};
-use tokio::fs::{create_dir_all, metadata, write, File};
+use tokio::fs::metadata;
 use tokio::process::{Child, Command};
-use tokio_stream::StreamExt;
-use tokio_tar::Archive;
 
 use super::download_binary_from_github;
 
 const WADM_GITHUB_RELEASE_URL: &str = "https://github.com/wasmcloud/wadm/releases/download";
+pub const WADM_PID: &str = "wadm.pid";
 #[cfg(target_family = "unix")]
 pub const WADM_BINARY: &str = "wadm";
 #[cfg(target_family = "windows")]
 pub const WADM_BINARY: &str = "wadm.exe";
 
-/// Downloads the Wadm binary for the architecture and operating system of the current host machine.
+/// Downloads the wadm binary for the architecture and operating system of the current host machine.
 ///
 /// # Arguments
 ///
@@ -43,7 +39,7 @@ where
 
 /// Ensures the `wadm` binary is installed, returning the path to the executable early if it exists or
 /// downloading the specified GitHub release version of wadm from <https://github.com/wasmcloud/wadm/releases/>
-/// and unpacking the binary for a specified OS/ARCH pair to a directory. Returns the path to the Wadm executable.
+/// and unpacking the binary for a specified OS/ARCH pair to a directory. Returns the path to the wadm executable.
 /// # Arguments
 ///
 /// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
@@ -74,14 +70,14 @@ where
 {
     let wadm_bin_path = dir.as_ref().join(WADM_BINARY);
     if let Ok(_md) = metadata(&wadm_bin_path).await {
-        // Wadm already exists, return early
+        // wadm already exists, return early
         return Ok(wadm_bin_path);
     }
-    // Download Wadm tarball
+    // Download wadm tarball
     download_binary_from_github(&wadm_url(os, arch, version), dir, WADM_BINARY).await
 }
 
-/// Downloads the Wadm binary for the architecture and operating system of the current host machine.
+/// Downloads the wadm binary for the architecture and operating system of the current host machine.
 ///
 /// # Arguments
 ///
@@ -93,7 +89,7 @@ where
 /// # #[tokio::main]
 /// # async fn main() {
 /// use wash_lib::start::download_wadm;
-/// let res = download_wadm("v2.8.4", "/tmp/").await;
+/// let res = download_wadm("v0.4.0-alpha.1", "/tmp/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wadm");
 /// # }
@@ -110,179 +106,78 @@ where
     .await
 }
 
-/// Configuration for a NATS server that supports running either in "standalone" or "leaf" mode.
-/// See the respective [NatsConfig::new_standalone] and [NatsConfig::new_leaf] implementations below for more information.
-// #[derive(Clone)]
-// pub struct NatsConfig {
-//     pub host: String,
-//     pub port: u16,
-//     pub js_domain: Option<String>,
-//     pub remote_url: Option<String>,
-//     pub credentials: Option<PathBuf>,
-// }
+/// Configuration for wadm
+#[derive(Clone)]
+pub struct WadmConfig {
+    /// Whether or not to use structured log output (as JSON)
+    pub structured_logging: bool,
+    /// The NATS JetStream domain to connect to [env: WADM_JETSTREAM_DOMAIN=]
+    pub js_domain: Option<String>,
+    /// The URL of the nats server you want to connect to
+    pub nats_server_url: String,
+    // (Optional) NATS credential file to use when authenticating [env: WADM_NATS_CREDS_FILE=]
+    pub nats_credsfile: Option<PathBuf>,
+}
 
-// /// Returns a standalone NATS config with the following values:
-// /// * `host`: `127.0.0.1`
-// /// * `port`: `4222`
-// /// * `js_domain`: `Some("core")`
-// /// * `remote_url`: `None`
-// /// * `credentials`: `None`
-// impl Default for NatsConfig {
-//     fn default() -> Self {
-//         NatsConfig {
-//             host: "127.0.0.1".to_string(),
-//             port: 4222,
-//             js_domain: Some("core".to_string()),
-//             remote_url: None,
-//             credentials: None,
-//         }
-//     }
-// }
+/// Helper function to execute a wadm binary with optional arguments
+/// # Arguments
+///
+/// * `bin_path` - Path to the wadm binary to execute
+/// * `stderr` - Specify where wadm stderr logs should be written to. If logs aren't important, use std::process::Stdio::null()
+/// * `config` - Optional configuration for wadm
+pub async fn start_wadm<P, T>(bin_path: P, stderr: T, config: Option<WadmConfig>) -> Result<Child>
+where
+    P: AsRef<Path>,
+    T: Into<Stdio>,
+{
+    let pid_file = bin_path.as_ref().parent().map(|p| p.join(WADM_PID));
+    match pid_file.as_ref() {
+        Some(path) => {
+            if let Ok(previous_pid) = tokio::fs::read_to_string(&path).await {
+                //TODO: bad? What if file just isn't cleared out?
+                // probably should find another way, validate with app API
+                bail!("wadm is already running with pid {previous_pid}, aborting")
+            }
+        }
+        None => (),
+    }
 
-// impl NatsConfig {
-//     /// Instantiates config for a NATS leaf node. Leaf nodes are meant to extend
-//     /// an existing NATS infrastructure like [Synadia's NGS](https://synadia.com/ngs), but can
-//     /// also be used to extend your own NATS infrastructure. For more information,
-//     /// our [Working with Leaf Nodes](https://wasmcloud.dev/reference/lattice/leaf-nodes/) docs
-//     ///
-//     /// # Arguments
-//     /// * `host`: NATS host to listen on, e.g. `127.0.0.1`
-//     /// * `port`: NATS port to listen on, e.g. `4222`
-//     /// * `js_domain`: Jetstream domain to use, defaults to `core`. See [Configuring Jetstream](https://wasmcloud.dev/reference/lattice/jetstream/) for more information
-//     /// * `remote_url`: URL of NATS cluster to extend
-//     /// * `credentials`: Credentials to authenticate to the existing NATS cluster
-//     pub fn new_leaf(
-//         host: &str,
-//         port: u16,
-//         js_domain: Option<String>,
-//         remote_url: String,
-//         credentials: PathBuf,
-//     ) -> Self {
-//         NatsConfig {
-//             host: host.to_owned(),
-//             port,
-//             js_domain,
-//             remote_url: Some(remote_url),
-//             credentials: Some(credentials),
-//         }
-//     }
-//     /// Instantiates config for a standalone NATS server. Unless you're looking to extend
-//     /// existing NATS infrastructure, this is the preferred NATS server mode.
-//     ///
-//     /// # Arguments
-//     /// * `host`: NATS host to listen on, e.g. `127.0.0.1`
-//     /// * `port`: NATS port to listen on, e.g. `4222`
-//     /// * `js_domain`: Jetstream domain to use, defaults to `core`. See [Configuring Jetstream](https://wasmcloud.dev/reference/lattice/jetstream/) for more information
-//     pub fn new_standalone(host: &str, port: u16, js_domain: Option<String>) -> Self {
-//         if host == "0.0.0.0" {
-//             log::warn!("Listening on 0.0.0.0 is unsupported on some platforms, use 127.0.0.1 for best results")
-//         }
-//         NatsConfig {
-//             host: host.to_owned(),
-//             port,
-//             js_domain,
-//             ..Default::default()
-//         }
-//     }
+    let mut cmd = Command::new(bin_path.as_ref());
+    cmd.stderr(stderr).stdin(Stdio::null());
 
-//     async fn write_to_path<P>(self, path: P) -> Result<()>
-//     where
-//         P: AsRef<Path>,
-//     {
-//         let leafnode_section = match (self.remote_url, self.credentials) {
-//             (Some(url), Some(creds)) => format!(
-//                 r#"
-// leafnodes {{
-//     remotes = [
-//         {{
-//             url: "{}"
-//             credentials: {:?}
-//         }}
-//     ]
-// }}
-//                 "#,
-//                 url,
-//                 creds.to_string_lossy()
-//             ),
-//             _ => "".to_owned(),
-//         };
-//         let config = format!(
-//             r#"
-// jetstream {{
-//     domain={}
-// }}
-// {}
-// "#,
-//             self.js_domain.unwrap_or_else(|| "core".to_string()),
-//             leafnode_section
-//         );
-//         write(path, config).await.map_err(anyhow::Error::from)
-//     }
-// }
+    if let Some(wadm_config) = config {
+        cmd.arg("--nats-server");
+        cmd.arg(wadm_config.nats_server_url);
+        if wadm_config.structured_logging {
+            cmd.arg("--structured-logging");
+        }
+        if let Some(domain) = wadm_config.js_domain.as_ref() {
+            cmd.arg("-d");
+            cmd.arg(domain);
+        }
+        if let Some(credsfile) = wadm_config.nats_credsfile.as_ref() {
+            cmd.arg("--nats-creds-file");
+            cmd.arg(credsfile);
+        }
+    }
 
-// /// Helper function to execute a NATS server binary with required wasmCloud arguments, e.g. JetStream
-// /// # Arguments
-// ///
-// /// * `bin_path` - Path to the nats-server binary to execute
-// /// * `stderr` - Specify where NATS stderr logs should be written to. If logs aren't important, use std::process::Stdio::null()
-// /// * `config` - Configuration for the NATS server, see [NatsConfig] for options. This config file is written alongside the nats-server binary as `nats.conf`
-// pub async fn start_nats_server<P, T>(bin_path: P, stderr: T, config: NatsConfig) -> Result<Child>
-// where
-//     P: AsRef<Path>,
-//     T: Into<Stdio>,
-// {
-//     let host_addr = format!("{}:{}", config.host, config.port);
-//     // If we can connect to the local port, NATS won't be able to listen on that port
-//     if tokio::net::TcpStream::connect(&host_addr).await.is_ok() {
-//         return Err(anyhow!(
-//             "Could not start NATS server, a process is already listening on {}:{}",
-//             config.host,
-//             config.port
-//         ));
-//     }
-//     let child = if let Some(parent_path) = bin_path.as_ref().parent() {
-//         let config_path = parent_path.join(NATS_SERVER_CONF);
-//         let host = config.host.to_owned();
-//         let port = config.port;
-//         config.write_to_path(&config_path).await?;
-//         Command::new(bin_path.as_ref())
-//             .stderr(stderr)
-//             .stdin(Stdio::null())
-//             .arg("-js")
-//             .arg("--config")
-//             .arg(config_path)
-//             .arg("--addr")
-//             .arg(host)
-//             .arg("--port")
-//             .arg(port.to_string())
-//             .arg("--pid")
-//             .arg(parent_path.join(NATS_SERVER_PID))
-//             .spawn()
-//             .map_err(anyhow::Error::from)
-//     } else {
-//         Err(anyhow!(
-//             "Could not write config to disk, couldn't find download directory"
-//         ))
-//     }?;
-//     wait_for_server(&host_addr, "NATS server")
-//         .await
-//         .map(|_| child)
-// }
+    let child = cmd.spawn().map_err(anyhow::Error::from);
 
-// /// Helper function to indicate if the NATS server binary is successfully
-// /// installed in a directory
-// pub async fn is_nats_installed<P>(dir: P) -> bool
-// where
-//     P: AsRef<Path>,
-// {
-//     metadata(dir.as_ref().join(NATS_SERVER_BINARY))
-//         .await
-//         .map_or(false, |m| m.is_file())
-// }
+    let pid = child.as_ref().map(|c| c.id());
+    match (pid, pid_file) {
+        (Ok(Some(wadm_pid)), Some(pid_path)) => {
+            if let Err(e) = tokio::fs::write(pid_path, wadm_pid.to_string()).await {
+                log::warn!("Couldn't write wadm pidfile: {e}");
+            }
+        }
+        _ => (),
+    }
+    child
+}
 
-/// Helper function to determine the Wadm release path given an os/arch and version
+/// Helper function to determine the wadm release path given an os/arch and version
 fn wadm_url(os: &str, arch: &str, version: &str) -> String {
-    // Replace architecture to match Wadm release naming scheme
+    // Replace architecture to match wadm release naming scheme
     let arch = match arch {
         "x86_64" => "amd64",
         _ => arch,
@@ -292,64 +187,57 @@ fn wadm_url(os: &str, arch: &str, version: &str) -> String {
 
 #[cfg(test)]
 mod test {
+    use crate::start::is_bin_installed;
+
     use super::*;
     use anyhow::Result;
     use std::env::temp_dir;
-    use tokio::{
-        fs::{create_dir_all, remove_dir_all},
-        io::AsyncReadExt,
-    };
+    use tokio::fs::{create_dir_all, remove_dir_all};
 
     const WADM_VERSION: &str = "v0.4.0-alpha.1";
 
-    //     #[tokio::test]
-    //     async fn can_handle_missing_nats_version() -> Result<()> {
-    //         let install_dir = temp_dir().join("can_handle_missing_nats_version");
-    //         let _ = remove_dir_all(&install_dir).await;
-    //         create_dir_all(&install_dir).await?;
-    //         assert!(!is_nats_installed(&install_dir).await);
+    #[tokio::test]
+    async fn can_handle_missing_wadm_version() -> Result<()> {
+        let install_dir = temp_dir().join("can_handle_missing_wadm_version");
+        let _ = remove_dir_all(&install_dir).await;
+        create_dir_all(&install_dir).await?;
+        assert!(!is_bin_installed(&install_dir, WADM_BINARY).await);
 
-    //         let res = ensure_nats_server("v300.22.1111223", &install_dir).await;
-    //         assert!(res.is_err());
+        let major: u8 = 123;
+        let minor: u8 = 52;
+        let patch: u8 = 222;
 
-    //         let _ = remove_dir_all(install_dir).await;
-    //         Ok(())
-    //     }
+        let res = ensure_wadm(&format!("v{major}.{minor}.{patch}"), &install_dir).await;
+        assert!(res.is_err());
+
+        let _ = remove_dir_all(install_dir).await;
+        Ok(())
+    }
 
     #[tokio::test]
     async fn can_download_and_start_wadm() -> Result<()> {
         let install_dir = temp_dir().join("can_download_and_start_wadm");
         let _ = remove_dir_all(&install_dir).await;
         create_dir_all(&install_dir).await?;
-        // assert!(!is_nats_installed(&install_dir).await);
+        assert!(!is_bin_installed(&install_dir, WADM_BINARY).await);
 
         let res = ensure_wadm(WADM_VERSION, &install_dir).await;
         assert!(res.is_ok());
-        println!("res: {:?}", res);
 
-        // let child_res =
-        //     start_nats_server(&install_dir.join(NATS_SERVER_BINARY), log_file, config).await;
-        // assert!(child_res.is_ok());
+        let log_path = install_dir.join("wadm.log");
+        let log_file = tokio::fs::File::create(&log_path).await?.into_std().await;
 
-        // // Give NATS max 5 seconds to start up
-        // for _ in 0..4 {
-        //     let log_contents = tokio::fs::read_to_string(&log_path).await?;
-        //     if log_contents.is_empty() {
-        //         println!("NATS server hasn't started up yet, waiting 1 second");
-        //         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        //     } else {
-        //         // Give just a little bit of time for the startup logs to flow in
-        //         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
+        let child_res = start_wadm(&install_dir.join(WADM_BINARY), log_file, None).await;
+        assert!(child_res.is_ok());
 
-        //         assert!(log_contents.contains("Starting nats-server"));
-        //         assert!(log_contents.contains("Starting JetStream"));
-        //         assert!(log_contents.contains("Server is ready"));
-        //         break;
-        //     }
-        // }
+        // Wait for process to exit since NATS couldn't connect
+        assert!(child_res.unwrap().wait().await.is_ok());
+        let log_contents = tokio::fs::read_to_string(&log_path).await?;
+        // wadm couldn't connect to NATS but that's okay
+        assert!(log_contents.contains("Connection refused (os error 61)"));
 
         // child_res.unwrap().kill().await?;
-        // let _ = remove_dir_all(install_dir).await;
+        let _ = remove_dir_all(install_dir).await;
         Ok(())
     }
 
@@ -382,43 +270,6 @@ mod test {
     //         nats_one.unwrap().kill().await?;
     //         let _ = remove_dir_all(install_dir).await;
 
-    //         Ok(())
-    //     }
-
-    //     #[tokio::test]
-    //     async fn can_write_properly_formed_credsfile() -> Result<()> {
-    //         let install_dir = temp_dir().join("can_write_properly_formed_credsfile");
-    //         let _ = remove_dir_all(&install_dir).await;
-    //         create_dir_all(&install_dir).await?;
-    //         assert!(
-    //             !is_nats_installed(&install_dir).await,
-    //             "NATS should not be installed"
-    //         );
-
-    //         let res = ensure_nats_server(NATS_SERVER_VERSION, &install_dir).await;
-    //         assert!(res.is_ok(), "NATS should be able to start");
-
-    //         let creds = dirs::home_dir().unwrap().join("nats.creds");
-    //         let config: NatsConfig = NatsConfig::new_leaf(
-    //             "127.0.0.1",
-    //             4243,
-    //             None,
-    //             "connect.ngs.global".to_string(),
-    //             creds.clone(),
-    //         );
-
-    //         config.write_to_path(creds.clone()).await?;
-
-    //         let mut credsfile = tokio::fs::File::open(creds.clone()).await?;
-    //         let mut contents = String::new();
-    //         credsfile.read_to_string(&mut contents).await?;
-
-    //         assert_eq!(contents, format!("\njetstream {{\n    domain={}\n}}\n\nleafnodes {{\n    remotes = [\n        {{\n            url: \"{}\"\n            credentials: {:?}\n        }}\n    ]\n}}\n                \n", "core", "connect.ngs.global", creds.to_string_lossy()));
-    //         // A simple check to ensure we are properly escaping quotes, this is unescaped and checks for "\\"
-    //         #[cfg(target_family = "windows")]
-    //         assert!(creds.to_string_lossy().contains("\\"));
-
-    //         let _ = remove_dir_all(install_dir).await;
     //         Ok(())
     //     }
 }

@@ -122,13 +122,13 @@ pub(crate) struct DeleteCommand {
     #[clap(name = "name")]
     model_name: String,
 
-    /// Version of the app specification to delete
-    #[clap(name = "version")]
-    version: String,
-
     #[clap(long = "delete-all")]
     /// Whether or not to delete all app versions, defaults to `false`
     delete_all: bool,
+
+    /// Version of the app specification to delete. Not required if --delete-all is supplied
+    #[clap(name = "version", required_unless_present("delete_all"))]
+    version: Option<String>,
 
     #[clap(flatten)]
     opts: ConnectionOpts,
@@ -238,8 +238,6 @@ async fn deploy_model(cmd: DeployCommand) -> Result<DeployModelResponse> {
         })
         .await?;
 
-        println!("res: {:?}", put_res);
-
         match put_res.result {
             PutResult::Created | PutResult::NewVersion => put_res.name,
             // TODO: Might be better to have a `PutVersion::AlreadyExists` variant
@@ -248,7 +246,7 @@ async fn deploy_model(cmd: DeployCommand) -> Result<DeployModelResponse> {
                 let delete_res = delete_model_version(DeleteCommand {
                     //TODO: Name and version here are empty, need that info
                     model_name: put_res.name.to_owned(),
-                    version: put_res.current_version.to_owned(),
+                    version: Some(put_res.current_version.to_owned()),
                     delete_all: false,
                     opts: cmd.opts.to_owned(),
                 })
@@ -318,7 +316,7 @@ async fn delete_model_version(cmd: DeleteCommand) -> Result<DeleteModelResponse>
         ModelOperation::Delete,
         Some(&cmd.model_name),
         serde_json::to_vec(&DeleteModelRequest {
-            version: cmd.version,
+            version: cmd.version.unwrap_or_default(),
             delete_all: cmd.delete_all,
         })?,
     )

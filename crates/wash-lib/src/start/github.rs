@@ -10,25 +10,22 @@ use tokio::fs::{create_dir_all, metadata, File};
 use tokio_stream::StreamExt;
 use tokio_tar::Archive;
 
-/// Downloads the specified GitHub release version of nats-server from <https://github.com/nats-io/nats-server/releases/>
-/// and unpacking the binary for a specified OS/ARCH pair to a directory. Returns the path to the NATS executable.
+/// Reusable function to download a release tarball from GitHub and extract an embedded binary to a specified directory
+///
 /// # Arguments
 ///
-/// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
-/// * `arch` - Specifies the architecture of the binary to download, e.g. `amd64`
-/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
-/// * `dir` - Where to download the `nats-server` binary to
+/// * `url` - URL of the GitHub release artifact tarball (Usually in the form of https://github.com/<owner>/<repo>/releases/download/<tag>/<artifact>.tar.gz)
+/// * `dir` - Directory on disk to install the binary into. This will be created if it doesn't exist
+/// * `bin_name` - Name of the binary inside of the tarball, e.g. `nats-server` or `wadm`
 /// # Examples
 ///
 /// ```no_run
 /// # #[tokio::main]
 /// # async fn main() {
-/// use wash_lib::start::download_nats_server_for_os_arch_pair;
-/// let os = std::env::consts::OS;
-/// let arch = std::env::consts::ARCH;
-/// let res = download_nats_server_for_os_arch_pair(os, arch, "v2.8.4", "/tmp/").await;
+/// let url = "https://github.com/wasmCloud/wadm/releases/download/v0.4.0-alpha.1/wadm-v0.4.0-alpha.1-linux-amd64.tar.gz";
+/// let res = download_binary_from_github(url, "/tmp/", "wadm").await;
 /// assert!(res.is_ok());
-/// assert!(res.unwrap().to_string_lossy() == "/tmp/nats-server");
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/wadm");
 /// # }
 /// ```
 pub async fn download_binary_from_github<P>(url: &str, dir: P, bin_name: &str) -> Result<PathBuf>
@@ -36,10 +33,10 @@ where
     P: AsRef<Path>,
 {
     let bin_path = dir.as_ref().join(bin_name);
-    // Download NATS tarball
+    // Download release tarball
     let body = match reqwest::get(url).await {
         Ok(resp) => resp.bytes().await?,
-        Err(e) => return Err(anyhow!("Failed to request NATS release: {:?}", e)),
+        Err(e) => return Err(anyhow!("Failed to request release tarball: {:?}", e)),
     };
     let cursor = Cursor::new(body);
     let mut bin_tarball = Archive::new(Box::new(GzipDecoder::new(cursor)));
@@ -70,7 +67,7 @@ where
                     tokio::io::copy(&mut entry, &mut bin_file).await?;
                     return Ok(bin_path);
                 }
-                // Ignore other files LICENSE and README in the tarball
+                // Ignore all other files in the tarball
                 _ => (),
             }
         }
@@ -82,7 +79,7 @@ where
 }
 
 /// Helper function to determine if the provided binary is present in a directory
-pub async fn is_bin_installed<P>(dir: P, bin_name: P) -> bool
+pub async fn is_bin_installed<P>(dir: P, bin_name: &str) -> bool
 where
     P: AsRef<Path>,
 {
