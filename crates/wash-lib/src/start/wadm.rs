@@ -70,8 +70,18 @@ where
 {
     let wadm_bin_path = dir.as_ref().join(WADM_BINARY);
     if let Ok(_md) = metadata(&wadm_bin_path).await {
-        // wadm already exists, return early
-        return Ok(wadm_bin_path);
+        // Check version to see if we need to download new one
+        match Command::new(&wadm_bin_path).arg("--version").output().await {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                if stdout.replace("wadm", "").trim() == version.trim_start_matches("v") {
+                    // wadm already exists, return early
+                    return Ok(wadm_bin_path);
+                }
+            }
+            // If we couldn't find out the version, it's probably not the wadm binary. Ignore and download
+            Err(_) => (),
+        }
     }
     // Download wadm tarball
     download_binary_from_github(&wadm_url(os, arch, version), dir, WADM_BINARY).await

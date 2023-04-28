@@ -79,7 +79,8 @@ where
 }
 
 /// Helper function to determine if the provided binary is present in a directory
-pub async fn is_bin_installed<P>(dir: P, bin_name: &str) -> bool
+#[allow(unused)]
+pub(crate) async fn is_bin_installed<P>(dir: P, bin_name: &str) -> bool
 where
     P: AsRef<Path>,
 {

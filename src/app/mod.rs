@@ -108,10 +108,6 @@ pub(crate) struct DeployCommand {
     #[clap(name = "version")]
     version: Option<String>,
 
-    /// Force deployment of this manifest, overwriting the existing version if present
-    #[clap(short = 'f', long = "force")]
-    force: bool,
-
     #[clap(flatten)]
     opts: ConnectionOpts,
 }
@@ -240,25 +236,6 @@ async fn deploy_model(cmd: DeployCommand) -> Result<DeployModelResponse> {
 
         match put_res.result {
             PutResult::Created | PutResult::NewVersion => put_res.name,
-            // TODO: Might be better to have a `PutVersion::AlreadyExists` variant
-            PutResult::Error if cmd.force => {
-                // TODO: Care about this
-                let delete_res = delete_model_version(DeleteCommand {
-                    //TODO: Name and version here are empty, need that info
-                    model_name: put_res.name.to_owned(),
-                    version: Some(put_res.current_version.to_owned()),
-                    delete_all: false,
-                    opts: cmd.opts.to_owned(),
-                })
-                .await?;
-                let put_res = put_model(PutCommand {
-                    source: PathBuf::from(&cmd.model_name),
-                    opts: cmd.opts.to_owned(),
-                })
-                .await?;
-
-                put_res.name
-            }
             _ => bail!("Could not put manifest to deploy {}", put_res.message),
         }
     } else {
@@ -369,7 +346,6 @@ fn show_del_results(results: DeleteModelResponse) -> CommandOutput {
 fn show_deploy_results(results: DeployModelResponse) -> CommandOutput {
     let mut map = HashMap::new();
     map.insert("acknowledged".to_string(), json!(results));
-    // TODO: more info here, wadm just returns "Deployed model"
     CommandOutput::new(results.message, map)
 }
 
