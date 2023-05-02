@@ -1,16 +1,15 @@
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use anyhow::{bail, Result};
-use async_nats::{Client, Message};
+use async_nats::Client;
 use clap::{Args, Subcommand};
 use serde_json::json;
 use wadm::server::{
-    DeleteModelRequest, DeleteModelResponse, DeployModelRequest, DeployModelResponse,
-    GetModelRequest, GetModelResponse, GetResult, ModelSummary, PutModelResponse, PutResult,
-    UndeployModelRequest, VersionResponse,
+    DeleteModelResponse, DeployModelResponse, GetModelResponse, GetResult, ModelSummary,
+    PutModelResponse, PutResult, VersionResponse,
 };
 use wash_lib::cli::{CommandOutput, OutputKind};
-use wash_lib::config::{DEFAULT_LATTICE_PREFIX, DEFAULT_NATS_HOST, DEFAULT_NATS_PORT};
+use wash_lib::config::{DEFAULT_NATS_HOST, DEFAULT_NATS_PORT};
 use wash_lib::context::{
     fs::{load_context, ContextDir},
     ContextManager,
@@ -22,36 +21,7 @@ use crate::{
     ctx::{context_dir, ensure_host_config_context},
 };
 
-const WADM_API_PREFIX: &str = "wadm.api";
-
 mod output;
-
-/// A helper enum to easily refer to model operations and then use the
-/// [ToString](ToString) implementation for NATS topic formation
-pub(crate) enum ModelOperation {
-    List,
-    Get,
-    History,
-    Delete,
-    Put,
-    Deploy,
-    Undeploy,
-}
-
-impl ToString for ModelOperation {
-    fn to_string(&self) -> String {
-        match self {
-            ModelOperation::List => "list",
-            ModelOperation::Get => "get",
-            ModelOperation::History => "versions",
-            ModelOperation::Delete => "del",
-            ModelOperation::Put => "put",
-            ModelOperation::Deploy => "deploy",
-            ModelOperation::Undeploy => "undeploy",
-        }
-        .to_string()
-    }
-}
 
 #[derive(Debug, Clone, Subcommand)]
 pub(crate) enum AppCliCommand {
@@ -212,26 +182,29 @@ pub(crate) async fn handle_command(
 }
 
 async fn undeploy_model(cmd: UndeployCommand) -> Result<DeployModelResponse> {
-    let res = model_request(
-        cmd.opts,
-        ModelOperation::Undeploy,
-        Some(&cmd.model_name),
-        serde_json::to_vec(&UndeployModelRequest {
-            non_destructive: cmd.non_destructive,
-        })?,
-    )
-    .await?;
+    let lattice_prefix = cmd.opts.lattice_prefix.clone();
+    let (client, _timeout) = nats_client_from_opts(cmd.opts).await?;
 
-    serde_json::from_slice(&res.payload).map_err(|e| anyhow::anyhow!(e))
+    wash_lib::app::undeploy_model(
+        &client,
+        lattice_prefix,
+        &cmd.model_name,
+        cmd.non_destructive,
+    )
+    .await
 }
 
 async fn deploy_model(cmd: DeployCommand) -> Result<DeployModelResponse> {
+    let lattice_prefix = cmd.opts.lattice_prefix.clone();
+    let (client, _timeout) = nats_client_from_opts(cmd.opts).await?;
+
     // If the model name is a file on disk, apply it and then deploy
-    let name = if tokio::fs::metadata(&cmd.model_name).await.is_ok() {
-        let put_res = put_model(PutCommand {
-            source: PathBuf::from(&cmd.model_name),
-            opts: cmd.opts.to_owned(),
-        })
+    let model_name = if tokio::fs::metadata(&cmd.model_name).await.is_ok() {
+        let put_res = wash_lib::app::put_model(
+            &client,
+            lattice_prefix.clone(),
+            &tokio::fs::read_to_string(&cmd.model_name).await?,
+        )
         .await?;
 
         match put_res.result {
@@ -242,70 +215,54 @@ async fn deploy_model(cmd: DeployCommand) -> Result<DeployModelResponse> {
         cmd.model_name
     };
 
-    let res = model_request(
-        cmd.opts,
-        ModelOperation::Deploy,
-        Some(&name),
-        serde_json::to_vec(&DeployModelRequest {
-            version: cmd.version,
-        })?,
-    )
-    .await?;
-
-    serde_json::from_slice(&res.payload).map_err(|e| anyhow::anyhow!(e))
+    wash_lib::app::deploy_model(&client, lattice_prefix, &model_name, cmd.version).await
 }
 
 async fn put_model(cmd: PutCommand) -> Result<PutModelResponse> {
-    let raw = std::fs::read_to_string(&cmd.source)?;
-    let res = model_request(cmd.opts, ModelOperation::Put, None, raw.as_bytes().to_vec()).await?;
-    serde_json::from_slice(&res.payload).map_err(|e| anyhow::anyhow!(e))
+    let lattice_prefix = cmd.opts.lattice_prefix.clone();
+    let (client, _timeout) = nats_client_from_opts(cmd.opts).await?;
+
+    wash_lib::app::put_model(
+        &client,
+        lattice_prefix,
+        &tokio::fs::read_to_string(&cmd.source).await?,
+    )
+    .await
 }
 
 async fn get_model_history(cmd: HistoryCommand) -> Result<VersionResponse> {
-    let res = model_request(
-        cmd.opts,
-        ModelOperation::History,
-        Some(&cmd.model_name),
-        vec![],
-    )
-    .await?;
+    let lattice_prefix = cmd.opts.lattice_prefix.clone();
+    let (client, _timeout) = nats_client_from_opts(cmd.opts).await?;
 
-    serde_json::from_slice(&res.payload).map_err(|e| anyhow::anyhow!(e))
+    wash_lib::app::get_model_history(&client, lattice_prefix, &cmd.model_name).await
 }
 
 async fn get_model_details(cmd: GetCommand) -> Result<GetModelResponse> {
-    let res = model_request(
-        cmd.opts,
-        ModelOperation::Get,
-        Some(&cmd.model_name),
-        serde_json::to_vec(&GetModelRequest {
-            version: cmd.version,
-        })?,
-    )
-    .await?;
+    let lattice_prefix = cmd.opts.lattice_prefix.clone();
+    let (client, _timeout) = nats_client_from_opts(cmd.opts).await?;
 
-    serde_json::from_slice(&res.payload).map_err(|e| anyhow::anyhow!(e))
+    wash_lib::app::get_model_details(&client, lattice_prefix, &cmd.model_name, cmd.version).await
 }
 
 async fn delete_model_version(cmd: DeleteCommand) -> Result<DeleteModelResponse> {
-    let res = model_request(
-        cmd.opts,
-        ModelOperation::Delete,
-        Some(&cmd.model_name),
-        serde_json::to_vec(&DeleteModelRequest {
-            version: cmd.version.unwrap_or_default(),
-            delete_all: cmd.delete_all,
-        })?,
-    )
-    .await?;
+    let lattice_prefix = cmd.opts.lattice_prefix.clone();
+    let (client, _timeout) = nats_client_from_opts(cmd.opts).await?;
 
-    serde_json::from_slice(&res.payload).map_err(|e| anyhow::anyhow!(e))
+    wash_lib::app::delete_model_version(
+        &client,
+        lattice_prefix,
+        &cmd.model_name,
+        cmd.version,
+        cmd.delete_all,
+    )
+    .await
 }
 
 async fn get_models(cmd: ListCommand) -> Result<Vec<ModelSummary>> {
-    let res = model_request(cmd.opts, ModelOperation::List, None, vec![]).await?;
+    let lattice_prefix = cmd.opts.lattice_prefix.clone();
+    let (client, _timeout) = nats_client_from_opts(cmd.opts).await?;
 
-    serde_json::from_slice(&res.payload).map_err(|e| anyhow::anyhow!(e))
+    wash_lib::app::get_models(&client, lattice_prefix).await
 }
 
 fn list_models_output(results: Vec<ModelSummary>) -> CommandOutput {
@@ -406,32 +363,4 @@ async fn nats_client_from_opts(opts: ConnectionOpts) -> Result<(Client, Duration
     let timeout = Duration::from_millis(opts.timeout_ms);
 
     Ok((nc, timeout))
-}
-
-/// Helper function to make a NATS request given connection options, an operation, optional name, and bytes
-async fn model_request(
-    opts: ConnectionOpts,
-    operation: ModelOperation,
-    object_name: Option<&str>,
-    bytes: Vec<u8>,
-) -> Result<Message> {
-    let (nc, timeout) = nats_client_from_opts(opts.clone()).await?;
-
-    // Topic is of the form of wadm.api.<lattice>.<category>.<operation>.<OPTIONAL: object_name>
-    // We let callers of this function dictate the topic after the prefix + lattice
-    let topic = format!(
-        "{WADM_API_PREFIX}.{}.model.{}{}",
-        opts.lattice_prefix
-            .unwrap_or_else(|| DEFAULT_LATTICE_PREFIX.to_string()),
-        operation.to_string(),
-        object_name
-            .map(|name| format!(".{name}"))
-            .unwrap_or_default()
-    );
-
-    match tokio::time::timeout(timeout, nc.request(topic, bytes.into())).await {
-        Ok(Ok(res)) => Ok(res),
-        Ok(Err(e)) => bail!("Error making model request: {}", e),
-        Err(e) => bail!("model_request timed out:  {}", e),
-    }
 }

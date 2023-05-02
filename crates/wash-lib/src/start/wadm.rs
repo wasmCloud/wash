@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use tokio::fs::metadata;
@@ -71,16 +71,12 @@ where
     let wadm_bin_path = dir.as_ref().join(WADM_BINARY);
     if let Ok(_md) = metadata(&wadm_bin_path).await {
         // Check version to see if we need to download new one
-        match Command::new(&wadm_bin_path).arg("--version").output().await {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-                if stdout.replace("wadm", "").trim() == version.trim_start_matches("v") {
-                    // wadm already exists, return early
-                    return Ok(wadm_bin_path);
-                }
+        if let Ok(output) = Command::new(&wadm_bin_path).arg("--version").output().await {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            if stdout.replace("wadm", "").trim() == version.trim_start_matches('v') {
+                // wadm already exists, return early
+                return Ok(wadm_bin_path);
             }
-            // If we couldn't find out the version, it's probably not the wadm binary. Ignore and download
-            Err(_) => (),
         }
     }
     // Download wadm tarball
@@ -129,7 +125,9 @@ pub struct WadmConfig {
     pub nats_credsfile: Option<PathBuf>,
 }
 
-/// Helper function to execute a wadm binary with optional arguments
+/// Helper function to execute a wadm binary with optional arguments. This function does not check to see if a
+/// wadm instance is already running or managing a lattice as wadm does not need to be a singleton.
+///
 /// # Arguments
 ///
 /// * `bin_path` - Path to the wadm binary to execute
@@ -141,16 +139,6 @@ where
     T: Into<Stdio>,
 {
     let pid_file = bin_path.as_ref().parent().map(|p| p.join(WADM_PID));
-    match pid_file.as_ref() {
-        Some(path) => {
-            if let Ok(previous_pid) = tokio::fs::read_to_string(&path).await {
-                //TODO: bad? What if file just isn't cleared out?
-                // probably should find another way, validate with app API
-                bail!("wadm is already running with pid {previous_pid}, aborting")
-            }
-        }
-        None => (),
-    }
 
     let mut cmd = Command::new(bin_path.as_ref());
     cmd.stderr(stderr).stdin(Stdio::null());
@@ -174,13 +162,10 @@ where
     let child = cmd.spawn().map_err(anyhow::Error::from);
 
     let pid = child.as_ref().map(|c| c.id());
-    match (pid, pid_file) {
-        (Ok(Some(wadm_pid)), Some(pid_path)) => {
-            if let Err(e) = tokio::fs::write(pid_path, wadm_pid.to_string()).await {
-                log::warn!("Couldn't write wadm pidfile: {e}");
-            }
+    if let (Ok(Some(wadm_pid)), Some(pid_path)) = (pid, pid_file) {
+        if let Err(e) = tokio::fs::write(pid_path, wadm_pid.to_string()).await {
+            log::warn!("Couldn't write wadm pidfile: {e}");
         }
-        _ => (),
     }
     child
 }

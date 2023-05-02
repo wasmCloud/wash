@@ -41,7 +41,7 @@ pub(crate) fn list_models_table(models: Vec<ModelSummary>) -> String {
             TableCell::new_with_alignment(m.name.clone(), 1, Alignment::Left),
             TableCell::new_with_alignment(m.version.clone(), 1, Alignment::Left),
             TableCell::new_with_alignment(
-                m.description.clone().unwrap_or("N/A".to_string()),
+                m.description.clone().unwrap_or_else(|| "N/A".to_string()),
                 1,
                 Alignment::Left,
             ),

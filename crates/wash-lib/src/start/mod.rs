@@ -78,6 +78,6 @@ pub(crate) use github::*;
 mod nats;
 pub use nats::*;
 mod wadm;
-pub use wadm::*;
+pub use self::wadm::*;
 mod wasmcloud;
 pub use wasmcloud::*;

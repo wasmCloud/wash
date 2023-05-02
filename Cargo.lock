@@ -4157,6 +4157,7 @@ version = "0.9.0"
 dependencies = [
  "anyhow",
  "async-compression",
+ "async-nats 0.29.0",
  "cargo_toml",
  "claims",
  "clap 4.2.5",
@@ -4188,6 +4189,7 @@ dependencies = [
  "tokio-stream",
  "tokio-tar",
  "toml 0.7.3",
+ "wadm",
  "walkdir",
  "wascap 0.10.1",
  "weld-codegen 0.7.0",

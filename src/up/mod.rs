@@ -30,6 +30,7 @@ use crate::appearance::spinner::Spinner;
 use crate::cfg::cfg_dir;
 use crate::down::stop_nats;
 use crate::down::stop_wasmcloud;
+use crate::util::nats_client_from_opts;
 
 mod config;
 mod credsfile;
@@ -310,7 +311,11 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
             })?
     };
 
-    let wadm_process = if !cmd.wadm_opts.disable_wadm {
+    let wadm_process = if !cmd.wadm_opts.disable_wadm
+        && !is_wadm_running(&nats_opts, &cmd.wasmcloud_opts.lattice_prefix)
+            .await
+            .unwrap_or(false)
+    {
         spinner.update_spinner_message(" Starting wadm ...".to_string());
         let config = WadmConfig {
             structured_logging: cmd.wasmcloud_opts.enable_structured_logging,
@@ -390,11 +395,8 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
             if !cmd.nats_opts.connect_only {
                 stop_nats(install_dir).await?;
             }
-            match (wadm_process, cmd.wadm_opts.disable_wadm) {
-                (Some(mut child), true) => {
-                    child.kill().await?;
-                }
-                _ => (),
+            if let Some(mut child) = wadm_process {
+                child.kill().await?;
             }
             return Err(e);
         }
@@ -539,6 +541,23 @@ async fn run_wasmcloud_interactive(
         handle.abort()
     };
     Ok(())
+}
+
+async fn is_wadm_running(nats_opts: &NatsOpts, lattice_prefix: &str) -> Result<bool> {
+    let client = nats_client_from_opts(
+        &nats_opts.nats_host,
+        &nats_opts.nats_port.to_string(),
+        None,
+        None,
+        nats_opts.nats_credsfile.clone(),
+    )
+    .await?;
+
+    Ok(
+        wash_lib::app::get_models(&client, Some(lattice_prefix.to_string()))
+            .await
+            .is_ok(),
+    )
 }
 
 #[cfg(test)]
