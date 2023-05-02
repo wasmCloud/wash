@@ -94,8 +94,8 @@ nix run github:wasmCloud/wash
 
 ### build
 
-Builds and signs the actor, provider, or interface as defined in a `wasmcloud.toml` file.  Will look for configuration file in directory where command is being run.
-There are three main of a `wasmcloud.toml` file: common config, language config, and type config.
+Builds and signs the actor, provider, or interface as defined in a `wasmcloud.toml` file.  Will look for configuration file in directory where command is being run.  
+There are three main sections of a `wasmcloud.toml` file: common config, language config, and type config.
 
 #### Common Config
 | Setting       | Type   | Default                       | Description                                                                            |
@@ -116,7 +116,7 @@ There are three main of a `wasmcloud.toml` file: common config, language config,
 #### Language Config - [rust]
 | Setting     | Type   | Default       | Description                             |
 | ----------- | ------ | ------------- | --------------------------------------- |
-| cargo_path  | string | `which cargo` | The path to the tinygo binary           |
+| cargo_path  | string | `which cargo` | The path to the cargo binary            |
 | target_path | string | ./target      | Path to cargo/rust's `target` directory |
 
 #### Type Config - [actor]
