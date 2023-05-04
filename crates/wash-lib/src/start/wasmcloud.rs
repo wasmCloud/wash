@@ -253,7 +253,7 @@ where
     // If we can connect to the local port, a wasmCloud host won't be able to listen on that port
     let port = match env_vars.get("WASMCLOUD_DASHBOARD_PORT").cloned() {
         Some(port) => port,
-        None => return Err(anyhow!("wasmCloud host port is not set")),
+        None => "4000".to_string(),
     };
     if tokio::net::TcpStream::connect(format!("localhost:{port}"))
         .await

@@ -1,6 +1,5 @@
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{fs::File, io::Read, path::PathBuf, time::Duration};
 
-use crate::up::{DEFAULT_NATS_HOST, DEFAULT_NATS_PORT};
 use anyhow::{anyhow, bail, Context, Result};
 use std::path::Path;
 use term_table::{Table, TableStyle};
@@ -8,17 +7,15 @@ use wash_lib::config::DEFAULT_NATS_TIMEOUT_MS;
 use wash_lib::start::is_wasmcloud_running;
 use wasmcloud_control_interface::{ClientBuilder, Host};
 
-// filter based on pid
-pub(crate) async fn get_wasmcloud_hosts<P>(bin_path: P) -> Result<Vec<Host>>
+pub(crate) async fn get_wasmcloud_hosts<P>(
+    bin_path: P,
+    nats_client: async_nats::Client,
+) -> Result<Vec<Host>>
 where
     P: AsRef<Path>,
 {
-    let dummy_nats_client = async_nats::ConnectOptions::default()
-        .connect(format!("{DEFAULT_NATS_HOST}:{DEFAULT_NATS_PORT}"))
-        .await?;
-
-    let control_client = ClientBuilder::new(dummy_nats_client)
-        // .js_domain(WASMCLOUD_JS_DOMAIN.to_string()) // accept this as a var from wash up or env vars
+    let control_client = ClientBuilder::new(nats_client)
+        .auction_timeout(Duration::from_millis(2000))
         .build()
         .await
         .map_err(|err| {

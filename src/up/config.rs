@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use crate::up::{credsfile::parse_credsfile, NatsOpts, WasmcloudOpts};
-use nkeys::KeyPair;
 
 pub const DOWNLOADS_DIR: &str = "downloads";
 pub const WASMCLOUD_PID_FILE: &str = "wasmcloud.pid";
@@ -66,7 +65,6 @@ pub(crate) const DEFAULT_ALLOW_FILE_LOAD: &str = "true";
 pub(crate) async fn configure_host_env(
     nats_opts: NatsOpts,
     wasmcloud_opts: WasmcloudOpts,
-    other_host_config_values: HashMap<String, String>,
 ) -> HashMap<String, String> {
     let mut host_config = HashMap::new();
     // NATS isolation configuration variables
@@ -79,25 +77,20 @@ pub(crate) async fn configure_host_env(
     }
 
     // Host / Cluster configuration
-    if let Some(port) = other_host_config_values.get(WASMCLOUD_DASHBOARD_PORT) {
+    if let Some(port) = wasmcloud_opts.dashboard_port {
         host_config.insert(WASMCLOUD_DASHBOARD_PORT.to_string(), port.to_string());
     }
-    if let Some(seed) = wasmcloud_opts.host_seed {
-        host_config.insert(WASMCLOUD_HOST_SEED.to_string(), seed);
-    } else {
-        host_config.insert(
-            WASMCLOUD_HOST_SEED.to_string(),
-            KeyPair::new_server()
-                .seed()
-                .unwrap_or_else(|_| "None".to_string()),
-        );
-    }
-    if let Some(value) = host_config.get("WASMCLOUD_HOST_SEED") {
-        host_config.insert(
-            RELEASE_NODE.to_string(),
-            nkeys::KeyPair::from_seed(value).unwrap().public_key(),
-        );
-    }
+    // RELEASE_NODE is a tag for the host to uniquely identify it
+    let keypair = wasmcloud_opts
+        .host_seed
+        .map(|seed| nkeys::KeyPair::from_seed(&seed))
+        .unwrap_or_else(|| Ok(nkeys::KeyPair::new_server()))
+        .unwrap_or_else(|_| nkeys::KeyPair::new_server());
+    host_config.insert(
+        WASMCLOUD_HOST_SEED.to_string(),
+        keypair.seed().unwrap_or_else(|_| "None".to_string()),
+    );
+    host_config.insert(RELEASE_NODE.to_string(), keypair.public_key());
 
     if let Some(seed) = wasmcloud_opts.cluster_seed {
         host_config.insert(WASMCLOUD_CLUSTER_SEED.to_string(), seed);

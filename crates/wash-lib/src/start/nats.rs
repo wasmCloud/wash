@@ -377,6 +377,48 @@ fn nats_url(os: &str, arch: &str, version: &str) -> String {
     format!("{NATS_GITHUB_RELEASE_URL}/{version}/nats-server-{version}-{os}-{arch}.tar.gz")
 }
 
+/// Helper function to get the path to the NATS server pid file
+pub fn nats_pid_path<P>(install_dir: P) -> PathBuf
+where
+    P: AsRef<Path>,
+{
+    install_dir.as_ref().join(NATS_SERVER_PID)
+}
+
+/// Function to check whethere a NATS server is running along with the corrects PID file
+/// Returns true when the running NATS server has the correctly generated PID file in existence
+/// Returns false when the server is not running or has a dangling PID file
+/// Returns an error when a process is running on the given address without a PID file
+pub async fn is_nats_running(nats_listen_address: String, install_dir: &Path) -> Result<bool> {
+    let is_nats_listening = tokio::net::TcpStream::connect(&nats_listen_address)
+        .await
+        .is_ok();
+    let pid_file_path = nats_pid_path(install_dir);
+    let pid_file_exists = pid_file_path.is_file();
+
+    match (is_nats_listening, pid_file_exists) {
+        (true, true) => {
+            // Nats server is running and PID file exists: it's our wasm NATS server
+            Ok(true)
+        }
+        (true, false) => {
+            // NATS is running, PID file doesn't exist: someone else is running NATS
+            Err(anyhow!(
+                "Cannot start NATS server. An unknown process is listening on {nats_listen_address}. Kill it and try again"
+            ))
+        }
+        (false, true) => {
+            // NATS isn't running but PID file exists: clean PID file and start server
+            let _ = tokio::fs::remove_file(&pid_file_path).await;
+            Ok(false)
+        }
+        (false, false) => {
+            // NATS server isn't running PID file doesn't exist: start a new NATS server
+            Ok(false)
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::start::{
