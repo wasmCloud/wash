@@ -4029,7 +4029,7 @@ dependencies = [
 
 [[package]]
 name = "wash-cli"
-version = "0.17.3"
+version = "0.18.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
