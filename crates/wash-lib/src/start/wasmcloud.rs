@@ -6,15 +6,12 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 use anyhow::{anyhow, Result};
-use async_compression::tokio::bufread::GzipDecoder;
 #[cfg(target_family = "unix")]
 use command_group::AsyncCommandGroup;
 use futures::future::join_all;
 use log::warn;
 use tokio::fs::{create_dir_all, metadata, File};
 use tokio::process::{Child, Command};
-use tokio_stream::StreamExt;
-use tokio_tar::Archive;
 
 const WASMCLOUD_GITHUB_RELEASE_URL: &str =
     "https://github.com/wasmCloud/wasmcloud-otp/releases/download";
@@ -23,15 +20,16 @@ pub const WASMCLOUD_HOST_BIN: &str = "bin/wasmcloud_host";
 #[cfg(target_family = "windows")]
 pub const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 
-// Any version of wasmCloud under 0.57.0 uses distillery releases and is incompatible
-const MINIMUM_WASMCLOUD_VERSION: &str = "0.57.0";
+// Any version of wasmCloud under 0.63.0 uses Elixir releases and is incompatible
+// See https://github.com/wasmCloud/wasmcloud-otp/pull/616 for the move to burrito releases
+const MINIMUM_WASMCLOUD_VERSION: &str = "0.63.0";
 
 /// A wrapper around the [ensure_wasmcloud_for_os_arch_pair] function that uses the
 /// architecture and operating system of the current host machine.
 ///
 /// # Arguments
 ///
-/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`. Must be at least v0.57.0.
+/// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`. Must be at least v0.63.0.
 /// * `dir` - Where to unpack the wasmCloud host contents into
 /// # Examples
 ///
@@ -39,9 +37,9 @@ const MINIMUM_WASMCLOUD_VERSION: &str = "0.57.0";
 /// # #[tokio::main]
 /// # async fn main() {
 /// use wash_lib::start::ensure_wasmcloud;
-/// let res = ensure_wasmcloud("v0.57.1", "/tmp/wasmcloud/").await;
+/// let res = ensure_wasmcloud("v0.63.0", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
-/// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/wasmcloud_host".to_string());
 /// # }
 /// ```
 pub async fn ensure_wasmcloud<P>(version: &str, dir: P) -> Result<PathBuf>
@@ -55,17 +53,17 @@ where
 /// Ensures the `wasmcloud_host` application is installed, returning the path to the executable
 /// early if it exists or downloading the specified GitHub release version of the wasmCloud host
 /// from <https://github.com/wasmCloud/wasmcloud-otp/releases/> and unpacking the contents for a
-/// specified OS/ARCH pair to a directory. Returns the path to the Elixir executable.
+/// specified OS/ARCH pair to a directory. Returns the path to the executable.
 ///
 /// # Arguments
 ///
 /// * `os` - Specifies the operating system of the binary to download, e.g. `linux`
 /// * `arch` - Specifies the architecture of the binary to download, e.g. `amd64`
 /// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`. Must be
-///   at least v0.57.0.
+///   at least v0.63.0.
 /// * `dir` - Where to unpack the wasmCloud host contents into. This should be the root level
 ///   directory where to store hosts. Each host will be stored in a directory maching its version
-///   (e.g. "/tmp/wasmcloud/v0.59.0")
+///   (e.g. "/tmp/wasmcloud/v0.63.0")
 /// # Examples
 ///
 /// ```no_run
@@ -74,7 +72,8 @@ where
 /// use wash_lib::start::ensure_wasmcloud_for_os_arch_pair;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = ensure_wasmcloud_for_os_arch_pair(os, arch, "v0.57.1", "/tmp/wasmcloud/").await;
+/// TODO: Check to see if this really always stores in a version folder
+/// let res = ensure_wasmcloud_for_os_arch_pair(os, arch, "v0.63.0", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
 /// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
 /// # }
@@ -88,7 +87,8 @@ pub async fn ensure_wasmcloud_for_os_arch_pair<P>(
 where
     P: AsRef<Path>,
 {
-    check_version(version)?;
+    //TODO: check version with 0.63.0
+    // check_version(version)?;
     if let Some(dir) = find_wasmcloud_binary(&dir, version).await {
         // wasmCloud already exists, return early
         return Ok(dir);
@@ -134,7 +134,7 @@ where
 /// * `arch` - Specifies the architecture of the binary to download, e.g. `amd64`
 /// * `version` - Specifies the version of the binary to download in the form of `vX.Y.Z`
 /// * `dir` - Where to unpack the wasmCloud host contents into. This should be the root level
-///   directory where to store hosts. Each host will be stored in a directory maching its version
+///   directory where to store hosts. Each host will be stored in a directory maching its version TODO: verifty this
 /// # Examples
 ///
 /// ```no_run
@@ -143,9 +143,9 @@ where
 /// use wash_lib::start::download_wasmcloud_for_os_arch_pair;
 /// let os = std::env::consts::OS;
 /// let arch = std::env::consts::ARCH;
-/// let res = download_wasmcloud_for_os_arch_pair(os, arch, "v0.57.1", "/tmp/wasmcloud/").await;
+/// let res = download_wasmcloud_for_os_arch_pair(os, arch, "v0.63.0", "/tmp/wasmcloud/").await;
 /// assert!(res.is_ok());
-/// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/bin/wasmcloud_host".to_string());
+/// assert!(res.unwrap().to_string_lossy() == "/tmp/wasmcloud/wasmcloud_host".to_string());
 /// # }
 /// ```
 pub async fn download_wasmcloud_for_os_arch_pair<P>(
@@ -158,50 +158,29 @@ where
     P: AsRef<Path>,
 {
     let url = wasmcloud_url(os, arch, version);
-    let body = reqwest::get(url).await?.bytes().await?;
-    let cursor = Cursor::new(body);
-    let mut wasmcloud_host = Archive::new(Box::new(GzipDecoder::new(cursor)));
-    let mut entries = wasmcloud_host.entries()?;
+    println!("Downloading from {url}");
+    //TODO: why need do this many conversions
+    let wasmcloud_host_burrito = reqwest::get(url).await?.bytes().await?.to_vec();
     let version_dir = dir.as_ref().join(version);
-    // Copy all of the files out of the tarball into the bin directory
-    while let Some(res) = entries.next().await {
-        let mut entry = res.map_err(|_e| {
-            anyhow!(
-                "Failed to retrieve file from archive, ensure wasmcloud_host version '{}' exists",
-                version
-            )
-        })?;
-        if let Ok(path) = entry.path() {
-            let file_path = version_dir.join(path);
-            if let Some(parent_folder) = file_path.parent() {
-                // If the user doesn't have permission to create files in the provided directory,
-                // this will bubble the error up noting permission denied
-                create_dir_all(parent_folder).await?;
-            }
-            if let Ok(mut wasmcloud_file) = File::create(&file_path).await {
-                // This isn't an `if let` to avoid a Windows lint warning
-                if file_path.file_name().is_some() {
-                    // Set permissions of executable files and binaries to allow executing
-                    #[cfg(target_family = "unix")]
-                    {
-                        let file_name = file_path.file_name().unwrap().to_string_lossy();
-                        if file_path.to_string_lossy().contains("bin")
-                            || file_name.contains(".sh")
-                            || file_name.contains(".bat")
-                            || file_name.eq("iex")
-                            || file_name.eq("elixir")
-                            || file_name.eq("wasmcloud_host")
-                            || file_name.eq("mac_listener")
-                        {
-                            let mut perms = wasmcloud_file.metadata().await?.permissions();
-                            perms.set_mode(0o755);
-                            wasmcloud_file.set_permissions(perms).await?;
-                        }
-                    }
-                }
-                tokio::io::copy(&mut entry, &mut wasmcloud_file).await?;
+    //TODO: diff for windows, exe, constant
+    let file_path = version_dir.join("wasmcloud_host");
+    if let Some(parent_folder) = file_path.parent() {
+        // If the user doesn't have permission to create files in the provided directory,
+        // this will bubble the error up noting permission denied
+        create_dir_all(parent_folder).await?;
+    }
+    if let Ok(mut wasmcloud_file) = File::create(&file_path).await {
+        // This isn't an `if let` to avoid a Windows lint warning
+        if file_path.file_name().is_some() {
+            // Set permissions of executable files and binaries to allow executing
+            #[cfg(target_family = "unix")]
+            {
+                let mut perms = wasmcloud_file.metadata().await?.permissions();
+                perms.set_mode(0o755);
+                wasmcloud_file.set_permissions(perms).await?;
             }
         }
+        tokio::io::copy(&mut wasmcloud_host_burrito.as_slice(), &mut wasmcloud_file).await?;
     }
 
     // Return success if wasmCloud components exist, error otherwise
@@ -212,10 +191,11 @@ where
         )),
     }
 }
-/// Helper function to start a wasmCloud host given the path to the elixir release script
+
+/// Helper function to start a wasmCloud host given the path to the burrito release application
 /// /// # Arguments
 ///
-/// * `bin_path` - Path to the wasmcloud_host script to execute
+/// * `bin_path` - Path to the wasmcloud_host burrito application
 /// * `stdout` - Specify where wasmCloud stdout logs should be written to. Logs can be written to stdout by the erlang process
 /// * `stderr` - Specify where wasmCloud stderr logs should be written to. Logs are written to stderr that are generated by wasmCloud
 /// * `env_vars` - Environment variables to pass to the host, see <https://wasmcloud.dev/reference/host-runtime/host_configure/#supported-configuration-variables> for details
@@ -245,23 +225,6 @@ where
         ));
     }
 
-    #[cfg(target_family = "unix")]
-    if let Ok(output) = Command::new(bin_path.as_ref())
-        .envs(&env_vars)
-        .arg("pid")
-        .output()
-        .await
-    {
-        // Stderr will include :nodedown if no other host is running, otherwise
-        // stdout will contain the PID
-        if !String::from_utf8_lossy(&output.stderr).contains(":nodedown") {
-            return Err(anyhow!(
-                "Another wasmCloud host is already running on this machine with PID {}",
-                String::from_utf8_lossy(&output.stdout)
-            ));
-        }
-    }
-
     // Constructing this object in one step results in a temporary value that's dropped
     let mut cmd = Command::new(bin_path.as_ref());
     let cmd = cmd
@@ -269,8 +232,7 @@ where
         .stderr(stderr)
         .stdout(stdout)
         .stdin(Stdio::null())
-        .envs(&env_vars)
-        .arg("start");
+        .envs(&env_vars);
 
     #[cfg(target_family = "unix")]
     {
@@ -289,17 +251,8 @@ where
     P: AsRef<Path>,
 {
     let versioned_dir = dir.as_ref().join(version);
-    let bin_dir = versioned_dir.join("bin");
-    let bin_file = versioned_dir.join(WASMCLOUD_HOST_BIN);
-    let lib_dir = versioned_dir.join("lib");
-    let releases_dir = versioned_dir.join("releases");
-    let file_checks = vec![
-        metadata(versioned_dir),
-        metadata(bin_dir),
-        metadata(bin_file.clone()),
-        metadata(lib_dir),
-        metadata(releases_dir),
-    ];
+    let bin_file = versioned_dir.join("wasmcloud_host");
+    let file_checks = vec![metadata(bin_file.clone())];
     join_all(file_checks)
         .await
         .iter()
@@ -309,7 +262,8 @@ where
 
 /// Helper function to determine the wasmCloud host release path given an os/arch and version
 fn wasmcloud_url(os: &str, arch: &str, version: &str) -> String {
-    format!("{WASMCLOUD_GITHUB_RELEASE_URL}/{version}/{arch}-{os}.tar.gz")
+    let os = os.replace("macos", "darwin");
+    format!("{WASMCLOUD_GITHUB_RELEASE_URL}/{version}/wasmcloud_host_{arch}_{os}")
 }
 
 /// Helper function to ensure the version of wasmCloud is above the minimum
@@ -460,7 +414,7 @@ mod test {
     }
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
-    const WASMCLOUD_HOST_VERSION: &str = "v0.61.0";
+    const WASMCLOUD_HOST_VERSION: &str = "v0.62.2-burrito-test";
 
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> anyhow::Result<()> {
@@ -563,24 +517,21 @@ mod test {
         .await
         .expect_err("Starting a second process should error");
 
-        // Should fail because another erlang wasmcloud_host node is running
-        #[cfg(target_family = "unix")]
-        // Windows is unable to properly check running erlang nodes with `pid`
-        {
-            let mut host_env = HashMap::new();
-            host_env.insert("WASMCLOUD_DASHBOARD_PORT".to_string(), "4002".to_string());
-            host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
-            host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
-            host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
-            let child_res = start_wasmcloud_host(
-                &wasmcloud_binary,
-                std::process::Stdio::null(),
-                std::process::Stdio::null(),
-                host_env,
-            )
-            .await;
-            assert!(child_res.is_err());
-        }
+        // Burrito releases (0.63.0+) do support multiple hosts, so this should work fine
+        let mut host_env = HashMap::new();
+        host_env.insert("WASMCLOUD_DASHBOARD_PORT".to_string(), "4002".to_string());
+        host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
+        host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
+        host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
+        let child_res = start_wasmcloud_host(
+            &wasmcloud_binary,
+            std::process::Stdio::null(),
+            std::process::Stdio::null(),
+            host_env,
+        )
+        .await;
+        assert!(child_res.is_ok());
+        child_res.unwrap().kill().await?;
 
         host_child.kill().await?;
         nats_child.kill().await?;

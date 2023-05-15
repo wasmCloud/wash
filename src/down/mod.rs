@@ -33,6 +33,8 @@ pub(crate) async fn handle_down(
 
     let mut out_json = HashMap::new();
     let mut out_text = String::from("");
+
+    //TODO: stop host via nats instead of local
     let version = tokio::fs::read_to_string(install_dir.join(WASMCLOUD_PID_FILE))
         .await
         .map_err(|e| {
@@ -59,6 +61,18 @@ pub(crate) async fn handle_down(
         }
     }
 
+    match stop_wadm(&install_dir).await {
+        Ok(_) => {
+            tokio::fs::remove_file(&install_dir.join(WADM_PID)).await?;
+            out_json.insert("wadm_stopped".to_string(), json!(true));
+            out_text.push_str("✅ wadm stopped successfully\n");
+        }
+        Err(e) => {
+            out_json.insert("wadm_stopped".to_string(), json!(false));
+            out_text.push_str(&format!("❌ wadm did not stop successfully: {e:?}\n"));
+        }
+    }
+
     let nats_bin = install_dir.join(NATS_SERVER_BINARY);
     if nats_bin.is_file() {
         sp.update_spinner_message(" Stopping NATS server ...".to_string());
@@ -70,18 +84,6 @@ pub(crate) async fn handle_down(
         } else {
             out_json.insert("nats_stopped".to_string(), json!(true));
             out_text.push_str("✅ NATS server stopped successfully\n");
-        }
-    }
-
-    match stop_wadm(&install_dir).await {
-        Ok(_) => {
-            tokio::fs::remove_file(&install_dir.join(WADM_PID)).await?;
-            out_json.insert("wadm_stopped".to_string(), json!(true));
-            out_text.push_str("✅ wadm stopped successfully\n");
-        }
-        Err(e) => {
-            out_json.insert("wadm_stopped".to_string(), json!(false));
-            out_text.push_str(&format!("❌ wadm did not stop successfully: {e:?}\n"));
         }
     }
 
