@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::io::Cursor;
 #[cfg(target_family = "unix")]
 use std::os::unix::prelude::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -23,6 +22,7 @@ pub const WASMCLOUD_HOST_BIN: &str = "bin\\wasmcloud_host.bat";
 // Any version of wasmCloud under 0.63.0 uses Elixir releases and is incompatible
 // See https://github.com/wasmCloud/wasmcloud-otp/pull/616 for the move to burrito releases
 const MINIMUM_WASMCLOUD_VERSION: &str = "0.63.0";
+const DEFAULT_DASHBOARD_PORT: u16 = 4000;
 
 /// A wrapper around the [ensure_wasmcloud_for_os_arch_pair] function that uses the
 /// architecture and operating system of the current host machine.
@@ -214,7 +214,7 @@ where
     let port = env_vars
         .get("WASMCLOUD_DASHBOARD_PORT")
         .cloned()
-        .unwrap_or_else(|| "4000".to_string());
+        .unwrap_or_else(|| DEFAULT_DASHBOARD_PORT.to_string());
     if tokio::net::TcpStream::connect(format!("localhost:{port}"))
         .await
         .is_ok()

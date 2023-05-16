@@ -50,7 +50,7 @@ pub(crate) const WASMCLOUD_PROV_RPC_TLS: &str = "WASMCLOUD_PROV_RPC_TLS";
 pub(crate) const WASMCLOUD_OCI_ALLOWED_INSECURE: &str = "WASMCLOUD_OCI_ALLOWED_INSECURE";
 pub(crate) const WASMCLOUD_OCI_ALLOW_LATEST: &str = "WASMCLOUD_OCI_ALLOW_LATEST";
 // Extra configuration (logs, IPV6, config service)
-pub(crate) const WASMCLOUD_STRUCTURED_LOG_LEVEL: &str = "WASMCLOUD_STRUCTURED_LOG_LEVEL";
+pub(crate) const WASMCLOUD_STRUCTURED_LOG_LEVEL: &str = "WASMCLOUD_LOG_LEVEL";
 pub(crate) const DEFAULT_STRUCTURED_LOG_LEVEL: &str = "info";
 pub(crate) const WASMCLOUD_ENABLE_IPV6: &str = "WASMCLOUD_ENABLE_IPV6";
 pub(crate) const WASMCLOUD_STRUCTURED_LOGGING_ENABLED: &str =

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Output, Stdio};
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ use clap::Parser;
 use serde_json::json;
 use tokio::process::Command;
 use wash_lib::cli::{CommandOutput, OutputKind};
-use wash_lib::start::{find_wasmcloud_binary, NATS_SERVER_BINARY, NATS_SERVER_PID, WADM_PID};
+use wash_lib::start::{find_wasmcloud_binary, nats_pid_path, NATS_SERVER_BINARY, WADM_PID};
 
 use crate::appearance::spinner::Spinner;
 use crate::cfg::cfg_dir;
@@ -132,14 +132,6 @@ where
         let _ = tokio::fs::remove_file(&pid_file).await;
     }
     output
-}
-
-/// Helper function to get the path to the NATS server pid file
-pub(crate) fn nats_pid_path<P>(install_dir: P) -> PathBuf
-where
-    P: AsRef<Path>,
-{
-    install_dir.as_ref().join(NATS_SERVER_PID)
 }
 
 /// Helper function to kill the wadm process
