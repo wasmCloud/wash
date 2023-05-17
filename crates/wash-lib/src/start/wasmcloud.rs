@@ -87,8 +87,7 @@ pub async fn ensure_wasmcloud_for_os_arch_pair<P>(
 where
     P: AsRef<Path>,
 {
-    //TODO: check version with 0.63.0
-    // check_version(version)?;
+    check_version(version)?;
     if let Some(dir) = find_wasmcloud_binary(&dir, version).await {
         // wasmCloud already exists, return early
         return Ok(dir);
@@ -267,7 +266,7 @@ fn wasmcloud_url(os: &str, arch: &str, version: &str) -> String {
 }
 
 /// Helper function to ensure the version of wasmCloud is above the minimum
-/// supported version (v0.57.0) that runs mix releases
+/// supported version (v0.63.0) that runs burrito releases
 fn check_version(version: &str) -> Result<()> {
     let version_req = semver::VersionReq::parse(&format!(">={MINIMUM_WASMCLOUD_VERSION}"))?;
     match semver::Version::parse(version.trim_start_matches('v')) {
@@ -414,7 +413,7 @@ mod test {
     }
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
-    const WASMCLOUD_HOST_VERSION: &str = "v0.62.2-burrito-test";
+    const WASMCLOUD_HOST_VERSION: &str = "v0.63.0";
 
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> anyhow::Result<()> {

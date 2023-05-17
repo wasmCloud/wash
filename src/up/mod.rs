@@ -36,9 +36,7 @@ use crate::util::nats_client_from_opts;
 
 mod config;
 mod credsfile;
-pub use config::DOWNLOADS_DIR;
-pub use config::WASMCLOUD_PID_FILE;
-use config::*;
+pub use config::*;
 
 const LOCALHOST: &str = "127.0.0.1";
 
@@ -425,17 +423,9 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
 
         let spinner = Spinner::new(&output_kind)?;
         spinner.update_spinner_message(
-            "CTRL+c received, gracefully stopping wasmCloud, wadm, and NATS...".to_string(),
+            // wasmCloud and NATS both exit immediately when sent SIGINT
+            "CTRL+c received, stopping wasmCloud, wadm, and NATS...".to_string(),
         );
-
-        // Terminate wasmCloud and NATS processes
-        let output = stop_wasmcloud(wasmcloud_executable.clone()).await?;
-        if !output.status.success() {
-            log::warn!("wasmCloud exited with a non-zero exit status, processes may need to be cleaned up manually")
-        }
-        if !cmd.nats_opts.connect_only {
-            stop_nats(&install_dir).await?;
-        }
 
         // remove wadm pidfile, the process is stopped automatically by CTRL+c
         tokio::fs::remove_file(&install_dir.join("wadm.pid")).await?;
@@ -558,6 +548,8 @@ async fn run_wasmcloud_interactive(
     if let Some(handle) = handle {
         handle.abort()
     };
+
+    wasmcloud_child.kill().await?;
     Ok(())
 }
 

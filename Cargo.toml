@@ -27,6 +27,7 @@ ctrlc = { workspace = true }
 dirs = { workspace = true }
 env_logger = { workspace = true }
 envmnt = { workspace = true }
+futures = { workspace = true }
 indicatif = { workspace = true }
 log = { workspace = true }
 nkeys = { workspace = true }
