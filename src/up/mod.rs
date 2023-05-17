@@ -31,7 +31,6 @@ use wash_lib::start::{
 use crate::appearance::spinner::Spinner;
 use crate::cfg::cfg_dir;
 use crate::down::stop_nats;
-use crate::down::stop_wasmcloud;
 use crate::util::nats_client_from_opts;
 
 mod config;
@@ -311,11 +310,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
 
     // Based on the options provided for wasmCloud, form a client connection to NATS.
     // If this fails, we should return early since wasmCloud wouldn't be able to connect either
-    let nats_client = if let Ok(client) = nats_client {
-        client
-    } else {
-        nats_client_from_wasmcloud_opts(&cmd.wasmcloud_opts).await?
-    };
+    nats_client_from_wasmcloud_opts(&cmd.wasmcloud_opts).await?;
 
     let wadm_process = if !cmd.wadm_opts.disable_wadm
         && !is_wadm_running(&nats_opts, &cmd.wasmcloud_opts.lattice_prefix)
@@ -599,11 +594,11 @@ async fn nats_client_from_wasmcloud_opts(wasmcloud_opts: &WasmcloudOpts) -> Resu
         &wasmcloud_opts
             .ctl_host
             .clone()
-            .unwrap_or(DEFAULT_NATS_HOST.to_string()),
+            .unwrap_or_else(|| DEFAULT_NATS_HOST.to_string()),
         &wasmcloud_opts
             .ctl_port
             .map(|port| port.to_string())
-            .unwrap_or(DEFAULT_NATS_PORT.to_string()),
+            .unwrap_or_else(|| DEFAULT_NATS_PORT.to_string()),
         wasmcloud_opts.ctl_jwt.clone(),
         wasmcloud_opts.ctl_seed.clone(),
         wasmcloud_opts.ctl_credsfile.clone(),

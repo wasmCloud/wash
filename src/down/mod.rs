@@ -78,10 +78,11 @@ pub(crate) async fn handle_down(
     let mut out_text = String::from("");
 
     if let Ok(client) = nats_client_from_opts(
-        &cmd.ctl_host.unwrap_or(DEFAULT_NATS_HOST.to_string()),
+        &cmd.ctl_host
+            .unwrap_or_else(|| DEFAULT_NATS_HOST.to_string()),
         &cmd.ctl_port
             .map(|port| port.to_string())
-            .unwrap_or(DEFAULT_NATS_PORT.to_string()),
+            .unwrap_or_else(|| DEFAULT_NATS_PORT.to_string()),
         cmd.ctl_jwt,
         cmd.ctl_seed,
         cmd.ctl_credsfile,
@@ -165,49 +166,34 @@ async fn stop_hosts(
         })?;
 
         Ok((vec![host_id_string], hosts.len() > 1))
+    } else if hosts.is_empty() {
+        Ok((vec![], false))
+    } else if hosts.len() == 1 {
+        let host_id = &hosts[0].id;
+        client
+            .stop_host(host_id, None)
+            .await
+            .map_err(|e| anyhow!(e))?;
+        Ok((vec![host_id.to_string()], false))
+    } else if all {
+        let host_stops = hosts
+            .iter()
+            .map(|host| async {
+                let host_id = &host.id;
+                let _ = client
+                    .stop_host(host_id, None)
+                    .await
+                    // TODO: deal with this error
+                    .map_err(|e| anyhow!(e));
+                host_id.to_owned()
+            })
+            .collect::<Vec<_>>();
+        Ok((futures::future::join_all(host_stops).await, false))
     } else {
-        if hosts.is_empty() {
-            Ok((vec![], false))
-        } else if hosts.len() == 1 {
-            let host_id = &hosts[0].id;
-            client
-                .stop_host(host_id, None)
-                .await
-                .map_err(|e| anyhow!(e))?;
-            Ok((vec![host_id.to_string()], false))
-        } else if all {
-            let host_stops = hosts
-                .iter()
-                .map(|host| async {
-                    let host_id = &host.id;
-                    let _ = client
-                        .stop_host(&host_id, None)
-                        .await
-                        // TODO: deal with this error
-                        .map_err(|e| anyhow!(e));
-                    host_id.to_owned()
-                })
-                .collect::<Vec<_>>();
-            Ok((futures::future::join_all(host_stops).await, false))
-        } else {
-            Err(anyhow!(
+        Err(anyhow!(
                 "More than one host is running, please specify a host ID or use --all\nRunning hosts: {:?}", hosts.into_iter().map(|h| h.id).collect::<Vec<_>>()
             ))
-        }
     }
-}
-
-/// Helper function to send wasmCloud the `stop` command and wait for it to clean up
-pub(crate) async fn stop_wasmcloud<P>(bin_path: P) -> Result<Output>
-where
-    P: AsRef<Path>,
-{
-    Command::new(bin_path.as_ref())
-        .stdout(Stdio::piped())
-        .arg("stop")
-        .output()
-        .await
-        .map_err(anyhow::Error::from)
 }
 
 /// Helper function to send the nats-server the stop command
