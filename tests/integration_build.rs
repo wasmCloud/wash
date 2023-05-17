@@ -3,7 +3,7 @@ use anyhow::Result;
 mod common;
 use common::wash;
 use serial_test::serial;
-use std::{fs::File, path::PathBuf, io::Write};
+use std::{fs::File, io::Write, path::PathBuf};
 use tempfile::TempDir;
 
 #[test]
@@ -51,11 +51,9 @@ fn build_rust_actor_signed() -> Result<()> {
 
 #[test]
 fn build_rust_actor_in_workspace_unsigned() -> Result<()> {
-    let test_setup = init_workspace(
-        vec![/* actor_names= */ "hello-1","hello-2",]
-    )?;
+    let test_setup = init_workspace(vec![/* actor_names= */ "hello-1", "hello-2"])?;
     let project_dir = test_setup.project_dirs.get(0).unwrap();
-    std::env::set_current_dir(&project_dir)?;
+    std::env::set_current_dir(project_dir)?;
 
     let status = wash()
         .args(["build", "--build-only"])
@@ -154,22 +152,31 @@ fn init(actor_name: &str, template_name: &str) -> Result<TestSetup> {
 fn init_workspace(actor_names: Vec<&str>) -> Result<WorkspaceTestSetup> {
     let test_dir = TempDir::new()?;
     std::env::set_current_dir(&test_dir)?;
-    let project_dirs : Result<Vec<_>> = actor_names.iter().map(|actor_name| {
-        let project_dir = init_actor_from_template(actor_name, "hello")?;
-        Result::<PathBuf>::Ok(project_dir)
-    }).collect();
+    let project_dirs: Result<Vec<_>> = actor_names
+        .iter()
+        .map(|actor_name| {
+            let project_dir = init_actor_from_template(actor_name, "hello")?;
+            Result::<PathBuf>::Ok(project_dir)
+        })
+        .collect();
     let project_dirs = project_dirs?;
 
-    let members = actor_names.iter().map(|actor_name| format!("\"{actor_name}\"")).collect::<Vec<_>>().join(",");
-    let cargo_toml = format!("
+    let members = actor_names
+        .iter()
+        .map(|actor_name| format!("\"{actor_name}\""))
+        .collect::<Vec<_>>()
+        .join(",");
+    let cargo_toml = format!(
+        "
     [workspace]
     members = [{members}]
-    ");
+    "
+    );
 
     let mut cargo_path = PathBuf::from(test_dir.path());
     cargo_path.push("Cargo.toml");
     let mut file = File::create(cargo_path)?;
-    file.write(cargo_toml.as_bytes())?;
+    file.write_all(cargo_toml.as_bytes())?;
     Ok(WorkspaceTestSetup {
         test_dir,
         project_dirs,
