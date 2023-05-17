@@ -7,7 +7,9 @@
 		"ghcr.io/lee-orr/rusty-dev-containers/cargo-watch:latest": {},
 		"ghcr.io/lee-orr/rusty-dev-containers/cargo-nextest:latest": {},
 		"ghcr.io/devcontainers/features/go:1": {},
-		"ghcr.io/rchaganti/vsc-devcontainer-features/tinygo:1": {}
+		"ghcr.io/lee-orr/rusty-dev-containers/tinygo:0": {
+			"version": "0.27.0"
+		}
 	},
 	"workspaceMount": "source=${localWorkspaceFolder},target=/wash,type=bind,consistency=cached",
 	"workspaceFolder": "/wash"
