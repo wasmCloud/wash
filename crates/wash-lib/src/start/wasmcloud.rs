@@ -456,6 +456,7 @@ mod test {
             .await;
 
         let mut host_env = HashMap::new();
+        host_env.insert("WASMCLOUD_DASHBOARD_PORT".to_string(), "5003".to_string());
         host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());
@@ -488,6 +489,7 @@ mod test {
 
         // Should fail because the port is already in use by another host
         let mut host_env = HashMap::new();
+        host_env.insert("WASMCLOUD_DASHBOARD_PORT".to_string(), "5003".to_string());
         host_env.insert("WASMCLOUD_RPC_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_CTL_PORT".to_string(), nats_port.to_string());
         host_env.insert("WASMCLOUD_PROV_RPC_PORT".to_string(), nats_port.to_string());

@@ -29,6 +29,8 @@ async fn integration_up_can_start_wasmcloud_and_actor_serial() -> Result<()> {
             "up",
             "--nats-port",
             "5893",
+            "--dashboard-port",
+            "5002",
             "-o",
             "json",
             "--detached",
@@ -119,7 +121,16 @@ async fn integration_up_can_stop_detached_host_serial() -> Result<()> {
     let stdout = std::fs::File::create(&path).expect("could not create log file for wash up test");
 
     let mut up_cmd = Command::new(env!("CARGO_BIN_EXE_wash"))
-        .args(["up", "--nats-port", "5894", "-o", "json", "--detached"])
+        .args([
+            "up",
+            "--nats-port",
+            "5894",
+            "--dashboard-port",
+            "5001",
+            "-o",
+            "json",
+            "--detached",
+        ])
         .kill_on_drop(true)
         .stdout(stdout)
         .spawn()
