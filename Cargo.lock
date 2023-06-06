@@ -181,7 +181,7 @@ dependencies = [
  "itertools",
  "itoa",
  "lazy_static",
- "nkeys",
+ "nkeys 0.2.0",
  "nuid 0.3.2",
  "once_cell",
  "regex",
@@ -215,7 +215,7 @@ dependencies = [
  "http",
  "itoa",
  "memchr",
- "nkeys",
+ "nkeys 0.2.0",
  "nuid 0.3.2",
  "once_cell",
  "rand",
@@ -2053,6 +2053,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "nkeys"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2d151f6ece2f3d1077f6c779268de2516653d8344ddde65addd785cce764fe5"
+dependencies = [
+ "byteorder 1.4.3",
+ "data-encoding",
+ "ed25519-dalek",
+ "getrandom",
+ "log",
+ "rand",
+ "signatory",
+]
+
+[[package]]
 name = "nom"
 version = "7.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2581,9 +2596,9 @@ dependencies = [
 
 [[package]]
 name = "provider-archive"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91058846d2bdeaea55ce059f375e1af0e57f9cfad83fd6702d539c45e8d26d7"
+checksum = "3f02e3a69a868e932a76ee5e026ae1923e761f157aaf3ad0b9d4906eaebf62fc"
 dependencies = [
  "async-compression",
  "data-encoding",
@@ -2591,7 +2606,7 @@ dependencies = [
  "tokio",
  "tokio-stream",
  "tokio-tar",
- "wascap 0.8.0",
+ "wascap 0.11.0",
 ]
 
 [[package]]
@@ -4015,7 +4030,7 @@ dependencies = [
  "futures",
  "indexmap",
  "lazy_static",
- "nkeys",
+ "nkeys 0.2.0",
  "rand",
  "semver",
  "serde",
@@ -4062,7 +4077,7 @@ dependencies = [
  "humantime",
  "lazy_static",
  "log",
- "nkeys",
+ "nkeys 0.2.0",
  "nuid 0.3.2",
  "parity-wasm",
  "ring",
@@ -4073,9 +4088,9 @@ dependencies = [
 
 [[package]]
 name = "wascap"
-version = "0.10.1"
+version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a85c9ab66dd6a39400cc7235b803c8819c3b76405bce83f8e6c540a8abf89a"
+checksum = "c38c03de923f80027cb62281f520bd97245a38eeb85a53f435a110509d044551"
 dependencies = [
  "base64 0.13.1",
  "data-encoding",
@@ -4083,7 +4098,7 @@ dependencies = [
  "humantime",
  "lazy_static",
  "log",
- "nkeys",
+ "nkeys 0.3.0",
  "nuid 0.4.1",
  "ring",
  "serde",
@@ -4116,7 +4131,7 @@ dependencies = [
  "futures",
  "indicatif",
  "log",
- "nkeys",
+ "nkeys 0.3.0",
  "oci-distribution",
  "once_cell",
  "provider-archive",
@@ -4143,7 +4158,7 @@ dependencies = [
  "tokio",
  "toml 0.7.4",
  "wadm",
- "wascap 0.10.1",
+ "wascap 0.11.0",
  "wash-lib",
  "wasmbus-rpc 0.13.0",
  "wasmcloud-control-interface",
@@ -4174,7 +4189,7 @@ dependencies = [
  "ignore",
  "indicatif",
  "log",
- "nkeys",
+ "nkeys 0.3.0",
  "oci-distribution",
  "path-absolutize",
  "provider-archive",
@@ -4194,7 +4209,7 @@ dependencies = [
  "toml 0.7.4",
  "wadm",
  "walkdir",
- "wascap 0.10.1",
+ "wascap 0.11.0",
  "wasmbus-rpc 0.13.0",
  "wasmcloud-control-interface",
  "weld-codegen 0.7.0",
@@ -4280,9 +4295,9 @@ checksum = "0046fef7e28c3804e5e38bfa31ea2a0f73905319b677e57ebe37e49358989b5d"
 
 [[package]]
 name = "wasm-encoder"
-version = "0.25.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eff853c4f09eec94d76af527eddad4e9de13b11d6286a1ef7134bc30135a2b7"
+checksum = "18c41dbd92eaebf3612a39be316540b8377c871cb9bde6b064af962984912881"
 dependencies = [
  "leb128",
 ]
@@ -4339,7 +4354,7 @@ dependencies = [
  "lazy_static",
  "minicbor 0.17.1",
  "minicbor-ser",
- "nkeys",
+ "nkeys 0.2.0",
  "once_cell",
  "rmp-serde",
  "serde",
@@ -4376,7 +4391,7 @@ dependencies = [
  "lazy_static",
  "minicbor 0.17.1",
  "minicbor-ser",
- "nkeys",
+ "nkeys 0.2.0",
  "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -4447,7 +4462,7 @@ dependencies = [
  "base64 0.13.1",
  "futures",
  "log",
- "nkeys",
+ "nkeys 0.2.0",
  "regex",
  "serde",
  "serde_json",
@@ -4460,12 +4475,12 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.102.0"
+version = "0.107.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48134de3d7598219ab9eaf6b91b15d8e50d31da76b8519fe4ecfcec2cf35104b"
+checksum = "29e3ac9b780c7dda0cac7a52a5d6d2d6707cc6e3451c9db209b6c758f40d7acb"
 dependencies = [
  "indexmap",
- "url",
+ "semver",
 ]
 
 [[package]]
