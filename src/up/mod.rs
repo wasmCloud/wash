@@ -20,6 +20,7 @@ use tokio::{
 };
 use wash_lib::cli::{CommandOutput, OutputKind};
 use wash_lib::start::ensure_wadm;
+use wash_lib::start::find_wasmcloud_binary;
 use wash_lib::start::nats_pid_path;
 use wash_lib::start::start_wadm;
 use wash_lib::start::WadmConfig;
@@ -358,11 +359,17 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
         spinner.update_spinner_message(" Downloading wasmCloud ...".to_string());
         ensure_wasmcloud(&cmd.wasmcloud_opts.wasmcloud_version, &install_dir).await?
     } else {
-        // Ensure we clean up the NATS server if we can't start wasmCloud
-        if nats_bin.is_some() {
-            stop_nats(install_dir).await?;
+        if let Some(wasmcloud_bin) =
+            find_wasmcloud_binary(&install_dir, &cmd.wasmcloud_opts.wasmcloud_version).await
+        {
+            wasmcloud_bin
+        } else {
+            // Ensure we clean up the NATS server if we can't start wasmCloud
+            if nats_bin.is_some() {
+                stop_nats(install_dir).await?;
+            }
+            return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
         }
-        return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
     };
 
     // Redirect output (which is on stderr) to a log file in detached mode, or use the terminal
