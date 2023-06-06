@@ -137,8 +137,12 @@ wadm = "0.4.0-alpha.3"
 walkdir = "2.3"
 wascap = "0.11.0"
 wash-lib = { version = "0.9.0-alpha.2", path = "./crates/wash-lib" }
+## TODO: this version must be updated to one that has nkeys v0.3.0
+## see: https://github.com/wasmCloud/weld/pull/155
 wasmbus-rpc = "0.13.0"
 wasmcloud-control-interface = "0.25"
+## TODO: this version must be updated to one that has nkeys v0.3.0
+## see: https://github.com/wasmCloud/wasmcloud-test/pull/27
 wasmcloud-test-util = "0.6.4"
 weld-codegen = "0.7.0"
 which = "4.4.0"
