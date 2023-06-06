@@ -291,11 +291,13 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
 
     let nats_client = nats_client_from_wasmcloud_opts(&cmd.wasmcloud_opts).await;
     let nats_opts = cmd.nats_opts.clone();
+
     // Avoid downloading + starting NATS if the user already runs their own server and we can connect.
+    let should_run_nats = !cmd.nats_opts.connect_only && nats_client.is_err();
     // Ignore connect_only if this server has a remote and credsfile as we have to start a leafnode in that scenario
-    let nats_bin = if (!cmd.nats_opts.connect_only && nats_client.is_err())
-        || cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some()
-    {
+    let supplied_remote_credentials =
+        cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some();
+    let nats_bin = if should_run_nats || supplied_remote_credentials {
         // Download NATS if not already installed
         spinner.update_spinner_message(" Downloading NATS ...".to_string());
         let nats_binary = ensure_nats_server(&cmd.nats_opts.nats_version, &install_dir).await?;
@@ -396,7 +398,6 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
             if let Some(mut child) = wadm_process {
                 child.kill().await?;
             }
-            //TODO: only kill NATS if there are no running hosts
             if !cmd.nats_opts.connect_only {
                 stop_nats(install_dir).await?;
             }
@@ -576,7 +577,9 @@ async fn ensure_open_port(supplied_port: Option<u16>) -> Result<u16> {
             .map(|_tcp_stream| port)
             .map_err(|e| anyhow!(e))
     } else {
-        for i in 4000..=5000 {
+        let start_port = DEFAULT_DASHBOARD_PORT.parse().unwrap_or(4000);
+        let end_port = start_port + 1000;
+        for i in start_port..=end_port {
             if tokio::net::TcpStream::connect((LOCALHOST, i))
                 .await
                 .is_err()

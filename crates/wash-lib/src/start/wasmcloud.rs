@@ -7,7 +7,6 @@ use std::process::Stdio;
 use anyhow::{anyhow, Result};
 #[cfg(target_family = "unix")]
 use command_group::AsyncCommandGroup;
-use futures::future::join_all;
 use log::warn;
 use reqwest::StatusCode;
 use tokio::fs::{create_dir_all, metadata, File};
@@ -167,7 +166,7 @@ where
             download_response.status()
         ));
     }
-    let wasmcloud_host_burrito = reqwest::get(url).await?.bytes().await?.to_vec();
+    let wasmcloud_host_burrito = download_response.bytes().await?.to_vec();
     let version_dir = dir.as_ref().join(version);
     let file_path = version_dir.join(WASMCLOUD_HOST_BIN);
     if let Some(parent_folder) = file_path.parent() {
@@ -258,12 +257,8 @@ where
 {
     let versioned_dir = dir.as_ref().join(version);
     let bin_file = versioned_dir.join(WASMCLOUD_HOST_BIN);
-    let file_checks = vec![metadata(bin_file.clone())];
-    join_all(file_checks)
-        .await
-        .iter()
-        .all(|i| i.is_ok())
-        .then_some(bin_file)
+
+    metadata(&bin_file).await.is_ok().then_some(bin_file)
 }
 
 /// Helper function to determine the wasmCloud host release path given an os/arch and version

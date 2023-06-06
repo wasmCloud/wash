@@ -5,7 +5,7 @@ use std::process::{Output, Stdio};
 use anyhow::{anyhow, Result};
 use async_nats::Client;
 use clap::Parser;
-use log::warn;
+use log::{error, warn};
 use serde_json::json;
 use tokio::process::Command;
 use wash_lib::cli::{CommandOutput, OutputKind};
@@ -180,15 +180,24 @@ async fn stop_hosts(
             .iter()
             .map(|host| async {
                 let host_id = &host.id;
-                let _ = client
-                    .stop_host(host_id, None)
-                    .await
-                    // TODO: deal with this error
-                    .map_err(|e| anyhow!(e));
-                host_id.to_owned()
+                match client.stop_host(host_id, None).await {
+                    Ok(_) => Some(host_id.to_owned()),
+                    Err(e) => {
+                        error!("Could not stop host {}: {:?}", host_id, e);
+                        None
+                    }
+                }
             })
             .collect::<Vec<_>>();
-        Ok((futures::future::join_all(host_stops).await, false))
+        let all_stops = futures::future::join_all(host_stops).await;
+        let host_ids = all_stops
+            .iter()
+            // Remove any host IDs that ran into errors
+            .filter_map(|host_id| host_id.to_owned())
+            .collect::<Vec<_>>();
+        let hosts_remaining = all_stops.len() > host_ids.len();
+
+        Ok((host_ids, hosts_remaining))
     } else {
         Err(anyhow!(
                 "More than one host is running, please specify a host ID or use --all\nRunning hosts: {:?}", hosts.into_iter().map(|h| h.id).collect::<Vec<_>>()

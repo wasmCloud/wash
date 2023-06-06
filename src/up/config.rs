@@ -13,6 +13,7 @@ pub(crate) const WADM_VERSION: &str = "v0.4.0";
 // wasmCloud configuration values, https://wasmcloud.dev/reference/host-runtime/host_configure/
 pub(crate) const WASMCLOUD_HOST_VERSION: &str = "v0.63.0";
 pub(crate) const WASMCLOUD_DASHBOARD_PORT: &str = "WASMCLOUD_DASHBOARD_PORT";
+// NOTE: We scan from this port up to 1000 ports higher, should always be under 64535
 pub(crate) const DEFAULT_DASHBOARD_PORT: &str = "4000";
 // NATS isolation configuration variables
 pub(crate) const WASMCLOUD_LATTICE_PREFIX: &str = "WASMCLOUD_LATTICE_PREFIX";
