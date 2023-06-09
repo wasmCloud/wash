@@ -287,10 +287,45 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     // Find an open port for the host, and if the user specified a port, ensure it's open
     let host_port = ensure_open_port(cmd.wasmcloud_opts.dashboard_port).await?;
 
+    // Ensure we use the open dashboard port and the supplied NATS host/port if no overrides were supplied
+    let wasmcloud_opts = WasmcloudOpts {
+        dashboard_port: Some(host_port),
+        ctl_host: Some(
+            cmd.wasmcloud_opts
+                .ctl_host
+                .unwrap_or_else(|| cmd.nats_opts.nats_host.to_owned()),
+        ),
+        ctl_port: Some(
+            cmd.wasmcloud_opts
+                .ctl_port
+                .unwrap_or(cmd.nats_opts.nats_port),
+        ),
+        rpc_host: Some(
+            cmd.wasmcloud_opts
+                .rpc_host
+                .unwrap_or_else(|| cmd.nats_opts.nats_host.to_owned()),
+        ),
+        rpc_port: Some(
+            cmd.wasmcloud_opts
+                .rpc_port
+                .unwrap_or(cmd.nats_opts.nats_port),
+        ),
+        prov_rpc_host: Some(
+            cmd.wasmcloud_opts
+                .prov_rpc_host
+                .unwrap_or_else(|| cmd.nats_opts.nats_host.to_owned()),
+        ),
+        prov_rpc_port: Some(
+            cmd.wasmcloud_opts
+                .prov_rpc_port
+                .unwrap_or(cmd.nats_opts.nats_port),
+        ),
+        ..cmd.wasmcloud_opts
+    };
     // Capture listen address to keep the value after the nats_opts are moved
     let nats_listen_address = format!("{}:{}", cmd.nats_opts.nats_host, cmd.nats_opts.nats_port);
 
-    let nats_client = nats_client_from_wasmcloud_opts(&cmd.wasmcloud_opts).await;
+    let nats_client = nats_client_from_wasmcloud_opts(&wasmcloud_opts).await;
     let nats_opts = cmd.nats_opts.clone();
 
     // Avoid downloading + starting NATS if the user already runs their own server and we can connect.
@@ -298,6 +333,7 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     // Ignore connect_only if this server has a remote and credsfile as we have to start a leafnode in that scenario
     let supplied_remote_credentials =
         cmd.nats_opts.nats_remote_url.is_some() && cmd.nats_opts.nats_credsfile.is_some();
+
     let nats_bin = if should_run_nats || supplied_remote_credentials {
         // Download NATS if not already installed
         spinner.update_spinner_message(" Downloading NATS ...".to_string());
@@ -313,10 +349,10 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
 
     // Based on the options provided for wasmCloud, form a client connection to NATS.
     // If this fails, we should return early since wasmCloud wouldn't be able to connect either
-    nats_client_from_wasmcloud_opts(&cmd.wasmcloud_opts).await?;
+    nats_client_from_wasmcloud_opts(&wasmcloud_opts).await?;
 
     let wadm_process = if !cmd.wadm_opts.disable_wadm
-        && !is_wadm_running(&nats_opts, &cmd.wasmcloud_opts.lattice_prefix)
+        && !is_wadm_running(&nats_opts, &wasmcloud_opts.lattice_prefix)
             .await
             .unwrap_or(false)
     {
@@ -357,19 +393,17 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     // Download wasmCloud if not already installed
     let wasmcloud_executable = if !cmd.wasmcloud_opts.start_only {
         spinner.update_spinner_message(" Downloading wasmCloud ...".to_string());
-        ensure_wasmcloud(&cmd.wasmcloud_opts.wasmcloud_version, &install_dir).await?
+        ensure_wasmcloud(&wasmcloud_opts.wasmcloud_version, &install_dir).await?
+    } else if let Some(wasmcloud_bin) =
+        find_wasmcloud_binary(&install_dir, &wasmcloud_opts.wasmcloud_version).await
+    {
+        wasmcloud_bin
     } else {
-        if let Some(wasmcloud_bin) =
-            find_wasmcloud_binary(&install_dir, &cmd.wasmcloud_opts.wasmcloud_version).await
-        {
-            wasmcloud_bin
-        } else {
-            // Ensure we clean up the NATS server if we can't start wasmCloud
-            if nats_bin.is_some() {
-                stop_nats(install_dir).await?;
-            }
-            return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
+        // Ensure we clean up the NATS server if we can't start wasmCloud
+        if nats_bin.is_some() {
+            stop_nats(install_dir).await?;
         }
+        return Err(anyhow!("wasmCloud was not installed, exiting without downloading as --wasmcloud-start-only was set"));
     };
 
     // Redirect output (which is on stderr) to a log file in detached mode, or use the terminal
@@ -384,12 +418,8 @@ pub(crate) async fn handle_up(cmd: UpCommand, output_kind: OutputKind) -> Result
     } else {
         Stdio::piped()
     };
-    let version = cmd.wasmcloud_opts.wasmcloud_version.clone();
-    // Ensure we use the open dashboard port
-    let wasmcloud_opts = WasmcloudOpts {
-        dashboard_port: Some(host_port),
-        ..cmd.wasmcloud_opts
-    };
+    let version = wasmcloud_opts.wasmcloud_version.clone();
+
     let host_env = configure_host_env(nats_opts, wasmcloud_opts).await;
     let wasmcloud_child = match start_wasmcloud_host(
         &wasmcloud_executable,
@@ -579,10 +609,12 @@ async fn is_wadm_running(nats_opts: &NatsOpts, lattice_prefix: &str) -> Result<b
 /// `supplied_port` - The port supplied by the user so we can check if it's open
 async fn ensure_open_port(supplied_port: Option<u16>) -> Result<u16> {
     if let Some(port) = supplied_port {
-        tokio::net::TcpStream::connect((LOCALHOST, port))
-            .await
-            .map(|_tcp_stream| port)
-            .map_err(|e| anyhow!(e))
+        match tokio::net::TcpStream::connect((LOCALHOST, port)).await {
+            Ok(_tcp_stream) => Err(anyhow!(
+                "Supplied host port {port} already has a process listening"
+            )),
+            Err(_e) => Ok(port),
+        }
     } else {
         let start_port = DEFAULT_DASHBOARD_PORT.parse().unwrap_or(4000);
         let end_port = start_port + 1000;
