@@ -11,6 +11,8 @@ use log::warn;
 use reqwest::StatusCode;
 use tokio::fs::{create_dir_all, metadata, File};
 use tokio::process::{Child, Command};
+use tokio_stream::StreamExt;
+use tokio_util::io::StreamReader;
 
 const WASMCLOUD_GITHUB_RELEASE_URL: &str =
     "https://github.com/wasmCloud/wasmcloud-otp/releases/download";
@@ -166,7 +168,11 @@ where
             download_response.status()
         ));
     }
-    let wasmcloud_host_burrito = download_response.bytes().await?.to_vec();
+
+    let burrito_bites_stream = download_response
+        .bytes_stream()
+        .map(|result| result.map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err)));
+    let mut wasmcloud_host_burrito = StreamReader::new(burrito_bites_stream);
     let version_dir = dir.as_ref().join(version);
     let file_path = version_dir.join(WASMCLOUD_HOST_BIN);
     if let Some(parent_folder) = file_path.parent() {
@@ -185,7 +191,7 @@ where
                 wasmcloud_file.set_permissions(perms).await?;
             }
         }
-        tokio::io::copy(&mut wasmcloud_host_burrito.as_slice(), &mut wasmcloud_file).await?;
+        tokio::io::copy(&mut wasmcloud_host_burrito, &mut wasmcloud_file).await?;
     }
 
     // Return success if wasmCloud components exist, error otherwise
@@ -392,7 +398,7 @@ mod test {
     }
 
     const NATS_SERVER_VERSION: &str = "v2.8.4";
-    const WASMCLOUD_HOST_VERSION: &str = "v0.63.0";
+    const WASMCLOUD_HOST_VERSION: &str = "v0.63.1";
 
     #[tokio::test]
     async fn can_download_and_start_wasmcloud() -> anyhow::Result<()> {
