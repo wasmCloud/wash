@@ -1,0 +1,3 @@
+[submodule "vendor/wasmtime"]
+	path = vendor/wasmtime
+	url = https://github.com/rvolosatovs/wasmtime

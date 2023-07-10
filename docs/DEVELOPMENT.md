@@ -13,13 +13,22 @@ This document serves as a guide and reference for people looking to develop `was
 
 ## Development Prerequistes
 
-To contribute to `wash`, you just need [Rust](https://rustup.rs/) installed. To run any `wash` tests, you need to install [`nextest`](https://nexte.st/index.html). With a Rust toolchain already installed, you can simply install this with:
+To contribute to `wash`, you just need [Rust](https://rustup.rs/) installed.
+
+Due to the use of the as-of-yet unstable [`bindeps` feature][bindeps], `wash` also requires [nightly rust][rust-nightly] to
+be installed. `wash` uses nightly rust to build the [WASI preview1 adapter component][wasi-p1-adapter].
+
+To run any `wash` tests, you need to install [`nextest`](https://nexte.st/index.html). With a Rust toolchain already installed, you can simply install this with:
 
 ```bash
 cargo install cargo-nextest --locked
 ```
 
 The dependency check script will also install this for you, see that section below.
+
+[bindeps]: https://github.com/rust-lang/cargo/issues/9096
+[nightly-rust]: https://rust-lang.github.io/rustup/concepts/channels.html#working-with-nightly-rust
+[wasi-p1-adapter]: https://github.com/bytecodealliance/wasmtime/tree/main/crates/wasi-preview1-component-adapter
 
 ### `build` Integration Tests
 
@@ -56,6 +65,29 @@ To build continuously (thanks to [`cargo-watch`](https://crates.io/crates/cargo-
 ```console
 make build-watch
 ```
+
+### Building the WASI preview1 component adapters
+
+If you find it necessary to rebuild the preview1 components adapters, you must use `git submodule` (as [`wasmtime`][wasmtime] does). After checking out this repository:
+
+```console
+git submodule update --init # initialize the vendor/wasmtime submodule
+cd vendor/wasmtime
+git submodule update --init # intiialize the submodules inside wasmtime
+curl -L https://github.com/bytecodealliance/wasm-tools/releases/download/wasm-tools-1.0.27/wasm-tools-1.0.27-x86_64-linux.tar.gz | tar xfz -
+export PATH=`pwd`/wasm-tools-1.0.27-x86_64-linux:$PATH
+./ci/build-wasi-preview1-component-adapter.sh
+mv target/wasm32-unknown-unknown/release/wasi_* ../wasm/
+```
+
+After performing the steps above you should have both adapters at the following paths inside the respository:
+
+- `vendor/wasmtime/target/wasm32-unknown-unknown/release/wasi_snapshot_preview1.command.wasm`
+- `vendor/wasmtime/target/wasm32-unknown-unknown/release/wasi_snapshot_preview1.reactor.wasm`
+
+The files listed above should be identical to the ones at `vendor/wasm/wasi_snapshot_preview1.(command|reactor).wasm`.
+
+[wasmtime]: https://github.com/bytecodealliance/wasmtime
 
 ## Testing the project
 
