@@ -70,12 +70,6 @@ wasmcloud-control-interface = { workspace = true }
 weld-codegen = { workspace = true }
 wasmbus-rpc = { workspace = true }
 
-[build-dependencies]
-anyhow = { workspace = true }
-tokio = { workspace = true, features = [ "fs", "process", "macros" ] }
-serde_json = { workspace = true }
-serde = { workspace = true }
-
 [dev-dependencies]
 claims = { workspace = true }
 dirs = { workspace = true }
