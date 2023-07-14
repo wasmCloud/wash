@@ -92,6 +92,9 @@
           "snap"
           "tools"
 
+          "vendor/wasm/wasi_snapshot_preview1.command.wasm"
+          "vendor/wasm/wasi_snapshot_preview1.reactor.wasm"
+
           # Exclude tests, which require either:
           # - non-deterministic networking, which is not available within Nix sandbox
           # - external services running, which would require a more involved setup
