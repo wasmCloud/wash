@@ -15,8 +15,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      - run: rustup toolchain install nightly --profile minimal
-      - run: rustup target add wasm32-unknown-unknown --toolchain nightly
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "ubuntu-22.04-shared-cache"
@@ -48,8 +46,6 @@ jobs:
         with:
           node-version: '18.x'
       - uses: actions/checkout@v3
-      - run: rustup toolchain install nightly --profile minimal
-      - run: rustup target add wasm32-unknown-unknown --toolchain nightly
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "${{ matrix.os }}-shared-cache"
@@ -80,8 +76,6 @@ jobs:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
-      - run: rustup toolchain install nightly --profile minimal
-      - run: rustup target add wasm32-unknown-unknown --toolchain nightly
       - uses: Swatinem/rust-cache@v2
         with:
           shared-key: "ubuntu-22.04-shared-cache"
