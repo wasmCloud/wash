@@ -4443,29 +4443,6 @@ dependencies = [
 
 [[package]]
 name = "wascap"
-version = "0.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3a85c9ab66dd6a39400cc7235b803c8819c3b76405bce83f8e6c540a8abf89a"
-dependencies = [
- "base64 0.13.1",
- "data-encoding",
- "env_logger 0.10.0",
- "humantime",
- "lazy_static",
- "log",
- "nkeys 0.2.0",
- "nuid 0.4.1",
- "ring",
- "serde",
- "serde_derive",
- "serde_json",
- "wasm-encoder 0.25.0",
- "wasm-gen",
- "wasmparser 0.102.0",
-]
-
-[[package]]
-name = "wascap"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c38c03de923f80027cb62281f520bd97245a38eeb85a53f435a110509d044551"
@@ -4482,9 +4459,9 @@ dependencies = [
  "serde",
  "serde_derive",
  "serde_json",
- "wasm-encoder 0.29.0",
+ "wasm-encoder",
  "wasm-gen",
- "wasmparser 0.107.0",
+ "wasmparser",
 ]
 
 [[package]]
@@ -4541,7 +4518,7 @@ dependencies = [
  "wadm",
  "warp",
  "warp-embed",
- "wascap 0.10.1",
+ "wascap 0.11.0",
  "wash-lib",
  "wasmbus-rpc 0.13.0",
  "wasmcloud-control-interface 0.26.0",
@@ -4599,7 +4576,7 @@ dependencies = [
  "toml 0.7.6",
  "wadm",
  "walkdir",
- "wascap 0.10.1",
+ "wascap 0.11.0",
  "wasmbus-rpc 0.13.0",
  "wasmcloud-control-interface 0.26.0",
  "weld-codegen 0.7.0",
@@ -4682,15 +4659,6 @@ name = "wasm-bindgen-shared"
 version = "0.2.87"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca6ad05a4870b2bf5fe995117d3728437bd27d7cd5f06f13c17443ef369775a1"
-
-[[package]]
-name = "wasm-encoder"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4eff853c4f09eec94d76af527eddad4e9de13b11d6286a1ef7134bc30135a2b7"
-dependencies = [
- "leb128",
-]
 
 [[package]]
 name = "wasm-encoder"
@@ -4930,16 +4898,6 @@ dependencies = [
  "toml 0.5.11",
  "wasmbus-rpc 0.11.2",
  "wasmcloud-interface-testing",
-]
-
-[[package]]
-name = "wasmparser"
-version = "0.102.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "48134de3d7598219ab9eaf6b91b15d8e50d31da76b8519fe4ecfcec2cf35104b"
-dependencies = [
- "indexmap 1.9.3",
- "url",
 ]
 
 [[package]]

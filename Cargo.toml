@@ -142,7 +142,7 @@ tokio-util = "0.7.8"
 toml = "0.7.6"
 wadm = "0.4.0"
 walkdir = "2.3"
-wascap = "0.10.1"
+wascap = "0.11.0"
 wash-lib = { version = "0.9.0", path = "./crates/wash-lib" }
 wasmbus-rpc = "0.13.0"
 wasmcloud-control-interface = "0.26"
