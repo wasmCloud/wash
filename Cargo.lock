@@ -4543,7 +4543,7 @@ dependencies = [
  "warp-embed",
  "wascap 0.10.1",
  "wash-lib",
- "wasmbus-rpc 0.13.0",
+ "wasmbus-rpc 0.14.0",
  "wasmcloud-control-interface 0.26.0",
  "wasmcloud-test-util",
  "weld-codegen 0.7.0",
@@ -4600,7 +4600,7 @@ dependencies = [
  "wadm",
  "walkdir",
  "wascap 0.10.1",
- "wasmbus-rpc 0.13.0",
+ "wasmbus-rpc 0.14.0",
  "wasmcloud-control-interface 0.26.0",
  "weld-codegen 0.7.0",
 ]
