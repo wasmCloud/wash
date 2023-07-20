@@ -267,10 +267,14 @@ pub(crate) async fn handle_create(
             extension
         ),
     };
-    if let Some(schema) = cmd.schema {
+    if let Some(ref schema) = cmd.schema {
         let bytes = std::fs::read(schema)?;
-        par.set_schema(serde_json::from_slice::<serde_json::Value>(&bytes)?)
-            .map_err(convert_error)?;
+        par.set_schema(
+            serde_json::from_slice::<serde_json::Value>(&bytes)
+                .with_context(|| "Unable to parse JSON from file contents".to_string())?,
+        )
+        .map_err(convert_error)
+        .with_context(|| format!("Error parsing JSON schema from file '{:?}'", schema))?;
     }
 
     par.write(&outfile, &issuer, &subject, cmd.compress)
