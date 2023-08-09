@@ -39,7 +39,7 @@ jobs:
     strategy:
       fail-fast: false # Ensure we can run the full suite even if one OS fails
       matrix:
-        os: [ubuntu-22.04, windows-latest-8-cores, macos-11]
+        os: [ubuntu-22.04, windows-latest, macos-11]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/setup-node@v3
@@ -47,7 +47,7 @@ jobs:
           node-version: "18.x"
       - uses: actions/checkout@v3
       - uses: Swatinem/rust-cache@v2
-        if: matrix.os != 'windows-latest-8-cores'
+        if: matrix.os != 'windows-latest'
         with:
           shared-key: "${{ matrix.os }}-shared-cache"
       - name: Install nextest
