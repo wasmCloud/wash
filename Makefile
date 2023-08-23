@@ -35,6 +35,9 @@ build-ui: ## Build the UI from source
 	@$(NPM) install --prefix ./packages/washboard
 	@$(NPM) run build --prefix ./packages/washboard
 
+build-docker: ## Build the docker image
+	@$(DOCKER) build -t wash .
+
 ##@ Testing
 
 test: ## Run unit test suite
