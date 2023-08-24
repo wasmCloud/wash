@@ -40,7 +40,7 @@ regex = { workspace = true }
 remove_dir_all = { workspace = true }
 rmp-serde = { workspace = true }
 rmpv = { workspace = true }
-rust-embed = "6.8.1"
+rust-embed = "8.0.0"
 sanitize-filename = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
