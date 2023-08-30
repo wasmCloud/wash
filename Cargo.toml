@@ -90,7 +90,7 @@ members = ["./", "./crates/wash-lib"]
 anyhow = "1.0.75"
 assert-json-diff = "2.0.1"
 async-compression = { version = "0.3", default-features = false }
-async-nats = "0.30.0"
+async-nats = "0.31.0"
 atelier_core = "0.2"
 bytes = "1.4"
 cargo_atelier = "0.2"

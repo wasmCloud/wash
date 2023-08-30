@@ -4309,7 +4309,7 @@ version = "0.19.1"
 dependencies = [
  "anyhow",
  "assert-json-diff",
- "async-nats 0.30.0",
+ "async-nats 0.31.0",
  "atelier_core 0.2.22",
  "bytes",
  "cargo_atelier",
@@ -4372,7 +4372,7 @@ version = "0.9.3"
 dependencies = [
  "anyhow",
  "async-compression",
- "async-nats 0.30.0",
+ "async-nats 0.31.0",
  "bytes",
  "cargo_metadata",
  "cargo_toml",
