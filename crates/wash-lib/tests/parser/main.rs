@@ -3,8 +3,8 @@ use std::{fs, path::PathBuf};
 use claims::{assert_err, assert_ok};
 use semver::Version;
 use wash_lib::parser::{
-    get_config, ActorConfig, CommonConfig, LanguageConfig, RustConfig, TinyGoConfig, TypeConfig,
-    WasmTarget,
+    get_config, ActorConfig, CommonConfig, LanguageConfig, RustConfig, RustWasmTarget,
+    TinyGoConfig, TinyGoWasmTarget, TypeConfig,
 };
 
 #[test]
@@ -33,7 +33,7 @@ fn rust_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: Some("testactor.wasm".to_string()),
-            wasm_target: WasmTarget::CoreModule,
+            wasm_target: RustWasmTarget::CoreModule,
             wasi_preview2_adapter_path: None,
             call_alias: Some("testactor".to_string())
         })
@@ -64,7 +64,8 @@ fn tinygo_actor() {
     assert_eq!(
         config.language,
         LanguageConfig::TinyGo(TinyGoConfig {
-            tinygo_path: Some("path/to/tinygo".into())
+            tinygo_path: Some("path/to/tinygo".into()),
+            wasm_target: Some(TinyGoWasmTarget::CoreModule.into()),
         })
     );
 
@@ -76,7 +77,7 @@ fn tinygo_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: Some("testactor.wasm".to_string()),
-            wasm_target: WasmTarget::CoreModule,
+            wasm_target: RustWasmTarget::CoreModule,
             wasi_preview2_adapter_path: None,
             call_alias: Some("testactor".to_string())
         })
@@ -259,7 +260,7 @@ fn minimal_rust_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: None,
-            wasm_target: WasmTarget::CoreModule,
+            wasm_target: RustWasmTarget::CoreModule,
             wasi_preview2_adapter_path: None,
             call_alias: None
         })
@@ -305,7 +306,7 @@ fn cargo_toml_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: None,
-            wasm_target: WasmTarget::CoreModule,
+            wasm_target: RustWasmTarget::CoreModule,
             wasi_preview2_adapter_path: None,
             call_alias: None
         })
@@ -339,7 +340,7 @@ fn minimal_rust_actor_preview2() {
     assert!(matches!(
         config.project_type,
         TypeConfig::Actor(ActorConfig {
-            wasm_target: WasmTarget::WasiPreview2,
+            wasm_target: RustWasmTarget::WasiPreview2,
             ..
         })
     ));
@@ -360,7 +361,7 @@ fn minimal_rust_actor_preview1() {
     assert!(matches!(
         config.project_type,
         TypeConfig::Actor(ActorConfig {
-            wasm_target: WasmTarget::WasiPreview1,
+            wasm_target: RustWasmTarget::WasiPreview1,
             ..
         })
     ));
@@ -381,7 +382,7 @@ fn minimal_rust_actor_core_module() {
     assert!(matches!(
         config.project_type,
         TypeConfig::Actor(ActorConfig {
-            wasm_target: WasmTarget::CoreModule,
+            wasm_target: RustWasmTarget::CoreModule,
             ..
         })
     ));
