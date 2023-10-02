@@ -33,9 +33,10 @@ fn rust_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: Some("testactor.wasm".to_string()),
-            wasm_target: WasmTarget::CoreModule,
+            call_alias: Some("testactor".to_string()),
             wasi_preview2_adapter_path: None,
-            call_alias: Some("testactor".to_string())
+            wasm_target: WasmTarget::CoreModule,
+            wit_world: None,
         })
     );
 
@@ -78,9 +79,10 @@ fn tinygo_actor_module() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: Some("testactor.wasm".to_string()),
-            wasm_target: WasmTarget::TinyGoCoreModule,
+            call_alias: Some("testactor".to_string()),
             wasi_preview2_adapter_path: None,
-            call_alias: Some("testactor".to_string())
+            wasm_target: WasmTarget::CoreModule,
+            wit_world: None,
         })
     );
 
@@ -98,7 +100,7 @@ fn tinygo_actor_module() {
 }
 
 #[test]
-fn tinygo_actor() {
+fn tinygo_actor_component() {
     let result = get_config(
         Some(PathBuf::from(
             "./tests/parser/files/tinygo_actor_component.toml",
@@ -116,9 +118,10 @@ fn tinygo_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: Some("testactor.wasm".to_string()),
-            wasm_target: WasmTarget::TinyGoWasiPreview1,
+            call_alias: Some("testactor".to_string()),
             wasi_preview2_adapter_path: None,
-            call_alias: Some("testactor".to_string())
+            wasm_target: WasmTarget::WasiPreview2,
+            wit_world: None,
         })
     );
 }
@@ -287,9 +290,10 @@ fn minimal_rust_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: None,
-            wasm_target: WasmTarget::CoreModule,
+            call_alias: None,
             wasi_preview2_adapter_path: None,
-            call_alias: None
+            wasm_target: WasmTarget::CoreModule,
+            wit_world: None,
         })
     );
 
@@ -333,9 +337,10 @@ fn cargo_toml_actor() {
             push_insecure: false,
             key_directory: PathBuf::from("./keys"),
             filename: None,
-            wasm_target: WasmTarget::CoreModule,
+            call_alias: None,
             wasi_preview2_adapter_path: None,
-            call_alias: None
+            wasm_target: WasmTarget::CoreModule,
+            wit_world: None,
         })
     );
 
