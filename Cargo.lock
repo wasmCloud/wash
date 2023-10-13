@@ -4441,7 +4441,7 @@ dependencies = [
  "wat",
  "weld-codegen",
  "wit-component",
- "wit-parser",
+ "wit-parser 0.11.3",
 ]
 
 [[package]]
@@ -4555,17 +4555,18 @@ dependencies = [
 
 [[package]]
 name = "wasm-metadata"
-version = "0.10.7"
+version = "0.10.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4f2c051ef041d348324b01ff0419f6f6593f094b4897d93c9cf52d5d1ac879ba"
+checksum = "346c0975b2fea462dbe9bf692dd054272f9872f8c3958be21c83b3ebf44a9b85"
 dependencies = [
  "anyhow",
  "indexmap 2.0.2",
  "serde",
+ "serde_derive",
  "serde_json",
  "spdx",
- "wasm-encoder 0.33.2",
- "wasmparser 0.113.3",
+ "wasm-encoder 0.34.1",
+ "wasmparser 0.114.0",
 ]
 
 [[package]]
@@ -4788,9 +4789,9 @@ dependencies = [
 
 [[package]]
 name = "wasmparser"
-version = "0.113.3"
+version = "0.114.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "286049849b5a5bd09a8773171be96824afabffc7cc3df6caaf33a38db6cd07ae"
+checksum = "8ef211410dcb08b037eb6d197b2398f8ef9d635c5dc5598d0dfda32094315ea3"
 dependencies = [
  "indexmap 2.0.2",
  "semver",
@@ -5068,20 +5069,21 @@ dependencies = [
 
 [[package]]
 name = "wit-component"
-version = "0.14.5"
+version = "0.14.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e2bf941487fc5afa9e3fc94761f6b80ecef5a2bed6239b959d23d9de69e3448"
+checksum = "0e99c85960e9e0a6211b4bb127347151224183fae69c2fe89ccc36c6c6551c0d"
 dependencies = [
  "anyhow",
  "bitflags 2.4.0",
  "indexmap 2.0.2",
  "log",
  "serde",
+ "serde_derive",
  "serde_json",
- "wasm-encoder 0.33.2",
+ "wasm-encoder 0.34.1",
  "wasm-metadata",
- "wasmparser 0.113.3",
- "wit-parser",
+ "wasmparser 0.114.0",
+ "wit-parser 0.12.0",
 ]
 
 [[package]]
@@ -5100,6 +5102,23 @@ dependencies = [
  "serde_json",
  "unicode-xid",
  "url",
+]
+
+[[package]]
+name = "wit-parser"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d08c9557c65c428ac18a3cce80bf2527dbec24ab06639642c7db73f2c7613f93"
+dependencies = [
+ "anyhow",
+ "id-arena",
+ "indexmap 2.0.2",
+ "log",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "unicode-xid",
 ]
 
 [[package]]
