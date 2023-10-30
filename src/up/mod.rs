@@ -210,7 +210,7 @@ pub(crate) struct WasmcloudOpts {
     #[clap(long = "allowed-insecure", env = WASMCLOUD_OCI_ALLOWED_INSECURE)]
     pub(crate) allowed_insecure: Option<Vec<String>>,
 
-    /// Jetstream domain name, configures a host to properly connect to a NATS supercluster, defaults to `core`
+    /// Jetstream domain name, configures a host to properly connect to a NATS supercluster
     #[clap(long = "wasmcloud-js-domain", env = WASMCLOUD_JS_DOMAIN)]
     pub(crate) wasmcloud_js_domain: Option<String>,
 
