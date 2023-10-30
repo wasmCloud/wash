@@ -158,7 +158,7 @@ wash-lib = { version = "0.12", path = "./crates/wash-lib" }
 wasm-encoder = "0.33.2"
 wasmbus-rpc = "0.15.0"
 wasmcloud-component-adapters = "0.3.0"
-wasmcloud-control-interface = "0.30"
+wasmcloud-control-interface = "0.31"
 wasmcloud-test-util = "0.10.0"
 wasmparser = "0.115.0"
 wat = "1.0.77"

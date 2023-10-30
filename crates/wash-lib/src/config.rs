@@ -5,12 +5,10 @@ use std::{
     path::PathBuf,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use async_nats::Client;
 use tokio::io::AsyncReadExt;
-use wasmcloud_control_interface::{
-    kv::DirectKvStore, Client as CtlClient, ClientBuilder as CtlClientBuilder,
-};
+use wasmcloud_control_interface::{Client as CtlClient, ClientBuilder as CtlClientBuilder};
 
 use crate::context::WashContext;
 
@@ -97,10 +95,7 @@ pub struct WashConnectionOptions {
 
 impl WashConnectionOptions {
     /// Create a control client from connection options
-    pub async fn into_ctl_client(
-        self,
-        auction_timeout_ms: Option<u64>,
-    ) -> Result<CtlClient<DirectKvStore>> {
+    pub async fn into_ctl_client(self, auction_timeout_ms: Option<u64>) -> Result<CtlClient> {
         let lattice_prefix = self.lattice_prefix.unwrap_or_else(|| {
             self.ctx
                 .as_ref()
@@ -155,26 +150,11 @@ impl WashConnectionOptions {
             .timeout(tokio::time::Duration::from_millis(self.timeout_ms))
             .auction_timeout(tokio::time::Duration::from_millis(auction_timeout_ms));
 
-        let opts_js_domain = self.js_domain;
-        let ctx_js_domain = self.ctx.clone().and_then(|c| c.js_domain);
-        let js_domain = match (opts_js_domain, ctx_js_domain) {
-            (Some(opts_domain), _) => Some(opts_domain), // flag takes priority
-            (None, Some(ctx_domain)) => Some(ctx_domain),
-            _ => None,
-        };
-
-        if let Some(js_domain) = js_domain {
-            builder = builder.js_domain(js_domain);
-        }
-
         if let Ok(topic_prefix) = std::env::var("WASMCLOUD_CTL_TOPIC_PREFIX") {
             builder = builder.topic_prefix(topic_prefix);
         }
 
-        let ctl_client = builder
-            .build()
-            .await
-            .map_err(|err| anyhow!("Failed to create control interface client: {err:?}"))?;
+        let ctl_client = builder.build();
 
         Ok(ctl_client)
     }

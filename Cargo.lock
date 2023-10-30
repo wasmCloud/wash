@@ -4535,7 +4535,7 @@ dependencies = [
  "wascap",
  "wash-lib",
  "wasmbus-rpc 0.15.0",
- "wasmcloud-control-interface 0.30.0",
+ "wasmcloud-control-interface 0.31.0",
  "wasmcloud-test-util",
  "weld-codegen",
  "which",
@@ -4597,7 +4597,7 @@ dependencies = [
  "wasm-encoder 0.33.2",
  "wasmbus-rpc 0.15.0",
  "wasmcloud-component-adapters",
- "wasmcloud-control-interface 0.30.0",
+ "wasmcloud-control-interface 0.31.0",
  "wasmparser 0.115.0",
  "wat",
  "weld-codegen",
@@ -4693,15 +4693,6 @@ name = "wasm-encoder"
 version = "0.33.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34180c89672b3e4825c3a8db4b61a674f1447afd5fe2445b2d22c3d8b6ea086c"
-dependencies = [
- "leb128",
-]
-
-[[package]]
-name = "wasm-encoder"
-version = "0.34.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f14a94e06a3e2ed1af4e80cac712fed883142019ebe33c3899fd1b5e8550df9d"
 dependencies = [
  "leb128",
 ]
@@ -4888,9 +4879,9 @@ dependencies = [
 
 [[package]]
 name = "wasmcloud-control-interface"
-version = "0.30.0"
+version = "0.31.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1afe836c6a64bf593db3fcceca9ea23c5f7a53d8a87842be4b7b4efe8a6ca2a"
+checksum = "e5d5dbc3259219796c050a5f7be75f6ced600d41333c2d741fc78f03c82308c1"
 dependencies = [
  "async-nats 0.31.0",
  "async-trait",
