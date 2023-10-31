@@ -1,21 +1,18 @@
-> **Warning**
+> [!WARNING]
 >
-> `wash`, the WasmCloud Shell has moved, as discussed in our [2023/10/25 Community meeting][meeting-2023/10/25]!
+> `wash`, the wasmCloud Shell has moved, as discussed in our [2023/10/25 Community meeting][meeting-2023/10/25]!
 > The code that powers wash is now found in the [`wasmCloud/wasmCloud` monorepo][gh-wasmcloud/wasmcloud],
 > in the [`wasmCloud/crates/wash-cli`][gh-wash-folder] folder.
 >
 > We look forward to receiving your contributions, feedback, and user reports at the new home for `wash` code!
->
 
-[gh-wasmCloud/wasmCloud]: https://github.com/wasmCloud/wasmcloud
+[gh-wasmCloud/wasmCloud]: https://github.com/wasmCloud/wasmCloud
 [gh-wash-folder]: https://github.com/wasmCloud/wasmCloud/tree/main/crates/wash-cli
 [meeting-2023/10/25]: https://wasmcloud.com/community/2023/10/25/community-meeting
 
 [![Latest Release](https://img.shields.io/github/v/release/wasmcloud/wash?color=success&include_prereleases)](https://github.com/wasmCloud/wash/releases)
-[![Rust Build](https://img.shields.io/github/actions/workflow/status/wasmcloud/wash/rust_ci.yml?branch=main)](https://github.com/wasmCloud/wash/actions/workflows/rust_ci.yml)
 [![Rust Version](https://img.shields.io/badge/rustc-1.66.0-orange.svg)](https://blog.rust-lang.org/2022/12/15/Rust-1.66.0.html)
 [![Contributors](https://img.shields.io/github/contributors/wasmcloud/wash)](https://github.com/wasmCloud/wash/graphs/contributors)
-[![Good first issues](https://img.shields.io/github/issues/wasmcloud/wash/good%20first%20issue?label=good%20first%20issues)](https://github.com/wasmCloud/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22)
 [![wash-cli](https://img.shields.io/crates/v/wash-cli)](https://crates.io/crates/wash-cli)
 
 ```
@@ -107,49 +104,54 @@ nix run github:wasmCloud/wash
 
 ### build
 
-Builds and signs the actor, provider, or interface as defined in a `wasmcloud.toml` file.  Will look for configuration file in directory where command is being run.  
+Builds and signs the actor, provider, or interface as defined in a `wasmcloud.toml` file. Will look for configuration file in directory where command is being run.  
 There are three main sections of a `wasmcloud.toml` file: common config, language config, and type config.
 
 #### Common Config
+
 | Setting       | Type   | Default                       | Description                                                                            |
 | ------------- | ------ | ----------------------------- | -------------------------------------------------------------------------------------- |
-| name          | string |                               | Name of the project                                                                    | 
+| name          | string |                               | Name of the project                                                                    |
 | version       | string |                               | Semantic version of the project                                                        |
-| path          | string | `{pwd}`                       | Path to the project directory to determine where built and signed artifacts are output | 
+| path          | string | `{pwd}`                       | Path to the project directory to determine where built and signed artifacts are output |
 | wasm_bin_name | string | "name" setting                | Expected name of the wasm module binary that will be generated                         |
 | language      | enum   | [rust, tinygo]                | Language that actor or provider is written in                                          |
 | type          | enum   | [actor, provider, interface ] | Type of wasmcloud artifact that is being generated                                     |
 
-
 #### Language Config - [tinygo]
+
 | Setting     | Type   | Default        | Description                   |
 | ----------- | ------ | -------------- | ----------------------------- |
 | tinygo_path | string | `which tinygo` | The path to the tinygo binary |
 
 #### Language Config - [rust]
+
 | Setting     | Type   | Default       | Description                             |
 | ----------- | ------ | ------------- | --------------------------------------- |
 | cargo_path  | string | `which cargo` | The path to the cargo binary            |
 | target_path | string | ./target      | Path to cargo/rust's `target` directory |
 
 #### Type Config - [actor]
-| Setting | Type | Default | Description |
-| ------- | ---- | ------- | ----------- |
+
+| Setting       | Type    | Default                | Description                                                                                               |
+| ------------- | ------- | ---------------------- | --------------------------------------------------------------------------------------------------------- |
 | claims        | list    | []                     | The list of provider claims that this actor requires. eg. ["wasmcloud:httpserver", "wasmcloud:blobstore"] |
-| registry      | string  | localhost:8080         | The registry to push to. eg. "localhost:8080"                                                                              |
-| push_insecure | boolean | false | Whether to push to the registry insecurely                                                                                                  |
-| key_directory | string  | `~/.wash/keys`         | The directory to store the private signing keys in                                                                        |
-| filename      | string  | <build_output>_s.wasm  | The filename of the signed wasm actor                                                                                      |
-| wasm_target   | string  | wasm32-unknown-unknown | Compile target                                                                                                            |
-| call_alias    | string  |                        |  The call alias of the actor |
+| registry      | string  | localhost:8080         | The registry to push to. eg. "localhost:8080"                                                             |
+| push_insecure | boolean | false                  | Whether to push to the registry insecurely                                                                |
+| key_directory | string  | `~/.wash/keys`         | The directory to store the private signing keys in                                                        |
+| filename      | string  | <build_output>\_s.wasm | The filename of the signed wasm actor                                                                     |
+| wasm_target   | string  | wasm32-unknown-unknown | Compile target                                                                                            |
+| call_alias    | string  |                        | The call alias of the actor                                                                               |
 
 #### Type Config - [provider]
+
 | Setting       | Type   | Default | Description                       |
 | ------------- | ------ | ------- | --------------------------------- |
 | capability_id | string |         | The capability ID of the provider |
 | vendor        | string |         | The vendor name of the provider   |
 
 #### Type Config - [interface]
+
 | Setting        | Type   | Default | Description               |
 | -------------- | ------ | ------- | ------------------------- |
 | html_target    | string | ./html  | Directory to output HTML  |
@@ -225,7 +227,6 @@ Bootstrap a wasmCloud environment in one easy command, supporting both launching
 ### validate
 
 Perform validation checks on .smithy models, ensuring that your interfaces are valid and usable for codegen and development.
-
 
 ## Shell auto-complete
 
