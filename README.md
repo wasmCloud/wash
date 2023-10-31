@@ -1,3 +1,16 @@
+> **Warning**
+>
+> `wash`, the WasmCloud Shell has moved, as discussed in our [2023/10/25 Community meeting][meeting-2023/10/25]!
+> The code that powers wash is now found in the [`wasmCloud/wasmCloud` monorepo][gh-wasmcloud/wasmcloud],
+> in the [`wasmCloud/crates/wash-cli`][gh-wash-folder] folder.
+>
+> We look forward to receiving your contributions, feedback, and user reports at the new home for `wash` code!
+>
+
+[gh-wasmCloud/wasmCloud]: https://github.com/wasmCloud/wasmcloud
+[gh-wash-folder]: https://github.com/wasmCloud/wasmCloud/tree/main/crates/wash-cli
+[meeting-2023/10/25]: https://wasmcloud.com/community/2023/10/25/community-meeting
+
 [![Latest Release](https://img.shields.io/github/v/release/wasmcloud/wash?color=success&include_prereleases)](https://github.com/wasmCloud/wash/releases)
 [![Rust Build](https://img.shields.io/github/actions/workflow/status/wasmcloud/wash/rust_ci.yml?branch=main)](https://github.com/wasmCloud/wash/actions/workflows/rust_ci.yml)
 [![Rust Version](https://img.shields.io/badge/rustc-1.66.0-orange.svg)](https://blog.rust-lang.org/2022/12/15/Rust-1.66.0.html)
@@ -127,7 +140,7 @@ There are three main sections of a `wasmcloud.toml` file: common config, languag
 | push_insecure | boolean | false | Whether to push to the registry insecurely                                                                                                  |
 | key_directory | string  | `~/.wash/keys`         | The directory to store the private signing keys in                                                                        |
 | filename      | string  | <build_output>_s.wasm  | The filename of the signed wasm actor                                                                                      |
-| wasm_target   | string  | wasm32-unknown-unknown | Compile target                                                                                                            | 
+| wasm_target   | string  | wasm32-unknown-unknown | Compile target                                                                                                            |
 | call_alias    | string  |                        |  The call alias of the actor |
 
 #### Type Config - [provider]
