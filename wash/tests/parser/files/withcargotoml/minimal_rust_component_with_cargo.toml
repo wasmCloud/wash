@@ -1,5 +1,5 @@
 language = "rust"
-type = "actor"
+type = "component"
 
-[actor]
+[component]
 claims = ["wasmcloud:httpserver"]

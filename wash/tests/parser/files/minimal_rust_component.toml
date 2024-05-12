@@ -1,7 +1,7 @@
 language = "rust"
-type = "actor"
-name = "testactor"
+type = "component"
+name = "testcomponent"
 version = "0.1.0"
 
-[actor]
+[component]
 claims = ["wasmcloud:httpserver"]

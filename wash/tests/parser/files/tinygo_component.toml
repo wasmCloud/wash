@@ -1,16 +1,16 @@
 language = "tinygo"
-type = "actor"
-name = "testactor"
+type = "component"
+name = "testcomponent"
 version = "0.1.0"
 
-[actor]
+[component]
 claims = ["wasmcloud:httpserver"]
 registry = "localhost:8080"
 push_insecure = false
 key_directory = "./keys"
-destination = "./build/testactor.wasm"
-wasm_target = "wasm"
-call_alias = "testactor"
+destination = "./build/testcomponent.wasm"
+wasm_target = "wasm32-wasi-preview2"
+call_alias = "testcomponent"
 
 [tinygo]
 tinygo_path = "path/to/tinygo"
