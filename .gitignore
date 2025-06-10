@@ -1,0 +1,12 @@
+tests/output
+*.wasm
+.env
+
+# Keep Wasm files for testing
+!tests/fixtures/*.wasm
+
+# Ignore IDE specific files
+.vscode
+
+# Ignore Rust target directory
+target/

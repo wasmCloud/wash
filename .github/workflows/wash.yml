@@ -1,0 +1,150 @@
+name: wash
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/wash.yml'
+      - 'src/**'
+      - 'tests/**'
+      - 'Cargo.*'
+      - 'rust-toolchain.toml'
+      - 'rustfmt.toml'
+  push:
+    branches:
+      - main
+    tags:
+      - 'wash-v*'
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+      - name: Build
+        run: cargo build
+      - name: Test
+        env:
+          RUST_BACKTRACE: '1'
+        run: |
+          cargo test --workspace
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          rust-toolchain: nightly
+          rust-components: rustfmt
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@735e5933943122c5ac182670a935f54a949265c1 # v2.52.4
+        with:
+          tool: cargo-machete@0.8.0
+      - name: Format
+        run: |
+          cargo +nightly fmt -- --check
+      - name: Lint
+        # TODO: Deny warnings for code quality
+        # cargo clippy --workspace -- -D warnings
+        run: |
+          cargo clippy --workspace
+      - name: Check for unused dependencies
+        run: |
+          cargo machete
+
+  release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wash-v')
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            buildCommand: cargo zigbuild
+            artifact: wash-x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            bin: wash
+          - target: aarch64-unknown-linux-musl
+            buildCommand: cargo zigbuild
+            artifact: wash-aarch64-unknown-linux-musl
+            runner: ubuntu-latest
+            bin: wash
+          - target: x86_64-apple-darwin
+            buildCommand: cargo build
+            artifact: wash-x86_64-apple-darwin
+            runner: macos-latest
+            bin: wash
+          - target: aarch64-apple-darwin
+            buildCommand: cargo build
+            artifact: wash-aarch64-apple-darwin
+            runner: macos-latest
+            bin: wash
+          - target: x86_64-pc-windows-gnu
+            buildCommand: cargo build
+            artifact: wash-x86_64-pc-windows-gnu
+            runner: windows-latest
+            bin: wash.exe
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          rust-toolchain: stable
+          # Only needed for ubuntu
+          install-zigbuild: ${{ matrix.runner == 'ubuntu-latest' }}
+          rust-targets: '${{ matrix.target }}'
+
+      - name: Build binary (${{ matrix.target }})
+        run: |
+          ${{ matrix.buildCommand }} --release --target ${{ matrix.target }}
+          cp target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+
+  upload-release-assets:
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Create GitHub Release and upload binaries
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          files: ./artifacts/*/*
+          token: ${{ github.token }}

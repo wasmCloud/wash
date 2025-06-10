@@ -1,0 +1,11 @@
+blank_lines_lower_bound = 0
+blank_lines_upper_bound = 1
+edition = "2024"
+format_code_in_doc_comments = true
+group_imports = "StdExternalCrate"
+imports_granularity = "Module"
+remove_nested_parens = true
+reorder_imports = true
+reorder_modules = true
+unstable_features = true
+wrap_comments = true

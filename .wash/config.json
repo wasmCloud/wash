@@ -1,0 +1,8 @@
+{
+  "build": {
+    "artifact_path": "target/debug/wash",
+    "rust": {
+      "target": "aarch64-apple-darwin"
+    }
+  }
+}

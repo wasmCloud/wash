@@ -1,0 +1,274 @@
+package wasmcloud:wash@0.0.1;
+
+interface types {
+    // FUTURE: This is a placeholder for the TTY interface
+    // resource tty {
+    //     use wasi:cli/terminal-input.{terminal-input};
+    //     use wasi:cli/terminal-output.{terminal-output};
+    //     stdin: func() -> terminal-input;
+    //     stdout: func() -> terminal-output;
+    //     stderr: func() -> terminal-output;
+    // }
+
+    enum credential-type {
+        // Sentinel value
+        unknown,
+        // For interacting with OCI registries
+        // ex: pulling/pushing components or WIT interfaces
+        oci,
+         // For interacting with Git repositories
+         // ex: Private GitHub repositories with templates
+        git,
+         // For interacting with Cluster Scheduler
+         // ex: listing running components
+        scheduler,
+    }
+
+    enum hook-type {
+        // Sentinel value
+        unknown,
+        // Called when a plugin errors
+        // Useful for 'error reporting'
+        error,
+        // Called during 'wash login'
+        before-login,
+        after-login,
+        // Called during 'wash build' and 'wash dev'
+        before-build,
+        after-build,
+        // Called during 'wash push'
+        before-push,
+        after-push,
+        // Called during 'wash dev'
+        dev-register, // called when a component's exports are registered development loop use
+        before-dev-build, // called before 'build'
+        before-dev-serve, // called before wash serves or reloads the component
+        before-dev-shutdown, // called before shutdown
+    }
+
+    record command-argument {
+        description: string,
+        is-path: bool,
+        required: bool,
+        default-value: option<string>,
+        // Default or final value for this argument
+        value: string,
+    }
+
+    record command {
+        // internal unique identifier for the command
+        // usually the same as the command name
+        id: string,
+        // the command name
+        name: string,
+        // the command description
+        // this is usually a one-liner
+        description: string,
+        // command flags
+        // 'wash <plugin-name> <command-name> --<flag-name> <flag-value>'
+        %flags: list<tuple<string, command-argument>>,
+        // positional arguments
+        // 'wash <plugin-name> <command-name> <arg1-value> <arg2-value>'
+        arguments: list<command-argument>,
+        // list with sample command usage
+        usage: list<string>,
+    }
+
+    record metadata {
+        // Internal Unique identifier for the plugin
+        // Ex: dev.wasmcloud.oci
+        id: string,
+        // The plugin name
+        // Ex: "oci"
+        name: string,
+        // The plugin description
+        // Ex: "A plugin for interacting with OCI registries"
+        description: string,
+        // The plugin author contact information
+        // This is usually a name and email address
+        // Ex: "WasmCloud Team <team@wasmcloud.dev>"
+        contact: string,
+        // Source or Documentation URL for the Plugin
+        // Ex: github.com/wasmcloud/wash-oci-plugin
+        url: string,
+        // The plugin license
+        // Ex: "Apache-2.0"
+        license: string,
+        // The plugin version
+        // Ex: "0.1.0"
+        version: string,
+
+        // optional top-level command
+        // 'wash <plugin-name>'
+        default-command: option<command>,
+        // sub-commands
+        // 'wash <plugin-name> <command-name>'
+        commands: list<command>,
+        // Hooks to execute at specific times
+        hooks: option<list<hook-type>>,
+        // what types of credentials this plugin can provide
+        // 'wash login' authenticate all credentials
+        // 'wash login --<credential-type>' authenticate only the specified credential type
+        credentials: option<list<credential-type>>,
+    }
+
+    // Plugin scoped configuration
+    resource plugin-config {
+        get: func(key: string, default-value: string) -> string;
+        set: func(key: string, value: string) -> result;
+        delete: func(key: string) -> result;
+        %list: func() -> list<string>;
+    }
+
+    resource wash-config {
+        get: func(key: string, default-value: string) -> string;
+        %list: func() -> list<string>;
+    }
+
+    resource project-config {
+        // Absolute path to user wash config
+        // Ex: /home/user/.config/wash/wash.toml
+        wash-config-path: func() -> string;
+        // Absolute path to wasmcloud.toml (if running in a project)
+        // Ex: /home/user/projects/my-project/wasmcloud.toml
+        project-path: func() -> result<string>;
+        // Retrieves a key/value pair from the wasmcloud.toml project configuration.
+        // If the key does not exist, the default value is returned.
+        // Ex: project-config("component.name", "component") -> "my-component-name-from-wasmcloud-toml"
+        project-config: func(key: string, default-value: string) -> string;
+        // Retrieves a key/value pair from the wash global configuration.
+        // If the key does not exist, the default value is returned.
+        // Ex: wash-config("git.path", "/usr/bin/git") -> "/opt/homebrew/bin/git"
+        wash-config: func(key: string, default-value: string) -> string;
+        // Current wash version
+        // Ex: 0.39.3
+        version: func() -> string;
+    }
+
+    resource context {
+        // It is a key/value store that is used to pass information between wash commands and hooks
+        // Allowing hooks to modify behavior without changing the command itself
+
+        // Get the value for a given context key.
+        // Ex: During wash build: get("tinygo.path", "/usr/bin/tinygo") -> "/opt/homebrew/bin/tinygo"
+        get: func(key: string, default-value: string) -> string;
+        // Set the value for a given context key.
+        // Ex: Before wash build: set("tinygo.path", "/custom/location/tinygo")
+        set: func(key: string, value: string) -> result;
+        // Delete the value for a given context key, if it exists.
+        delete: func(key: string) -> result;
+        // List all keys in the context.
+        %list: func() -> list<string>;
+    }
+
+    resource runner {
+        // Access the project configuration
+        // If not running in a project, this will return None
+        project-config: func() -> option<project-config>;
+
+        // Access to the specific plugin-id configuration
+        // Plugins have read/write access to their own configuration
+        plugin-config: func() -> plugin-config;
+
+        // Access to the execution context
+        // This is a key/value store that is used to pass information between wash commands and hooks
+        // Allowing hooks to modify behavior without changing the command itself
+        context: func() -> context;
+
+        //////////////////////////////
+        // Host Functions
+        //////////////////////////////
+
+        // executes a host native binary on behalf of a plugin
+        // commands are executed under 'sh -c' and inherit the environment and working directory.
+        // wash might ask the user for confirmation before executing this function.
+        // Returns the stdout and stderr of the command
+        host-exec: func(bin: string, args: list<string>) -> result<tuple<string, string>>;
+        // Retrieves authentication credentials for a given credential type 
+        // The resource is an optional identifier passed to the plugin,
+        // in case it needs to return different credentials for different resources.
+        // wash might ask the user for confirmation before executing this function.
+        // Returns a payload that can be used by the plugin under the same credential type.
+        // ex: usage: oci, resource: "ghcr.io/wasmcloud/wasmcloud:latest"
+        authorize: func(usage: credential-type, %resource: option<string>) -> result<string>;
+
+        // FUTURE: Requests an interactive session, giving direct access to stdin/stdout/stderr
+        // request-tty: func(ctx: borrow<execution-context>) -> result<tty>;
+
+        // User visible Output
+        // For debugging, see wasi:logging
+        output: func(message: string);
+        // User visible Output
+        // For debugging, see wasi:logging
+        structured-output: func(headers: list<string>, rows: list<list<string>>);
+        // Stop execution
+        // wash will notify the user and execute the error hooks (if any)
+        error: func(reason: string);
+
+    }
+
+}
+
+interface plugin {
+    use types.{metadata, runner, command, hook-type, credential-type};
+    // Called by wash to retrieve the plugin metadata
+    info: func() -> metadata;
+    // Instantiates the plugin.
+    // The Plugin can check the context and fail if
+    // information is missing or invalid (ex: incompatible wash version)
+    // wash might confirm plugin execution with the user prior usage.
+    initialize: func(runner: runner) -> result;
+    // Executes a given command with the provided arguments
+    // Commands should call `runtime.output` to control their output
+    // The result indicates if the command was successful or not
+    run: func(runner: runner, cmd: command) -> result;
+    // Executes a given hook
+    hook: func(runner: runner, hook: hook-type) -> result;
+    // Generates credentials for a given credential type
+    // wash will only call this if the plugin is registered as a credentials provider
+    // The result is an opaque payload
+    authorize: func(runner: runner, usage: credential-type, %resource: option<string>) -> result<string>;
+}
+
+world plugin-host {
+    import plugin;
+}
+
+world plugin-guest {
+    // tinygo requirement
+    include wasi:cli/imports@0.2.0;
+
+    export plugin;
+
+    // can make outbound HTTP calls
+    // import wasi:http/outgoing-handler;
+    // can read/write to the filesystem
+    // import wasi:filesystem/filesystem;
+
+    // can log
+    // import wasi:logging/logging;
+    // can request interactive TTY
+    // import wasi:io/streams;
+}
+
+world dev {
+    import wasi:logging/logging@0.1.0-draft;
+    import wasi:blobstore/blobstore@0.2.0-draft;
+    import wasi:blobstore/container@0.2.0-draft;
+    import wasi:blobstore/types@0.2.0-draft;
+    export wasi:http/incoming-handler@0.2.0;
+}
+
+// A component that implements `wasi:blobstore` for dev
+world blobstore-host {
+   export plugin;
+   export wasi:blobstore/blobstore@0.2.0-draft;
+   export wasi:blobstore/container@0.2.0-draft;
+   export wasi:blobstore/types@0.2.0-draft;
+}
+
+// every command has a pre and post hook
+// pre-hook is called before the command is executed
+// post-hook is called after the command is executed
+// hook configs are defined here, but the actual payload passed to the hook is a vec of bytes to be deserialized?
+// or it could be a resource potentially
