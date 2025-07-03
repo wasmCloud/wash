@@ -1,6 +1,6 @@
 [package]
 name = "wash"
-version = "0.50.0"
+version = "0.50.1"
 categories = ["wasm", "command-line-utilities"]
 description = "The Wasm Shell (wash) for developing and publishing Wasm components"
 keywords = ["webassembly", "wasm", "component", "wash", "cli"]
