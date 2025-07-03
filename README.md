@@ -26,8 +26,16 @@ Download the latest release for your platform from [GitHub Releases](https://git
 
 Quick install (latest release)
 
+**Linux/macOS:**
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/cosmonic-labs/wash/refs/heads/main/install.sh | bash
+```
+
+**Windows (PowerShell):**
+
+```powershell
+iwr -useb https://raw.githubusercontent.com/cosmonic-labs/wash/refs/heads/main/install.ps1 | iex
 ```
 
 Make sure to move `wash` to somewhere in your `PATH`.

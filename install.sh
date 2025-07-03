@@ -4,7 +4,7 @@
 # Usage: curl -fsSL https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.sh | bash
 # 
 # Environment variables:
-# - GITHUB_TOKEN: GitHub personal access token (REQUIRED for private repository access)
+# - GITHUB_TOKEN: GitHub personal access token (optional, for higher API rate limits)
 # - INSTALL_DIR: Directory to install wash binary (default: current directory)
 
 set -euo pipefail
@@ -71,7 +71,7 @@ get_latest_release() {
     local curl_args=("-s")
     
     if [ -n "${GITHUB_TOKEN:-}" ]; then
-        curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN}")
+        curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN:-}")
         log_info "Using GitHub token for API access"
     fi
     
@@ -117,7 +117,7 @@ get_asset_id_for_platform() {
     local curl_args=("-s")
     
     if [ -n "${GITHUB_TOKEN:-}" ]; then
-        curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN}")
+        curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN:-}")
     fi
     
     local response
@@ -166,7 +166,14 @@ install_wash() {
     if [ -z "$asset_id" ]; then
         log_error "No matching binary found for platform ${platform}"
         log_error "Available assets:"
-        curl -s -H "Authorization: token ${GITHUB_TOKEN}" \
+        
+        # Use same pattern as elsewhere for optional GitHub token
+        local list_curl_args=("-s")
+        if [ -n "${GITHUB_TOKEN:-}" ]; then
+            list_curl_args+=(" -H" "Authorization: token ${GITHUB_TOKEN:-}")
+        fi
+        
+        curl "${list_curl_args[@]}" \
             "https://api.github.com/repos/${REPO}/releases/latest" | \
             grep '"name"' | sed 's/.*"name": *"\([^"]*\)".*/  - \1/' >&2
         exit 1
@@ -183,7 +190,7 @@ install_wash() {
     local curl_args=("-fL" "-o" "${TMP_DIR}/wash" "-H" "Accept: application/octet-stream")
     
     if [ -n "${GITHUB_TOKEN:-}" ]; then
-        curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN}")
+        curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN:-}")
     fi
     
     if ! curl "${curl_args[@]}" "$download_url"; then
@@ -205,13 +212,11 @@ install_wash() {
     
     log_success "wash ${version} installed successfully to ${INSTALL_DIR}/wash"
     
-    # Show version
-    if "${INSTALL_DIR}/wash" --version >/dev/null 2>&1; then
-        local installed_version
-        installed_version=$("${INSTALL_DIR}/wash" --version)
-        log_success "Verified installation: ${installed_version}"
+    # Test installation
+    if "${INSTALL_DIR}/wash" --help >/dev/null 2>&1; then
+        log_success "Verified installation"
     else
-        log_warn "Could not verify installation. Try running: ${INSTALL_DIR}/wash --version"
+        log_warn "Could not verify installation. Try running: ${INSTALL_DIR}/wash --help"
     fi
     
     # Show next steps
@@ -228,20 +233,19 @@ main() {
     log_info "Installing wash - The Wasm Shell"
     echo >&2
     
-    # Check for required GitHub token for private repository
-    if [ -z "${GITHUB_TOKEN:-}" ]; then
-        log_error "GITHUB_TOKEN environment variable is required for accessing ${REPO}"
-        log_error "Please set GITHUB_TOKEN with a valid GitHub personal access token"
-        log_error "Example: export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx"
-        exit 1
-    fi
-    
     # Check dependencies
     if ! command -v curl >/dev/null 2>&1; then
         log_error "curl is required but not installed"
         exit 1
     fi
     log_info "curl dependency check passed"
+    
+    # Optional: Check for GitHub token (helps with API rate limits)
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        log_info "Using GitHub token for API requests"
+    else
+        log_info "No GitHub token provided - using anonymous API requests (may hit rate limits)"
+    fi
     
     # Detect platform
     local platform

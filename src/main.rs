@@ -15,6 +15,7 @@ use wash::cli::{CliContext, CommandOutput, OutputKind};
 #[clap(
     name = "wash",
     about,
+    version,
     arg_required_else_help = true,
     color = clap::ColorChoice::Auto
 )]
