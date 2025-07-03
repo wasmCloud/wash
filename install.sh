@@ -51,7 +51,7 @@ detect_platform() {
     local os arch
     
     case "$(uname -s)" in
-        Linux*)  os="unknown-linux-gnu" ;;
+        Linux*)  os="unknown-linux-musl" ;;
         Darwin*) os="apple-darwin" ;;
         *)       log_error "Unsupported operating system: $(uname -s)"; exit 1 ;;
     esac

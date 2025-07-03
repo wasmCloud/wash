@@ -218,8 +218,7 @@ fn get_os_arch() -> (&'static str, &'static str) {
     let os = std::env::consts::OS;
     let os = match os {
         "macos" | "darwin" => "apple-darwin",
-        // "windows" => "windows",
-        "linux" => "unknown-linux-gnu",
+        "linux" => "unknown-linux-musl",
         _ => {
             warn!(os, "unsupported os for update, will likely fail");
             os
