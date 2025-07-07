@@ -251,10 +251,10 @@ impl ComponentBuilder {
                 }
             }
             ProjectType::TypeScript => {
-                if !self.tool_exists("node", "-v") {
+                if !self.tool_exists("node", "--version") {
                     missing_tools.push("node (Node.js runtime)");
                 }
-                if !self.tool_exists("npm", "-v") {
+                if !self.tool_exists("npm", "version") {
                     missing_tools.push("npm (Node.js package manager)");
                 }
             }
