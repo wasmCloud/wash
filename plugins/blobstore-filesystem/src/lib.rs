@@ -1,152 +1,56 @@
 //! This component implements `wasi:blobstore` in terms of `wasi:filesystem`, allowing
 //! components to use the blobstore API with a backing filesystem for development and testing.
+use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::io::Read;
+
+use wasi::filesystem::types::{Descriptor, DescriptorFlags, DescriptorType, OpenFlags, PathFlags};
+use wasmcloud_component::{debug, warn};
+
+use crate::bindings::exports::wasi::blobstore::types::{
+    ContainerMetadata, IncomingValue, IncomingValueSyncBody, ObjectId, ObjectMetadata, ObjectName,
+    OutgoingValue, OutgoingValueBorrow,
+};
+use crate::bindings::exports::wasi::blobstore::types::{GuestIncomingValue, GuestOutgoingValue};
+use crate::bindings::exports::wasi::blobstore::{blobstore, container};
+
+/// Generated WIT bindings
+pub mod bindings;
+/// `wasmcloud:wash/plugin` implementation
+pub mod plugin;
+
+/// Outgoing value stream type for uploading files
+pub type OutgoingValueStream = RefCell<UploadFile>;
+
+#[derive(Default)]
+pub struct UploadFile {
+    pub src_path: Option<String>,
+    pub dst_container: Option<String>,
+    pub dst_path: Option<String>,
+}
+
+impl UploadFile {
+    /// Returns a tuple of the source path, destination container, and destination path.
+    pub fn into_parts(self) -> (Option<String>, Option<String>, Option<String>) {
+        (self.src_path, self.dst_container, self.dst_path)
+    }
+}
+
+/// Incoming value stream type for downloading files
+pub struct IncomingValueStream {
+    pub stream: ::wasi::io::streams::InputStream,
+    pub size: u64,
+}
+
 /// A container backed by a filesystem directory
 pub type Container = String;
 
 /// A stream of object names backed by a directory iterator
-pub struct StreamObjectNames {
+pub type StreamObjectNames = RefCell<ObjectNames>;
+
+pub struct ObjectNames {
     pub container_name: String,
-    pub objects: Vec<String>,
-    pub position: usize,
-}
-
-mod bindings {
-    use super::Component;
-
-    wit_bindgen::generate!({
-        path: "../../wit",
-        world: "blobstore-host",
-        with: {
-            "wasi:io/error@0.2.1": ::wasi::io::error,
-            "wasi:io/poll@0.2.1": ::wasi::io::poll,
-            "wasi:io/streams@0.2.1": ::wasi::io::streams,
-            "wasi:blobstore/blobstore@0.2.0-draft": generate,
-            "wasi:blobstore/container@0.2.0-draft": generate,
-            "wasi:blobstore/types@0.2.0-draft": generate,
-        },
-    });
-
-    export!(Component);
-}
-
-use wasi::filesystem::types::{Descriptor, DescriptorFlags, OpenFlags, PathFlags};
-
-use crate::bindings::exports::wasi::blobstore::container::OutgoingValueBorrow;
-use crate::bindings::exports::wasi::blobstore::types::{
-    ContainerMetadata, IncomingValue, IncomingValueSyncBody, ObjectId, ObjectMetadata, ObjectName,
-    OutgoingValue,
-};
-use crate::bindings::exports::wasi::blobstore::types::{GuestIncomingValue, GuestOutgoingValue};
-use crate::bindings::exports::wasi::blobstore::{blobstore, container};
-use crate::bindings::wasmcloud::wash::types::{
-    Command, CredentialType, HookType, Metadata, Runner,
-};
-
-/// Type alias to return wasi streams
-pub type OutgoingValueStream = ::wasi::io::streams::OutputStream;
-pub type IncomingValueStream = ::wasi::io::streams::InputStream;
-
-struct Component;
-
-impl bindings::exports::wasmcloud::wash::plugin::Guest for Component {
-    /// Called by wash to retrieve the plugin metadata
-    fn info() -> Metadata {
-        Metadata {
-            id: "dev.wasmcloud.wasi-filesystem-to-blobstore".to_string(),
-            name: "wasi-filesystem-to-blobstore".to_string(),
-            description: "Implements the wasi:blobstore API using the wasi:filesystem API"
-                .to_string(),
-            contact: "wasmCloud Team".to_string(),
-            url: "https://github.com/wasmcloud/wash".to_string(),
-            license: "Apache-2.0".to_string(),
-            version: env!("CARGO_PKG_VERSION").to_string(),
-            default_command: None,
-            commands: vec![],
-            hooks: Some(vec![HookType::DevRegister]),
-            credentials: None,
-        }
-    }
-
-    // All of these functions aren't valid for this type of plugin
-    fn initialize(_: Runner) -> anyhow::Result<(), ()> {
-        Err(())
-    }
-    fn run(_: Runner, _: Command) -> anyhow::Result<(), ()> {
-        Err(())
-    }
-    fn hook(_: Runner, _: HookType) -> anyhow::Result<(), ()> {
-        Err(())
-    }
-    fn authorize(_: Runner, _: CredentialType, _: Option<String>) -> anyhow::Result<String, ()> {
-        Err(())
-    }
-}
-
-/// Get the root directory of the filesystem. The implementation of `wasi:blobstore` for wash
-/// assumes that the root directory is the first preopened directory provided by the WASI runtime.
-fn get_root_dir() -> Result<(Descriptor, String), String> {
-    let dirs = ::wasi::filesystem::preopens::get_directories();
-    if let Some((fdir, path)) = dirs.into_iter().take(1).next() {
-        Ok((fdir, path))
-    } else {
-        Err("No root directory found".to_string())
-    }
-}
-
-impl bindings::exports::wasi::blobstore::blobstore::Guest for Component {
-    fn create_container(container: String) -> Result<blobstore::Container, String> {
-        eprintln!("Creating container: {container}");
-        let (root_dir, _root_path) = get_root_dir()?;
-        root_dir
-            .create_directory_at(&container)
-            .map_err(|e| e.to_string())?;
-
-        // Return a new container instance
-        Ok(blobstore::Container::new(container.clone()))
-    }
-
-    fn get_container(container: String) -> Result<blobstore::Container, String> {
-        // Ensure the container exists
-        if !Component::container_exists(container.clone())? {
-            return Err(format!("Container '{container}' does not exist"));
-        }
-
-        Ok(blobstore::Container::new(container))
-    }
-
-    fn delete_container(container: String) -> Result<(), String> {
-        let (root_dir, _root_path) = get_root_dir()?;
-        // Attempt to remove the directory
-        root_dir
-            .remove_directory_at(&container)
-            .map_err(|e| e.to_string())?;
-
-        Ok(())
-    }
-
-    fn container_exists(container: String) -> Result<bool, String> {
-        let (root_dir, _root_path) = get_root_dir()?;
-        // Check if the directory exists
-        match root_dir.open_at(
-            PathFlags::empty(),
-            &container,
-            OpenFlags::empty(),
-            DescriptorFlags::empty(),
-        ) {
-            Ok(_) => Ok(true),
-            Err(_) => Ok(false),
-        }
-    }
-
-    fn copy_object(_src: ObjectId, _dst: ObjectId) -> Result<(), String> {
-        // let src_container = Component::get_container(src.container.clone())?;
-        // let dst_container = Component::get_container(dst.container.clone())?;
-        todo!()
-    }
-
-    fn move_object(_src: ObjectId, _dst: ObjectId) -> Result<(), String> {
-        todo!()
-    }
+    pub objects: VecDeque<String>,
 }
 
 impl bindings::exports::wasi::blobstore::container::Guest for Component {
@@ -159,6 +63,167 @@ impl bindings::exports::wasi::blobstore::types::Guest for Component {
     type IncomingValue = IncomingValueStream;
 }
 
+struct Component;
+
+/// Get the root directory of the filesystem. The implementation of `wasi:blobstore` for wash
+/// assumes that the root directory is the last preopened directory provided by the WASI runtime.
+///
+/// This is the only function that interacts with wasi:filesystem directly as it's required
+/// to get the root directory for all operations.
+fn get_root_dir() -> Result<(Descriptor, String), String> {
+    let mut dirs = ::wasi::filesystem::preopens::get_directories();
+    if dirs.len() > 1 {
+        warn!("multiple preopened directories found, using the last one provided");
+    }
+
+    if let Some(dir) = dirs.pop() {
+        Ok((dir.0, dir.1))
+    } else {
+        Err("No preopened directories found".to_string())
+    }
+}
+
+impl bindings::exports::wasi::blobstore::blobstore::Guest for Component {
+    fn create_container(container: String) -> Result<blobstore::Container, String> {
+        debug!("container={container}: creating container");
+        let (root_dir, root_path) = get_root_dir()?;
+
+        root_dir
+            .create_directory_at(&container)
+            .map_err(|e| e.to_string())?;
+
+        debug!("container={container}: created container at {root_path:?}");
+
+        // Return a new container instance
+        Ok(blobstore::Container::new(container))
+    }
+
+    fn get_container(container: String) -> Result<blobstore::Container, String> {
+        debug!("container={container}: getting container");
+        // Ensure the container exists
+        if !Component::container_exists(container.clone())? {
+            return Err(format!("container={container}: container does not exist"));
+        }
+
+        Ok(blobstore::Container::new(container))
+    }
+
+    fn delete_container(container: String) -> Result<(), String> {
+        debug!("container={container}: deleting container");
+        let (root_dir, _root_path) = get_root_dir()?;
+
+        if !Component::container_exists(container.clone())? {
+            return Ok(()); // Container does not exist, nothing to delete
+        }
+
+        // Remove all objects in the container
+        container::GuestContainer::clear(&container)
+            .map_err(|e| format!("container={container}: failed to clear container: {e}"))?;
+
+        // Attempt to remove the directory
+        root_dir
+            .remove_directory_at(&container)
+            .map_err(|e| format!("container={container}: failed to delete container: {e}"))
+    }
+
+    fn container_exists(container: String) -> Result<bool, String> {
+        debug!("container={container}: checking if container exists");
+        let (root_dir, _root_path) = get_root_dir()?;
+
+        match root_dir.stat_at(PathFlags::empty(), &container) {
+            Ok(stat) => {
+                // Container exists if it is a directory
+                Ok(stat.type_ == DescriptorType::Directory)
+            }
+            Err(e) => {
+                // If the error is NotFound, the container does not exist
+                if e == wasi::filesystem::types::ErrorCode::NoEntry {
+                    Ok(false)
+                } else {
+                    Err(format!("container={container}: {e}"))
+                }
+            }
+        }
+    }
+
+    fn copy_object(src: ObjectId, dst: ObjectId) -> Result<(), String> {
+        debug!(
+            "source={}/{},destination={}/{}: copying object",
+            src.container, src.object, dst.container, dst.object
+        );
+        let (root_dir, _root_path) = get_root_dir()?;
+
+        // Build source and destination paths
+        let src_path = format!("{}/{}", src.container, src.object);
+
+        // Open the source file
+        let src_file = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &src_path,
+                OpenFlags::empty(),
+                DescriptorFlags::READ,
+            )
+            .map_err(|e| format!("error={e}, failed to open source object"))?;
+
+        // Open stream for reading the source file
+        let mut src_stream = src_file
+            .read_via_stream(0)
+            .map_err(|e| format!("error={e}, failed to create read stream"))?;
+
+        let dst_container = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &dst.container,
+                OpenFlags::DIRECTORY,
+                DescriptorFlags::MUTATE_DIRECTORY,
+            )
+            .map_err(|e| format!("error={e}, failed to open destination container"))?;
+
+        // Create or truncate the destination file
+        let dst_file = dst_container
+            .open_at(
+                PathFlags::empty(),
+                &dst.object,
+                OpenFlags::CREATE | OpenFlags::TRUNCATE,
+                DescriptorFlags::WRITE,
+            )
+            .map_err(|e| format!("error={e}, failed to open destination object"))?;
+
+        // Write the buffer to the destination file
+        let mut dst_stream = dst_file
+            .write_via_stream(0)
+            .map_err(|e| format!("error={e}, failed to create write stream"))?;
+
+        std::io::copy(&mut src_stream, &mut dst_stream)
+            .map(|_| ())
+            .map_err(|e| format!("error={e}, failed to copy data"))
+    }
+
+    fn move_object(src: ObjectId, dst: ObjectId) -> Result<(), String> {
+        debug!(
+            "source={}/{},destination={}/{}: moving object",
+            src.container, src.object, dst.container, dst.object
+        );
+        let (root_dir, _root_path) = get_root_dir()?;
+        let src_path = format!("{}/{}", src.container, src.object);
+
+        let container = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &dst.container,
+                OpenFlags::DIRECTORY,
+                DescriptorFlags::MUTATE_DIRECTORY,
+            )
+            .map_err(|e| e.to_string())?;
+
+        // Rename upload file to the destination path
+        root_dir
+            .rename_at(&src_path, &container, &dst.object)
+            .map_err(|e| format!("failed to rename file: {e}"))
+    }
+}
+
 impl container::GuestContainer for crate::Container {
     /// Returns container name
     fn name(&self) -> Result<String, container::Error> {
@@ -167,7 +232,20 @@ impl container::GuestContainer for crate::Container {
 
     /// Returns container metadata
     fn info(&self) -> Result<ContainerMetadata, container::Error> {
-        todo!()
+        let metadata =
+            std::fs::metadata(&self).map_err(|e| container::Error::from(e.to_string()))?;
+
+        Ok(ContainerMetadata {
+            name: self.name()?,
+            created_at: metadata
+                .created()
+                .and_then(|t| {
+                    t.duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Unsupported, e))
+                })
+                .unwrap_or(0),
+        })
     }
 
     /// Retrieves an object or portion of an object, as a resource.
@@ -178,10 +256,10 @@ impl container::GuestContainer for crate::Container {
         &self,
         name: ObjectName,
         start: u64,
-        _end: u64,
+        end: u64,
     ) -> Result<IncomingValue, container::Error> {
-        let (root_dir, _path) = get_root_dir().expect("should get root dir"); //TODO: handle gracefully
-                                                                              // Open the container directory
+        let (root_dir, _path) = get_root_dir()?;
+        // Open the container directory
         let dir = root_dir
             .open_at(
                 PathFlags::empty(),
@@ -200,51 +278,163 @@ impl container::GuestContainer for crate::Container {
             )
             .map_err(|e| container::Error::from(e.to_string()))?;
 
+        // File size is minimum of the file size and the requested range
+        let size = file
+            .stat()
+            .map_err(|e| container::Error::from(e.to_string()))?
+            .size
+            .min(end - start);
+
         let stream = file
             .read_via_stream(start)
             .map_err(|e| container::Error::from(e.to_string()))?;
 
-        Ok(IncomingValue::new(stream))
+        Ok(IncomingValue::new(IncomingValueStream { stream, size }))
     }
 
     /// Creates or replaces an object with the data blob.
+    /// This simply assigns a destination path to the `OutgoingValueBorrow` stream. Finishing
+    /// the [`OutgoingValue`] will write the data to the destination path.
     fn write_data(
         &self,
         name: ObjectName,
         data: OutgoingValueBorrow,
     ) -> Result<(), container::Error> {
-        todo!()
+        let outgoing_stream: &OutgoingValueStream = data.get();
+        let mut upload_file = outgoing_stream.borrow_mut();
+
+        // Write the destination path
+        upload_file.dst_path = Some(name);
+        upload_file.dst_container = Some(self.name()?);
+
+        Ok(())
     }
 
     /// Returns list of objects in the container. Order is undefined.
     fn list_objects(&self) -> Result<container::StreamObjectNames, container::Error> {
-        todo!()
+        let container_name = self.name()?;
+
+        let entries = std::fs::read_dir(self).map_err(|e| container::Error::from(e.to_string()))?;
+        let objects = entries
+            .filter_map(|entry| entry.ok().and_then(|e| e.file_name().into_string().ok()))
+            .collect::<VecDeque<_>>();
+
+        Ok(container::StreamObjectNames::new(RefCell::new(
+            ObjectNames {
+                container_name,
+                objects,
+            },
+        )))
     }
 
     /// Deletes object.
     /// Does not return error if object did not exist.
     fn delete_object(&self, name: ObjectName) -> Result<(), container::Error> {
-        todo!()
+        self.delete_objects(vec![name])
     }
 
-    /// Deletes multiple objects in the container
     fn delete_objects(&self, names: Vec<ObjectName>) -> Result<(), container::Error> {
-        todo!()
+        let (root_dir, _root_path) = get_root_dir().map_err(|e| container::Error::from(e))?;
+
+        // Open the container directory as a Descriptor
+        let container_dir = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &self.name()?,
+                OpenFlags::DIRECTORY,
+                DescriptorFlags::MUTATE_DIRECTORY,
+            )
+            .map_err(|e| container::Error::from(e.to_string()))?;
+
+        // Try to remove the file; ignore NotFound errors
+        for name in names {
+            if let Err(e) = container_dir.unlink_file_at(&name) {
+                if e == wasi::filesystem::types::ErrorCode::IsDirectory {
+                    return Err(container::Error::from(
+                        "Cannot delete a directory using delete_object".to_string(),
+                    ));
+                }
+            }
+        }
+
+        Ok(())
     }
 
-    /// Returns true if the object exists in this container
     fn has_object(&self, name: ObjectName) -> Result<bool, container::Error> {
-        todo!()
+        let (root_dir, _root_path) = get_root_dir()?;
+
+        let container = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &self.name()?,
+                OpenFlags::DIRECTORY,
+                DescriptorFlags::empty(),
+            )
+            .map_err(|e| container::Error::from(e.to_string()))?;
+
+        // TODO: Decide whether or not to follow symlinks
+        Ok(container.stat_at(PathFlags::empty(), &name).is_ok())
     }
 
-    /// Returns metadata for the object
     fn object_info(&self, name: ObjectName) -> Result<ObjectMetadata, container::Error> {
-        todo!()
+        let container = self.name()?;
+
+        let (root_dir, _root_path) = get_root_dir()?;
+
+        // Open the container directory
+        let container_dir = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &container,
+                OpenFlags::DIRECTORY,
+                DescriptorFlags::empty(),
+            )
+            .map_err(|e| container::Error::from(e.to_string()))?;
+
+        let meta = container_dir
+            .stat_at(PathFlags::empty(), &name)
+            .map_err(|e| container::Error::from(e.to_string()))?;
+
+        Ok(ObjectMetadata {
+            container,
+            name,
+            size: meta.size,
+            // Sadly there isn't a way to get the creation time of a file in WASI
+            created_at: meta.data_modification_timestamp.unwrap().seconds,
+        })
     }
 
-    /// Removes all objects within the container, leaving the container empty.
     fn clear(&self) -> Result<(), container::Error> {
-        todo!()
+        let (root_dir, _root_path) = get_root_dir()?;
+        // Open the container directory
+        let container = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &self.name()?,
+                OpenFlags::DIRECTORY,
+                DescriptorFlags::MUTATE_DIRECTORY,
+            )
+            .map_err(|e| container::Error::from(e.to_string()))?;
+
+        let dir_entries = container
+            .read_directory()
+            .map_err(|e| container::Error::from(e.to_string()))?;
+        while let Ok(Some(dir_entry)) = dir_entries.read_directory_entry() {
+            if dir_entry.type_ == DescriptorType::RegularFile {
+                // Attempt to remove the file; ignore NoEntry errors
+                if let Err(e) = container.unlink_file_at(&dir_entry.name) {
+                    if e != wasi::filesystem::types::ErrorCode::NoEntry {
+                        return Err(container::Error::from(e.to_string()));
+                    }
+                }
+            } else if dir_entry.type_ == DescriptorType::Directory {
+                // Recursively delete directories
+                container::GuestContainer::clear(&dir_entry.name)
+                    .map_err(|e| container::Error::from(e.to_string()))?;
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -256,23 +446,39 @@ impl container::GuestStreamObjectNames for crate::StreamObjectNames {
         &self,
         len: u64,
     ) -> Result<(Vec<ObjectName>, bool), container::Error> {
-        todo!()
+        let mut stream = self.borrow_mut();
+
+        let mut objects = Vec::with_capacity(len as usize);
+        while let Some(name) = stream.objects.pop_front() {
+            objects.push(name);
+        }
+
+        Ok((objects, stream.objects.is_empty()))
     }
 
     /// Skip the next number of objects in the stream
     ///
     /// This function returns the number of objects skipped, and a boolean indicating if the end of the stream was reached.
     fn skip_stream_object_names(&self, num: u64) -> Result<(u64, bool), container::Error> {
-        todo!()
+        let mut stream = self.borrow_mut();
+
+        let mut skipped = 0;
+        for _ in 0..num {
+            // Stream is empty
+            if let None = stream.objects.pop_front() {
+                break;
+            }
+            skipped += 1
+        }
+
+        Ok((skipped, stream.objects.is_empty()))
     }
 }
 
 impl GuestOutgoingValue for OutgoingValueStream {
     /// Create a new outgoing value.
     fn new_outgoing_value() -> OutgoingValue {
-        // OutgoingValue::new(OutputStream::)
-        // OutputStream::new_outgoing_value()
-        todo!()
+        OutgoingValue::new(RefCell::new(UploadFile::default()))
     }
 
     /// Returns a stream for writing the value contents.
@@ -284,32 +490,80 @@ impl GuestOutgoingValue for OutgoingValueStream {
     /// Returns success on the first call: the `output-stream` resource for
     /// this `outgoing-value` may be retrieved at most once. Subsequent calls
     /// will return error.
-    #[allow(async_fn_in_trait)]
     fn outgoing_value_write_body(&self) -> Result<::wasi::io::streams::OutputStream, ()> {
-        todo!()
+        let (root_dir, _root_path) = get_root_dir().map_err(|_| ())?;
+
+        // Generate a random file name for the upload file
+        let randomized = wasi::random::insecure::get_insecure_random_bytes(6);
+        let random_number = randomized
+            .iter()
+            .fold(0u64, |acc, &b| (acc << 8) | b as u64);
+        let random_str = format!("{:06x}", random_number % 0x1000000);
+        let src_path = format!("upload_{random_str}.bin");
+
+        // Open a stream for writing to the temporary upload file path
+        let f = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &src_path,
+                OpenFlags::CREATE | OpenFlags::TRUNCATE,
+                DescriptorFlags::WRITE,
+            )
+            .map_err(|_| ())?;
+        let stream = f.write_via_stream(0).map_err(|_| ())?;
+
+        let mut upload_file = self.borrow_mut();
+        upload_file.src_path = Some(src_path);
+
+        Ok(stream)
     }
 
     /// Finalize an outgoing value. This must be
     /// called to signal that the outgoing value is complete. If the `outgoing-value`
     /// is dropped without calling `outgoing-value.finalize`, the implementation
     /// should treat the value as corrupted.
-    #[allow(async_fn_in_trait)]
     fn finish(this: OutgoingValue) -> Result<(), String> {
-        todo!()
+        let stream: OutgoingValueStream = this.into_inner();
+        let upload_file: UploadFile = stream.into_inner();
+
+        let (Some(src_path), Some(dst_container), Some(dst_path)) = upload_file.into_parts() else {
+            return Err(
+                "outgoing-value was not properly initialized or passed to container.write-data"
+                    .to_string(),
+            );
+        };
+
+        let (root_dir, _root_path) =
+            get_root_dir().map_err(|e| format!("failed to get root directory: {e}"))?;
+
+        let container = root_dir
+            .open_at(
+                PathFlags::empty(),
+                &dst_container,
+                OpenFlags::DIRECTORY,
+                DescriptorFlags::MUTATE_DIRECTORY,
+            )
+            .map_err(|e| e.to_string())?;
+
+        // Rename upload file to the destination path
+        root_dir
+            .rename_at(&src_path, &container, &dst_path)
+            .map_err(|e| format!("failed to rename file: {e}"))?;
+
+        Ok(())
     }
 }
 
-use std::io::Read;
 impl GuestIncomingValue for IncomingValueStream {
     /// Consume the incoming value synchronously.
     fn incoming_value_consume_sync(this: IncomingValue) -> Result<IncomingValueSyncBody, String> {
-        // let mut buf = vec![];
-
-        // TODO: basically just need type assertions to make it a stream
-        // this.into_inner()
-        //     .read_to_end(&mut buf)
-        //     .map_err(|e| e.to_string())?;
-        todo!()
+        let mut incoming: IncomingValueStream = this.into_inner();
+        let mut buf = Vec::with_capacity(incoming.size as usize);
+        incoming
+            .stream
+            .read_exact(&mut buf)
+            .map_err(|e| e.to_string())?;
+        Ok(buf)
     }
 
     /// Consume the incoming value asynchronously.
@@ -317,11 +571,12 @@ impl GuestIncomingValue for IncomingValueStream {
         this: IncomingValue,
     ) -> Result<crate::bindings::exports::wasi::blobstore::types::IncomingValueAsyncBody, String>
     {
-        todo!()
+        let incoming: IncomingValueStream = this.into_inner();
+        Ok(incoming.stream)
     }
 
     /// Get the size of the incoming value.
     fn size(&self) -> u64 {
-        todo!()
+        self.size
     }
 }

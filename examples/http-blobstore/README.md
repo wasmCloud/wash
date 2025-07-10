@@ -1,4 +1,4 @@
-# blobstore-from-fs
+# http-blobstore
 
 This is an example component that imports `wasi:blobstore/blobstore` and exports `wasi:http/incoming-handler`.
 
