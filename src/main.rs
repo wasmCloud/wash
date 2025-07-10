@@ -80,7 +80,7 @@ enum CliCommand {
     #[clap(name = "oci", alias = "docker", subcommand)]
     Oci(wash::cli::oci::OciCommand),
     /// Manage wash plugins
-    #[clap(name = "plugin", subcommand, hide = true)]
+    #[clap(name = "plugin", subcommand)]
     Plugin(wash::cli::plugin::PluginCommand),
     /// Update wash to the latest version
     #[clap(name = "update", alias = "upgrade")]

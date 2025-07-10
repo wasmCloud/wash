@@ -32,23 +32,27 @@ pub mod plugin_guest {
         }
     });
 
+    // Using crate imports here to keep the top-level `use` statements clean
+    use std::fmt::Display;
     use wasmcloud::wash::types::HookType;
-    impl ToString for HookType {
-        fn to_string(&self) -> String {
-            match self {
-                HookType::Unknown => "Unknown".to_string(),
-                HookType::Error => "Error".to_string(),
-                HookType::BeforeLogin => "BeforeLogin".to_string(),
-                HookType::AfterLogin => "AfterLogin".to_string(),
-                HookType::BeforeBuild => "BeforeBuild".to_string(),
-                HookType::AfterBuild => "AfterBuild".to_string(),
-                HookType::BeforePush => "BeforePush".to_string(),
-                HookType::AfterPush => "AfterPush".to_string(),
-                HookType::DevRegister => "DevRegister".to_string(),
-                HookType::BeforeDevBuild => "BeforeDevBuild".to_string(),
-                HookType::BeforeDevServe => "BeforeDevServe".to_string(),
-                HookType::BeforeDevShutdown => "BeforeDevShutdown".to_string(),
-            }
+
+    impl Display for HookType {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let s = match self {
+                HookType::Unknown => "Unknown",
+                HookType::Error => "Error",
+                HookType::BeforeLogin => "BeforeLogin",
+                HookType::AfterLogin => "AfterLogin",
+                HookType::BeforeBuild => "BeforeBuild",
+                HookType::AfterBuild => "AfterBuild",
+                HookType::BeforePush => "BeforePush",
+                HookType::AfterPush => "AfterPush",
+                HookType::DevRegister => "DevRegister",
+                HookType::BeforeDevBuild => "BeforeDevBuild",
+                HookType::BeforeDevServe => "BeforeDevServe",
+                HookType::BeforeDevShutdown => "BeforeDevShutdown",
+            };
+            write!(f, "{}", s)
         }
     }
 }
