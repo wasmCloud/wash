@@ -119,12 +119,12 @@ impl ListCommand {
                     output.push_str("Installed plugins:\n");
                     for (_, plugin) in &plugins {
                         let detail = if plugin.hooks.as_ref().is_some_and(|h| !h.is_empty()) {
-                            // SAFETY: We just checked that this is Some above
                             format!(
                                 "Hooks: {}\n",
                                 plugin
                                     .hooks
                                     .as_ref()
+                                    // SAFETY: We just checked that this is Some above
                                     .expect("hooks to exist")
                                     .iter()
                                     .map(|h| h.to_string())
