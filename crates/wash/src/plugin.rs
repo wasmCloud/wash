@@ -87,7 +87,7 @@ pub async fn install_plugin(
 
     // Sanitize plugin name for filesystem storage
     let sanitized_name = sanitize_plugin_name(&metadata.name);
-    let plugin_path = plugins_dir.join(format!("{}.wasm", sanitized_name));
+    let plugin_path = plugins_dir.join(format!("{sanitized_name}.wasm"));
 
     // Check if plugin already exists
     if plugin_path.exists() && !options.force {
@@ -121,7 +121,7 @@ pub async fn install_plugin(
 pub async fn uninstall_plugin(ctx: &CliContext, name: &str) -> anyhow::Result<()> {
     let plugins_dir = ctx.data_dir().join(PLUGINS_DIR);
     let sanitized_name = sanitize_plugin_name(name);
-    let plugin_path = plugins_dir.join(format!("{}.wasm", sanitized_name));
+    let plugin_path = plugins_dir.join(format!("{sanitized_name}.wasm"));
 
     // Check if plugin exists
     if !plugin_path.exists() {
@@ -180,7 +180,7 @@ pub async fn list_plugins(ctx: &CliContext) -> anyhow::Result<Vec<(Vec<u8>, Meta
         // Get plugin metadata using the guest call
         let metadata = get_plugin_metadata(ctx, &plugin)
             .await
-            .with_context(|| format!("failed to get metadata for plugin: {}", plugin_name))?;
+            .with_context(|| format!("failed to get metadata for plugin: {plugin_name}"))?;
 
         plugins.push((plugin, metadata));
     }

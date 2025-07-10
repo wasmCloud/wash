@@ -202,7 +202,7 @@ impl<T> crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostProje
 where
     T: WasmcloudWashView,
 {
-    fn wash_config(
+    fn wash_config_get(
         &mut self,
         _ctx: wasmtime::component::Resource<ProjectConfig>,
         _key: String,
@@ -215,7 +215,7 @@ where
         String::new()
     }
 
-    fn project_config(
+    fn project_config_get(
         &mut self,
         _ctx: wasmtime::component::Resource<ProjectConfig>,
         _key: String,
@@ -298,7 +298,7 @@ where
     }
 
     fn output(&mut self, _ctx: wasmtime::component::Resource<Runner>, output: String) {
-        println!("{}", output);
+        println!("{output}");
     }
 
     fn structured_output(

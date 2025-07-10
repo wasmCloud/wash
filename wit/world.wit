@@ -134,12 +134,12 @@ interface types {
         project-path: func() -> result<string>;
         // Retrieves a key/value pair from the wasmcloud.toml project configuration.
         // If the key does not exist, the default value is returned.
-        // Ex: project-config("component.name", "component") -> "my-component-name-from-wasmcloud-toml"
-        project-config: func(key: string, default-value: string) -> string;
+        // Ex: project-config-get("component.name", "component") -> "my-component-name-from-wasmcloud-toml"
+        project-config-get: func(key: string, default-value: string) -> string;
         // Retrieves a key/value pair from the wash global configuration.
         // If the key does not exist, the default value is returned.
-        // Ex: wash-config("git.path", "/usr/bin/git") -> "/opt/homebrew/bin/git"
-        wash-config: func(key: string, default-value: string) -> string;
+        // Ex: wash-config-get("git.path", "/usr/bin/git") -> "/opt/homebrew/bin/git"
+        wash-config-get: func(key: string, default-value: string) -> string;
         // Current wash version
         // Ex: 0.39.3
         version: func() -> string;
@@ -261,10 +261,11 @@ world dev {
 
 // A component that implements `wasi:blobstore` for dev
 world blobstore-host {
-   export plugin;
-   export wasi:blobstore/blobstore@0.2.0-draft;
-   export wasi:blobstore/container@0.2.0-draft;
-   export wasi:blobstore/types@0.2.0-draft;
+    import wasi:logging/logging@0.1.0-draft;
+    export plugin;
+    export wasi:blobstore/blobstore@0.2.0-draft;
+    export wasi:blobstore/container@0.2.0-draft;
+    export wasi:blobstore/types@0.2.0-draft;
 }
 
 // every command has a pre and post hook
