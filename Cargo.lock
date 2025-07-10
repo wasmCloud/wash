@@ -5398,7 +5398,6 @@ version = "0.50.1"
 dependencies = [
  "anyhow",
  "bytes",
- "chrono",
  "clap",
  "clap-markdown",
  "ctrlc",
