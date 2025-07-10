@@ -7,8 +7,9 @@ use std::{
     },
 };
 
-use anyhow::{Context as _, bail, ensure};
+use anyhow::{Context as _, ensure};
 use clap::Args;
+use etcetera::AppStrategy as _;
 use hyper::server::conn::http1;
 use notify::{
     Event as NotifyEvent, RecursiveMode, Watcher,
@@ -17,6 +18,7 @@ use notify::{
 use tokio::{net::TcpListener, select, sync::mpsc, task::JoinHandle};
 use tracing::{debug, error, info, trace, warn};
 use wasmcloud_runtime::component::CustomCtxComponent;
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 use wasmtime_wasi_http::{
     WasiHttpView as _,
     bindings::{ProxyPre, http::types::Scheme},
@@ -32,7 +34,11 @@ use crate::{
     },
     component_build::BuildConfig,
     config::{Config, load_config},
-    runtime::{Ctx, new_runtime, prepare_component_dev},
+    plugin::list_plugins,
+    runtime::{
+        Ctx, DevPluginManager, bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType,
+        prepare_component_dev,
+    },
 };
 
 #[derive(Debug, Clone, Args)]
@@ -113,12 +119,6 @@ impl DevCommand {
             debug!("no recommendations found for project tools");
         }
 
-        // Start dev runtime
-        debug!("starting runtime");
-        let (dev_runtime, _jh) = new_runtime()
-            .await
-            .context("failed to create new runtime")?;
-
         // TODO: spinner
         debug!("building component");
         // Build component
@@ -154,11 +154,47 @@ impl DevCommand {
             .await
             .context("failed to read artifact file")?;
 
+        let mut plugin_manager = DevPluginManager::default();
+        let plugins = match list_plugins(ctx).await {
+            Ok(plugins) => plugins
+                .into_iter()
+                .filter(|(_, plugin)| {
+                    // Only register plugins that have the dev-hook
+                    plugin
+                        .hooks
+                        .as_ref()
+                        .is_some_and(|hooks| hooks.contains(&HookType::DevRegister))
+                })
+                .collect(),
+            Err(e) => {
+                warn!(err = ?e, "failed to find plugins, continuing without plugins");
+                vec![]
+            }
+        };
+
+        for (plugin, meta) in plugins {
+            if let Err(e) = plugin_manager.register_plugin(&ctx.runtime, &plugin) {
+                error!(
+                    err = ?e,
+                    name = meta.name,
+                    version = meta.version,
+                    "failed to register plugin, continuing without plugin"
+                );
+            } else {
+                debug!(
+                    name = meta.name,
+                    version = meta.version,
+                    "registered plugin"
+                );
+            }
+        }
+
+        let plugin_manager = Arc::new(plugin_manager);
+
         // Prepare the component for development
         let (component_tx, mut component_rx) =
             tokio::sync::watch::channel::<Arc<CustomCtxComponent<Ctx>>>(Arc::new(
-                //TODO: register plugins
-                prepare_component_dev(&dev_runtime, &wasm_bytes, Arc::default())
+                prepare_component_dev(&ctx.runtime, &wasm_bytes, plugin_manager.clone())
                     .await
                     .context("failed to prepare component for development")?,
             ));
@@ -177,8 +213,23 @@ impl DevCommand {
                 }
             })
             .collect::<HashMap<String, String>>();
+
+        let blobstore_root = self
+            .blobstore_root
+            .clone()
+            .unwrap_or_else(|| ctx.data_dir().join("dev_blobstore"));
+        // Ensure the blobstore root directory exists
+        if !blobstore_root.exists() {
+            tokio::fs::create_dir_all(&blobstore_root)
+                .await
+                .context("failed to create blobstore root directory")?;
+        }
+        debug!(path = ?blobstore_root.display(), "using blobstore root directory");
+
+        // TODO: Only spawn the server if the component exports wasi:http
         tokio::spawn(async move {
-            if let Err(e) = server(&mut component_rx, address, runtime_config).await {
+            if let Err(e) = server(&mut component_rx, address, runtime_config, blobstore_root).await
+            {
                 error!(err = ?e,"error running http server for dev");
             }
         });
@@ -274,13 +325,13 @@ impl DevCommand {
                         Ok(build_result) => {
                             // Use the new artifact path from the build result
                             let artifact_path = build_result.artifact_path;
-                            info!("component rebuilt successfully at {:?}", artifact_path);
+                            info!(path = %artifact_path.display(), "component rebuilt successfully");
 
                             info!("deploying rebuilt component ...");
                             let wasm_bytes = tokio::fs::read(&artifact_path)
                                 .await
                                 .context("failed to read artifact file")?;
-                            let component = prepare_component_dev(&dev_runtime, &wasm_bytes, Arc::default())
+                            let component = prepare_component_dev(&ctx.runtime, &wasm_bytes, plugin_manager.clone().clear_instances())
                                 .await
                                 .context("failed to prepare component")?;
                             component_tx.send_replace(Arc::new(component));
@@ -294,6 +345,7 @@ impl DevCommand {
                         }
                         Err(e) => {
                             info!("failed to build component, will retry on next file change");
+                            // TODO: This doesn't include color output
                             // This nicely formats the error message
                             error!("{e}");
                             // If the build fails, we pause the watcher to prevent further reloads
@@ -321,26 +373,22 @@ impl DevCommand {
     }
 }
 
-/// Simple trait for handling an HTTP request, used primarily to extend the
-/// `CustomCtxComponent` with a method that can handle HTTP requests
-trait HandleRequest {
-    async fn handle_request(
-        &self,
-        ctx: Option<Ctx>,
-        req: hyper::Request<hyper::body::Incoming>,
-    ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>>;
-}
-
+/// Starts the development HTTP server, listening for incoming requests
+/// and serving them using the provided [`CustomCtxComponent`]. The component
+/// is provided via a `tokio::sync::watch::Receiver`, allowing it to be
+/// updated dynamically (e.g. on a rebuild).
 async fn server(
     rx: &mut tokio::sync::watch::Receiver<Arc<CustomCtxComponent<Ctx>>>,
     address: String,
     runtime_config: HashMap<String, String>,
+    blobstore_root: PathBuf,
 ) -> anyhow::Result<()> {
     // Prepare our server state and start listening for connections.
     let mut component = rx.borrow_and_update().to_owned();
     let listener = TcpListener::bind(&address).await?;
     debug!("listening on {}", listener.local_addr()?);
     loop {
+        let blobstore_root = blobstore_root.clone();
         let runtime_config = runtime_config.clone();
         select! {
             // If the component changed, replace the current one
@@ -356,13 +404,26 @@ async fn server(
                 debug!(addr = ?addr, "serving new client");
 
                 tokio::spawn(async move {
+                    let component = component.clone();
                     if let Err(e) = http1::Builder::new()
                         .keep_alive(true)
                         .serve_connection(
                             TokioIo::new(client),
                             hyper::service::service_fn(move |req| {
                                 let component = component.clone();
-                                let ctx = Ctx::builder().with_runtime_config(runtime_config.clone()).build();
+                                let wasi_ctx = match WasiCtxBuilder::new()
+                                    .preopened_dir(&blobstore_root, "/dev", DirPerms::all(), FilePerms::all())
+                                {
+                                    Ok(ctx) => ctx.build(),
+                                    Err(e) => {
+                                        error!(err = ?e, "failed to create WASI context with preopened dir");
+                                        WasiCtxBuilder::new().build()
+                                    }
+                                };
+                                let ctx = Ctx::builder()
+                                    .with_wasi_ctx(wasi_ctx)
+                                    .with_runtime_config(runtime_config.clone())
+                                    .build();
                                 async move { component.handle_request(Some(ctx), req).await }
                             }),
                         )
@@ -376,6 +437,15 @@ async fn server(
     }
 }
 
+/// Simple trait for handling an HTTP request, used primarily to extend the
+/// `CustomCtxComponent` with a method that can handle HTTP requests
+trait HandleRequest {
+    async fn handle_request(
+        &self,
+        ctx: Option<Ctx>,
+        req: hyper::Request<hyper::body::Incoming>,
+    ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>>;
+}
 impl HandleRequest for CustomCtxComponent<Ctx> {
     async fn handle_request(
         &self,
@@ -383,7 +453,7 @@ impl HandleRequest for CustomCtxComponent<Ctx> {
         req: hyper::Request<hyper::body::Incoming>,
     ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
         // Create per-http-request state within a `Store` and prepare the
-        // initial resources  passed to the `handle` function.
+        // initial resources passed to the `handle` function.
         let ctx = ctx.unwrap_or_default();
         let mut store = self.new_store(ctx);
         let (sender, receiver) = tokio::sync::oneshot::channel();
@@ -416,8 +486,16 @@ impl HandleRequest for CustomCtxComponent<Ctx> {
             // meaning that the oneshot will get disconnected and here we can
             // inspect the `task` result to see what happened
             Err(e) => {
-                let _ = task.await?;
-                bail!(e)
+                error!(err = ?e, "error receiving http response");
+                Err(match task.await {
+                    Ok(Ok(())) => {
+                        anyhow::anyhow!("oneshot channel closed but no response was sent")
+                    }
+                    Ok(Err(e)) => e,
+                    Err(e) => {
+                        anyhow::anyhow!("failed to await task for handling HTTP request: {e}")
+                    }
+                })
             }
         }
     }

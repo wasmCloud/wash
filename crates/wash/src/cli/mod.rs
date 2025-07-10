@@ -141,11 +141,10 @@ pub struct CliContext {
     app_strategy: Xdg,
     #[cfg(windows)]
     app_strategy: Windows,
-    /// The runtime used for executing Wasm components
-    #[allow(dead_code)]
-    plugin_runtime: wasmcloud_runtime::Runtime,
-    #[allow(dead_code)]
-    plugin_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
+    /// The runtime used for executing Wasm components. Plugins and
+    /// dev loops will use this runtime to execute Wasm code.
+    runtime: wasmcloud_runtime::Runtime,
+    _plugin_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
 }
 
 #[cfg(unix)]
@@ -226,8 +225,8 @@ impl CliContext {
 
         Ok(Self {
             app_strategy,
-            plugin_runtime,
-            plugin_thread: Arc::new(thread),
+            runtime: plugin_runtime,
+            _plugin_thread: Arc::new(thread),
         })
     }
 
@@ -310,5 +309,10 @@ impl CliContext {
             ),
             None::<Config>,
         )
+    }
+
+    // TODO: consider if this should be exposed or used internally
+    pub fn runtime(&self) -> &wasmcloud_runtime::Runtime {
+        &self.runtime
     }
 }
