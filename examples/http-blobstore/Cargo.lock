@@ -63,13 +63,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f68f53c83ab957f72c32642f3868eec03eb974d1fb82e453128456482613d36"
 
 [[package]]
-name = "blobstore-from-fs"
-version = "0.1.0"
-dependencies = [
- "wasmcloud-component",
-]
-
-[[package]]
 name = "bytes"
 version = "1.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -194,6 +187,13 @@ dependencies = [
  "bytes",
  "fnv",
  "itoa",
+]
+
+[[package]]
+name = "http-blobstore"
+version = "0.1.0"
+dependencies = [
+ "wasmcloud-component",
 ]
 
 [[package]]
