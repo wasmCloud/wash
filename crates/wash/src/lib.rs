@@ -13,6 +13,8 @@ pub mod new;
 /// OCI registry operations for WebAssembly components
 pub mod oci;
 /// Plugin management for wash
+pub mod plugin;
+/// [`wasmcloud_runtime::Runtime`] management for wash
 pub mod runtime;
 
 /// Manage WebAssembly Interface Types (WIT) for wash components
