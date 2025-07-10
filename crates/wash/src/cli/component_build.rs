@@ -627,7 +627,7 @@ impl ComponentBuilder {
                 .args(&build_args)
                 .current_dir(&self.project_path)
                 .output()
-                .context(format!("failed to execute {} run build", package_manager))?;
+                .context(format!("failed to execute {package_manager} run build"))?;
 
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
@@ -704,7 +704,7 @@ impl ComponentBuilder {
             .args(args)
             .current_dir(&self.project_path)
             .output()
-            .context(format!("failed to execute custom command: {}", command))?;
+            .context(format!("failed to execute custom command: {command}"))?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);

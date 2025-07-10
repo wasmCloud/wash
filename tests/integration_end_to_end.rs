@@ -91,7 +91,7 @@ async fn test_end_to_end_template_to_execution() -> Result<()> {
     .context("Failed to execute component HTTP handler")?;
 
     eprintln!("✅ Component execution successful!");
-    eprintln!("📨 HTTP Response: {}", response_body);
+    eprintln!("📨 HTTP Response: {response_body}");
 
     // Step 5: Verify the response contains expected content
     // The cosmonic-control-welcome-tour template typically returns a welcome message
@@ -131,10 +131,7 @@ async fn test_plugin_component_loading() -> Result<()> {
             eprintln!("✅ Component loaded successfully with plugin system!");
         }
         Err(e) => {
-            eprintln!(
-                "ℹ️  Component loading failed as expected for minimal test component: {}",
-                e
-            );
+            eprintln!("ℹ️  Component loading failed as expected for minimal test component: {e}");
             eprintln!(
                 "ℹ️  This is normal for a minimal test component that doesn't implement HTTP interfaces"
             );

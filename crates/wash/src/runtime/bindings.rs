@@ -52,7 +52,7 @@ pub mod plugin_guest {
                 HookType::BeforeDevServe => "BeforeDevServe",
                 HookType::BeforeDevShutdown => "BeforeDevShutdown",
             };
-            write!(f, "{}", s)
+            write!(f, "{s}")
         }
     }
 }

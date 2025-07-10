@@ -13,4 +13,3 @@ crate-type = ["cdylib"]
 anyhow = "1.0.98"
 wit-bindgen = "0.43.0"
 wasi = "=0.13.3+wasi0.2.2"
-wasmcloud-component = "0.2.0"

@@ -1,5 +1,5 @@
 use wasmcloud_component::{
-    http, info,
+    http,
     wasi::blobstore::{
         container::IncomingValue,
         types::{InputStream, OutgoingValue},

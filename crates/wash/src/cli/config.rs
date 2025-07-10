@@ -51,8 +51,7 @@ impl ConfigCommand {
 
                 Ok(CommandOutput::ok(
                     format!(
-                        "wash version: {}\nData directory: {}\nCache directory: {}\nConfig directory: {}\nConfig path: {}",
-                        version, data_dir, cache_dir, config_dir, config_path
+                        "wash version: {version}\nData directory: {data_dir}\nCache directory: {cache_dir}\nConfig directory: {config_dir}\nConfig path: {config_path}"
                     ),
                     Some(serde_json::json!({
                         "version": version,
