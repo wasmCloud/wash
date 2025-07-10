@@ -30,19 +30,24 @@ impl http::Server for Component {
     fn handle(
         request: http::IncomingRequest,
     ) -> http::Result<http::Response<impl http::OutgoingBody>> {
-        let container = match wasmcloud_component::wasi::blobstore::blobstore::create_container(
+        let container = match wasmcloud_component::wasi::blobstore::blobstore::get_container(
             &String::from("my-container-real"),
         ) {
             Ok(c) => c,
-            Err(e) => {
-                return Ok(http::Response::builder()
-                    .status(500)
-                    .body(ResponseBody::String(format!(
-                        "failed to create container: {:?}",
-                        e
-                    )))
-                    .expect("failed to create HTTP body for container error"));
-            }
+            Err(_) => match wasmcloud_component::wasi::blobstore::blobstore::create_container(
+                &String::from("my-container-real"),
+            ) {
+                Ok(c) => c,
+                Err(e) => {
+                    return Ok(http::Response::builder()
+                        .status(500)
+                        .body(ResponseBody::String(format!(
+                            "failed to create container: {:?}",
+                            e
+                        )))
+                        .expect("failed to create HTTP body for container error"));
+                }
+            },
         };
 
         let (_parts, mut body) = request.into_parts();
