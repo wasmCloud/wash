@@ -6,8 +6,9 @@ use etcetera::AppStrategy;
 use tracing::instrument;
 
 use crate::{
-    cli::{CliContext, CommandOutput},
+    cli::{CliCommand, CliContext, CommandOutput},
     oci::{OCI_CACHE_DIR, OciConfig, pull_component, push_component},
+    runtime::bindings::plugin_host::wasmcloud::wash::types::HookType,
 };
 
 #[derive(Subcommand, Debug, Clone)]
@@ -16,13 +17,25 @@ pub enum OciCommand {
     Push(PushCommand),
 }
 
-impl OciCommand {
+impl CliCommand for OciCommand {
     /// Handle the OCI command
     #[instrument(level = "debug", skip_all, name = "oci")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match self {
             OciCommand::Pull(cmd) => cmd.handle(ctx).await,
             OciCommand::Push(cmd) => cmd.handle(ctx).await,
+        }
+    }
+    fn enable_pre_hook(&self) -> Option<HookType> {
+        match self {
+            OciCommand::Pull(_) => None,
+            OciCommand::Push(_) => Some(HookType::BeforePush),
+        }
+    }
+    fn enable_post_hook(&self) -> Option<HookType> {
+        match self {
+            OciCommand::Pull(_) => None,
+            OciCommand::Push(_) => Some(HookType::AfterPush),
         }
     }
 }
@@ -37,7 +50,7 @@ pub struct PullCommand {
 impl PullCommand {
     /// Handle the OCI command
     #[instrument(level = "debug", skip_all, name = "oci")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
         let c = pull_component(&self.reference, oci_config).await?;
         // Currently, this command does not perform any operations.
@@ -66,7 +79,7 @@ pub struct PushCommand {
 impl PushCommand {
     /// Handle the OCI command
     #[instrument(level = "debug", skip_all, name = "oci")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let component = tokio::fs::read(&self.component_path)
             .await
             .context("failed to read component file")?;

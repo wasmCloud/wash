@@ -10,8 +10,9 @@ use serde::Serialize;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::component_build::ProjectType;
+use crate::runtime::bindings::plugin_guest::__with_name1::HookType;
 use crate::{
-    cli::{CliContext, CommandOutput},
+    cli::{CliCommand, CliContext, CommandOutput},
     config::{Config, generate_project_config, load_config},
     wit::{CommonPackageArgs, WkgFetcher, load_lock_file},
 };
@@ -36,12 +37,11 @@ pub struct ComponentBuildCommand {
     skip_fetch: bool,
 }
 
-impl ComponentBuildCommand {
+impl CliCommand for ComponentBuildCommand {
     #[instrument(level = "debug", skip(self, ctx), name = "component_build")]
-    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         // Load configuration with CLI arguments override
         let config = load_config(&ctx.config_path(), Some(&self.project_path), Some(self))?;
-
         let result = build_component(&self.project_path, ctx, &config).await?;
 
         Ok(CommandOutput::ok(
@@ -55,6 +55,13 @@ impl ComponentBuildCommand {
                 "project_path": self.project_path,
             })),
         ))
+    }
+
+    fn enable_pre_hook(&self) -> Option<HookType> {
+        Some(HookType::BeforeBuild)
+    }
+    fn enable_post_hook(&self) -> Option<HookType> {
+        Some(HookType::AfterBuild)
     }
 }
 

@@ -28,7 +28,7 @@ use wasmtime_wasi_http::{
 
 use crate::{
     cli::{
-        CliContext, CommandOutput,
+        CliCommand, CliContext, CommandOutput,
         component_build::build_component,
         doctor::{check_project_specific_tools, detect_project_context},
     },
@@ -64,8 +64,8 @@ pub struct DevCommand {
     pub blobstore_root: Option<PathBuf>,
 }
 
-impl DevCommand {
-    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+impl CliCommand for DevCommand {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         info!(path = ?self.project_dir, "starting development session for project");
 
         let config = load_config(

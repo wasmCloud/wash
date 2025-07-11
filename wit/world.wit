@@ -40,10 +40,9 @@ interface types {
         before-push,
         after-push,
         // Called during 'wash dev'
+        before-dev, // called before the development loop starts
+        after-dev, // called before shutdown
         dev-register, // called when a component's exports are registered development loop use
-        before-dev-build, // called before 'build'
-        before-dev-serve, // called before wash serves or reloads the component
-        before-dev-shutdown, // called before shutdown
     }
 
     record command-argument {

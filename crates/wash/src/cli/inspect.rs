@@ -3,7 +3,7 @@ use etcetera::AppStrategy;
 use tracing::{info, instrument};
 
 use crate::{
-    cli::{CliContext, CommandOutput},
+    cli::{CliCommand, CliContext, CommandOutput},
     inspect::{decode_component, print_component_wit},
     oci::{OCI_CACHE_DIR, OciConfig, pull_component},
 };
@@ -17,9 +17,9 @@ pub struct InspectCommand {
     pub component_reference: String,
 }
 
-impl InspectCommand {
+impl CliCommand for InspectCommand {
     #[instrument(level = "debug", skip_all, name = "inspect")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let bytes = if Path::new(&self.component_reference).exists() {
             // Load component from file
             tokio::fs::read(&self.component_reference)

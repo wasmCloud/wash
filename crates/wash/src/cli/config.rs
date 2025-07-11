@@ -4,7 +4,7 @@ use etcetera::AppStrategy as _;
 use tracing::instrument;
 
 use crate::{
-    cli::{CliContext, CommandOutput},
+    cli::{CliCommand, CliContext, CommandOutput},
     config::generate_default_config,
 };
 
@@ -25,13 +25,13 @@ pub enum ConfigCommand {
     // TODO: cleanup config command, to clean the dirs we use
 }
 
-impl ConfigCommand {
+impl CliCommand for ConfigCommand {
     #[instrument(level = "debug", skip_all, name = "config")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match self {
             ConfigCommand::Init { force } => {
                 let config_path = ctx.config_path();
-                generate_default_config(&config_path, force)
+                generate_default_config(&config_path, *force)
                     .context("failed to initialize config")?;
 
                 Ok(CommandOutput::ok(
