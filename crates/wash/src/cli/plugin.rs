@@ -4,7 +4,7 @@ use serde_json::json;
 use tracing::instrument;
 
 use crate::{
-    cli::{CliContext, CommandOutput, OutputKind},
+    cli::{CliCommand, CliContext, CommandOutput, OutputKind},
     plugin::{InstallPluginOptions, install_plugin, list_plugins, uninstall_plugin},
 };
 
@@ -18,10 +18,10 @@ pub enum PluginCommand {
     List(ListCommand),
 }
 
-impl PluginCommand {
+impl CliCommand for PluginCommand {
     /// Handle the plugin command
     #[instrument(level = "debug", skip_all, name = "plugin")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match self {
             PluginCommand::Install(cmd) => cmd.handle(ctx).await,
             PluginCommand::Uninstall(cmd) => cmd.handle(ctx).await,
@@ -57,7 +57,7 @@ pub struct ListCommand {
 impl InstallCommand {
     /// Handle the plugin install command
     #[instrument(level = "debug", skip_all, name = "plugin_install")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let options = InstallPluginOptions {
             source: self.source.clone(),
             force: self.force,
@@ -88,7 +88,7 @@ impl InstallCommand {
 impl UninstallCommand {
     /// Handle the plugin uninstall command
     #[instrument(level = "debug", skip_all, name = "plugin_uninstall")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match uninstall_plugin(ctx, &self.name).await {
             Ok(()) => Ok(CommandOutput::ok(
                 format!("Plugin '{}' uninstalled successfully", self.name),
@@ -108,7 +108,7 @@ impl UninstallCommand {
 impl ListCommand {
     /// Handle the plugin list command
     #[instrument(level = "debug", skip_all, name = "plugin_list")]
-    pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let plugins = list_plugins(ctx.runtime(), ctx.data_dir()).await?;
 
         match self.output {

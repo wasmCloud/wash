@@ -11,7 +11,7 @@ use etcetera::app_strategy::Windows;
 use etcetera::app_strategy::Xdg;
 
 use serde_json::json;
-use tracing::{debug, instrument, trace};
+use tracing::{debug, error, instrument, trace};
 
 use serde::{Deserialize, Serialize};
 
@@ -20,7 +20,10 @@ use crate::{
     cli::update::fetch_latest_release_public,
     config::{Config, generate_default_config, load_config},
     plugin::PluginManager,
-    runtime::new_runtime,
+    runtime::{
+        Ctx, bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType, new_runtime,
+        types::Runner,
+    },
 };
 
 pub mod component_build;
@@ -35,6 +38,87 @@ pub mod plugin;
 pub mod update;
 
 pub const CONFIG_FILE_NAME: &str = "config.json";
+
+/// A trait that defines the interface for all CLI commands
+pub trait CliCommand {
+    /// Execute the command with the provided context, returning a structured output
+    fn handle(&self, ctx: &CliContext) -> impl Future<Output = anyhow::Result<CommandOutput>>;
+
+    /// Enable pre-hook execution for this command
+    fn enable_pre_hook(&self) -> Option<HookType> {
+        None
+    }
+
+    /// Enable post-hook execution for this command
+    fn enable_post_hook(&self) -> Option<HookType> {
+        None
+    }
+}
+
+impl<T: CliCommand + ?Sized> CliCommandExt for T {}
+
+/// Extension trait to provide implementations for pre_hook and post_hook.
+pub trait CliCommandExt: CliCommand {
+    /// Execute pre-hook logic before the command runs. By default, if [`CliCommand::enable_pre_hook`]
+    /// returns a hook type, it will execute all components registered with the pre-hook for that type.
+    fn pre_hook(&self, ctx: &CliContext) -> impl Future<Output = anyhow::Result<()>> {
+        async {
+            if let Some(hook_type) = self.enable_pre_hook() {
+                let hooks = ctx.plugin_manager.get_hooks(hook_type);
+                for hook in hooks {
+                    trace!(?hook, "executing pre-hook for command");
+                    let mut data = Ctx::default();
+                    let runner = data.table.push(Runner::default())?;
+                    let mut store = wasmtime::Store::new(&ctx.runtime().engine(), data);
+                    let instance = hook
+                        .component
+                        .instantiate_async(&mut store)
+                        .await
+                        .context("failed to instantiate pre-hook")?;
+                    if let Err(()) = instance
+                        .wasmcloud_wash_plugin()
+                        .call_hook(&mut store, runner, hook_type)
+                        .await
+                        .context("failed to call pre-hook")?
+                    {
+                        error!(name = hook.metadata.name, "pre-hook execution failed");
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    /// Execute post-hook logic after the command runs. By default, if [`CliCommand::enable_post_hook`]
+    /// returns a hook type, it will execute all components registered with the post-hook for that type.
+    fn post_hook(&self, ctx: &CliContext) -> impl Future<Output = anyhow::Result<()>> {
+        async {
+            if let Some(hook_type) = self.enable_post_hook() {
+                let hooks = ctx.plugin_manager.get_hooks(hook_type);
+                for hook in hooks {
+                    trace!(?hook, "executing post-hook for command");
+                    let mut data = Ctx::default();
+                    let runner = data.table.push(Runner::default())?;
+                    let mut store = wasmtime::Store::new(&ctx.runtime().engine(), data);
+                    let instance = hook
+                        .component
+                        .instantiate_async(&mut store)
+                        .await
+                        .context("failed to instantiate post-hook")?;
+                    if let Err(()) = instance
+                        .wasmcloud_wash_plugin()
+                        .call_hook(&mut store, runner, hook_type)
+                        .await
+                        .context("failed to call post-hook")?
+                    {
+                        error!(name = hook.metadata.name, "post-hook execution failed");
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+}
 
 /// Used for displaying human-readable output vs JSON format
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]

@@ -2,6 +2,7 @@ use std::io::BufWriter;
 
 use clap::{Parser, Subcommand};
 use tracing::error;
+use tracing::instrument;
 use tracing::warn;
 use tracing::{Level, info, trace};
 use tracing_subscriber::layer::SubscriberExt;
@@ -9,7 +10,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Registry;
-use wash::cli::{CliContext, CommandOutput, OutputKind};
+use wash::cli::CliCommandExt;
+use wash::cli::{CliCommand, CliContext, CommandOutput, OutputKind};
 
 #[derive(Debug, Clone, Parser)]
 #[clap(
@@ -51,13 +53,13 @@ struct Cli {
     verbose: bool,
 
     #[clap(subcommand)]
-    command: Option<CliCommand>,
+    command: Option<WashCliCommand>,
 }
 
 /// The main CLI commands for wash
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Subcommand)]
-enum CliCommand {
+enum WashCliCommand {
     /// Build a Wasm component
     #[clap(name = "build")]
     Build(wash::cli::component_build::ComponentBuildCommand),
@@ -85,6 +87,56 @@ enum CliCommand {
     /// Update wash to the latest version
     #[clap(name = "update", alias = "upgrade")]
     Update(wash::cli::update::UpdateCommand),
+}
+
+impl CliCommand for WashCliCommand {
+    /// Handle the wash command
+    #[instrument(level = "debug", skip_all, name = "wash")]
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+        match self {
+            WashCliCommand::Build(command) => command.handle(ctx).await,
+            WashCliCommand::Config(command) => command.handle(ctx).await,
+            WashCliCommand::Dev(command) => command.handle(ctx).await,
+            WashCliCommand::Doctor(command) => command.handle(ctx).await,
+            WashCliCommand::Inspect(command) => command.handle(ctx).await,
+            WashCliCommand::New(command) => command.handle(ctx).await,
+            WashCliCommand::Oci(command) => command.handle(ctx).await,
+            WashCliCommand::Plugin(command) => command.handle(ctx).await,
+            WashCliCommand::Update(command) => command.handle(ctx).await,
+        }
+    }
+    fn enable_pre_hook(
+        &self,
+    ) -> Option<wash::runtime::bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType>
+    {
+        match self {
+            WashCliCommand::Build(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Config(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Dev(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Doctor(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Inspect(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::New(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
+        }
+    }
+    fn enable_post_hook(
+        &self,
+    ) -> Option<wash::runtime::bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType>
+    {
+        match self {
+            WashCliCommand::Build(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Config(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Dev(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Doctor(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Inspect(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::New(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Update(cmd) => cmd.enable_post_hook(),
+        }
+    }
 }
 
 #[tokio::main]
@@ -122,7 +174,7 @@ async fn main() {
         .await
         .is_ok_and(|new_version| new_version)
         // Don't show the update message if the user is updating
-        && !matches!(cli.command, Some(CliCommand::Update(_)))
+        && !matches!(cli.command, Some(WashCliCommand::Update(_)))
     {
         info!(
             "a new version of wash is available! Update to the latest version with `wash update`"
@@ -148,19 +200,26 @@ async fn main() {
         );
     };
 
-    // Handle command
+    trace!(command = ?command, "running command pre-hook");
+    if let Err(e) = command.pre_hook(&ctx).await {
+        error!(error = ?e, "failed to run pre-hook for command");
+        exit_with_output(
+            &mut stdout_buf,
+            CommandOutput::error(e, None).with_output_kind(cli.output),
+        );
+    }
+
     trace!(command = ?command, "handling command");
-    let command_output = match command {
-        CliCommand::Build(command) => command.handle(&ctx).await,
-        CliCommand::Config(command) => command.handle(&ctx).await,
-        CliCommand::Dev(command) => command.handle(&ctx).await,
-        CliCommand::Doctor(command) => command.handle(&ctx).await,
-        CliCommand::Inspect(command) => command.handle(&ctx).await,
-        CliCommand::New(command) => command.handle(&ctx).await,
-        CliCommand::Oci(command) => command.handle(&ctx).await,
-        CliCommand::Plugin(command) => command.handle(&ctx).await,
-        CliCommand::Update(command) => command.handle(&ctx).await,
-    };
+    let command_output = command.handle(&ctx).await;
+
+    trace!(command = ?command, "running command post-hook");
+    if let Err(e) = command.post_hook(&ctx).await {
+        error!(error = ?e, "failed to run post-hook for command");
+        exit_with_output(
+            &mut stdout_buf,
+            CommandOutput::error(e, None).with_output_kind(cli.output),
+        );
+    }
 
     match command_output {
         Ok(output) => {

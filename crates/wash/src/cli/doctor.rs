@@ -9,7 +9,7 @@ use std::{
 };
 use tracing::{debug, error, instrument, trace};
 
-use crate::cli::{CliContext, CommandOutput};
+use crate::cli::{CliCommand, CliContext, CommandOutput};
 
 #[derive(Debug, Clone, Args)]
 pub struct DoctorCommand {
@@ -33,9 +33,9 @@ pub enum ProjectContext {
     Mixed { detected_types: Vec<String> },
 }
 
-impl DoctorCommand {
+impl CliCommand for DoctorCommand {
     #[instrument(level = "debug", skip_all, name = "doctor")]
-    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let data_dir = ctx.data_dir();
         let cache_dir = ctx.cache_dir();
         let config_dir = ctx.config_dir();
@@ -233,7 +233,9 @@ impl DoctorCommand {
 
         Ok(CommandOutput::ok(output_lines.join("\n"), Some(json_data)))
     }
+}
 
+impl DoctorCommand {
     /// Add context-specific output to the display
     fn add_context_specific_output(
         &self,

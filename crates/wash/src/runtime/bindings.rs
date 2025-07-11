@@ -54,9 +54,8 @@ pub mod plugin_host {
                 HookType::BeforePush => "BeforePush",
                 HookType::AfterPush => "AfterPush",
                 HookType::DevRegister => "DevRegister",
-                HookType::BeforeDevBuild => "BeforeDevBuild",
-                HookType::BeforeDevServe => "BeforeDevServe",
-                HookType::BeforeDevShutdown => "BeforeDevShutdown",
+                HookType::BeforeDev => "BeforeDev",
+                HookType::AfterDev => "AfterDev",
             };
             write!(f, "{s}")
         }

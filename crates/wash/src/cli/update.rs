@@ -19,7 +19,7 @@ use std::os::unix::fs::PermissionsExt;
 
 use tokio::{fs, io::AsyncWriteExt};
 
-use crate::cli::{CliContext, CommandOutput};
+use crate::cli::{CliCommand, CliContext, CommandOutput};
 
 // TODO: Make this wasmCloud/wasmCloud once this moves
 const REPO: &str = "cosmonic-labs/wash";
@@ -78,9 +78,9 @@ pub struct UpdateCommand {
     token: Option<String>,
 }
 
-impl UpdateCommand {
+impl CliCommand for UpdateCommand {
     #[instrument(level = "debug", skip_all, name = "update")]
-    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let config = UpdateConfig::new(self.git.clone(), self.token.clone());
         let (os, arch) = get_os_arch();
         let release = self.fetch_latest_release(&config).await?;
@@ -161,7 +161,9 @@ impl UpdateCommand {
             )),
         ))
     }
+}
 
+impl UpdateCommand {
     /// Fetch the latest release from the configured repository with authentication
     async fn fetch_latest_release(&self, config: &UpdateConfig) -> anyhow::Result<Release> {
         let url = format!(

@@ -295,6 +295,7 @@ impl DevPluginManager {
     pub async fn get_or_instantiate_instance(
         &self,
         store: &mut StoreContextMut<'_, Ctx>,
+        // TODO: Instances don't need to be Arc-ed, they're already cheaply cloneable
         pre: Arc<InstancePre<Ctx>>,
         name: &str,
     ) -> anyhow::Result<Arc<Instance>> {
