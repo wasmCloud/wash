@@ -14,13 +14,10 @@ use wasmtime::{
     AsContextMut as _, StoreContextMut,
     component::{Component, Instance, InstancePre, Linker, ResourceTable, types::ComponentItem},
 };
-use wasmtime_wasi::{IoImpl, IoView, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
-use crate::runtime::{
-    types::{WasmcloudWashCtx, WasmcloudWashImpl, WasmcloudWashView},
-    wasm::link_imports_plugin_exports,
-};
+use crate::runtime::{bindings::plugin_host, wasm::link_imports_plugin_exports};
 
 pub mod bindings;
 pub(crate) mod types;
@@ -33,7 +30,6 @@ pub struct Ctx {
     pub table: wasmtime::component::ResourceTable,
     pub ctx: WasiCtx,
     pub http: WasiHttpCtx,
-    pub wash: WasmcloudWashCtx,
 
     /// `wasi:config/runtime` uses this hashmap to retrieve runtime configuration
     pub runtime_config: Arc<RwLock<HashMap<String, String>>>,
@@ -90,7 +86,6 @@ impl Default for Ctx {
     fn default() -> Self {
         Self {
             id: uuid::Uuid::now_v7().to_string(),
-            wash: WasmcloudWashCtx::default(),
             table: ResourceTable::new(),
             ctx: WasiCtxBuilder::new()
                 .args(&["main.wasm"])
@@ -104,10 +99,7 @@ impl Default for Ctx {
 
 impl Debug for Ctx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Ctx")
-            .field("wash_ctx", &self.wash)
-            .field("table", &self.table)
-            .finish()
+        f.debug_struct("Ctx").field("table", &self.table).finish()
     }
 }
 impl BaseCtx for Ctx {}
@@ -124,11 +116,6 @@ impl WasiView for Ctx {
 impl WasiHttpView for Ctx {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.http
-    }
-}
-impl WasmcloudWashView for Ctx {
-    fn ctx(&mut self) -> &mut WasmcloudWashCtx {
-        &mut self.wash
     }
 }
 
@@ -192,7 +179,8 @@ pub async fn prepare_component_plugin(
                 .context("failed to link `wasi:logging/logging`")?;
 
             // Add wash plugin host
-            add_to_linker_async(linker).context("failed to link `wash`")?;
+            plugin_host::PluginHost::add_to_linker(linker, |ctx| ctx)
+                .context("failed to link `wasmcloud:wash` host interface")?;
             // TODO: impl on Ctx
             // host::wash::types::add_to_linker_get_host(linker, |ctx| ctx);
             Ok(())
@@ -235,7 +223,7 @@ pub async fn prepare_component_dev(
             wasmcloud_runtime::capability::config::runtime::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasi:config/runtime`")?;
 
-            add_to_linker_async(linker)
+            plugin_host::PluginHost::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasmcloud:wash` host interface")?;
 
             // Link additional configured plugins
@@ -247,24 +235,6 @@ pub async fn prepare_component_dev(
     )?;
 
     Ok(component)
-}
-
-//TODO: kill these? I don't think we need it if I impl on the Ctx properly instead of WasmcloudWashView
-/// Helper function to properly type annotate the Linker's generic type
-fn add_to_linker_async<T: WasmcloudWashView>(linker: &mut Linker<T>) -> anyhow::Result<()> {
-    bindings::plugin_host::wasmcloud::wash::types::add_to_linker_get_host(
-        linker,
-        type_annotate::<T, _>(|t| WasmcloudWashImpl(IoImpl(t))),
-    )?;
-
-    Ok(())
-}
-
-fn type_annotate<T: WasmcloudWashView, F>(val: F) -> F
-where
-    F: Fn(&mut T) -> WasmcloudWashImpl<&mut T>,
-{
-    val
 }
 
 // A hash of the component bytes
@@ -378,9 +348,15 @@ fn initialize_plugin_exports(
 ) -> anyhow::Result<(Component, Vec<(String, ComponentItem)>)> {
     let component = wasmtime::component::Component::new(runtime.engine(), wasm)
         .context("failed to create component from wasm")?;
+    let exports =
+        plugin_exports(&component).context("failed to get plugin exports from component")?;
+    Ok((component, exports))
+}
+
+fn plugin_exports(component: &Component) -> anyhow::Result<Vec<(String, ComponentItem)>> {
     let exports = component
         .component_type()
-        .exports(runtime.engine())
+        .exports(component.engine())
         .filter_map(|(name, item)| {
             // An instance in this case is something like `wasi:blobstore/blobstore@0.2.0-draft`, or an
             // entire interface that's exported.
@@ -391,7 +367,7 @@ fn initialize_plugin_exports(
             }
         })
         .collect::<Vec<_>>();
-    Ok((component, exports))
+    Ok(exports)
 }
 
 #[cfg(test)]

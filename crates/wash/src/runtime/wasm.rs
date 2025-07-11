@@ -121,6 +121,8 @@ pub fn link_imports_plugin_exports(
 
                                             let mut results_buf =
                                                 vec![Val::Bool(false); results.len()];
+                                            // TODO: Enforce a timeout on this call
+                                            // to prevent hanging indefinitely.
                                             func.call_async(
                                                 &mut store,
                                                 &params_buf,

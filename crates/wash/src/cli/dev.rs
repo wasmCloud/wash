@@ -155,7 +155,7 @@ impl DevCommand {
             .context("failed to read artifact file")?;
 
         let mut plugin_manager = DevPluginManager::default();
-        let plugins = match list_plugins(ctx).await {
+        let plugins = match list_plugins(ctx.runtime(), ctx.data_dir()).await {
             Ok(plugins) => plugins
                 .into_iter()
                 .filter(|(_, plugin)| {
@@ -173,7 +173,7 @@ impl DevCommand {
         };
 
         for (plugin, meta) in plugins {
-            if let Err(e) = plugin_manager.register_plugin(&ctx.runtime, &plugin) {
+            if let Err(e) = plugin_manager.register_plugin(ctx.runtime(), &plugin) {
                 error!(
                     err = ?e,
                     name = meta.name,

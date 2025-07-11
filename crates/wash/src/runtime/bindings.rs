@@ -15,20 +15,26 @@ pub mod plugin_guest {
     wasmtime::component::bindgen!({
         path: "./wit",
         world: "plugin-guest",
-        // Flag this as "possibly async" which will cause the exports to be
-        // generated as async, but none of the imports here are async since
-        // all the blocking-ness happens in wasi:io
-        additional_derives: [serde::Serialize],
-        async: {
-            only_imports: ["nonexistent"],
-        },
+        async: true,
 
+        with: {
+            "wasmcloud:wash/types": crate::runtime::bindings::plugin_host::wasmcloud::wash::types,
+            "wasi:io": wasmtime_wasi::bindings::io,
+        }
+    });
+}
+
+pub mod plugin_host {
+    wasmtime::component::bindgen!({
+        path: "./wit",
+        world: "plugin-host",
+        additional_derives: [serde::Serialize],
+        async: true,
         with: {
             "wasmcloud:wash/types/runner": crate::runtime::types::Runner,
             "wasmcloud:wash/types/project-config": crate::runtime::types::ProjectConfig,
             "wasmcloud:wash/types/wash-config": crate::runtime::types::WashConfig,
             "wasmcloud:wash/types/context": crate::runtime::types::Context,
-            "wasi:io": wasmtime_wasi::bindings::io,
         }
     });
 
@@ -55,15 +61,4 @@ pub mod plugin_guest {
             write!(f, "{s}")
         }
     }
-}
-
-pub mod plugin_host {
-    wasmtime::component::bindgen!({
-        path: "./wit",
-        world: "plugin-host",
-        async: true,
-        with: {
-            "wasmcloud:wash/types": crate::runtime::bindings::plugin_guest::wasmcloud::wash::types,
-        }
-    });
 }

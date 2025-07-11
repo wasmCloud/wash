@@ -1,56 +1,23 @@
 use anyhow::{Context as _, Result};
-use std::process::Command;
+use std::{env, process::Command};
 use wasmtime::component::Resource;
-use wasmtime_wasi::{IoImpl, IoView, ResourceTable};
+use wasmtime_wasi::IoView;
 
-#[derive(Debug, Default, Clone)]
-pub struct WasmcloudWashCtx {
-    _priv: (),
-}
-
-pub trait WasmcloudWashView: IoView {
-    fn ctx(&mut self) -> &mut WasmcloudWashCtx;
-}
-
-impl<T: ?Sized + WasmcloudWashView> WasmcloudWashView for &mut T {
-    fn ctx(&mut self) -> &mut WasmcloudWashCtx {
-        T::ctx(self)
-    }
-}
-
-impl<T: ?Sized + WasmcloudWashView> WasmcloudWashView for Box<T> {
-    fn ctx(&mut self) -> &mut WasmcloudWashCtx {
-        T::ctx(self)
-    }
-}
+use crate::runtime::{
+    Ctx,
+    bindings::plugin_host::{self, wasmcloud::wash::plugin::Metadata},
+};
 
 pub struct Runner {
     #[allow(dead_code)]
     version: String,
-    #[allow(dead_code)]
-    test: String,
 }
 
 impl Default for Runner {
     fn default() -> Self {
         Self {
-            version: "0.1.0".to_string(),
-            test: "test".to_string(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
         }
-    }
-}
-
-impl Runner {
-    #[allow(dead_code)]
-    pub fn new<T>(_view: &mut T) -> Result<Resource<Self>, anyhow::Error>
-    where
-        T: IoView,
-    {
-        let ctx = Self::default();
-        _view
-            .table()
-            .push(ctx)
-            .context("failed to add execution context")
     }
 }
 
@@ -66,104 +33,88 @@ impl Default for ProjectConfig {
     }
 }
 
-impl ProjectConfig {
-    #[allow(dead_code)]
-    pub fn new<T>(_view: &mut T) -> Result<Resource<Self>, anyhow::Error>
-    where
-        T: IoView,
-    {
-        let ctx = Self::default();
-        _view
-            .table()
-            .push(ctx)
-            .context("failed to add project config")
-    }
-}
-
 #[derive(Default)]
 pub struct WashConfig {}
-
-impl WashConfig {
-    #[allow(dead_code)]
-    pub fn new<T>(_view: &mut T) -> Result<Resource<Self>, anyhow::Error>
-    where
-        T: IoView,
-    {
-        let ctx = Self::default();
-        _view.table().push(ctx).context("failed to add wash config")
-    }
-}
 
 #[derive(Default)]
 pub struct Context {}
 
-impl Context {
-    #[allow(dead_code)]
-    pub fn new<T>(_view: &mut T) -> Result<Resource<Self>, anyhow::Error>
-    where
-        T: IoView,
-    {
-        let ctx = Self::default();
-        _view.table().push(ctx).context("failed to add context")
+impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::Host for Ctx {}
+impl crate::runtime::bindings::plugin_host::wasmcloud::wash::plugin::Host for Ctx {
+    /// Called by wash to retrieve the plugin metadata
+    async fn info(&mut self) -> Metadata {
+        todo!()
     }
-}
 
-#[repr(transparent)]
-pub struct WasmcloudWashImpl<T>(pub IoImpl<T>);
-
-impl<T: IoView> IoView for WasmcloudWashImpl<T> {
-    fn table(&mut self) -> &mut ResourceTable {
-        T::table(&mut self.0.0)
+    /// Instantiates the plugin.
+    /// The Plugin can check the context and fail if
+    /// information is missing or invalid (ex: incompatible wash version)
+    /// wash might confirm plugin execution with the user prior usage.
+    async fn initialize(&mut self, _runner: Resource<Runner>) -> Result<(), ()> {
+        todo!()
     }
-}
 
-impl<T: WasmcloudWashView> WasmcloudWashView for WasmcloudWashImpl<T> {
-    fn ctx(&mut self) -> &mut WasmcloudWashCtx {
-        self.0.0.ctx()
-    }
-}
-
-impl<T> crate::runtime::bindings::plugin_host::wasmcloud::wash::types::Host for WasmcloudWashImpl<T> where
-    T: WasmcloudWashView
-{
-}
-
-impl<T> crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostContext
-    for WasmcloudWashImpl<T>
-where
-    T: WasmcloudWashView,
-{
-    fn get(
+    /// Executes a given command with the provided arguments
+    /// Commands should call `runtime.output` to control their output
+    /// The result indicates if the command was successful or not
+    async fn run(
         &mut self,
-        _ctx: wasmtime::component::Resource<Context>,
+        _runner: Resource<Runner>,
+        _cmd: plugin_host::wasmcloud::wash::types::Command,
+    ) -> Result<(), ()> {
+        todo!()
+    }
+
+    /// Executes a given hook
+    async fn hook(
+        &mut self,
+        _runner: Resource<Runner>,
+        _hook: plugin_host::wasmcloud::wash::plugin::HookType,
+    ) -> Result<(), ()> {
+        todo!()
+    }
+
+    /// Generates credentials for a given credential type
+    /// wash will only call this if the plugin is registered as a credentials provider
+    /// The result is an opaque payload
+    async fn authorize(
+        &mut self,
+        _runner: Resource<Runner>,
+        _usage: plugin_host::wasmcloud::wash::plugin::CredentialType,
+        _resource: Option<String>,
+    ) -> Result<String, ()> {
+        todo!()
+    }
+}
+
+impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostContext for Ctx {
+    async fn get(
+        &mut self,
+        _ctx: Resource<Context>,
         _key: String,
         _default_value: String,
     ) -> String {
         String::new()
     }
 
-    fn set(
+    async fn set(
         &mut self,
-        _ctx: wasmtime::component::Resource<Context>,
+        _ctx: Resource<Context>,
         _key: String,
         _value: String,
     ) -> wasmtime::Result<(), ()> {
         Ok(())
     }
 
-    fn delete(
-        &mut self,
-        _ctx: wasmtime::component::Resource<Context>,
-        _key: String,
-    ) -> wasmtime::Result<(), ()> {
+    async fn delete(&mut self, _ctx: Resource<Context>, _key: String) -> wasmtime::Result<(), ()> {
         Ok(())
     }
 
-    fn list(&mut self, _ctx: wasmtime::component::Resource<Context>) -> Vec<String> {
+    async fn list(&mut self, _ctx: Resource<Context>) -> Vec<String> {
         vec![]
     }
 
-    fn drop(&mut self, ctx: wasmtime::component::Resource<Context>) -> wasmtime::Result<()> {
+    async fn drop(&mut self, ctx: Resource<Context>) -> wasmtime::Result<()> {
         self.table()
             .delete(ctx)
             .context("[host-context-drop] deleting context")?;
@@ -171,25 +122,21 @@ where
     }
 }
 
-impl<T> crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostWashConfig
-    for WasmcloudWashImpl<T>
-where
-    T: WasmcloudWashView,
-{
-    fn get(
+impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostWashConfig for Ctx {
+    async fn get(
         &mut self,
-        _ctx: wasmtime::component::Resource<WashConfig>,
+        _ctx: Resource<WashConfig>,
         _key: String,
         _default_value: String,
     ) -> String {
         String::new()
     }
 
-    fn list(&mut self, _ctx: wasmtime::component::Resource<WashConfig>) -> Vec<String> {
+    async fn list(&mut self, _ctx: Resource<WashConfig>) -> Vec<String> {
         vec![]
     }
 
-    fn drop(&mut self, ctx: wasmtime::component::Resource<WashConfig>) -> wasmtime::Result<()> {
+    async fn drop(&mut self, ctx: Resource<WashConfig>) -> wasmtime::Result<()> {
         self.table()
             .delete(ctx)
             .context("[host-wash-config-drop] deleting wash config")?;
@@ -197,46 +144,42 @@ where
     }
 }
 
-impl<T> crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostProjectConfig
-    for WasmcloudWashImpl<T>
-where
-    T: WasmcloudWashView,
-{
-    fn wash_config_get(
+impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostProjectConfig for Ctx {
+    async fn wash_config_get(
         &mut self,
-        _ctx: wasmtime::component::Resource<ProjectConfig>,
+        _ctx: Resource<ProjectConfig>,
         _key: String,
         _default_value: String,
     ) -> String {
         String::new()
     }
 
-    fn wash_config_path(&mut self, _ctx: wasmtime::component::Resource<ProjectConfig>) -> String {
+    async fn wash_config_path(&mut self, _ctx: Resource<ProjectConfig>) -> String {
         String::new()
     }
 
-    fn project_config_get(
+    async fn project_config_get(
         &mut self,
-        _ctx: wasmtime::component::Resource<ProjectConfig>,
+        _ctx: Resource<ProjectConfig>,
         _key: String,
         _default_value: String,
     ) -> String {
         String::new()
     }
 
-    fn project_path(
+    async fn project_path(
         &mut self,
-        _ctx: wasmtime::component::Resource<ProjectConfig>,
+        _ctx: Resource<ProjectConfig>,
     ) -> wasmtime::Result<String, ()> {
         Ok(String::new())
     }
 
-    fn version(&mut self, ctx: wasmtime::component::Resource<ProjectConfig>) -> String {
+    async fn version(&mut self, ctx: Resource<ProjectConfig>) -> String {
         let c = self.table().get(&ctx).unwrap();
         c.version.clone()
     }
 
-    fn drop(&mut self, ctx: wasmtime::component::Resource<ProjectConfig>) -> wasmtime::Result<()> {
+    async fn drop(&mut self, ctx: Resource<ProjectConfig>) -> wasmtime::Result<()> {
         self.table()
             .delete(ctx)
             .context("[host-project-config-drop] deleting project config")?;
@@ -244,37 +187,25 @@ where
     }
 }
 
-impl<T> crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostRunner
-    for WasmcloudWashImpl<T>
-where
-    T: WasmcloudWashView,
-{
-    fn project_config(
-        &mut self,
-        _ctx: wasmtime::component::Resource<Runner>,
-    ) -> Option<wasmtime::component::Resource<ProjectConfig>> {
+impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostRunner for Ctx {
+    async fn project_config(&mut self, _ctx: Resource<Runner>) -> Option<Resource<ProjectConfig>> {
         None
     }
 
-    fn context(
-        &mut self,
-        _ctx: wasmtime::component::Resource<Runner>,
-    ) -> wasmtime::component::Resource<Context> {
+    async fn context(&mut self, _ctx: Resource<Runner>) -> Resource<Context> {
         todo!()
     }
 
-    fn plugin_config(
+    async fn plugin_config(
         &mut self,
-        _ctx: wasmtime::component::Resource<Runner>,
-    ) -> wasmtime::component::Resource<
-        crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig,
-    > {
+        _ctx: Resource<Runner>,
+    ) -> Resource<crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig> {
         todo!()
     }
 
-    fn host_exec(
+    async fn host_exec(
         &mut self,
-        _ctx: wasmtime::component::Resource<Runner>,
+        _ctx: Resource<Runner>,
         bin: String,
         args: Vec<String>,
     ) -> Result<(String, String), ()> {
@@ -288,22 +219,22 @@ where
         }
     }
 
-    fn authorize(
+    async fn authorize(
         &mut self,
-        _ctx: wasmtime::component::Resource<Runner>,
+        _ctx: Resource<Runner>,
         _usage: crate::runtime::bindings::plugin_host::wasmcloud::wash::types::CredentialType,
         _resource: Option<String>,
     ) -> Result<String, ()> {
         Ok(String::new())
     }
 
-    fn output(&mut self, _ctx: wasmtime::component::Resource<Runner>, output: String) {
+    async fn output(&mut self, _ctx: Resource<Runner>, output: String) {
         println!("{output}");
     }
 
-    fn structured_output(
+    async fn structured_output(
         &mut self,
-        _ctx: wasmtime::component::Resource<Runner>,
+        _ctx: Resource<Runner>,
         headers: Vec<String>,
         rows: Vec<Vec<String>>,
     ) {
@@ -313,11 +244,11 @@ where
         }
     }
 
-    fn error(&mut self, _ctx: wasmtime::component::Resource<Runner>, message: String) {
+    async fn error(&mut self, _ctx: Resource<Runner>, message: String) {
         panic!("{}", message);
     }
 
-    fn drop(&mut self, ctx: wasmtime::component::Resource<Runner>) -> wasmtime::Result<()> {
+    async fn drop(&mut self, ctx: Resource<Runner>) -> wasmtime::Result<()> {
         self.table()
             .delete(ctx)
             .context("[host-runner-drop] deleting runner")?;
@@ -325,14 +256,10 @@ where
     }
 }
 
-impl<T> crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostPluginConfig
-    for WasmcloudWashImpl<T>
-where
-    T: WasmcloudWashView,
-{
-    fn get(
+impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostPluginConfig for Ctx {
+    async fn get(
         &mut self,
-        _self_: wasmtime::component::Resource<
+        _self_: Resource<
             crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig,
         >,
         _key: String,
@@ -341,9 +268,9 @@ where
         String::new()
     }
 
-    fn set(
+    async fn set(
         &mut self,
-        _self_: wasmtime::component::Resource<
+        _self_: Resource<
             crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig,
         >,
         _key: String,
@@ -352,9 +279,9 @@ where
         Ok(())
     }
 
-    fn delete(
+    async fn delete(
         &mut self,
-        _self_: wasmtime::component::Resource<
+        _self_: Resource<
             crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig,
         >,
         _key: String,
@@ -362,20 +289,18 @@ where
         Ok(())
     }
 
-    fn list(
+    async fn list(
         &mut self,
-        _self_: wasmtime::component::Resource<
+        _self_: Resource<
             crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig,
         >,
     ) -> Vec<String> {
         vec![]
     }
 
-    fn drop(
+    async fn drop(
         &mut self,
-        rep: wasmtime::component::Resource<
-            crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig,
-        >,
+        rep: Resource<crate::runtime::bindings::plugin_host::wasmcloud::wash::types::PluginConfig>,
     ) -> wasmtime::Result<()> {
         self.table()
             .delete(rep)
