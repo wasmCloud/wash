@@ -19,6 +19,7 @@ use crate::{
     CARGO_PKG_VERSION,
     cli::update::fetch_latest_release_public,
     config::{Config, generate_default_config, load_config},
+    plugin::PluginManager,
     runtime::new_runtime,
 };
 
@@ -144,7 +145,8 @@ pub struct CliContext {
     /// The runtime used for executing Wasm components. Plugins and
     /// dev loops will use this runtime to execute Wasm code.
     runtime: wasmcloud_runtime::Runtime,
-    _plugin_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
+    _runtime_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
+    plugin_manager: PluginManager,
 }
 
 #[cfg(unix)]
@@ -223,10 +225,15 @@ impl CliContext {
             .await
             .context("failed to create wasmcloud runtime")?;
 
+        let plugin_manager = PluginManager::initialize(&plugin_runtime, app_strategy.data_dir())
+            .await
+            .context("failed to initialize plugin manager")?;
+
         Ok(Self {
             app_strategy,
             runtime: plugin_runtime,
-            _plugin_thread: Arc::new(thread),
+            _runtime_thread: Arc::new(thread),
+            plugin_manager,
         })
     }
 
@@ -253,7 +260,6 @@ impl CliContext {
             }
         }
 
-        // TODO: will want to support private repo here too.
         if let Ok(release) = fetch_latest_release_public().await {
             trace!(?release, "fetched latest release from GitHub");
             let tagged_version = release

@@ -7,14 +7,93 @@ use anyhow::{Context as _, bail};
 use etcetera::AppStrategy;
 use std::path::Path;
 use tracing::{debug, info, instrument};
+use wasmcloud_runtime::Runtime;
 
 use crate::{
     cli::CliContext,
     oci::{OCI_CACHE_DIR, OciConfig, pull_component},
     runtime::{
-        Ctx, bindings::plugin_host::wasmcloud::wash::plugin::Metadata, prepare_component_plugin,
+        Ctx,
+        bindings::{
+            plugin_guest::{PluginGuestPre, exports::wasmcloud::wash::plugin::HookType},
+            plugin_host::wasmcloud::wash::plugin::Metadata,
+        },
+        prepare_component_plugin,
     },
 };
+
+/// A Plugin component has the preinstantiated guest and its metadata for quick access
+#[derive(Clone)]
+pub struct PluginComponent {
+    pub component: PluginGuestPre<Ctx>,
+    pub metadata: Metadata,
+}
+
+impl std::fmt::Debug for PluginComponent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PluginComponent")
+            .field("name", &self.metadata.name)
+            .field("version", &self.metadata.version)
+            .field("hooks", &self.metadata.hooks)
+            .finish()
+    }
+}
+
+/// A struct responsible for managing Wash plugins
+#[derive(Debug, Clone)]
+pub struct PluginManager {
+    pub plugins: Vec<PluginComponent>,
+}
+
+impl PluginManager {
+    pub async fn initialize(runtime: &Runtime, data_dir: impl AsRef<Path>) -> anyhow::Result<Self> {
+        let raw_plugins = list_plugins(&runtime, data_dir).await?;
+        let mut plugins = Vec::with_capacity(raw_plugins.len());
+        for (plugin, metadata) in raw_plugins {
+            match prepare_component_plugin(&runtime, &plugin).await {
+                Ok(component) => {
+                    debug!(name = %metadata.name, "plugin component prepared successfully");
+                    let instance_pre = component.instance_pre().clone();
+                    // Preinstantiate the plugin guest
+                    let plugin_guest_pre = PluginGuestPre::new(instance_pre)?;
+
+                    plugins.push(PluginComponent {
+                        component: plugin_guest_pre,
+                        metadata,
+                    });
+                }
+                Err(e) => {
+                    tracing::error!(
+                        err = ?e,
+                        name = %metadata.name,
+                        "failed to prepare plugin component, continuing without it"
+                    );
+                }
+            }
+        }
+
+        Ok(Self { plugins })
+    }
+
+    /// Filter plugins that implement the given hook type
+    pub fn get_hooks(&self, hook_type: HookType) -> Vec<&PluginComponent> {
+        self.plugins
+            .iter()
+            .filter(|plugin| {
+                plugin
+                    .metadata
+                    .hooks
+                    .as_ref()
+                    .is_some_and(|hooks| hooks.contains(&hook_type))
+            })
+            .collect()
+    }
+
+    /// Get all registered plugins
+    pub fn get_plugins(&self) -> &[PluginComponent] {
+        &self.plugins
+    }
+}
 
 const PLUGINS_DIR: &str = "plugins";
 
@@ -83,7 +162,7 @@ pub async fn install_plugin(
         };
 
     // Validate that it's a valid WebAssembly component and wash plugin
-    let metadata = get_plugin_metadata(ctx, &component_data).await?;
+    let metadata = get_plugin_metadata(ctx.runtime(), &component_data).await?;
 
     // Sanitize plugin name for filesystem storage
     let sanitized_name = sanitize_plugin_name(&metadata.name);
@@ -144,8 +223,11 @@ pub async fn uninstall_plugin(ctx: &CliContext, name: &str) -> anyhow::Result<()
 
 /// List all installed plugins, returning their bytes and [`Metadata`]
 #[instrument(level = "debug", skip_all, name = "list_plugins")]
-pub async fn list_plugins(ctx: &CliContext) -> anyhow::Result<Vec<(Vec<u8>, Metadata)>> {
-    let plugins_dir = ctx.data_dir().join(PLUGINS_DIR);
+pub async fn list_plugins(
+    runtime: &Runtime,
+    data_dir: impl AsRef<Path>,
+) -> anyhow::Result<Vec<(Vec<u8>, Metadata)>> {
+    let plugins_dir = data_dir.as_ref().join(PLUGINS_DIR);
 
     // If plugins directory doesn't exist, return empty list
     if !plugins_dir.exists() {
@@ -178,7 +260,7 @@ pub async fn list_plugins(ctx: &CliContext) -> anyhow::Result<Vec<(Vec<u8>, Meta
             .with_context(|| format!("failed to read plugin file: {}", path.display()))?;
 
         // Get plugin metadata using the guest call
-        let metadata = get_plugin_metadata(ctx, &plugin)
+        let metadata = get_plugin_metadata(runtime, &plugin)
             .await
             .with_context(|| format!("failed to get metadata for plugin: {plugin_name}"))?;
 
@@ -191,9 +273,8 @@ pub async fn list_plugins(ctx: &CliContext) -> anyhow::Result<Vec<(Vec<u8>, Meta
     Ok(plugins)
 }
 
-pub async fn get_plugin_metadata(ctx: &CliContext, wasm: &[u8]) -> anyhow::Result<Metadata> {
+pub async fn get_plugin_metadata(runtime: &Runtime, wasm: &[u8]) -> anyhow::Result<Metadata> {
     // Load the wasm as a component
-    let runtime = ctx.runtime();
     let component = prepare_component_plugin(runtime, wasm).await?;
     let pre = component.instance_pre();
     let mut store = component.new_store(Ctx::default());

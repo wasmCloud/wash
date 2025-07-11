@@ -1,4 +1,5 @@
 use clap::{Args, Subcommand};
+use etcetera::AppStrategy;
 use serde_json::json;
 use tracing::instrument;
 
@@ -108,7 +109,7 @@ impl ListCommand {
     /// Handle the plugin list command
     #[instrument(level = "debug", skip_all, name = "plugin_list")]
     pub async fn handle(self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let plugins = list_plugins(ctx).await?;
+        let plugins = list_plugins(ctx.runtime(), ctx.data_dir()).await?;
 
         match self.output {
             OutputKind::Text => {

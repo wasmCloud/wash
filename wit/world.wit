@@ -145,10 +145,9 @@ interface types {
         version: func() -> string;
     }
 
+    // A key/value store that is used to pass information between wash commands and hooks
+    // Allowing hooks to modify behavior without changing the command itself
     resource context {
-        // It is a key/value store that is used to pass information between wash commands and hooks
-        // Allowing hooks to modify behavior without changing the command itself
-
         // Get the value for a given context key.
         // Ex: During wash build: get("tinygo.path", "/usr/bin/tinygo") -> "/opt/homebrew/bin/tinygo"
         get: func(key: string, default-value: string) -> string;
@@ -262,6 +261,7 @@ world dev {
 // A component that implements `wasi:blobstore` for dev
 world blobstore-host {
     import wasi:logging/logging@0.1.0-draft;
+    // TODO: Plugins require the import of wasmcloud:wash/types, so would be cool to get rid of that
     export plugin;
     export wasi:blobstore/blobstore@0.2.0-draft;
     export wasi:blobstore/container@0.2.0-draft;
