@@ -21,7 +21,9 @@ use crate::{
     config::{Config, generate_default_config, load_config},
     plugin::PluginManager,
     runtime::{
-        Ctx, bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType, new_runtime,
+        Ctx,
+        bindings::plugin_guest::{PluginGuest, exports::wasmcloud::wash::plugin::HookType},
+        new_runtime,
         types::Runner,
     },
 };
@@ -66,16 +68,18 @@ pub trait CliCommandExt: CliCommand {
             if let Some(hook_type) = self.enable_pre_hook() {
                 let hooks = ctx.plugin_manager.get_hooks(hook_type);
                 for hook in hooks {
-                    trace!(?hook, "executing pre-hook for command");
+                    trace!(?hook, ?hook_type, "executing pre-hook for command");
                     let mut data = Ctx::default();
                     let runner = data.table.push(Runner::default())?;
-                    let mut store = wasmtime::Store::new(&ctx.runtime().engine(), data);
+                    let mut store = hook.component.new_store(data);
                     let instance = hook
                         .component
+                        .instance_pre()
                         .instantiate_async(&mut store)
                         .await
                         .context("failed to instantiate pre-hook")?;
-                    if let Err(()) = instance
+                    let plugin_guest = PluginGuest::new(&mut store, &instance)?;
+                    if let Err(()) = plugin_guest
                         .wasmcloud_wash_plugin()
                         .call_hook(&mut store, runner, hook_type)
                         .await
@@ -99,13 +103,15 @@ pub trait CliCommandExt: CliCommand {
                     trace!(?hook, "executing post-hook for command");
                     let mut data = Ctx::default();
                     let runner = data.table.push(Runner::default())?;
-                    let mut store = wasmtime::Store::new(&ctx.runtime().engine(), data);
+                    let mut store = hook.component.new_store(data);
                     let instance = hook
                         .component
+                        .instance_pre()
                         .instantiate_async(&mut store)
                         .await
                         .context("failed to instantiate post-hook")?;
-                    if let Err(()) = instance
+                    let plugin_guest = PluginGuest::new(&mut store, &instance)?;
+                    if let Err(()) = plugin_guest
                         .wasmcloud_wash_plugin()
                         .call_hook(&mut store, runner, hook_type)
                         .await

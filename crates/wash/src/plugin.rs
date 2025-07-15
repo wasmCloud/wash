@@ -5,9 +5,9 @@
 
 use anyhow::{Context as _, bail};
 use etcetera::AppStrategy;
-use std::path::Path;
+use std::{path::Path, sync::Arc};
 use tracing::{debug, info, instrument};
-use wasmcloud_runtime::Runtime;
+use wasmcloud_runtime::{Runtime, component::CustomCtxComponent};
 
 use crate::{
     cli::CliContext,
@@ -15,7 +15,7 @@ use crate::{
     runtime::{
         Ctx,
         bindings::{
-            plugin_guest::{PluginGuestPre, exports::wasmcloud::wash::plugin::HookType},
+            plugin_guest::exports::wasmcloud::wash::plugin::HookType,
             plugin_host::wasmcloud::wash::plugin::Metadata,
         },
         prepare_component_plugin,
@@ -25,7 +25,7 @@ use crate::{
 /// A Plugin component has the preinstantiated guest and its metadata for quick access
 #[derive(Clone)]
 pub struct PluginComponent {
-    pub component: PluginGuestPre<Ctx>,
+    pub component: Arc<CustomCtxComponent<Ctx>>,
     pub metadata: Metadata,
 }
 
@@ -47,18 +47,18 @@ pub struct PluginManager {
 
 impl PluginManager {
     pub async fn initialize(runtime: &Runtime, data_dir: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let raw_plugins = list_plugins(&runtime, data_dir).await?;
+        let raw_plugins = list_plugins(runtime, data_dir).await?;
         let mut plugins = Vec::with_capacity(raw_plugins.len());
         for (plugin, metadata) in raw_plugins {
-            match prepare_component_plugin(&runtime, &plugin).await {
+            match prepare_component_plugin(runtime, &plugin).await {
                 Ok(component) => {
                     debug!(name = %metadata.name, "plugin component prepared successfully");
-                    let instance_pre = component.instance_pre().clone();
-                    // Preinstantiate the plugin guest
-                    let plugin_guest_pre = PluginGuestPre::new(instance_pre)?;
+                    // let instance_pre = component.instance_pre().clone();
+                    // // Preinstantiate the plugin guest
+                    // let plugin_guest_pre = PluginGuestPre::new(instance_pre)?;
 
                     plugins.push(PluginComponent {
-                        component: plugin_guest_pre,
+                        component: Arc::new(component),
                         metadata,
                     });
                 }

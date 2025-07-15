@@ -235,6 +235,8 @@ world plugin-host {
 world plugin-guest {
     // tinygo requirement
     include wasi:cli/imports@0.2.0;
+    // can log
+    import wasi:logging/logging@0.1.0-draft;
 
     export plugin;
 
@@ -243,8 +245,6 @@ world plugin-guest {
     // can read/write to the filesystem
     // import wasi:filesystem/filesystem;
 
-    // can log
-    // import wasi:logging/logging;
     // can request interactive TTY
     // import wasi:io/streams;
 }

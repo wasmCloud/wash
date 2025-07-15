@@ -18,8 +18,8 @@ pub mod plugin_guest {
         async: true,
 
         with: {
-            "wasmcloud:wash/types": crate::runtime::bindings::plugin_host::wasmcloud::wash::types,
-            "wasi:io": wasmtime_wasi::bindings::io,
+            "wasmcloud:wash": crate::runtime::bindings::plugin_host::wasmcloud::wash,
+            // "wasi:logging": wasmcloud_runtime::capability::logging,
         }
     });
 }

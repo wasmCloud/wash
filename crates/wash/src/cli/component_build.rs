@@ -10,7 +10,7 @@ use serde::Serialize;
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::component_build::ProjectType;
-use crate::runtime::bindings::plugin_guest::__with_name1::HookType;
+use crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HookType;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
     config::{Config, generate_project_config, load_config},
