@@ -181,8 +181,8 @@ pub async fn prepare_component_plugin(
             // Add wash plugin host
             plugin_host::PluginHost::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasmcloud:wash` host interface")?;
-            // TODO: impl on Ctx
-            // host::wash::types::add_to_linker_get_host(linker, |ctx| ctx);
+            // plugin_guest::PluginGuest::add_to_linker(linker, |ctx| ctx)
+            //     .context("failed to link `wasmcloud:wash` host interface")?;
             Ok(())
         },
     )?;
@@ -259,6 +259,21 @@ impl DevPluginManager {
 
         let key = format!("{:x}", Sha256::digest(wasm));
         for (name, item) in exports {
+            // We don't need to expose the plugin export to the dev components
+            // Additionally, this would actually error since each plugin exports this interface.
+            match name.split_once('@') {
+                Some(("wasmcloud:wash/plugin", _)) => {
+                    debug!(name, "skipping internal plugin export");
+                    continue;
+                }
+                None => {
+                    if name == "wasmcloud:wash/plugin" {
+                        debug!(name, "skipping internal plugin export");
+                        continue;
+                    }
+                }
+                _ => {}
+            }
             if let ComponentItem::ComponentInstance(_) = item {
                 // Register the interface name to the component key
                 if self.interface_map.contains_key(&name) {

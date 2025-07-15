@@ -371,6 +371,12 @@ impl CliCommand for DevCommand {
             None,
         ))
     }
+    fn enable_pre_hook(&self) -> Option<HookType> {
+        Some(HookType::BeforeDev)
+    }
+    fn enable_post_hook(&self) -> Option<HookType> {
+        Some(HookType::AfterDev)
+    }
 }
 
 /// Starts the development HTTP server, listening for incoming requests
