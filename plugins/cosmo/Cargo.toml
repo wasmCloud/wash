@@ -1,0 +1,15 @@
+[package]
+name = "cosmo"
+description = "Cosmonic's Wash plugin"
+edition = "2021"
+version = "0.1.0"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0.98"
+wit-bindgen = "0.43.0"
+wasi = "=0.13.3+wasi0.2.2"

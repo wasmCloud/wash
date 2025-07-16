@@ -11,6 +11,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Registry;
 use wash::cli::CliCommandExt;
+use wash::cli::ComponentPluginCommand;
 use wash::cli::{CliCommand, CliContext, CommandOutput, OutputKind};
 
 #[derive(Debug, Clone, Parser)]
@@ -87,6 +88,9 @@ enum WashCliCommand {
     /// Update wash to the latest version
     #[clap(name = "update", alias = "upgrade")]
     Update(wash::cli::update::UpdateCommand),
+    /// A command registered and implemented by a Wash component plugin
+    #[clap(external_subcommand)]
+    ComponentPlugin(Vec<String>),
 }
 
 impl CliCommand for WashCliCommand {
@@ -103,6 +107,39 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(command) => command.handle(ctx).await,
             WashCliCommand::Plugin(command) => command.handle(ctx).await,
             WashCliCommand::Update(command) => command.handle(ctx).await,
+            WashCliCommand::ComponentPlugin(args) => {
+                for plugin in ctx.plugin_manager().get_commands() {
+                    // Register the plugin command with the CLI
+                    let cmd = clap::Command::new(&plugin.metadata.name)
+                        .about(&plugin.metadata.description)
+                        .allow_hyphen_values(true)
+                        .disable_help_flag(true)
+                        // You can just run a command at the highest level
+                        .subcommand_required(false);
+                    let component_plugin_command = ComponentPluginCommand {
+                        cmd,
+                        args: args.clone(),
+                    };
+                    let res = component_plugin_command.handle(&ctx).await?;
+                    // TODO: use these things to specify flags?
+                    //         name: string,
+                    // // the command description
+                    // // this is usually a one-liner
+                    // description: string,
+                    // // command flags
+                    // // 'wash <plugin-name> <command-name> --<flag-name> <flag-value>'
+                    // %flags: list<tuple<string, command-argument>>,
+                    // // positional arguments
+                    // // 'wash <plugin-name> <command-name> <arg1-value> <arg2-value>'
+                    // arguments: list<command-argument>,
+                    // // list with sample command usage
+                    // usage: list<string>,
+                    // TODO: impl CliCommand for ArgMatches which handles the call and returns output
+                    return Ok(res);
+                }
+
+                anyhow::bail!("no cmd found");
+            }
         }
     }
     fn enable_pre_hook(
@@ -119,6 +156,10 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::ComponentPlugin(_) => {
+                // Component plugins do not have pre-hooks by default
+                None
+            }
         }
     }
     fn enable_post_hook(
@@ -135,6 +176,10 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::ComponentPlugin(_) => {
+                // Component plugins do not have post-hooks by default
+                None
+            }
         }
     }
 }

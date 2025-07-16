@@ -209,7 +209,8 @@ interface types {
 
 interface plugin {
     use types.{metadata, runner, command, hook-type, credential-type};
-    // Called by wash to retrieve the plugin metadata
+    // Called by wash to retrieve the plugin metadata. It's recommended to avoid
+    // any computation or logging in this function as it's called on each command execution.
     info: func() -> metadata;
     // Instantiates the plugin.
     // The Plugin can check the context and fail if
