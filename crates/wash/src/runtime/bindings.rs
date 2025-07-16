@@ -19,7 +19,6 @@ pub mod plugin_guest {
 
         with: {
             "wasmcloud:wash": crate::runtime::bindings::plugin_host::wasmcloud::wash,
-            // "wasi:logging": wasmcloud_runtime::capability::logging,
         }
     });
 }
@@ -58,6 +57,25 @@ pub mod plugin_host {
                 HookType::AfterDev => "AfterDev",
             };
             write!(f, "{s}")
+        }
+    }
+
+    impl From<&str> for HookType {
+        fn from(s: &str) -> Self {
+            match s.to_ascii_lowercase().as_str() {
+                "error" => HookType::Error,
+                "beforelogin" => HookType::BeforeLogin,
+                "afterlogin" => HookType::AfterLogin,
+                "beforebuild" => HookType::BeforeBuild,
+                "afterbuild" => HookType::AfterBuild,
+                "beforepush" => HookType::BeforePush,
+                "afterpush" => HookType::AfterPush,
+                "devregister" => HookType::DevRegister,
+                "beforedev" => HookType::BeforeDev,
+                "afterdev" => HookType::AfterDev,
+                "unknown" => HookType::Unknown,
+                _ => HookType::Unknown, // Default case for unknown strings
+            }
         }
     }
 }

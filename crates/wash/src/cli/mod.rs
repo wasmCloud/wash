@@ -70,7 +70,7 @@ pub trait CliCommandExt: CliCommand {
                 for hook in hooks {
                     trace!(?hook, ?hook_type, "executing pre-hook for command");
                     let mut data = Ctx::default();
-                    let runner = data.table.push(Runner::default())?;
+                    let runner = data.table.push(Runner::new(hook.metadata.clone()))?;
                     let mut store = hook.component.new_store(data);
                     let instance = hook
                         .component
@@ -102,7 +102,7 @@ pub trait CliCommandExt: CliCommand {
                 for hook in hooks {
                     trace!(?hook, "executing post-hook for command");
                     let mut data = Ctx::default();
-                    let runner = data.table.push(Runner::default())?;
+                    let runner = data.table.push(Runner::new(hook.metadata.clone()))?;
                     let mut store = hook.component.new_store(data);
                     let instance = hook
                         .component
@@ -123,6 +123,69 @@ pub trait CliCommandExt: CliCommand {
             }
             Ok(())
         }
+    }
+}
+
+pub struct ComponentPluginCommand {
+    pub cmd: clap::Command,
+    pub args: Vec<String>,
+}
+
+/// This implementation allows a parsed subcommand from clap to be treated as a CLI command.
+impl CliCommand for ComponentPluginCommand {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+        let name = self.cmd.get_name();
+        let plugin_component = ctx
+            .plugin_manager()
+            .get_command(name)
+            .context(format!("failed to find command `{name}` in plugin manager"))?;
+        let command = plugin_component
+            .metadata
+            .commands
+            .iter()
+            .find(|c| c.name == name)
+            .context(format!("command `{name}` not found in plugin metadata"))?;
+        debug!(
+            ?command,
+            "found command in plugin metadata, preparing to run"
+        );
+        // let _args = self.cmd.clone().get_matches_from(self.args.clone());
+
+        let mut store = plugin_component.component.new_store(Ctx::default());
+        let instance = plugin_component
+            .component
+            .instance_pre()
+            .instantiate_async(&mut store)
+            .await?;
+        let plugin_guest = PluginGuest::new(&mut store, &instance)?;
+        let guest = plugin_guest.wasmcloud_wash_plugin();
+        let runner = store
+            .data_mut()
+            .table
+            .push(Runner::new(plugin_component.metadata.clone()))?;
+        guest
+            .call_run(store, runner, command)
+            .await
+            .context(format!("failed to run command `{name}`"))?
+            .map_err(|()| anyhow::anyhow!("command `{name}` execution failed"))?;
+        debug!(name = ?name, "command executed");
+
+        // Prepare output data for both text and JSON output
+        let output_data = json!({
+            "command": name,
+            "args": self.args,
+            "plugin": plugin_component.metadata.name,
+            "description": command.description,
+            "success": true
+        });
+
+        // Compose a human-readable message
+        let message = format!(
+            "Successfully executed plugin command `{}` (plugin: `{}`)",
+            name, plugin_component.metadata.name
+        );
+
+        Ok(CommandOutput::ok(message, Some(output_data)))
     }
 }
 
@@ -410,5 +473,8 @@ impl CliContext {
     // TODO: consider if this should be exposed or used internally
     pub fn runtime(&self) -> &wasmcloud_runtime::Runtime {
         &self.runtime
+    }
+    pub fn plugin_manager(&self) -> &PluginManager {
+        &self.plugin_manager
     }
 }

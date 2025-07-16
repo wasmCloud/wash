@@ -11,7 +11,6 @@ pub(crate) struct Component;
 impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Component {
     /// Called by wash to retrieve the plugin metadata
     fn info() -> Metadata {
-        log(Level::Info, "aspire-otel", "info called");
         Metadata {
             id: "dev.wasmcloud.aspire-otel".to_string(),
             name: "aspire-otel".to_string(),

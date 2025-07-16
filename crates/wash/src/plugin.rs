@@ -89,6 +89,24 @@ impl PluginManager {
             .collect()
     }
 
+    /// Get all plugins that implement commands
+    pub fn get_commands(&self) -> Vec<&PluginComponent> {
+        self.plugins
+            .iter()
+            .filter(|plugin| !plugin.metadata.commands.is_empty())
+            .collect()
+    }
+
+    pub fn get_command(&self, subcommand: &str) -> Option<&PluginComponent> {
+        self.plugins.iter().find(|plugin| {
+            plugin
+                .metadata
+                .commands
+                .iter()
+                .any(|cmd| cmd.name == subcommand)
+        })
+    }
+
     /// Get all registered plugins
     pub fn get_plugins(&self) -> &[PluginComponent] {
         &self.plugins

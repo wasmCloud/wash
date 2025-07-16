@@ -1,4 +1,5 @@
 use anyhow::{Context as _, Result};
+use dialoguer::{Confirm, theme::ColorfulTheme};
 use std::{env, process::Command};
 use tracing::debug;
 use wasmtime::component::Resource;
@@ -12,12 +13,15 @@ use crate::runtime::{
 pub struct Runner {
     #[allow(dead_code)]
     version: String,
+    /// The metadata of the plugin
+    pub metadata: Metadata,
 }
 
-impl Default for Runner {
-    fn default() -> Self {
+impl Runner {
+    pub fn new(metadata: Metadata) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
+            metadata,
         }
     }
 }
@@ -210,11 +214,16 @@ impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostRunner f
         bin: String,
         args: Vec<String>,
     ) -> Result<(String, String), ()> {
+        let ctx = self.table.get(&ctx).map_err(|_| ())?;
+        Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt(format!(
+                "{} wants to run `{bin}` with arguments: {args:?}.\nContinue?",
+                ctx.metadata.name
+            ))
+            .default(true)
+            .interact()
+            .map_err(|_| ())?;
         debug!(bin = %bin, ?args, "executing host command");
-        if ctx.owned() {
-            debug!("owned");
-        }
-        debug!("not owned");
         match Command::new(bin).args(args).output() {
             Ok(output) => {
                 let stdout = String::from_utf8(output.stdout).map_err(|_| ())?;
