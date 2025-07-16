@@ -1,11 +1,22 @@
+use std::path::PathBuf;
+
+use anyhow::Context;
 use clap::{Args, Subcommand};
 use etcetera::AppStrategy;
 use serde_json::json;
-use tracing::instrument;
+use tokio::fs;
+use tracing::{info, instrument, warn};
 
 use crate::{
-    cli::{CliCommand, CliContext, CommandOutput, OutputKind},
+    cli::{CliCommand, CliContext, CommandOutput, OutputKind, component_build::build_component},
+    config::Config,
     plugin::{InstallPluginOptions, install_plugin, list_plugins, uninstall_plugin},
+    runtime::{
+        Ctx,
+        bindings::plugin_guest::{__with_name0::plugin::HookType, PluginGuest},
+        prepare_component_plugin,
+        types::Runner,
+    },
 };
 
 #[derive(Subcommand, Debug, Clone)]
@@ -16,6 +27,8 @@ pub enum PluginCommand {
     Uninstall(UninstallCommand),
     /// List installed plugins
     List(ListCommand),
+    /// Test a plugin component for its metadata, commands or hooks
+    Test(TestCommand),
 }
 
 impl CliCommand for PluginCommand {
@@ -26,6 +39,7 @@ impl CliCommand for PluginCommand {
             PluginCommand::Install(cmd) => cmd.handle(ctx).await,
             PluginCommand::Uninstall(cmd) => cmd.handle(ctx).await,
             PluginCommand::List(cmd) => cmd.handle(ctx).await,
+            PluginCommand::Test(cmd) => cmd.handle(ctx).await,
         }
     }
 }
@@ -52,6 +66,19 @@ pub struct ListCommand {
     /// Output format (text or json)
     #[clap(short, long, default_value = "text")]
     output: OutputKind,
+}
+
+#[derive(Args, Debug, Clone)]
+pub struct TestCommand {
+    /// Path to the component or component project to test
+    #[clap(name = "plugin")]
+    plugin: PathBuf,
+    /// The command names to test
+    #[clap(name = "name", long = "command")]
+    command: Vec<String>,
+    /// The hook types to test
+    #[clap(name = "type", long = "hook")]
+    hooks: Vec<HookType>,
 }
 
 impl InstallCommand {
@@ -161,5 +188,99 @@ impl ListCommand {
                 })),
             )),
         }
+    }
+}
+
+impl TestCommand {
+    /// Handle the plugin test command
+    #[instrument(level = "debug", skip_all, name = "plugin_test")]
+    pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+        let wasm = if self.plugin.is_dir() {
+            // TODO: load config from a real place
+            let built_path = build_component(&self.plugin, ctx, &Config::default())
+                .await
+                .context("Failed to build component from directory")?;
+            fs::read(&built_path.artifact_path)
+                .await
+                .context("Failed to read built component file")?
+        } else {
+            fs::read(&self.plugin)
+                .await
+                .context("Failed to read component file")?
+            // TODO: support OCI references too
+        };
+
+        let mut output = String::new();
+
+        let component = prepare_component_plugin(ctx.runtime(), &wasm).await?;
+        let mut store = component.new_store(Ctx::default());
+        let instance = component
+            .instance_pre()
+            .instantiate_async(&mut store)
+            .await
+            .context("Failed to instantiate component")?;
+        let plugin_guest =
+            PluginGuest::new(&mut store, &instance).context("Failed to get plugin_guest export")?;
+        let guest = plugin_guest.wasmcloud_wash_plugin();
+
+        let metadata = guest.call_info(&mut store).await?;
+        info!(metadata = ?metadata, "plugin metadata");
+
+        for name in &self.command {
+            if let Some(command) = metadata.commands.iter().find(|c| c.name == *name) {
+                let runner = store.data_mut().table.push(Runner::new(metadata.clone()))?;
+                match guest
+                    .call_run(&mut store, runner, command)
+                    .await
+                    .context("failed to run command")?
+                {
+                    Ok(()) => {
+                        output.push_str(&format!("Command '{name}' executed successfully"));
+                    }
+                    Err(()) => {
+                        warn!(name = %name, "Command execution failed");
+                        output.push_str(&format!("Command '{name}' execution failed\n"));
+                    }
+                }
+            } else {
+                warn!(name = %name, "Command not found in plugin metadata");
+            }
+        }
+
+        for name in &self.hooks {
+            if let Some(hook) = metadata
+                .hooks
+                .iter()
+                .find_map(|hooks_vec| hooks_vec.iter().find(|h| h == &name))
+            {
+                let runner = store.data_mut().table.push(Runner::new(metadata.clone()))?;
+                match guest
+                    .call_hook(&mut store, runner, hook.to_owned())
+                    .await
+                    .context("failed to run hook")?
+                {
+                    Ok(()) => {
+                        output.push_str(&format!("Hook '{name}' executed successfully"));
+                    }
+                    Err(()) => {
+                        warn!(name = %name, "Hook execution failed");
+                        output.push_str(&format!("Hook '{name}' execution failed\n"));
+                    }
+                }
+            } else {
+                warn!(name = %name, "Hook not found in plugin metadata");
+            }
+        }
+
+        Ok(CommandOutput::ok(
+            output,
+            Some(json!({
+                "plugin_path": self.plugin.to_string_lossy(),
+                "command": self.command,
+                "hooks": self.hooks,
+                "metadata": metadata,
+                "success": true
+            })),
+        ))
     }
 }
