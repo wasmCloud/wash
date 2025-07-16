@@ -136,9 +136,9 @@ impl ComponentBuilder {
         ctx: &CliContext,
         config: &Config,
     ) -> anyhow::Result<ComponentBuildResult> {
-        info!(
+        debug!(
             path = ?self.project_path.display(),
-            "building component project",
+            "building component",
         );
 
         // Validate project path exists
@@ -170,7 +170,7 @@ impl ComponentBuilder {
         // Run pre-build hook
         self.run_pre_build_hook().await?;
 
-        info!(path = ?self.project_path.display(), "starting component build");
+        info!(path = ?self.project_path.display(), "component build start");
         // Build the component using the language toolchain
         let artifact_path = match project_type {
             ProjectType::Rust => self.build_rust_component(config).await?,
@@ -189,6 +189,11 @@ impl ComponentBuilder {
 
         // Attempt to canonicalize the artifact path
         let artifact_path = artifact_path.canonicalize().unwrap_or(artifact_path);
+
+        debug!(
+            artifact_path = ?artifact_path.display(),
+            "component build completed successfully",
+        );
 
         Ok(ComponentBuildResult {
             artifact_path,
