@@ -71,13 +71,13 @@ pub struct ListCommand {
 pub struct TestCommand {
     /// Path to the component or component project to test
     #[clap(name = "plugin")]
-    plugin: PathBuf,
+    pub plugin: PathBuf,
     /// The command names to test
     #[clap(name = "name", long = "command")]
-    command: Vec<String>,
+    pub command: Vec<String>,
     /// The hook types to test
     #[clap(name = "type", long = "hook")]
-    hooks: Vec<HookType>,
+    pub hooks: Vec<HookType>,
 }
 
 impl InstallCommand {
