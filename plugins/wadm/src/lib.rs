@@ -2,8 +2,10 @@
 mod bindings;
 
 use crate::bindings::{
-    wasi::logging::logging::{Level, log},
-    wasmcloud::wash::types::{Command, CredentialType, HookType, Metadata, Runner},
+    wasi::logging::logging::{log, Level},
+    wasmcloud::wash::types::{
+        Command, CommandArgument, CredentialType, HookType, Metadata, Runner,
+    },
 };
 
 pub(crate) struct Component;
@@ -25,8 +27,40 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                 id: "wadm".to_string(),
                 name: "wadm".to_string(),
                 description: "Generates a wadm manifest for a component or component project".to_string(),
-                flags: vec![],
-                arguments: vec![],
+                flags: vec![
+                    (
+                        "generate".to_string(),
+                        CommandArgument {
+                            name: "generate".to_string(),
+                            description: "Generate a wadm manifest for the given component or project".to_string(),
+                            is_path: false,
+                            required: false,
+                            default_value: Some("true".to_string()),
+                            value: "false".to_string(),
+                        }
+                    ),
+                    (
+                        "dry-run".to_string(),
+                        CommandArgument {
+                            name: "dry-run".to_string(),
+                            description: "Print the manifest to stdout instead of writing to disk".to_string(),
+                            is_path: false,
+                            required: false,
+                            default_value: Some("false".to_string()),
+                            value: "false".to_string(),
+                        }
+                    ),
+                ],
+                arguments: vec![
+                    CommandArgument {
+                        name: "project-path".to_string(),
+                        description: "Path to the component project directory".to_string(),
+                        is_path: true,
+                        required: false,
+                        default_value: None,
+                        value: "".to_string(),
+                    }
+                ],
                 usage: vec!["Make sure to drink your Ovaltine!".to_string()],
             }],
             hooks: Some(vec![HookType::AfterDev]),

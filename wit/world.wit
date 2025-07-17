@@ -46,12 +46,14 @@ interface types {
     }
 
     record command-argument {
+        /// Human readable name for the argument
+        name: string,
+        /// Short description of the argument
         description: string,
-        is-path: bool,
-        required: bool,
-        default-value: option<string>,
-        // Default or final value for this argument
-        value: string,
+        /// Default value, if any. If omitted, the argument is required. If present, the argument is optional.
+        default: option<string>,
+        /// Final value for this argument, populated by the CLI parser.
+        value: option<string>,
     }
 
     record command {

@@ -5,7 +5,7 @@ use clap::{Args, Subcommand};
 use etcetera::AppStrategy;
 use serde_json::json;
 use tokio::fs;
-use tracing::{info, instrument, warn};
+use tracing::{debug, info, instrument, trace, warn};
 
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput, OutputKind, component_build::build_component},
@@ -40,6 +40,119 @@ impl CliCommand for PluginCommand {
             PluginCommand::List(cmd) => cmd.handle(ctx).await,
             PluginCommand::Test(cmd) => cmd.handle(ctx).await,
         }
+    }
+}
+
+/// A component plugin command is a parsed Vec of strings which represents the command to be executed.
+/// Clap's `external_subcommand` macro supports this by allowing us to pass a Vec<String> as the command.
+pub type ComponentPluginCommand = Vec<String>;
+
+/// This implementation allows for arguments parsed by clap to locate and execute a plugin command.
+impl CliCommand for &ComponentPluginCommand {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+        let command_name = self.first().context("no command provided to plugin")?;
+
+        // Find the plugin component where its metadata name matches the command
+        let Some(plugin_component) = ctx
+            .plugin_manager()
+            .get_commands()
+            .into_iter()
+            .find(|plugin| &plugin.metadata.name == command_name)
+        else {
+            anyhow::bail!("no plugin command found for `{command_name}`");
+        };
+
+        let name = &plugin_component.metadata.name;
+        let mut cli_command = clap::Command::new(name)
+            .about(&plugin_component.metadata.description)
+            .allow_hyphen_values(true)
+            .disable_help_flag(false)
+            .subcommand_required(false);
+        let mut command = plugin_component
+            .metadata
+            .commands
+            .iter()
+            .find(|c| &c.name == name)
+            .context(format!("command `{name}` not found in plugin metadata"))?
+            .to_owned();
+
+        // Populate the CLI command with args and flags
+        for argument in &command.arguments {
+            cli_command = cli_command.arg(argument)
+        }
+        for (flag, argument) in &command.flags {
+            cli_command = cli_command.arg(Into::<clap::Arg>::into(argument).long(flag))
+        }
+
+        // Print help if no args are provided or if --help or -h is used
+        if self.len() == 1
+            || self.contains(&"--help".to_string())
+            || self.contains(&"-h".to_string())
+        {
+            return cli_command
+                .print_help()
+                .map(|()| CommandOutput::ok("", None))
+                .context("failed to print help for command");
+        }
+
+        // Populate command args with user-provided arguments
+        let cli_args = cli_command.clone().get_matches_from(*self);
+        for arg in command.arguments.iter_mut() {
+            if let Ok(Some(value)) = cli_args.try_get_one::<String>(arg.name.as_str()) {
+                trace!(
+                    ?arg.name,
+                    ?value,
+                    "found argument value in command matches, updating command argument",
+                );
+                arg.value = value.to_owned();
+            }
+        }
+        for (flag, arg) in command.flags.iter_mut() {
+            if let Ok(Some(value)) = cli_args.try_get_one::<String>(flag.as_str()) {
+                trace!(
+                    ?flag,
+                    ?value,
+                    "found flag value in command matches, updating command flag",
+                );
+                arg.value = value.to_owned();
+            }
+        }
+
+        let mut store = plugin_component.component.new_store(Ctx::default());
+        let instance = plugin_component
+            .component
+            .instance_pre()
+            .instantiate_async(&mut store)
+            .await?;
+        let plugin_guest = PluginGuest::new(&mut store, &instance)?;
+        let guest = plugin_guest.wasmcloud_wash_plugin();
+        let runner = store
+            .data_mut()
+            .table
+            .push(Runner::new(plugin_component.metadata.clone()))?;
+        guest
+            .call_run(store, runner, &command)
+            .await
+            .context(format!("failed to run command `{name}`"))?
+            .map_err(|()| anyhow::anyhow!("command `{name}` execution failed"))?;
+        debug!(name = ?name, "command executed");
+
+        // Prepare output data for both text and JSON output
+        let output_data = json!({
+            "command": name,
+            "args": self,
+            "plugin": plugin_component.metadata.name,
+            "description": command.description,
+            "success": true
+        });
+
+        // Compose a human-readable message
+        let message = format!(
+            "Successfully executed plugin command `{}` (plugin: `{}`)",
+            name, plugin_component.metadata.name
+        );
+
+        Ok(CommandOutput::ok(message, Some(output_data)))
     }
 }
 
