@@ -39,7 +39,7 @@ pub mod plugin_host {
 
     // Using crate imports here to keep the top-level `use` statements clean
     use std::fmt::Display;
-    use wasmcloud::wash::types::HookType;
+    use wasmcloud::wash::types::{CommandArgument, HookType};
 
     impl Display for HookType {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -76,6 +76,22 @@ pub mod plugin_host {
                 "unknown" => HookType::Unknown,
                 _ => HookType::Unknown, // Default case for unknown strings
             }
+        }
+    }
+
+    impl From<&CommandArgument> for clap::Arg {
+        fn from(arg: &CommandArgument) -> Self {
+            let mut cli_arg = clap::Arg::new(&arg.name)
+                .help(&arg.description)
+                .required(arg.required);
+
+            // TODO: utilize `arg.is_path` to parse as a pathbuf
+
+            if let Some(default_value) = &arg.default_value {
+                cli_arg = cli_arg.default_value(default_value);
+            }
+
+            cli_arg
         }
     }
 }
