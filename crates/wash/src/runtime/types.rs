@@ -5,10 +5,7 @@ use tracing::debug;
 use wasmtime::component::Resource;
 use wasmtime_wasi::IoView;
 
-use crate::runtime::{
-    Ctx,
-    bindings::plugin_host::{self, wasmcloud::wash::plugin::Metadata},
-};
+use crate::runtime::{Ctx, bindings::plugin_host::exports::wasmcloud::wash::plugin::Metadata};
 
 pub struct Runner {
     #[allow(dead_code)]
@@ -45,53 +42,6 @@ pub struct WashConfig {}
 pub struct Context {}
 
 impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::Host for Ctx {}
-impl crate::runtime::bindings::plugin_host::wasmcloud::wash::plugin::Host for Ctx {
-    /// Called by wash to retrieve the plugin metadata
-    async fn info(&mut self) -> Metadata {
-        todo!()
-    }
-
-    /// Instantiates the plugin.
-    /// The Plugin can check the context and fail if
-    /// information is missing or invalid (ex: incompatible wash version)
-    /// wash might confirm plugin execution with the user prior usage.
-    async fn initialize(&mut self, _runner: Resource<Runner>) -> Result<(), ()> {
-        todo!()
-    }
-
-    /// Executes a given command with the provided arguments
-    /// Commands should call `runtime.output` to control their output
-    /// The result indicates if the command was successful or not
-    async fn run(
-        &mut self,
-        _runner: Resource<Runner>,
-        _cmd: plugin_host::wasmcloud::wash::types::Command,
-    ) -> Result<(), ()> {
-        todo!()
-    }
-
-    /// Executes a given hook
-    async fn hook(
-        &mut self,
-        _runner: Resource<Runner>,
-        _hook: plugin_host::wasmcloud::wash::plugin::HookType,
-    ) -> Result<(), ()> {
-        todo!()
-    }
-
-    /// Generates credentials for a given credential type
-    /// wash will only call this if the plugin is registered as a credentials provider
-    /// The result is an opaque payload
-    async fn authorize(
-        &mut self,
-        _runner: Resource<Runner>,
-        _usage: plugin_host::wasmcloud::wash::plugin::CredentialType,
-        _resource: Option<String>,
-    ) -> Result<String, ()> {
-        todo!()
-    }
-}
-
 impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostContext for Ctx {
     async fn get(
         &mut self,

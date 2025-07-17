@@ -14,10 +14,7 @@ use crate::{
     oci::{OCI_CACHE_DIR, OciConfig, pull_component},
     runtime::{
         Ctx,
-        bindings::{
-            plugin_guest::exports::wasmcloud::wash::plugin::HookType,
-            plugin_host::wasmcloud::wash::plugin::Metadata,
-        },
+        bindings::plugin_guest::exports::wasmcloud::wash::plugin::{HookType, Metadata},
         prepare_component_plugin,
     },
 };

@@ -12,10 +12,9 @@ use crate::{
     config::Config,
     plugin::{InstallPluginOptions, install_plugin, list_plugins, uninstall_plugin},
     runtime::{
-        Ctx,
-        bindings::plugin_guest::{__with_name0::plugin::HookType, PluginGuest},
-        prepare_component_plugin,
-        types::Runner,
+        Ctx, bindings::plugin_guest::PluginGuest,
+        bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType,
+        prepare_component_plugin, types::Runner,
     },
 };
 
