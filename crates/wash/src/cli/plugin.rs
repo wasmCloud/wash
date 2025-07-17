@@ -104,7 +104,7 @@ impl CliCommand for &ComponentPluginCommand {
                     ?value,
                     "found argument value in command matches, updating command argument",
                 );
-                arg.value = value.to_owned();
+                arg.value = Some(value.to_owned());
             }
         }
         for (flag, arg) in command.flags.iter_mut() {
@@ -114,7 +114,7 @@ impl CliCommand for &ComponentPluginCommand {
                     ?value,
                     "found flag value in command matches, updating command flag",
                 );
-                arg.value = value.to_owned();
+                arg.value = Some(value.to_owned());
             }
         }
 

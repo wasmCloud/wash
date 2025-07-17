@@ -83,11 +83,9 @@ pub mod plugin_host {
         fn from(arg: &CommandArgument) -> Self {
             let mut cli_arg = clap::Arg::new(&arg.name)
                 .help(&arg.description)
-                .required(arg.required);
+                .required(arg.default.is_none());
 
-            // TODO: utilize `arg.is_path` to parse as a pathbuf
-
-            if let Some(default_value) = &arg.default_value {
+            if let Some(default_value) = &arg.default {
                 cli_arg = cli_arg.default_value(default_value);
             }
 

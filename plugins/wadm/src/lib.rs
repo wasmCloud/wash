@@ -33,10 +33,8 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                         CommandArgument {
                             name: "generate".to_string(),
                             description: "Generate a wadm manifest for the given component or project".to_string(),
-                            is_path: false,
-                            required: false,
-                            default_value: Some("true".to_string()),
-                            value: "false".to_string(),
+                            default: Some("true".to_string()),
+                            value: None,
                         }
                     ),
                     (
@@ -44,10 +42,8 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                         CommandArgument {
                             name: "dry-run".to_string(),
                             description: "Print the manifest to stdout instead of writing to disk".to_string(),
-                            is_path: false,
-                            required: false,
-                            default_value: Some("false".to_string()),
-                            value: "false".to_string(),
+                            default: Some("false".to_string()),
+                            value: None,
                         }
                     ),
                 ],
@@ -55,10 +51,8 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     CommandArgument {
                         name: "project-path".to_string(),
                         description: "Path to the component project directory".to_string(),
-                        is_path: true,
-                        required: false,
-                        default_value: None,
-                        value: "".to_string(),
+                        default: None,
+                        value: None,
                     }
                 ],
                 usage: vec!["Make sure to drink your Ovaltine!".to_string()],
