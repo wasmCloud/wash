@@ -108,7 +108,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Plugin(command) => command.handle(ctx).await,
             WashCliCommand::Update(command) => command.handle(ctx).await,
             WashCliCommand::ComponentPlugin(args) => {
-                for plugin in ctx.plugin_manager().get_commands() {
+                if let Some(plugin) = ctx.plugin_manager().get_commands().into_iter().next() {
                     // Register the plugin command with the CLI
                     let cmd = clap::Command::new(&plugin.metadata.name)
                         .about(&plugin.metadata.description)
@@ -120,7 +120,7 @@ impl CliCommand for WashCliCommand {
                         cmd,
                         args: args.clone(),
                     };
-                    let res = component_plugin_command.handle(&ctx).await?;
+                    let res = component_plugin_command.handle(ctx).await?;
                     // TODO: use these things to specify flags?
                     //         name: string,
                     // // the command description

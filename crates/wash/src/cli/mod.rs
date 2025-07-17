@@ -262,6 +262,21 @@ impl CommandOutput {
         }
     }
 
+    /// Check if the command was successful
+    pub fn is_success(&self) -> bool {
+        self.success
+    }
+
+    /// Get the text message from the output
+    pub fn text(&self) -> &str {
+        &self.message
+    }
+
+    /// Get the JSON data from the output
+    pub fn json(&self) -> Option<&serde_json::Value> {
+        self.data.as_ref()
+    }
+
     /// Render the output as a string, returning the CLI message and whether it was successful
     pub fn render(self) -> (String, bool) {
         (
