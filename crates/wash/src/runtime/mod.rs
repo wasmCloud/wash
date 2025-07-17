@@ -180,9 +180,7 @@ pub async fn prepare_component_plugin(
 
             // Add wash plugin host
             plugin_host::PluginHost::add_to_linker(linker, |ctx| ctx)
-                .context("failed to link `wasmcloud:wash` host interface")?;
-            // plugin_guest::PluginGuest::add_to_linker(linker, |ctx| ctx)
-            //     .context("failed to link `wasmcloud:wash` host interface")?;
+                .context("failed to link `wasmcloud:wash/plugin`")?;
             Ok(())
         },
     )?;

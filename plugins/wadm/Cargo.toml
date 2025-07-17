@@ -1,6 +1,6 @@
 [package]
-name = "cosmo"
-description = "Cosmonic's Wash plugin"
+name = "wadm"
+description = "Wash plugin with a hook to generate a wadm manifest after a dev loop"
 edition = "2021"
 version = "0.1.0"
 

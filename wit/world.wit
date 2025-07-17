@@ -230,7 +230,9 @@ interface plugin {
 }
 
 world plugin-host {
-    import plugin;
+    // slightly weird, but the host bindings should match the plugin bindings and we don't want
+    // to also include wasi:cli or wasi:logging here
+    export plugin;
 }
 
 world plugin-guest {
