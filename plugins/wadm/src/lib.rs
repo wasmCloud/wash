@@ -2,7 +2,7 @@
 mod bindings;
 
 use crate::bindings::{
-    wasi::logging::logging::{log, Level},
+    wasi::logging::logging::{Level, log},
     wasmcloud::wash::types::{
         Command, CommandArgument, CredentialType, HookType, Metadata, Runner,
     },
@@ -33,6 +33,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                         CommandArgument {
                             name: "generate".to_string(),
                             description: "Generate a wadm manifest for the given component or project".to_string(),
+                            env: None,
                             default: Some("true".to_string()),
                             value: None,
                         }
@@ -42,6 +43,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                         CommandArgument {
                             name: "dry-run".to_string(),
                             description: "Print the manifest to stdout instead of writing to disk".to_string(),
+                            env: None,
                             default: Some("false".to_string()),
                             value: None,
                         }
@@ -51,6 +53,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     CommandArgument {
                         name: "project-path".to_string(),
                         description: "Path to the component project directory".to_string(),
+                        env: None,
                         default: None,
                         value: None,
                     }
@@ -58,7 +61,6 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                 usage: vec!["Make sure to drink your Ovaltine!".to_string()],
             }],
             hooks: Some(vec![HookType::AfterDev]),
-            credentials: None,
         }
     }
     fn hook(_r: Runner, ty: HookType) -> anyhow::Result<(), ()> {
@@ -80,9 +82,5 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
     }
     fn initialize(_: Runner) -> anyhow::Result<(), ()> {
         Ok(())
-    }
-    // All of these functions aren't valid for this type of plugin
-    fn authorize(_: Runner, _: CredentialType, _: Option<String>) -> anyhow::Result<String, ()> {
-        Err(())
     }
 }

@@ -1,6 +1,6 @@
 //! The main module for the wash CLI, providing command line interface functionality
 
-use std::{ops::Deref, sync::Arc};
+use std::{ops::Deref, path::Path, sync::Arc};
 
 use anyhow::Context as _;
 use etcetera::{AppStrategy as _, AppStrategyArgs, choose_app_strategy};
@@ -70,7 +70,10 @@ pub trait CliCommandExt: CliCommand {
                 for hook in hooks {
                     trace!(?hook, ?hook_type, "executing pre-hook for command");
                     let mut data = Ctx::default();
-                    let runner = data.table.push(Runner::new(hook.metadata.clone()))?;
+                    // TODO: context about the command and runner
+                    let runner = data
+                        .table
+                        .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
                     let mut store = hook.component.new_store(data);
                     let instance = hook
                         .component
@@ -79,13 +82,17 @@ pub trait CliCommandExt: CliCommand {
                         .await
                         .context("failed to instantiate pre-hook")?;
                     let plugin_guest = PluginGuest::new(&mut store, &instance)?;
-                    if let Err(()) = plugin_guest
+                    if let Err(e) = plugin_guest
                         .wasmcloud_wash_plugin()
                         .call_hook(&mut store, runner, hook_type)
                         .await
                         .context("failed to call pre-hook")?
                     {
-                        error!(name = hook.metadata.name, "pre-hook execution failed");
+                        error!(
+                            err = e,
+                            name = hook.metadata.name,
+                            "pre-hook execution failed"
+                        );
                     }
                 }
             }
@@ -102,7 +109,10 @@ pub trait CliCommandExt: CliCommand {
                 for hook in hooks {
                     trace!(?hook, "executing post-hook for command");
                     let mut data = Ctx::default();
-                    let runner = data.table.push(Runner::new(hook.metadata.clone()))?;
+                    // TODO: context about the command and runner
+                    let runner = data
+                        .table
+                        .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
                     let mut store = hook.component.new_store(data);
                     let instance = hook
                         .component
@@ -111,24 +121,23 @@ pub trait CliCommandExt: CliCommand {
                         .await
                         .context("failed to instantiate post-hook")?;
                     let plugin_guest = PluginGuest::new(&mut store, &instance)?;
-                    if let Err(()) = plugin_guest
+                    if let Err(e) = plugin_guest
                         .wasmcloud_wash_plugin()
                         .call_hook(&mut store, runner, hook_type)
                         .await
                         .context("failed to call post-hook")?
                     {
-                        error!(name = hook.metadata.name, "post-hook execution failed");
+                        error!(
+                            err = e,
+                            name = hook.metadata.name,
+                            "post-hook execution failed"
+                        );
                     }
                 }
             }
             Ok(())
         }
     }
-}
-
-pub struct ComponentPluginCommand {
-    pub cmd: clap::Command,
-    pub args: Vec<String>,
 }
 
 /// Used for displaying human-readable output vs JSON format
@@ -255,7 +264,7 @@ pub struct CliContext {
     /// The runtime used for executing Wasm components. Plugins and
     /// dev loops will use this runtime to execute Wasm code.
     runtime: wasmcloud_runtime::Runtime,
-    _runtime_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
+    runtime_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
     plugin_manager: PluginManager,
 }
 
@@ -342,7 +351,7 @@ impl CliContext {
         Ok(Self {
             app_strategy,
             runtime: plugin_runtime,
-            _runtime_thread: Arc::new(thread),
+            runtime_thread: Arc::new(thread),
             plugin_manager,
         })
     }
@@ -403,7 +412,7 @@ impl CliContext {
 
     /// Fetches the wash configuration from the config file located in the XDG config directory,
     /// creating it with default values if it does not exist.
-    pub fn ensure_config(&self) -> anyhow::Result<Config> {
+    pub fn ensure_config(&self, project_dir: Option<&Path>) -> anyhow::Result<Config> {
         let config_path = self.config_path();
 
         // Check if the config file exists, if not create it with defaults
@@ -416,20 +425,15 @@ impl CliContext {
         }
 
         // Load the configuration using the hierarchical configuration system
-        load_config(
-            &self.config_path(),
-            Some(
-                config_path
-                    .parent()
-                    .context("config file has no parent directory")?,
-            ),
-            None::<Config>,
-        )
+        load_config(&self.config_path(), project_dir, None::<Config>)
     }
 
     // TODO: consider if this should be exposed or used internally
     pub fn runtime(&self) -> &wasmcloud_runtime::Runtime {
         &self.runtime
+    }
+    pub fn runtime_thread(&self) -> &Arc<std::thread::JoinHandle<Result<(), ()>>> {
+        &self.runtime_thread
     }
     pub fn plugin_manager(&self) -> &PluginManager {
         &self.plugin_manager

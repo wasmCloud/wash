@@ -11,6 +11,7 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::Registry;
 use wash::cli::CliCommandExt;
+use wash::cli::plugin::ComponentPluginCommand;
 use wash::cli::{CliCommand, CliContext, CommandOutput, OutputKind};
 
 #[derive(Debug, Clone, Parser)]
@@ -97,16 +98,19 @@ impl CliCommand for WashCliCommand {
     #[instrument(level = "debug", skip_all, name = "wash")]
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match self {
-            WashCliCommand::Build(command) => command.handle(ctx).await,
-            WashCliCommand::Config(command) => command.handle(ctx).await,
-            WashCliCommand::Dev(command) => command.handle(ctx).await,
-            WashCliCommand::Doctor(command) => command.handle(ctx).await,
-            WashCliCommand::Inspect(command) => command.handle(ctx).await,
-            WashCliCommand::New(command) => command.handle(ctx).await,
-            WashCliCommand::Oci(command) => command.handle(ctx).await,
-            WashCliCommand::Plugin(command) => command.handle(ctx).await,
-            WashCliCommand::Update(command) => command.handle(ctx).await,
-            WashCliCommand::ComponentPlugin(command) => command.handle(&ctx).await,
+            WashCliCommand::Build(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Config(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Dev(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Doctor(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Inspect(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::New(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Oci(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Plugin(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Update(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::ComponentPlugin(args) => {
+                let cmd: ComponentPluginCommand = args.into();
+                cmd.handle(&ctx).await
+            }
         }
     }
 
@@ -124,7 +128,10 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
-            WashCliCommand::ComponentPlugin(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::ComponentPlugin(args) => {
+                let cmd: ComponentPluginCommand = args.into();
+                cmd.enable_pre_hook()
+            }
         }
     }
     fn enable_post_hook(
@@ -141,7 +148,10 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_post_hook(),
-            WashCliCommand::ComponentPlugin(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::ComponentPlugin(args) => {
+                let cmd: ComponentPluginCommand = args.into();
+                cmd.enable_post_hook()
+            }
         }
     }
 }
@@ -192,6 +202,7 @@ async fn main() {
     if let Err(e) = ctrlc::set_handler(move || {
         let term = dialoguer::console::Term::stdout();
         let _ = term.show_cursor();
+        // TODO: If the runtime is executing a component here, we need to stop it.
     }) {
         warn!(err = ?e, "failed to set ctrl_c handler, interactive prompts may not restore cursor visibility");
     }

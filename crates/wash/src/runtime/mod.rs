@@ -173,12 +173,19 @@ pub async fn prepare_component_plugin(
         runtime,
         wasm,
         |linker, _component| {
+            // Wasi 0.2 interfaces
             wasmtime_wasi::add_to_linker_async(linker)
                 .context("failed to link core WASI interfaces")?;
+            // Logging
             wasmcloud_runtime::capability::logging::logging::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasi:logging/logging`")?;
-
-            // Add wash plugin host
+            // Runtime config
+            wasmcloud_runtime::capability::config::runtime::add_to_linker(linker, |ctx| ctx)
+                .context("failed to link `wasi:config/runtime`")?;
+            // HTTP
+            wasmtime_wasi_http::add_only_http_to_linker_async(linker)
+                .context("failed to link `wasi:http`")?;
+            // Plugin host
             plugin_host::PluginHost::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasmcloud:wash/plugin`")?;
             Ok(())

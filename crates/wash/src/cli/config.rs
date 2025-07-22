@@ -63,7 +63,7 @@ impl CliCommand for ConfigCommand {
                 ))
             }
             ConfigCommand::Show {} => {
-                let config = ctx.ensure_config().context("failed to load config")?;
+                let config = ctx.ensure_config(None).context("failed to load config")?;
                 Ok(CommandOutput::ok(
                     serde_json::to_string_pretty(&config).context("failed to serialize config")?,
                     Some(serde_json::to_value(&config).context("failed to serialize config")?),

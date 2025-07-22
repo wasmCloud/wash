@@ -18,21 +18,16 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
             default_command: None,
             commands: vec![],
             hooks: Some(vec![HookType::DevRegister]),
-            credentials: None,
         }
     }
-
-    // All of these functions aren't valid for this type of plugin
     fn initialize(_: Runner) -> anyhow::Result<(), ()> {
-        Err(())
+        Ok(())
     }
+    // All of these functions aren't valid for this type of plugin
     fn run(_: Runner, _: Command) -> anyhow::Result<(), ()> {
         Err(())
     }
     fn hook(_: Runner, _: HookType) -> anyhow::Result<(), ()> {
-        Err(())
-    }
-    fn authorize(_: Runner, _: CredentialType, _: Option<String>) -> anyhow::Result<String, ()> {
         Err(())
     }
 }

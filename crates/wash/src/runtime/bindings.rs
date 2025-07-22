@@ -32,12 +32,13 @@ pub mod plugin_host {
         with: {
             "wasmcloud:wash/types/runner": crate::runtime::types::Runner,
             "wasmcloud:wash/types/project-config": crate::runtime::types::ProjectConfig,
-            "wasmcloud:wash/types/wash-config": crate::runtime::types::WashConfig,
+            "wasmcloud:wash/types/plugin-config": crate::runtime::types::PluginConfig,
+            // "wasmcloud:wash/types/wash-config": crate::runtime::types::WashConfig,
             "wasmcloud:wash/types/context": crate::runtime::types::Context,
         }
     });
 
-    // Using crate imports here to keep the top-level `use` statements clean
+    // Using module imports here to keep the top-level `use` statements clean
     use std::fmt::Display;
     use wasmcloud::wash::types::{CommandArgument, HookType};
 
@@ -45,9 +46,8 @@ pub mod plugin_host {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let s = match self {
                 HookType::Unknown => "Unknown",
-                HookType::Error => "Error",
-                HookType::BeforeLogin => "BeforeLogin",
-                HookType::AfterLogin => "AfterLogin",
+                HookType::BeforeDoctor => "BeforeDoctor",
+                HookType::AfterDoctor => "AfterDoctor",
                 HookType::BeforeBuild => "BeforeBuild",
                 HookType::AfterBuild => "AfterBuild",
                 HookType::BeforePush => "BeforePush",
@@ -63,9 +63,8 @@ pub mod plugin_host {
     impl From<&str> for HookType {
         fn from(s: &str) -> Self {
             match s.to_ascii_lowercase().as_str() {
-                "error" => HookType::Error,
-                "beforelogin" => HookType::BeforeLogin,
-                "afterlogin" => HookType::AfterLogin,
+                "beforedoctor" => HookType::BeforeDoctor,
+                "afterdoctor" => HookType::AfterDoctor,
                 "beforebuild" => HookType::BeforeBuild,
                 "afterbuild" => HookType::AfterBuild,
                 "beforepush" => HookType::BeforePush,
@@ -87,6 +86,10 @@ pub mod plugin_host {
 
             if let Some(default_value) = &arg.default {
                 cli_arg = cli_arg.default_value(default_value);
+            }
+
+            if let Some(env) = &arg.env {
+                cli_arg = cli_arg.env(env);
             }
 
             cli_arg

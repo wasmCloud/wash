@@ -124,7 +124,7 @@ impl Config {
 pub fn load_config<T>(
     global_config_path: &Path,
     project_dir: Option<&Path>,
-    cli_args: Option<T>,
+    _cli_args: Option<T>,
 ) -> Result<Config>
 where
     T: Serialize + Into<Config>,
@@ -151,11 +151,12 @@ where
     figment = figment.merge(Env::prefixed("WASH_"));
 
     // CLI arguments (if provided)
-    if let Some(args) = cli_args {
-        // Convert CLI args to configuration format
-        let cli_config = args.into();
-        figment = figment.merge(figment::providers::Serialized::defaults(cli_config));
-    }
+    // TODO: Reenable, this only works if the CLI args are compatible with Config, if not then we end up overwriting the config
+    // if let Some(args) = cli_args {
+    //     // Convert CLI args to configuration format
+    //     let cli_config = args.into();
+    //     figment = figment.merge(figment::providers::Serialized::defaults(cli_config));
+    // }
 
     figment
         .extract()

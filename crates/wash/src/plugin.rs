@@ -5,7 +5,10 @@
 
 use anyhow::{Context as _, bail};
 use etcetera::AppStrategy;
-use std::{path::Path, sync::Arc};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use tracing::{debug, info, instrument};
 use wasmcloud_runtime::{Runtime, component::CustomCtxComponent};
 
@@ -24,6 +27,7 @@ use crate::{
 pub struct PluginComponent {
     pub component: Arc<CustomCtxComponent<Ctx>>,
     pub metadata: Metadata,
+    pub fs_root: PathBuf,
 }
 
 impl std::fmt::Debug for PluginComponent {
@@ -44,18 +48,20 @@ pub struct PluginManager {
 
 impl PluginManager {
     pub async fn initialize(runtime: &Runtime, data_dir: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let raw_plugins = list_plugins(runtime, data_dir).await?;
+        let raw_plugins = list_plugins(runtime, data_dir.as_ref()).await?;
         let mut plugins = Vec::with_capacity(raw_plugins.len());
         for (plugin, metadata) in raw_plugins {
             match prepare_component_plugin(runtime, &plugin).await {
                 Ok(component) => {
                     debug!(name = %metadata.name, "plugin component prepared successfully");
-                    // let instance_pre = component.instance_pre().clone();
-                    // // Preinstantiate the plugin guest
-                    // let plugin_guest_pre = PluginGuestPre::new(instance_pre)?;
 
                     plugins.push(PluginComponent {
                         component: Arc::new(component),
+                        fs_root: data_dir
+                            .as_ref()
+                            .join("plugins")
+                            .join("fs")
+                            .join(sanitize_plugin_name(&metadata.name)),
                         metadata,
                     });
                 }
@@ -76,31 +82,28 @@ impl PluginManager {
     pub fn get_hooks(&self, hook_type: HookType) -> Vec<&PluginComponent> {
         self.plugins
             .iter()
-            .filter(|plugin| {
-                plugin
-                    .metadata
-                    .hooks
-                    .as_ref()
-                    .is_some_and(|hooks| hooks.contains(&hook_type))
-            })
+            .filter(|plugin| plugin.metadata.hooks.contains(&hook_type))
             .collect()
     }
 
-    /// Get all plugins that implement commands
+    /// Get all plugins that implement top level commands
     pub fn get_commands(&self) -> Vec<&PluginComponent> {
         self.plugins
             .iter()
-            .filter(|plugin| !plugin.metadata.commands.is_empty())
+            // TODO: Ooh should subcommands be able to register under existing subcommands? e.g. `wash oci <foobar>`?
+            .filter(|plugin| !plugin.metadata.command.is_some())
             .collect()
     }
 
-    pub fn get_command(&self, subcommand: &str) -> Option<&PluginComponent> {
+    /// Get the component for a specific subcommand
+    pub fn get_subcommand(&self, plugin_name: &str, subcommand: &str) -> Option<&PluginComponent> {
         self.plugins.iter().find(|plugin| {
-            plugin
-                .metadata
-                .commands
-                .iter()
-                .any(|cmd| cmd.name == subcommand)
+            plugin.metadata.name == plugin_name
+                && plugin
+                    .metadata
+                    .sub_commands
+                    .iter()
+                    .any(|cmd| cmd.name == subcommand)
         })
     }
 
@@ -312,7 +315,7 @@ pub async fn get_plugin_metadata(runtime: &Runtime, wasm: &[u8]) -> anyhow::Resu
 ///
 /// This function removes or replaces characters that are not safe for use in filenames
 /// across different operating systems.
-fn sanitize_plugin_name(name: &str) -> String {
+pub(crate) fn sanitize_plugin_name(name: &str) -> String {
     name.chars()
         .map(|c| match c {
             'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => c,
