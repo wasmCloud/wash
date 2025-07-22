@@ -1,5 +1,4 @@
 use anyhow::{self, Context as _};
-use sha2::{Digest as _, Sha256};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::Arc;
@@ -10,34 +9,41 @@ use wasmcloud_runtime::Runtime;
 use wasmcloud_runtime::capability::config::runtime::ConfigError;
 use wasmcloud_runtime::capability::logging::logging::Level;
 use wasmcloud_runtime::component::BaseCtx;
-use wasmtime::{
-    AsContextMut as _, StoreContextMut,
-    component::{Component, Instance, InstancePre, Linker, ResourceTable, types::ComponentItem},
-};
+use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
-use crate::runtime::{bindings::plugin_host, wasm::link_imports_plugin_exports};
+use crate::{dev::DevPluginManager, runtime::wasm::link_imports_plugin_exports};
 
 pub mod bindings;
-pub(crate) mod types;
+pub mod plugin;
 mod wasm;
 
+/// The context for a component store and linker, providing access to implementations of:
+/// - wasi@0.2 interfaces
+/// - `wasi:logging/logging`
+/// - `wasi:config/runtime`
+/// - `wasi:http`
+/// - `wasmcloud:wash/plugin`
 pub struct Ctx {
     /// Unique identifier for this component context. Primarily used for logging, debugging, and
-    /// plugin instance management.
+    /// plugin instance management. This is a [uuid::Uuid::now_v7] string.
     pub id: String,
+    /// The resource table used to manage resources in the Wasmtime store.
     pub table: wasmtime::component::ResourceTable,
+    /// The WASI context used to provide WASI functionality to the component.
     pub ctx: WasiCtx,
+    /// The HTTP context used to provide HTTP functionality to the component.
     pub http: WasiHttpCtx,
 
-    /// `wasi:config/runtime` uses this hashmap to retrieve runtime configuration
+    /// Powers the built-in implementation of `wasi:config/runtime`
     pub runtime_config: Arc<RwLock<HashMap<String, String>>>,
 }
 
+/// Helper struct to build a [`Ctx`] with a builder pattern
 pub struct CtxBuilder {
     ctx: WasiCtx,
-    runtime_config: Option<HashMap<String, String>>,
+    runtime_config: Option<Arc<RwLock<HashMap<String, String>>>>,
 }
 
 impl CtxBuilder {
@@ -56,15 +62,26 @@ impl CtxBuilder {
         self
     }
 
+    /// Sets the runtime configuration for the context. If you want to modify the configuration after
+    /// the context is build, you can use [`CtxBuilder::with_runtime_config_arc`] instead.
     pub fn with_runtime_config(mut self, config: HashMap<String, String>) -> Self {
+        self.runtime_config = Some(Arc::new(RwLock::new(config)));
+        self
+    }
+
+    /// Sets the runtime configuration for the context using an Arc-wrapped RwLock. This allows for modifying
+    /// the configuration after the context is built, as the Arc can be cloned and shared across threads.
+    ///
+    /// Take care to avoid deadlocks when using this method, as the RwLock is shared across threads.
+    pub fn with_runtime_config_arc(mut self, config: Arc<RwLock<HashMap<String, String>>>) -> Self {
         self.runtime_config = Some(config);
         self
     }
 
     pub fn build(self) -> Ctx {
         Ctx {
-            runtime_config: Arc::new(RwLock::new(self.runtime_config.unwrap_or_default())),
             ctx: self.ctx,
+            runtime_config: self.runtime_config.unwrap_or_default(),
             ..Default::default()
         }
     }
@@ -78,7 +95,7 @@ impl Default for CtxBuilder {
 
 impl Ctx {
     pub fn builder() -> CtxBuilder {
-        CtxBuilder::new()
+        CtxBuilder::default()
     }
 }
 
@@ -92,37 +109,47 @@ impl Default for Ctx {
                 .inherit_stderr()
                 .build(),
             http: WasiHttpCtx::new(),
-            runtime_config: Arc::new(RwLock::new(HashMap::new())),
+            runtime_config: Arc::default(),
         }
     }
 }
 
 impl Debug for Ctx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Ctx").field("table", &self.table).finish()
+        f.debug_struct("Ctx")
+            .field("id", &self.id)
+            .field("table", &self.table)
+            .field("http", &self.http)
+            .field("runtime_config", &self.runtime_config)
+            .finish()
     }
 }
+// Implement the base context for wasmcloud_runtime
 impl BaseCtx for Ctx {}
+// Implement IoView for resources
 impl IoView for Ctx {
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
     }
 }
+// Implement WasiView for wasi@0.2 interfaces
 impl WasiView for Ctx {
     fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.ctx
     }
 }
+// Implement WasiHttpView for wasi:http@0.2
 impl WasiHttpView for Ctx {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.http
     }
 }
 
+// TODO: Remove in favor of stdout/stderr logging
+// Implementation of `wasi:logging/logging` using the `tracing` crate
 impl wasmcloud_runtime::capability::logging::logging::Host for Ctx {
     async fn log(&mut self, level: Level, context: String, message: String) -> anyhow::Result<()> {
         match level {
-            // TODO: Include some kind of information about the component as an attribute
             Level::Critical => error!(ctx = context, "{message}"),
             Level::Error => error!(ctx = context, "{message}"),
             Level::Warn => warn!(ctx = context, "{message}"),
@@ -134,7 +161,7 @@ impl wasmcloud_runtime::capability::logging::logging::Host for Ctx {
     }
 }
 
-/// Implementation of `wasi:config/runtime` using an in-memory key-value store
+// Implementation of `wasi:config/runtime` using an in-memory key-value store
 impl wasmcloud_runtime::capability::config::runtime::Host for Ctx {
     async fn get(&mut self, key: String) -> anyhow::Result<Result<Option<String>, ConfigError>> {
         Ok(Ok(self.runtime_config.read().await.get(&key).cloned()))
@@ -145,17 +172,13 @@ impl wasmcloud_runtime::capability::config::runtime::Host for Ctx {
             .runtime_config
             .read()
             .await
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
+            .clone()
+            .into_iter()
             .collect()))
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ComponentHandler {
-    _priv: (),
-}
-
+/// Create a new [`wasmcloud_runtime::Runtime`], returning the runtime and a handle to the runtime thread.
 pub async fn new_runtime() -> anyhow::Result<(Runtime, JoinHandle<Result<(), ()>>)> {
     wasmcloud_runtime::RuntimeBuilder::new().build()
 }
@@ -163,7 +186,7 @@ pub async fn new_runtime() -> anyhow::Result<(Runtime, JoinHandle<Result<(), ()>
 /// Creates a WebAssembly component from bytes and compiles using [Runtime].
 ///
 /// This function is used to prepare a component for use in the plugin system, adding in core
-/// WASI interfaces with [wasmtime_wasi::add_to_linker_async] and linking the `wash` host
+/// WASI interfaces with [wasmtime_wasi::add_to_linker_async] and linking the wash host
 /// interface.
 pub async fn prepare_component_plugin(
     runtime: &Runtime,
@@ -186,7 +209,7 @@ pub async fn prepare_component_plugin(
             wasmtime_wasi_http::add_only_http_to_linker_async(linker)
                 .context("failed to link `wasi:http`")?;
             // Plugin host
-            plugin_host::PluginHost::add_to_linker(linker, |ctx| ctx)
+            bindings::plugin::WashPlugin::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasmcloud:wash/plugin`")?;
             Ok(())
         },
@@ -228,7 +251,7 @@ pub async fn prepare_component_dev(
             wasmcloud_runtime::capability::config::runtime::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasi:config/runtime`")?;
 
-            plugin_host::PluginHost::add_to_linker(linker, |ctx| ctx)
+            bindings::plugin::WashPlugin::add_to_linker(linker, |ctx| ctx)
                 .context("failed to link `wasmcloud:wash` host interface")?;
 
             // Link additional configured plugins
@@ -242,155 +265,6 @@ pub async fn prepare_component_dev(
     Ok(component)
 }
 
-// A hash of the component bytes
-type ComponentKey = String;
-
-/// This struct intentionally doesn't derive clone as it should be Arc-ed to share it across threads.
-#[derive(Default)]
-pub struct DevPluginManager {
-    // interface name → component key (deduplicates lookups)
-    interface_map: HashMap<String, ComponentKey>,
-    // component key → compiled component
-    components: HashMap<ComponentKey, Arc<Component>>,
-    // Instances is keyed differently than components, as it's keyed by a specific Instance of a component
-    // This allows us to instantiate the same component multiple times with different configurations.
-    // component id → component key -> instantiated instance (created lazily)
-    instances: RwLock<HashMap<String, HashMap<ComponentKey, Arc<Instance>>>>,
-}
-
-impl DevPluginManager {
-    pub fn register_plugin(&mut self, runtime: &Runtime, wasm: &[u8]) -> anyhow::Result<()> {
-        let (component, exports) = initialize_plugin_exports(runtime, wasm)?;
-
-        let key = format!("{:x}", Sha256::digest(wasm));
-        for (name, item) in exports {
-            // We don't need to expose the plugin export to the dev components
-            // Additionally, this would actually error since each plugin exports this interface.
-            match name.split_once('@') {
-                Some(("wasmcloud:wash/plugin", _)) => {
-                    debug!(name, "skipping internal plugin export");
-                    continue;
-                }
-                None => {
-                    if name == "wasmcloud:wash/plugin" {
-                        debug!(name, "skipping internal plugin export");
-                        continue;
-                    }
-                }
-                _ => {}
-            }
-            if let ComponentItem::ComponentInstance(_) = item {
-                // Register the interface name to the component key
-                if self.interface_map.contains_key(&name) {
-                    anyhow::bail!("another plugin already implements the interface '{name}'");
-                }
-                self.interface_map.insert(name.clone(), key.clone());
-            } else {
-                warn!(name, "exported item is not a component instance, skipping");
-            }
-        }
-
-        self.components.insert(key.clone(), Arc::new(component));
-
-        Ok(())
-    }
-
-    /// Looks up a component for an interface name, or returns None if not found.
-    pub fn get_component(&self, name: &str) -> Option<Arc<Component>> {
-        let key = self.interface_map.get(name)?;
-        self.components.get(key).cloned()
-    }
-
-    pub fn preinstantiate_instance(
-        &self,
-        linker: &Linker<Ctx>,
-        name: &str,
-    ) -> anyhow::Result<Arc<InstancePre<Ctx>>> {
-        trace!(name, "preinstantiating instance for component");
-        let component = self.get_component(name).context("component not found")?;
-        let instance = linker.instantiate_pre(&component)?;
-        Ok(Arc::new(instance))
-    }
-
-    pub async fn get_or_instantiate_instance(
-        &self,
-        store: &mut StoreContextMut<'_, Ctx>,
-        // TODO: Instances don't need to be Arc-ed, they're already cheaply cloneable
-        pre: Arc<InstancePre<Ctx>>,
-        name: &str,
-    ) -> anyhow::Result<Arc<Instance>> {
-        let key = self
-            .interface_map
-            .get(name)
-            .context("component not found")?;
-
-        let id = store.data().id.clone();
-
-        if let Some(instances) = self.instances.read().await.get(&id) {
-            if let Some(instance) = instances.get(key) {
-                trace!(id, "found existing instance for component");
-                return Ok(instance.clone());
-            }
-        }
-
-        let instance = Arc::new(pre.instantiate_async(store.as_context_mut()).await?);
-        trace!(id, key, "instantiated new instance for component");
-        self.instances
-            .write()
-            .await
-            .entry(id.to_string())
-            .and_modify(|e| {
-                e.insert(key.clone(), instance.clone());
-            })
-            .or_insert(HashMap::from([(key.clone(), instance.clone())]));
-
-        Ok(instance)
-    }
-
-    /// Clone this DevManager and clear the instances map, removing all instantiated plugin components.
-    ///
-    /// Must be done before each instantiation of a component to ensure that the
-    /// plugins are using the same store as the instantiated component.
-    pub fn clear_instances(self: Arc<Self>) -> Arc<Self> {
-        Arc::new(Self {
-            interface_map: self.interface_map.clone(),
-            components: self.components.clone(),
-            instances: RwLock::new(HashMap::new()),
-        })
-    }
-}
-
-/// Inspects a WebAssembly component and returns its exports, specifically looking for
-/// component instances that can be used as plugins. More could be implemented in terms of
-/// exports, but `wash` primarily supports using component instances as plugins.
-fn initialize_plugin_exports(
-    runtime: &Runtime,
-    wasm: &[u8],
-) -> anyhow::Result<(Component, Vec<(String, ComponentItem)>)> {
-    let component = wasmtime::component::Component::new(runtime.engine(), wasm)
-        .context("failed to create component from wasm")?;
-    let exports =
-        plugin_exports(&component).context("failed to get plugin exports from component")?;
-    Ok((component, exports))
-}
-
-fn plugin_exports(component: &Component) -> anyhow::Result<Vec<(String, ComponentItem)>> {
-    let exports = component
-        .component_type()
-        .exports(component.engine())
-        .filter_map(|(name, item)| {
-            // An instance in this case is something like `wasi:blobstore/blobstore@0.2.0-draft`, or an
-            // entire interface that's exported.
-            if matches!(item, ComponentItem::ComponentInstance(_)) {
-                Some((name.to_string(), item))
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>();
-    Ok(exports)
-}
-
 #[cfg(test)]
 mod test {
     use http_body_util::BodyExt;
@@ -402,7 +276,10 @@ mod test {
         types::HostIncomingRequest,
     };
 
-    use crate::runtime::bindings::{dev::Dev, plugin_guest::PluginGuest};
+    use crate::{
+        dev::DevPluginManager,
+        runtime::bindings::{dev::Dev, plugin::WashPlugin},
+    };
 
     use super::*;
 
@@ -411,7 +288,7 @@ mod test {
     #[tokio::test]
     async fn can_instantiate_plugin() -> anyhow::Result<()> {
         // Built from ./plugins/blobstore-filesystem
-        let wasm = std::fs::read("./tests/fixtures/blobstore_filesystem.wasm")?;
+        let wasm = tokio::fs::read("./tests/fixtures/blobstore_filesystem.wasm").await?;
 
         let (runtime, _handle) = new_runtime().await?;
         let base_ctx = Ctx::default();
@@ -423,7 +300,7 @@ mod test {
             .instance_pre()
             .instantiate_async(&mut store)
             .await?;
-        let wash_plugin = PluginGuest::new(&mut store, &instance)?;
+        let wash_plugin = WashPlugin::new(&mut store, &instance)?;
         let _ = wash_plugin
             .wasmcloud_wash_plugin()
             .call_info(&mut store)
@@ -437,7 +314,7 @@ mod test {
         let _ = tracing_subscriber::fmt()
             .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
             .try_init();
-        let wasm = std::fs::read("./tests/fixtures/http_hello_world_rust.wasm")?;
+        let wasm = tokio::fs::read("./tests/fixtures/http_hello_world_rust.wasm").await?;
 
         let (runtime, _handle) = new_runtime().await?;
         let base_ctx = Ctx::default();
@@ -502,8 +379,9 @@ mod test {
         let (runtime, _handle) = new_runtime().await?;
 
         // This component has a `wasi:blobstore/blobstore` IMPORT
-        let wasm = std::fs::read("./tests/fixtures/http_blobstore.wasm")?;
-        let blobstore_plugin = std::fs::read("./tests/fixtures/blobstore_filesystem.wasm")?;
+        let wasm = tokio::fs::read("./tests/fixtures/http_blobstore.wasm").await?;
+        let blobstore_plugin =
+            tokio::fs::read("./tests/fixtures/blobstore_filesystem.wasm").await?;
 
         let mut plugin_manager = DevPluginManager::default();
         plugin_manager

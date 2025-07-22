@@ -35,10 +35,10 @@ use crate::{
     },
     component_build::BuildConfig,
     config::{Config, load_config},
+    dev::DevPluginManager,
     plugin::list_plugins,
     runtime::{
-        Ctx, DevPluginManager, bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType,
-        prepare_component_dev,
+        Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::HookType, prepare_component_dev,
     },
 };
 

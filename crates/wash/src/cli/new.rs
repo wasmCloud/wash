@@ -42,7 +42,7 @@ pub struct NewCommand {
 impl CliCommand for NewCommand {
     #[instrument(level = "debug", skip(self, ctx), name = "new")]
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let config = ctx.ensure_config(None).unwrap_or_else(|e| {
+        let config = ctx.ensure_config(None).await.unwrap_or_else(|e| {
             warn!(error = %e, "Failed to load global configuration");
             Config::default()
         });

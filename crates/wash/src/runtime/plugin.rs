@@ -1,3 +1,5 @@
+//! Types and implementations for the wasmcloud:wash plugin host interface
+
 use anyhow::{Context as _, Result};
 use dialoguer::{Confirm, theme::ColorfulTheme};
 use std::{collections::HashMap, env, process::Command, sync::Arc};
@@ -6,7 +8,7 @@ use tracing::debug;
 use wasmtime::component::Resource;
 use wasmtime_wasi::IoView;
 
-use crate::runtime::{Ctx, bindings::plugin_host::exports::wasmcloud::wash::plugin::Metadata};
+use crate::runtime::{Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::Metadata};
 
 pub struct Runner {
     #[allow(dead_code)]
@@ -38,15 +40,12 @@ impl Default for ProjectConfig {
     }
 }
 
-#[derive(Default)]
-pub struct WashConfig {}
-
 pub type Context = Arc<RwLock<HashMap<String, String>>>;
 pub type PluginConfig = Arc<RwLock<HashMap<String, String>>>;
 
-impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::Host for Ctx {}
+impl crate::runtime::bindings::plugin::wasmcloud::wash::types::Host for Ctx {}
 /// The Context resource is a passthrough to the same map we use for runtime configuration
-impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostContext for Ctx {
+impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostContext for Ctx {
     async fn get(&mut self, ctx: Resource<Context>, key: String) -> Option<String> {
         let context = match self.table().get(&ctx) {
             Ok(context) => context,
@@ -124,7 +123,7 @@ impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostContext 
 //     }
 // }
 
-impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostProjectConfig for Ctx {
+impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostProjectConfig for Ctx {
     // async fn wash_config_get(
     //     &mut self,
     //     _ctx: Resource<ProjectConfig>,
@@ -167,7 +166,7 @@ impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostProjectC
     }
 }
 
-impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostRunner for Ctx {
+impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ctx {
     async fn context(&mut self, runner: Resource<Runner>) -> Result<Resource<Context>, String> {
         let runner = self.table.get(&runner).map_err(|e| e.to_string())?;
         self.table
@@ -240,7 +239,7 @@ impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostRunner f
     }
 }
 
-impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostPluginConfig for Ctx {
+impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostPluginConfig for Ctx {
     async fn get(&mut self, ctx: Resource<PluginConfig>, key: String) -> Option<String> {
         let plugin_config = match self.table().get(&ctx) {
             Ok(plugin_config) => plugin_config,

@@ -5,6 +5,7 @@ use std::path::Path;
 use anyhow::{Context as _, bail};
 use etcetera::AppStrategy as _;
 use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 use tracing::{debug, error, info, instrument};
 
 use crate::cli::CliContext;
@@ -30,10 +31,6 @@ pub struct NewTemplate {
     #[serde(default, rename = "ref")]
     pub git_ref: Option<String>,
     pub language: TemplateLanguage,
-    // pub labels: Vec<String>
-    // ("rust")
-    // ("http")
-    // ("hono")
 }
 
 /// Process template based on source type
@@ -69,21 +66,18 @@ pub(crate) async fn extract_subfolder(
     let subfolder_path = output_dir.join(subfolder);
 
     if tokio::fs::metadata(&subfolder_path).await.is_err() {
-        bail!(
-            "Subfolder '{}' does not exist in cloned template",
-            subfolder
-        );
+        bail!("Subfolder '{subfolder}' does not exist in cloned template");
     }
 
     let metadata = tokio::fs::metadata(&subfolder_path)
         .await
-        .context("Failed to read subfolder metadata")?;
+        .context("failed to read subfolder metadata")?;
 
     if !metadata.is_dir() {
-        bail!("Subfolder '{subfolder}' is not a directory");
+        bail!("subfolder '{subfolder}' is not a directory");
     }
 
-    info!(subfolder = %subfolder, "Extracting subfolder");
+    info!(subfolder = %subfolder, "extracting subfolder");
 
     // Create temporary directory for extraction
     let temp_dir = ctx.cache_dir().join("wash_new_temp_dir");
@@ -94,23 +88,21 @@ pub(crate) async fn extract_subfolder(
     // Remove original directory
     tokio::fs::remove_dir_all(output_dir)
         .await
-        .context("Failed to remove original directory")?;
+        .context("failed to remove original directory")?;
 
     // Move temp directory to final location
     tokio::fs::rename(&temp_dir, output_dir)
         .await
-        .context("Failed to move extracted subfolder")?;
+        .context("failed to move extracted subfolder")?;
 
-    info!(
-        "Successfully extracted subfolder to {}",
-        output_dir.display()
-    );
+    info!(subfolder, "successfully extracted subfolder",);
     Ok(())
 }
 
 /// Clone a template from a git repository or copy from a local path
 ///
-/// NOTE: This requires the `git` command to be available in the system PATH.
+/// NOTE: This requires the `git` command to be available in the system PATH. This should
+/// already be checked by the doctor command.
 #[instrument(level = "debug", skip_all)]
 pub(crate) async fn clone_template(
     template: &str,
@@ -118,15 +110,15 @@ pub(crate) async fn clone_template(
     git_ref: Option<&str>,
 ) -> anyhow::Result<()> {
     debug!(
-        "Cloning template from: {} to: {}",
         template,
-        output_dir.display()
+        output_dir = %output_dir.display(),
+        "cloning template",
     );
 
     // Handle remote git repository
-    info!("cloning git repository: {}", template);
+    info!(template, "cloning git repository");
 
-    let mut cmd = tokio::process::Command::new("git");
+    let mut cmd = Command::new("git");
     let mut args = vec!["clone".to_string(), template.to_string()];
 
     // Add branch/tag reference if specified
@@ -164,7 +156,7 @@ pub(crate) async fn clone_template(
     Ok(())
 }
 
-/// Recursively copy a directory using tokio::fs
+/// Recursively copy a directory using tokio::fs. Note that the boxing is necessary to allow for async recursion.
 pub(crate) fn copy_dir_recursive<'a>(
     src: impl AsRef<std::path::Path> + Send + 'a,
     dst: impl AsRef<std::path::Path> + Send + 'a,

@@ -101,20 +101,7 @@ impl CommonPackageArgs {
             }
             // Otherwise we got nothing and attempt to load the default config locations
             (None, None) => {
-                // TODO(#1): dot toml
-                // let path = cfg_dir()?.join("package_config.toml");
-                // let path = todo!("common dir");
-                // Check if the config file exists before loading so we can error properly
-                // if tokio::fs::metadata(&path).await.is_ok() {
-                //     let loaded = wasm_pkg_client::Config::from_file(&path)
-                //         .await
-                //         .context(format!("error loading config file {path:?}"))?;
-                //     // Merge the two configs
-                //     conf.merge(loaded);
-                // } else if let Ok(Some(c)) = wasm_pkg_client::Config::read_global_config().await {
-                //     // This means the global config exists, so we merge that in instead
-                //     conf.merge(c);
-                // }
+                // TODO(#1): support package_config.toml
             }
         };
         let wasmcloud_label = "wasmcloud"
@@ -195,7 +182,7 @@ impl WkgFetcher {
         Ok(Self::new(wkg_config, wkg_client_config, cache))
     }
 
-    // Enable extended pull configurations for wkg config. Call before calling `Self::get_client` to
+    // TODO(#1): Enable extended pull configurations for wkg config. Call before calling `Self::get_client` to
     // update configuration used.
     // pub async fn resolve_extended_pull_configs(
     //     &mut self,
@@ -332,19 +319,9 @@ impl WkgFetcher {
     //         }
     //     }
     // }
-
     // Ok(())
     // }
 
-    // Need to create WkgFetcher
-    // then get lock file
-    // then call this
-    // then call resolve extended
-    // then woo done
-    // So, how create this
-    // need these two things
-    //   common: &CommonPackageArgs,
-    // wkg_config: wasm_pkg_core::config::Config,
     pub async fn fetch_wit_dependencies(
         self,
         wit_dir: impl AsRef<Path>,

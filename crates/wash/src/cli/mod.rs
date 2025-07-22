@@ -22,9 +22,9 @@ use crate::{
     plugin::PluginManager,
     runtime::{
         Ctx,
-        bindings::plugin_guest::{PluginGuest, exports::wasmcloud::wash::plugin::HookType},
+        bindings::plugin::{WashPlugin, exports::wasmcloud::wash::plugin::HookType},
         new_runtime,
-        types::Runner,
+        plugin::Runner,
     },
 };
 
@@ -81,7 +81,7 @@ pub trait CliCommandExt: CliCommand {
                         .instantiate_async(&mut store)
                         .await
                         .context("failed to instantiate pre-hook")?;
-                    let plugin_guest = PluginGuest::new(&mut store, &instance)?;
+                    let plugin_guest = WashPlugin::new(&mut store, &instance)?;
                     if let Err(e) = plugin_guest
                         .wasmcloud_wash_plugin()
                         .call_hook(&mut store, runner, hook_type)
@@ -120,7 +120,7 @@ pub trait CliCommandExt: CliCommand {
                         .instantiate_async(&mut store)
                         .await
                         .context("failed to instantiate post-hook")?;
-                    let plugin_guest = PluginGuest::new(&mut store, &instance)?;
+                    let plugin_guest = WashPlugin::new(&mut store, &instance)?;
                     if let Err(e) = plugin_guest
                         .wasmcloud_wash_plugin()
                         .call_hook(&mut store, runner, hook_type)
@@ -412,7 +412,7 @@ impl CliContext {
 
     /// Fetches the wash configuration from the config file located in the XDG config directory,
     /// creating it with default values if it does not exist.
-    pub fn ensure_config(&self, project_dir: Option<&Path>) -> anyhow::Result<Config> {
+    pub async fn ensure_config(&self, project_dir: Option<&Path>) -> anyhow::Result<Config> {
         let config_path = self.config_path();
 
         // Check if the config file exists, if not create it with defaults
@@ -421,7 +421,7 @@ impl CliContext {
                 ?config_path,
                 "config file not found, creating with defaults"
             );
-            generate_default_config(&config_path, false)?;
+            generate_default_config(&config_path, false).await?;
         }
 
         // Load the configuration using the hierarchical configuration system

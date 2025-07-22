@@ -120,22 +120,8 @@ interface types {
         %list: func() -> list<string>;
     }
 
-    // TODO: determine if we should have wash and project config
+    // TODO: Expose project configuration to plugins
     resource project-config {
-        // Absolute path to user wash config
-        // Ex: /home/user/.config/wash/wash.toml
-        // wash-config-path: func() -> string;
-        // Absolute path to wasmcloud.toml (if running in a project)
-        // Ex: /home/user/projects/my-project/wasmcloud.toml
-        // project-path: func() -> result<string>;
-        // Retrieves a key/value pair from the wasmcloud.toml project configuration.
-        // If the key does not exist, the default value is returned.
-        // Ex: project-config-get("component.name", "component") -> "my-component-name-from-wasmcloud-toml"
-        // project-config-get: func(key: string, default-value: string) -> string;
-        // Retrieves a key/value pair from the wash global configuration.
-        // If the key does not exist, the default value is returned.
-        // Ex: wash-config-get("git.path", "/usr/bin/git") -> "/opt/homebrew/bin/git"
-        // wash-config-get: func(key: string, default-value: string) -> string;
         /// Current wash version
         /// Ex: 0.39.3
         version: func() -> string;
@@ -214,46 +200,39 @@ interface plugin {
     /// Called by wash to retrieve the plugin metadata. It's recommended to avoid
     /// any computation or logging in this function as it's called on each command execution.
     info: func() -> metadata;
-    // Instantiates the plugin.
-    // The Plugin can check the context and fail if
-    // information is missing or invalid (ex: incompatible wash version)
-    // wash might confirm plugin execution with the user prior usage.
-    // TODO: purpose of initialize?
+    /// Called before any commands or hooks are executed so that the plugin could take preflight actions
+    /// such as checking the environment, validating configuration, or preparing resources. Note that
+    /// any in-memory state will _not_ be persisted in this component, and the plugin-config store
+    /// should be used for any state that needs to be shared across commands or hooks.
     initialize: func(runner: runner) -> result<string, string>;
-    // Executes a given command with the provided arguments
-    // Commands should call `runtime.output` to control their output
-    // The result indicates if the command was successful or not
-    // TODO: Return command output, error as a string for feedback?
-    /// Handle the execution of a given command.
+    /// Handle the execution of a given command. The resulting value should be the string that will
+    /// be printed to the user, or an error message if the command failed.
     run: func(runner: runner, cmd: command) -> result<string, string>;
-    /// Handle the execution of a given hook type.
+    /// Handle the execution of a given hook type. The resulting value should be the string that will
+    /// be printed to the user, or an error message if the hook failed.
     hook: func(runner: runner, hook: hook-type) -> result<string, string>;
 }
 
-/// The world for exported bindings for wash plugins.
-world plugin-host {
-    // Slightly weird, but the host bindings should match the plugin bindings and we don't want
-    // to also include wasi:cli or wasi:logging here
+/// The world for exported bindings for wash plugins. Exporting the plugin interface is the
+/// only requirement for a component to be used as a plugin in wash.
+world wash-plugin {
     export plugin;
 }
 
+/// An example world showing the list of interfaces that are available to plugins.
 world plugin-guest {
-    // tinygo requirement
+    // This is required for TinyGo components
     include wasi:cli/imports@0.2.0;
-    // can log
     import wasi:logging/logging@0.1.0-draft;
-
     // Must export the plugin interface
     export plugin;
-
     // can read/write to the filesystem
     // import wasi:filesystem/filesystem;
-
-    // can request interactive TTY
-    // import wasi:io/streams;
+    // can import/export HTTP
 }
 
-// TODO: stop making all the worlds, only limited by wkg fetching ATM
+// An example of a fully featured world for a plugin command
+// that supports HTTP as well as the plugin interface
 world plugin-guest-http {
     // tinygo requirement
     include wasi:cli/imports@0.2.0;
@@ -263,19 +242,13 @@ world plugin-guest-http {
     import wasi:config/runtime@0.2.0-draft;
     // can make outbound HTTP calls
     import wasi:http/outgoing-handler@0.2.0;
-
     // can setup HTTP handlers
     export wasi:http/incoming-handler@0.2.0;
     // Must export the plugin interface
     export plugin;
-
-    // can read/write to the filesystem
-    // import wasi:filesystem/filesystem;
-
-    // can request interactive TTY
-    // import wasi:io/streams;
 }
 
+// An example world of a plugin that can be used in the hot reload loop, namely exporting the HTTP bindings
 world dev {
     import wasi:logging/logging@0.1.0-draft;
     import wasi:blobstore/blobstore@0.2.0-draft;
@@ -285,7 +258,9 @@ world dev {
     export wasi:http/incoming-handler@0.2.0;
 }
 
-// A component that implements `wasi:blobstore` for dev
+// An example world of a component that implements `wasi:blobstore` for a DevRegister hook plugin
+// DevRegister plugins can export any interface for reuse in the developer loop
+// as long as they export the plugin interface and register a DevRegister hook.
 world blobstore-host {
     import wasi:logging/logging@0.1.0-draft;
 

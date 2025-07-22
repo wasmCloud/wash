@@ -15,7 +15,8 @@ use oci_wasm::{ToConfig, WASM_LAYER_MEDIA_TYPE, WasmConfig};
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use tracing::{debug, info, instrument, warn};
-use wasmparser::{Parser, Payload};
+
+use crate::inspect::decode_component;
 
 #[allow(deprecated)]
 #[deprecated = "old media type used before Wasm WG standardization"]
@@ -245,6 +246,7 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<Vec<u8
 
     // Validate that it's a valid WebAssembly component
     validate_component(&component_data)
+        .await
         .with_context(|| "pulled artifact is not a valid WebAssembly component")?;
 
     // Cache the component
@@ -277,7 +279,7 @@ pub async fn push_component(
     info!(
         reference = %reference,
         size = component_data.len(),
-        "Pushing component"
+        "pushing component"
     );
 
     // Parse OCI reference
@@ -286,6 +288,7 @@ pub async fn push_component(
 
     // Validate the component before pushing
     validate_component(component_data)
+        .await
         .with_context(|| "component data is not a valid WebAssembly component")?;
 
     // Setup credential resolver
@@ -333,42 +336,16 @@ pub async fn push_component(
             .with_context(|| "failed to cache pushed component")?;
     }
 
-    info!(digest = %digest, "Successfully pushed component");
+    info!(digest = %digest, "successfully pushed component");
     Ok(digest)
 }
 
 /// Validate that the provided bytes represent a valid WebAssembly component
 ///
 /// This function parses the WebAssembly bytes and validates that they form
-/// a valid WebAssembly component, not just a core module.
-pub fn validate_component(data: &[u8]) -> Result<()> {
-    let parser = Parser::new(0);
-    let mut is_component = false;
-    let mut has_component_section = false;
-
-    for payload in parser.parse_all(data) {
-        match payload.map_err(|e| anyhow!("invalid WebAssembly format: {}", e))? {
-            Payload::Version { encoding, .. } => {
-                if encoding == wasmparser::Encoding::Component {
-                    is_component = true;
-                }
-            }
-            Payload::ComponentSection { .. } => {
-                has_component_section = true;
-            }
-            Payload::End(_) => {
-                break;
-            }
-            _ => {}
-        }
-    }
-
-    if !is_component && !has_component_section {
-        bail!("provided WebAssembly bytes are not a valid component");
-    }
-
-    debug!("WebAssembly component validation successful");
-    Ok(())
+/// a valid WebAssembly component or a WIT package, not just a raw module.
+pub async fn validate_component(data: &[u8]) -> Result<()> {
+    decode_component(data).await.map(|_| ())
 }
 
 #[cfg(test)]
@@ -444,7 +421,7 @@ mod tests {
                 .await
                 .expect("Failed to pull component");
 
-            let res = validate_component(&component_bytes);
+            let res = validate_component(&component_bytes).await;
             assert!(
                 res.is_ok(),
                 "Component validation failed for {reference}: {}",

@@ -1,3 +1,6 @@
+//! Lower level utilities to lift and lower values between two components. Primarily used to
+//! link imports of components to exports of other components in the plugin system.
+
 use std::sync::Arc;
 
 use anyhow::{Context as _, ensure};

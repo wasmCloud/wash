@@ -4,7 +4,7 @@ use tracing::{info, instrument};
 
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
-    inspect::{decode_component, print_component_wit},
+    inspect::{decode_component, get_component_wit},
     oci::{OCI_CACHE_DIR, OciConfig, pull_component},
 };
 use anyhow::Context;
@@ -41,7 +41,7 @@ impl CliCommand for InspectCommand {
             .context("Failed to decode component")?;
 
         // Print the component WIT
-        let wit = print_component_wit(component)
+        let wit = get_component_wit(component)
             .await
             .context("Failed to print component WIT")?;
 

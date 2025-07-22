@@ -10,7 +10,7 @@ use tokio::{fs, process::Command};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::component_build::ProjectType;
-use crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HookType;
+use crate::runtime::bindings::plugin::wasmcloud::wash::types::HookType;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
     config::{Config, generate_project_config, load_config, save_config},
@@ -41,7 +41,11 @@ impl CliCommand for ComponentBuildCommand {
     #[instrument(level = "debug", skip(self, ctx), name = "component_build")]
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         // Load configuration with CLI arguments override
-        let config = load_config(&ctx.config_path(), Some(&self.project_path), Some(self))?;
+        let mut config = load_config(&ctx.config_path(), Some(&self.project_path), None::<Config>)?;
+        // Ensure the CLI argument takes precedence
+        if let Some(wit) = config.wit.as_mut() {
+            wit.skip_fetch = self.skip_fetch;
+        }
         let result = build_component(&self.project_path, ctx, &config).await?;
 
         Ok(CommandOutput::ok(
@@ -62,18 +66,6 @@ impl CliCommand for ComponentBuildCommand {
     }
     fn enable_post_hook(&self) -> Option<HookType> {
         Some(HookType::AfterBuild)
-    }
-}
-
-impl From<&ComponentBuildCommand> for Config {
-    fn from(cmd: &ComponentBuildCommand) -> Self {
-        Config {
-            wit: Some(crate::wit::WitConfig {
-                skip_fetch: cmd.skip_fetch,
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
     }
 }
 
@@ -162,7 +154,7 @@ impl ComponentBuilder {
         debug!(?project_type, "detected project type");
 
         // Check for required tools based on project type
-        self.check_required_tools(&project_type)?;
+        self.check_required_tools(&project_type).await?;
 
         // Fetch WIT dependencies if needed
         if !self.skip_wit_fetch {
@@ -193,7 +185,7 @@ impl ComponentBuilder {
         self.run_post_build_hook().await?;
 
         // Write project configuration
-        generate_project_config(&self.project_path, &project_type, config)?;
+        generate_project_config(&self.project_path, &project_type, config).await?;
 
         // Attempt to canonicalize the artifact path
         let artifact_path = artifact_path.canonicalize().unwrap_or(artifact_path);
@@ -231,20 +223,21 @@ impl ComponentBuilder {
     }
 
     /// Check for required tools based on project type
-    fn check_required_tools(&self, project_type: &ProjectType) -> anyhow::Result<()> {
+    async fn check_required_tools(&self, project_type: &ProjectType) -> anyhow::Result<()> {
         let mut missing_tools = Vec::new();
         let mut warnings = Vec::new();
 
         match project_type {
             ProjectType::Rust => {
                 // Check for cargo
-                if !self.tool_exists("cargo", "--version") {
+                if !self.tool_exists("cargo", "--version").await {
                     missing_tools.push("cargo (Rust build tool)");
                 } else {
                     // Check for wasm32-wasip2 target
-                    match std::process::Command::new("rustup")
+                    match tokio::process::Command::new("rustup")
                         .args(["target", "list", "--installed"])
                         .output()
+                        .await
                     {
                         Ok(output) => {
                             let installed_targets = String::from_utf8_lossy(&output.stdout);
@@ -260,21 +253,21 @@ impl ComponentBuilder {
                 }
             }
             ProjectType::Go => {
-                if !self.tool_exists("go", "version") {
+                if !self.tool_exists("go", "version").await {
                     missing_tools.push("go (Go compiler)");
                 }
-                if !self.tool_exists("tinygo", "version") {
+                if !self.tool_exists("tinygo", "version").await {
                     missing_tools.push("tinygo (TinyGo compiler for WebAssembly)");
                 }
-                if !self.tool_exists("wasm-tools", "--version") {
+                if !self.tool_exists("wasm-tools", "--version").await {
                     missing_tools.push("wasm-tools (Wasm tools for Go)");
                 }
             }
             ProjectType::TypeScript => {
-                if !self.tool_exists("node", "--version") {
+                if !self.tool_exists("node", "--version").await {
                     missing_tools.push("node (Node.js runtime)");
                 }
-                if !self.tool_exists("npm", "--version") {
+                if !self.tool_exists("npm", "--version").await {
                     missing_tools.push("npm (Node.js package manager)");
                 }
             }
@@ -306,12 +299,13 @@ impl ComponentBuilder {
     /// Check if a tool exists in PATH, passing it the subcommand `cmd` to check.
     ///
     /// For example, `cargo --version` or `tinygo version`.
-    fn tool_exists(&self, tool: &str, cmd: &str) -> bool {
-        std::process::Command::new(tool)
+    async fn tool_exists(&self, tool: &str, cmd: &str) -> bool {
+        tokio::process::Command::new(tool)
             .arg(cmd)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status()
+            .await
             .map(|status| status.success())
             .unwrap_or(false)
     }
@@ -523,12 +517,11 @@ impl ComponentBuilder {
                 wit_package.clone()
             } else {
                 // Use relative path from project directory
-                let relative_wit_path = wit_dir
+                wit_dir
                     .strip_prefix(&self.project_path)
                     .unwrap_or(&wit_dir)
                     .to_string_lossy()
-                    .to_string();
-                relative_wit_path
+                    .to_string()
             };
             tinygo_args.push("-wit-package".to_string());
             tinygo_args.push(wit_package);
@@ -560,7 +553,7 @@ impl ComponentBuilder {
                 tokio::fs::create_dir_all(&config_dir)
                     .await
                     .context("failed to create .wash directory")?;
-                save_config(&config_with_placeholder, &config_path)?;
+                save_config(&config_with_placeholder, &config_path).await?;
 
                 bail!(
                     "TinyGo builds require wit_world to be specified in the configuration. \
@@ -600,7 +593,7 @@ impl ComponentBuilder {
         {
             debug!("running `go generate ./...` before TinyGo build");
             let output = Command::new("go")
-                .args(&["generate", "./..."])
+                .args(["generate", "./..."])
                 .current_dir(&self.project_path)
                 .output()
                 .await

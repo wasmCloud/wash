@@ -17,7 +17,7 @@ use crate::{
     oci::{OCI_CACHE_DIR, OciConfig, pull_component},
     runtime::{
         Ctx,
-        bindings::plugin_guest::exports::wasmcloud::wash::plugin::{HookType, Metadata},
+        bindings::plugin::exports::wasmcloud::wash::plugin::{HookType, Metadata},
         prepare_component_plugin,
     },
 };
@@ -92,8 +92,7 @@ impl PluginManager {
     pub fn get_commands(&self) -> Vec<&PluginComponent> {
         self.plugins
             .iter()
-            // TODO: Ooh should subcommands be able to register under existing subcommands? e.g. `wash oci <foobar>`?
-            .filter(|plugin| !plugin.metadata.command.is_some())
+            .filter(|plugin| plugin.metadata.command.is_none())
             .collect()
     }
 
@@ -306,7 +305,7 @@ pub async fn get_plugin_metadata(runtime: &Runtime, wasm: &[u8]) -> anyhow::Resu
         .context("failed to instantiate plugin")?;
 
     // Call the plugin host bindings to get metadata
-    let plugin = crate::runtime::bindings::plugin_guest::PluginGuest::new(&mut store, &instance)
+    let plugin = crate::runtime::bindings::plugin::WashPlugin::new(&mut store, &instance)
         .context("failed to create plugin host bindings")?;
     let metadata = plugin.wasmcloud_wash_plugin().call_info(&mut store).await?;
 

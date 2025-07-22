@@ -124,7 +124,7 @@ impl Config {
 pub fn load_config<T>(
     global_config_path: &Path,
     project_dir: Option<&Path>,
-    _cli_args: Option<T>,
+    cli_args: Option<T>,
 ) -> Result<Config>
 where
     T: Serialize + Into<Config>,
@@ -150,13 +150,13 @@ where
     // Environment variables with WASH_ prefix
     figment = figment.merge(Env::prefixed("WASH_"));
 
-    // CLI arguments (if provided)
-    // TODO: Reenable, this only works if the CLI args are compatible with Config, if not then we end up overwriting the config
-    // if let Some(args) = cli_args {
-    //     // Convert CLI args to configuration format
-    //     let cli_config = args.into();
-    //     figment = figment.merge(figment::providers::Serialized::defaults(cli_config));
-    // }
+    // TODO: There's more testing to be done here to ensure that CLI args can override existing
+    // config without replacing present values with empty values.
+    if let Some(args) = cli_args {
+        // Convert CLI args to configuration format
+        let cli_config: Config = args.into();
+        figment = figment.merge(figment::providers::Serialized::defaults(cli_config));
+    }
 
     figment
         .extract()
@@ -164,10 +164,10 @@ where
 }
 
 /// Save configuration to specified path
-pub fn save_config(config: &Config, path: &Path) -> Result<()> {
+pub async fn save_config(config: &Config, path: &Path) -> Result<()> {
     // Ensure directory exists
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent).with_context(|| {
+        tokio::fs::create_dir_all(parent).await.with_context(|| {
             format!(
                 "Failed to create config directory: {parent}",
                 parent = parent.display()
@@ -177,14 +177,15 @@ pub fn save_config(config: &Config, path: &Path) -> Result<()> {
 
     let json = serde_json::to_string_pretty(config).context("Failed to serialize configuration")?;
 
-    std::fs::write(path, json)
+    tokio::fs::write(path, json)
+        .await
         .with_context(|| format!("failed to write config file: {}", path.display()))?;
 
     Ok(())
 }
 
 /// Generate project-specific configuration after successful build
-pub fn generate_project_config<T>(
+pub async fn generate_project_config<T>(
     project_dir: &Path,
     project_type: &ProjectType,
     build_args: T,
@@ -237,7 +238,7 @@ where
         }
     }
 
-    save_config(&config, &config_path)?;
+    save_config(&config, &config_path).await?;
 
     info!(
         "Generated project configuration at {}",
@@ -253,7 +254,7 @@ pub fn local_config_path(project_dir: &Path) -> PathBuf {
 
 /// Generate a default configuration file with all explicit defaults
 /// This is useful for `wash config init` command
-pub fn generate_default_config(path: &Path, force: bool) -> Result<()> {
+pub async fn generate_default_config(path: &Path, force: bool) -> Result<()> {
     // Don't overwrite existing config unless force is specified
     if path.exists() && !force {
         bail!(
@@ -263,7 +264,7 @@ pub fn generate_default_config(path: &Path, force: bool) -> Result<()> {
     }
 
     let default_config = Config::default_with_templates();
-    save_config(&default_config, path)?;
+    save_config(&default_config, path).await?;
 
     info!(config_path = %path.display(), "Generated default configuration");
     Ok(())
