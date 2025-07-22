@@ -3,10 +3,8 @@
 use anyhow::{Context as _, bail};
 use clap::Args;
 use etcetera::AppStrategy as _;
-use std::{
-    path::{Path, PathBuf},
-    process::Command,
-};
+use std::path::{Path, PathBuf};
+use tokio::process::Command;
 use tracing::{debug, error, instrument, trace};
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
@@ -651,6 +649,7 @@ async fn check_rust_target(target: &str) -> anyhow::Result<bool> {
     let output = Command::new("rustup")
         .args(["target", "list", "--installed"])
         .output()
+        .await
         .context("failed to run rustup target list")?;
 
     if !output.status.success() {

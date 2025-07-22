@@ -16,11 +16,11 @@ use wasmtime_wasi::FilePerms;
 use wasmtime_wasi::WasiCtx;
 use wasmtime_wasi_http::io::TokioIo;
 
-use crate::plugin::sanitize_plugin_name;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput, OutputKind, component_build::build_component},
     plugin::{
-        InstallPluginOptions, PluginComponent, install_plugin, list_plugins, uninstall_plugin,
+        InstallPluginOptions, PluginComponent, install_plugin, list_plugins, sanitize_plugin_name,
+        uninstall_plugin,
     },
     runtime::{
         Ctx,
@@ -38,7 +38,7 @@ pub enum PluginCommand {
     Uninstall(UninstallCommand),
     /// List installed plugins
     List(ListCommand),
-    /// Test a plugin component for its metadata, commands or hooks
+    /// Test run a plugin component to inspect its metadata or run commands and hooks
     Test(TestCommand),
 }
 
@@ -281,6 +281,8 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
             // TODO: context, all plugins get a directory to use?
             Arc::default(),
         ))?;
+
+        // TODO: With how often we use this, a struct is warranted with helper impls
         let plugin_guest = PluginGuest::new(&mut store, &instance)?;
         let guest = plugin_guest.wasmcloud_wash_plugin();
 
@@ -388,7 +390,7 @@ impl UninstallCommand {
                 })),
             )),
             Err(e) => Ok(CommandOutput::error(
-                format!("Failed to uninstall plugin '{}': {}", self.name, e),
+                format!("Failed to uninstall plugin '{}': {e}", self.name),
                 None,
             )),
         }

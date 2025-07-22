@@ -1,12 +1,12 @@
 //! CLI command for building components, including Rust, TinyGo, and TypeScript projects
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use anyhow::{Context as _, bail};
 use clap::Args;
 use etcetera::AppStrategy;
 use serde::Serialize;
+use tokio::{fs, process::Command};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::component_build::ProjectType;
@@ -242,7 +242,7 @@ impl ComponentBuilder {
                     missing_tools.push("cargo (Rust build tool)");
                 } else {
                     // Check for wasm32-wasip2 target
-                    match Command::new("rustup")
+                    match std::process::Command::new("rustup")
                         .args(["target", "list", "--installed"])
                         .output()
                     {
@@ -307,7 +307,7 @@ impl ComponentBuilder {
     ///
     /// For example, `cargo --version` or `tinygo version`.
     fn tool_exists(&self, tool: &str, cmd: &str) -> bool {
-        Command::new(tool)
+        std::process::Command::new(tool)
             .arg(cmd)
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
@@ -415,6 +415,7 @@ impl ComponentBuilder {
             .args(&cargo_args)
             .current_dir(&self.project_path)
             .output()
+            .await
             .context("failed to execute cargo build")?;
 
         if !output.status.success() {
@@ -450,10 +451,15 @@ impl ComponentBuilder {
         let target_dir = self
             .project_path
             .join(format!("target/{}/{}", rust_config.target, build_type));
-        let entries = std::fs::read_dir(&target_dir).context("failed to read target directory")?;
+        let mut entries = fs::read_dir(&target_dir)
+            .await
+            .context("failed to read target directory")?;
 
-        for entry in entries {
-            let entry = entry.context("failed to read directory entry")?;
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .context("failed to read directory entry")?
+        {
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
                 debug!(artifact_path = %path.display(), "found component artifact");
@@ -487,7 +493,9 @@ impl ComponentBuilder {
         // Create build directory if it doesn't exist
         let build_dir = self.project_path.join("build");
         if !build_dir.exists() {
-            std::fs::create_dir_all(&build_dir).context("failed to create build directory")?;
+            fs::create_dir_all(&build_dir)
+                .await
+                .context("failed to create build directory")?;
         }
 
         let output_file = build_dir.join("output.wasm");
@@ -595,6 +603,7 @@ impl ComponentBuilder {
                 .args(&["generate", "./..."])
                 .current_dir(&self.project_path)
                 .output()
+                .await
                 .context("failed to execute `go generate ./...`")?;
 
             if !output.status.success() {
@@ -615,6 +624,7 @@ impl ComponentBuilder {
             .args(&tinygo_args)
             .current_dir(&self.project_path)
             .output()
+            .await
             .context("failed to execute tinygo build")?;
 
         if !output.status.success() {
@@ -656,8 +666,9 @@ impl ComponentBuilder {
 
         // Check if package.json has a build script
         let package_json_path = self.project_path.join("package.json");
-        let package_json_content =
-            std::fs::read_to_string(&package_json_path).context("failed to read package.json")?;
+        let package_json_content = fs::read_to_string(&package_json_path)
+            .await
+            .context("failed to read package.json")?;
 
         let package_json: serde_json::Value =
             serde_json::from_str(&package_json_content).context("failed to parse package.json")?;
@@ -686,6 +697,7 @@ impl ComponentBuilder {
                     .args(&install_args)
                     .current_dir(&self.project_path)
                     .output()
+                    .await
                     .context(format!("failed to execute {package_manager} install"))?;
 
                 if !install_output.status.success() {
@@ -719,6 +731,7 @@ impl ComponentBuilder {
                 .args(&build_args)
                 .current_dir(&self.project_path)
                 .output()
+                .await
                 .context(format!("failed to execute {package_manager} run build"))?;
 
             if !output.status.success() {
@@ -765,10 +778,14 @@ impl ComponentBuilder {
             // Search for any .wasm file in common output directories and project root
             for dir in &search_dirs {
                 if dir.exists() && dir.is_dir() {
-                    let entries = std::fs::read_dir(dir)
+                    let mut entries = fs::read_dir(dir)
+                        .await
                         .context(format!("failed to read directory: {}", dir.display()))?;
-                    for entry in entries {
-                        let entry = entry.context("failed to read directory entry")?;
+                    while let Some(entry) = entries
+                        .next_entry()
+                        .await
+                        .context("failed to read directory entry")?
+                    {
                         let path = entry.path();
                         if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
                             debug!(artifact_path = %path.display(), "found component artifact");
@@ -796,6 +813,7 @@ impl ComponentBuilder {
             .args(args)
             .current_dir(&self.project_path)
             .output()
+            .await
             .context(format!("failed to execute custom command: {command}"))?;
 
         if !output.status.success() {

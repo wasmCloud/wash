@@ -22,9 +22,12 @@ use crate::{
     },
 };
 
-/// A Plugin component has the preinstantiated guest and its metadata for quick access
+/// A [PluginComponent] represents a precompiled and linked WebAssembly component that
+/// implements the wash plugin interface. It contains the component itself, its metadata,
+/// and the filesystem root where the plugin can read and write files using wasi:filesystem
 #[derive(Clone)]
 pub struct PluginComponent {
+    // TODO: un-arc, arc the PluginComponent instead
     pub component: Arc<CustomCtxComponent<Ctx>>,
     pub metadata: Metadata,
     pub fs_root: PathBuf,
@@ -33,9 +36,8 @@ pub struct PluginComponent {
 impl std::fmt::Debug for PluginComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PluginComponent")
-            .field("name", &self.metadata.name)
-            .field("version", &self.metadata.version)
-            .field("hooks", &self.metadata.hooks)
+            .field("metadata", &self.metadata)
+            .field("fs_root", &self.fs_root)
             .finish()
     }
 }
