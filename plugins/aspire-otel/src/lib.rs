@@ -2,7 +2,7 @@
 mod bindings;
 
 use crate::bindings::{
-    wasi::logging::logging::{log, Level},
+    wasi::logging::logging::{Level, log},
     wasmcloud::wash::types::{Command, CredentialType, HookType, Metadata, Runner},
 };
 
@@ -23,7 +23,6 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
             default_command: None,
             commands: vec![],
             hooks: Some(vec![HookType::BeforeDev, HookType::AfterDev]),
-            credentials: None,
         }
     }
     fn hook(r: Runner, ty: HookType) -> anyhow::Result<(), ()> {
@@ -77,11 +76,8 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
         Ok(())
     }
     // All of these functions aren't valid for this type of plugin
-    fn authorize(_: Runner, _: CredentialType, _: Option<String>) -> anyhow::Result<String, ()> {
-        Err(())
-    }
     fn initialize(_: Runner) -> anyhow::Result<(), ()> {
-        Err(())
+        Ok(())
     }
     fn run(_: Runner, _: Command) -> anyhow::Result<(), ()> {
         Err(())

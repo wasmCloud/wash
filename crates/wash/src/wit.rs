@@ -28,6 +28,9 @@ pub struct WitConfig {
     /// Skip fetching WIT dependencies
     #[serde(default)]
     pub skip_fetch: bool,
+    /// The directory where WIT files are stored, if not `./wit` in the project root
+    #[serde(default)]
+    pub wit_dir: Option<PathBuf>,
 }
 
 /// Default WIT registries (just the standard wasm.pkg registry)

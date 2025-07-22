@@ -41,7 +41,7 @@ async fn test_plugin_test_wadm_comprehensive() -> Result<()> {
     eprintln!("🔍 Test 1: Basic plugin test (no flags)");
     let test_cmd_basic = TestCommand {
         plugin: wadm_plugin_path.clone(),
-        command: vec![],
+        args: vec![],
         hooks: vec![],
     };
     let plugin_cmd_basic = PluginCommand::Test(test_cmd_basic);
@@ -61,7 +61,7 @@ async fn test_plugin_test_wadm_comprehensive() -> Result<()> {
     eprintln!("🔍 Test 2: Plugin test with --command wadm");
     let test_cmd_with_command = TestCommand {
         plugin: wadm_plugin_path.clone(),
-        command: vec!["wadm".to_string()],
+        args: vec!["wadm".to_string()],
         hooks: vec![],
     };
     let plugin_cmd_with_command = PluginCommand::Test(test_cmd_with_command);
@@ -81,7 +81,7 @@ async fn test_plugin_test_wadm_comprehensive() -> Result<()> {
     eprintln!("🔍 Test 3: Plugin test with --hook afterdev");
     let test_cmd_with_hook = TestCommand {
         plugin: wadm_plugin_path.clone(),
-        command: vec![],
+        args: vec![],
         hooks: vec![HookType::AfterDev],
     };
     let plugin_cmd_with_hook = PluginCommand::Test(test_cmd_with_hook);
@@ -101,7 +101,7 @@ async fn test_plugin_test_wadm_comprehensive() -> Result<()> {
     eprintln!("🔍 Test 4: Plugin test with both --command wadm and --hook afterdev");
     let test_cmd_with_both = TestCommand {
         plugin: wadm_plugin_path.clone(),
-        command: vec!["wadm".to_string()],
+        args: vec!["wadm".to_string()],
         hooks: vec![HookType::AfterDev],
     };
     let plugin_cmd_with_both = PluginCommand::Test(test_cmd_with_both);

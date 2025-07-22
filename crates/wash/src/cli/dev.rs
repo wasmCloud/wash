@@ -15,9 +15,10 @@ use notify::{
     Event as NotifyEvent, RecursiveMode, Watcher,
     event::{EventKind, ModifyKind},
 };
-use tokio::{net::TcpListener, select, sync::mpsc, task::JoinHandle};
+use tokio::{net::TcpListener, select, sync::mpsc};
 use tracing::{debug, error, info, trace, warn};
 use wasmcloud_runtime::component::CustomCtxComponent;
+use wasmtime::{AsContextMut, StoreContextMut, component::InstancePre};
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 use wasmtime_wasi_http::{
     WasiHttpView as _,
@@ -160,10 +161,7 @@ impl CliCommand for DevCommand {
                 .into_iter()
                 .filter(|(_, plugin)| {
                     // Only register plugins that have the dev-hook
-                    plugin
-                        .hooks
-                        .as_ref()
-                        .is_some_and(|hooks| hooks.contains(&HookType::DevRegister))
+                    plugin.hooks.contains(&HookType::DevRegister)
                 })
                 .collect(),
             Err(e) => {
@@ -314,6 +312,7 @@ impl CliCommand for DevCommand {
                     info!("rebuilding component after file changed ...");
                     pause_watch.store(true, Ordering::SeqCst);
 
+                    // TODO: ensure that this calls the build pre-post hooks
                     // TODO: Skip wit fetch if no .wit change
                     // TODO: Skip install if no .package.json change
                     match build_component(
@@ -462,47 +461,58 @@ impl HandleRequest for CustomCtxComponent<Ctx> {
         // initial resources passed to the `handle` function.
         let ctx = ctx.unwrap_or_default();
         let mut store = self.new_store(ctx);
-        let (sender, receiver) = tokio::sync::oneshot::channel();
-        let req = store.data_mut().new_incoming_request(Scheme::Http, req)?;
-        let out = store.data_mut().new_response_outparam(sender)?;
         let pre = self.instance_pre().clone();
-        let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
+        handle_request(store.as_context_mut(), pre, req).await
+    }
+}
 
-        // Run the http request itself in a separate task so the task can
-        // optionally continue to execute beyond after the initial
-        // headers/response code are sent.
-        let task: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-            let proxy = pre.instantiate_async(&mut store).await?;
+pub async fn handle_request<'a>(
+    mut store: StoreContextMut<'a, Ctx>,
+    pre: InstancePre<Ctx>,
+    req: hyper::Request<hyper::body::Incoming>,
+) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    let req = store.data_mut().new_incoming_request(Scheme::Http, req)?;
+    let out = store.data_mut().new_response_outparam(sender)?;
+    let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
 
-            proxy
-                .wasi_http_incoming_handler()
-                .call_handle(store, req, out)
-                .await?;
+    // Run the http request itself in a separate task so the task can
+    // optionally continue to execute beyond after the initial
+    // headers/response code are sent.
+    // let task: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
+    let proxy = pre.instantiate_async(&mut store).await?;
 
-            Ok(())
-        });
+    proxy
+        .wasi_http_incoming_handler()
+        .call_handle(&mut store, req, out)
+        .await?;
 
-        match receiver.await {
-            // If the client calls `response-outparam::set` then one of these
-            // methods will be called.
-            Ok(Ok(resp)) => Ok(resp),
-            Ok(Err(e)) => Err(e.into()),
+    // Ok(())
+    // });
 
-            // Otherwise the `sender` will get dropped along with the `Store`
-            // meaning that the oneshot will get disconnected and here we can
-            // inspect the `task` result to see what happened
-            Err(e) => {
-                error!(err = ?e, "error receiving http response");
-                Err(match task.await {
-                    Ok(Ok(())) => {
-                        anyhow::anyhow!("oneshot channel closed but no response was sent")
-                    }
-                    Ok(Err(e)) => e,
-                    Err(e) => {
-                        anyhow::anyhow!("failed to await task for handling HTTP request: {e}")
-                    }
-                })
-            }
+    match receiver.await {
+        // If the client calls `response-outparam::set` then one of these
+        // methods will be called.
+        Ok(Ok(resp)) => Ok(resp),
+        Ok(Err(e)) => Err(e.into()),
+
+        // Otherwise the `sender` will get dropped along with the `Store`
+        // meaning that the oneshot will get disconnected and here we can
+        // inspect the `task` result to see what happened
+        Err(e) => {
+            error!(err = ?e, "error receiving http response");
+            Err(anyhow::anyhow!(
+                "oneshot channel closed but no response was sent"
+            ))
+            // Err(match task.await {
+            //     Ok(Ok(())) => {
+            //         anyhow::anyhow!("oneshot channel closed but no response was sent")
+            //     }
+            //     Ok(Err(e)) => e,
+            //     Err(e) => {
+            //         anyhow::anyhow!("failed to await task for handling HTTP request: {e}")
+            //     }
+            // })
         }
     }
 }
