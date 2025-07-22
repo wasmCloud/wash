@@ -13,7 +13,7 @@ use crate::component_build::ProjectType;
 use crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HookType;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
-    config::{Config, generate_project_config, load_config},
+    config::{Config, generate_project_config, load_config, save_config},
     wit::{CommonPackageArgs, WkgFetcher, load_lock_file},
 };
 
@@ -100,7 +100,13 @@ pub async fn build_component(
     config: &Config,
 ) -> anyhow::Result<ComponentBuildResult> {
     let skip_fetch = config.wit.as_ref().map(|w| w.skip_fetch).unwrap_or(false);
-    let builder = ComponentBuilder::new(project_path.to_path_buf(), None, skip_fetch);
+    let wit_dir = config.wit.as_ref().and_then(|w| w.wit_dir.clone());
+    debug!(
+        project_path = ?project_path.display(),
+        wit_dir = ?wit_dir.as_ref().map(|p| p.display()),
+        "building component at specified project path",
+    );
+    let builder = ComponentBuilder::new(project_path.to_path_buf(), wit_dir, skip_fetch);
     builder.build(ctx, config).await
 }
 
@@ -124,9 +130,11 @@ impl ComponentBuilder {
 
     /// Get the WIT directory, defaulting to project_path/wit if not specified
     fn get_wit_dir(&self) -> PathBuf {
-        self.wit_dir
-            .clone()
-            .unwrap_or_else(|| self.project_path.join("wit"))
+        match &self.wit_dir {
+            Some(wit_dir) if wit_dir.is_absolute() => wit_dir.clone(),
+            Some(wit_dir) => self.project_path.join(wit_dir),
+            None => self.project_path.join("wit"),
+        }
     }
 
     /// Build the component
@@ -170,7 +178,7 @@ impl ComponentBuilder {
         // Run pre-build hook
         self.run_pre_build_hook().await?;
 
-        info!(path = ?self.project_path.display(), "component build start");
+        info!(path = ?self.project_path.display(), "building component");
         // Build the component using the language toolchain
         let artifact_path = match project_type {
             ProjectType::Rust => self.build_rust_component(config).await?,
@@ -482,13 +490,14 @@ impl ComponentBuilder {
             std::fs::create_dir_all(&build_dir).context("failed to create build directory")?;
         }
 
-        let output_file = build_dir.join("component.wasm");
+        let output_file = build_dir.join("output.wasm");
+        let output_file_relative = PathBuf::from("build/output.wasm");
 
         // Build tinygo command arguments
         let mut tinygo_args = vec![
             "build".to_string(),
             "-o".to_string(),
-            output_file
+            output_file_relative
                 .to_str()
                 .context("failed to convert output file path to str")?
                 .to_string(),
@@ -498,22 +507,68 @@ impl ComponentBuilder {
         tinygo_args.push("-target".to_string());
         tinygo_args.push(tinygo_config.target.to_string());
 
-        // Add WIT package and world for component models
-        if let Some(wit_package) = &tinygo_config.wit_package {
+        // Check if WIT directory exists before adding WIT-related flags
+        let wit_dir = self.get_wit_dir();
+        if wit_dir.exists() {
+            // Add WIT package - use WIT directory path if not explicitly specified
+            let wit_package = if let Some(wit_package) = &tinygo_config.wit_package {
+                wit_package.clone()
+            } else {
+                // Use relative path from project directory
+                let relative_wit_path = wit_dir
+                    .strip_prefix(&self.project_path)
+                    .unwrap_or(&wit_dir)
+                    .to_string_lossy()
+                    .to_string();
+                relative_wit_path
+            };
             tinygo_args.push("-wit-package".to_string());
-            tinygo_args.push(wit_package.to_string());
-        } else {
-            debug!("no WIT package specified, skipping -wit-package argument");
-        }
+            tinygo_args.push(wit_package);
 
-        if let Some(wit_world) = &tinygo_config.wit_world {
+            // Add WIT world - this is required for TinyGo builds when WIT is present
+            let Some(wit_world) = &tinygo_config.wit_world else {
+                // Generate project config to ensure .wash/config.json exists with placeholder
+                let mut config_with_placeholder = config.clone();
+                let artifact_path_relative = PathBuf::from("build/output.wasm");
+
+                if let Some(build_config) = &mut config_with_placeholder.build {
+                    build_config.artifact_path = Some(artifact_path_relative.clone());
+                    if let Some(tinygo_config) = &mut build_config.tinygo {
+                        tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
+                    }
+                } else {
+                    let mut tinygo_config = tinygo_config.clone();
+                    tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
+                    config_with_placeholder.build = Some(crate::component_build::BuildConfig {
+                        tinygo: Some(tinygo_config),
+                        artifact_path: Some(artifact_path_relative),
+                        ..Default::default()
+                    });
+                }
+
+                // Write config with placeholder
+                let config_dir = self.project_path.join(".wash");
+                let config_path = config_dir.join("config.json");
+                tokio::fs::create_dir_all(&config_dir)
+                    .await
+                    .context("failed to create .wash directory")?;
+                save_config(&config_with_placeholder, &config_path)?;
+
+                bail!(
+                    "TinyGo builds require wit_world to be specified in the configuration. \
+                    A config file has been created at {} with a placeholder. \
+                    Please update the wit_world field to match your WIT world name.",
+                    config_path.display()
+                );
+            };
             tinygo_args.push("-wit-world".to_string());
             tinygo_args.push(wit_world.to_string());
         } else {
-            debug!("no WIT world specified, skipping -wit-world argument");
-        }
-
-        // Apply garbage collector - now uses explicit default from config
+            debug!(
+                "WIT directory does not exist, skipping WIT-related flags: {}",
+                wit_dir.display()
+            );
+        } // Apply garbage collector - now uses explicit default from config
         tinygo_args.push("-gc".to_string());
         tinygo_args.push(tinygo_config.gc.to_string());
 
@@ -527,6 +582,31 @@ impl ComponentBuilder {
 
         // Add source directory
         tinygo_args.push(".".to_string());
+
+        // For Go projects, optionally run `go generate ./...` before building if not disabled in config
+        if config
+            .build
+            .as_ref()
+            .and_then(|b| b.tinygo.as_ref())
+            .is_some_and(|c| !c.disable_go_generate)
+        {
+            debug!("running `go generate ./...` before TinyGo build");
+            let output = Command::new("go")
+                .args(&["generate", "./..."])
+                .current_dir(&self.project_path)
+                .output()
+                .context("failed to execute `go generate ./...`")?;
+
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                warn!(stderr = %stderr, "`go generate ./...` failed, continuing build");
+            } else {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                debug!(stdout = %stdout, "`go generate ./...` output");
+            }
+        } else {
+            debug!("`go generate ./...` is disabled by config");
+        }
 
         debug!(tinygo_args = ?tinygo_args, "running tinygo with args");
 
