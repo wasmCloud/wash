@@ -6,7 +6,6 @@ use clap::{Args, Subcommand};
 use etcetera::AppStrategy;
 use hyper::server::conn::http1;
 use serde_json::json;
-use tokio::fs;
 use tokio::net::TcpListener;
 use tracing::error;
 use tracing::{debug, instrument, trace, warn};
@@ -24,9 +23,9 @@ use crate::{
     },
     runtime::{
         Ctx,
-        bindings::plugin_guest::{PluginGuest, exports::wasmcloud::wash::plugin::HookType},
+        bindings::plugin::{WashPlugin, exports::wasmcloud::wash::plugin::HookType},
+        plugin::Runner,
         prepare_component_plugin,
-        types::Runner,
     },
 };
 
@@ -283,7 +282,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
         ))?;
 
         // TODO: With how often we use this, a struct is warranted with helper impls
-        let plugin_guest = PluginGuest::new(&mut store, &instance)?;
+        let plugin_guest = WashPlugin::new(&mut store, &instance)?;
         let guest = plugin_guest.wasmcloud_wash_plugin();
 
         // Instantiate and run plugin
@@ -462,15 +461,16 @@ impl TestCommand {
         let wasm = if self.plugin.is_dir() {
             let config = ctx
                 .ensure_config(Some(self.plugin.as_path()))
+                .await
                 .context("failed to load config")?;
             let built_path = build_component(&self.plugin, ctx, &config)
                 .await
                 .context("Failed to build component from directory")?;
-            fs::read(&built_path.artifact_path)
+            tokio::fs::read(&built_path.artifact_path)
                 .await
                 .context("Failed to read built component file")?
         } else {
-            fs::read(&self.plugin)
+            tokio::fs::read(&self.plugin)
                 .await
                 .context("Failed to read component file")?
             // TODO: support OCI references too
@@ -486,7 +486,7 @@ impl TestCommand {
             .await
             .context("Failed to instantiate component")?;
         let plugin_guest =
-            PluginGuest::new(&mut store, &instance).context("Failed to get plugin_guest export")?;
+            WashPlugin::new(&mut store, &instance).context("Failed to get plugin_guest export")?;
         let guest = plugin_guest.wasmcloud_wash_plugin();
 
         let metadata = guest.call_info(&mut store).await?;
@@ -533,13 +533,7 @@ impl TestCommand {
                 args: &self.args,
                 plugin_component: Some(&plugin_component),
             };
-            output.push_str(
-                component_plugin_command
-                    .handle(&ctx)
-                    .await?
-                    .message
-                    .as_str(),
-            );
+            output.push_str(component_plugin_command.handle(ctx).await?.message.as_str());
         }
 
         Ok(CommandOutput::ok(

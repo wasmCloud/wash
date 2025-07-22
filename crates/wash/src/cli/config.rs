@@ -32,6 +32,7 @@ impl CliCommand for ConfigCommand {
             ConfigCommand::Init { force } => {
                 let config_path = ctx.config_path();
                 generate_default_config(&config_path, *force)
+                    .await
                     .context("failed to initialize config")?;
 
                 Ok(CommandOutput::ok(
@@ -63,7 +64,10 @@ impl CliCommand for ConfigCommand {
                 ))
             }
             ConfigCommand::Show {} => {
-                let config = ctx.ensure_config(None).context("failed to load config")?;
+                let config = ctx
+                    .ensure_config(None)
+                    .await
+                    .context("failed to load config")?;
                 Ok(CommandOutput::ok(
                     serde_json::to_string_pretty(&config).context("failed to serialize config")?,
                     Some(serde_json::to_value(&config).context("failed to serialize config")?),

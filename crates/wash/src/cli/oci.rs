@@ -8,7 +8,7 @@ use tracing::instrument;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
     oci::{OCI_CACHE_DIR, OciConfig, pull_component, push_component},
-    runtime::bindings::plugin_host::wasmcloud::wash::types::HookType,
+    runtime::bindings::plugin::wasmcloud::wash::types::HookType,
 };
 
 #[derive(Subcommand, Debug, Clone)]
@@ -45,6 +45,9 @@ pub struct PullCommand {
     /// The OCI reference to pull
     #[clap(name = "reference")]
     reference: String,
+    /// The path to write the pulled component to
+    #[clap(name = "component_path", default_value = "component.wasm")]
+    component_path: PathBuf,
 }
 
 impl PullCommand {
@@ -53,12 +56,20 @@ impl PullCommand {
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
         let c = pull_component(&self.reference, oci_config).await?;
-        // Currently, this command does not perform any operations.
-        // It can be extended in the future to handle OCI-related tasks.
+
+        // Write the component to the specified output path
+        tokio::fs::write(&self.component_path, &c)
+            .await
+            .context("failed to write pulled component to output path")?;
+
         Ok(CommandOutput::ok(
-            "OCI command executed successfully.".to_string(),
+            format!(
+                "Pulled and saved component to {}",
+                self.component_path.display()
+            ),
             Some(serde_json::json!({
                 "message": "OCI command executed successfully.",
+                "output_path": self.component_path.to_string_lossy(),
                 "bytes": c.len(),
                 "success": true,
             })),

@@ -11,7 +11,7 @@ use wash::{
         CliCommand, CliContext,
         plugin::{PluginCommand, TestCommand},
     },
-    runtime::bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType,
+    runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType,
 };
 
 /// Test the plugin test command with various combinations of flags

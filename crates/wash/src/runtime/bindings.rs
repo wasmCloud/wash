@@ -1,3 +1,6 @@
+//! This module contains all the Wasmtime component bindings for the Wash runtime.
+
+/// Generated bindings used to call components that are being developed with `wash dev`
 pub mod dev {
     wasmtime::component::bindgen!({
         path: "./wit",
@@ -11,30 +14,18 @@ pub mod dev {
     });
 }
 
-pub mod plugin_guest {
+/// Generated bindings used to call components that implement the `wasmcloud:wash/plugin` interface
+pub mod plugin {
     wasmtime::component::bindgen!({
         path: "./wit",
-        world: "plugin-guest",
-        async: true,
-
-        with: {
-            "wasmcloud:wash": crate::runtime::bindings::plugin_host::wasmcloud::wash,
-        }
-    });
-}
-
-pub mod plugin_host {
-    wasmtime::component::bindgen!({
-        path: "./wit",
-        world: "plugin-host",
+        world: "wash-plugin",
         additional_derives: [serde::Serialize],
         async: true,
         with: {
-            "wasmcloud:wash/types/runner": crate::runtime::types::Runner,
-            "wasmcloud:wash/types/project-config": crate::runtime::types::ProjectConfig,
-            "wasmcloud:wash/types/plugin-config": crate::runtime::types::PluginConfig,
-            // "wasmcloud:wash/types/wash-config": crate::runtime::types::WashConfig,
-            "wasmcloud:wash/types/context": crate::runtime::types::Context,
+            "wasmcloud:wash/types/runner": crate::runtime::plugin::Runner,
+            "wasmcloud:wash/types/project-config": crate::runtime::plugin::ProjectConfig,
+            "wasmcloud:wash/types/plugin-config": crate::runtime::plugin::PluginConfig,
+            "wasmcloud:wash/types/context": crate::runtime::plugin::Context,
         }
     });
 
@@ -78,6 +69,7 @@ pub mod plugin_host {
         }
     }
 
+    /// Easy conversion from the generated argument structure to a Clap argument.
     impl From<&CommandArgument> for clap::Arg {
         fn from(arg: &CommandArgument) -> Self {
             let mut cli_arg = clap::Arg::new(&arg.name)

@@ -6,6 +6,8 @@ pub mod cli;
 pub mod component_build;
 /// Configuration management for wash
 pub mod config;
+/// Implementations for the developer loop, including component plugin management
+pub mod dev;
 /// Component inspection and analysis
 pub mod inspect;
 /// Create new wash projects

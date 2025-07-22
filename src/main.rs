@@ -1,12 +1,12 @@
 use std::io::BufWriter;
 
 use clap::{Parser, Subcommand};
-use tracing::{error, info, instrument, trace, warn, Level};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing::{Level, error, info, instrument, trace, warn};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 use wash::cli::{
-    plugin::ComponentPluginCommand, CliCommand, CliCommandExt, CliContext, CommandOutput,
-    OutputKind,
+    CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
+    plugin::ComponentPluginCommand,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -104,15 +104,14 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Update(cmd) => cmd.handle(ctx).await,
             WashCliCommand::ComponentPlugin(args) => {
                 let cmd: ComponentPluginCommand = args.into();
-                cmd.handle(&ctx).await
+                cmd.handle(ctx).await
             }
         }
     }
 
     fn enable_pre_hook(
         &self,
-    ) -> Option<wash::runtime::bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType>
-    {
+    ) -> Option<wash::runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType> {
         match self {
             WashCliCommand::Build(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_pre_hook(),
@@ -131,8 +130,7 @@ impl CliCommand for WashCliCommand {
     }
     fn enable_post_hook(
         &self,
-    ) -> Option<wash::runtime::bindings::plugin_guest::exports::wasmcloud::wash::plugin::HookType>
-    {
+    ) -> Option<wash::runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType> {
         match self {
             WashCliCommand::Build(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_post_hook(),
