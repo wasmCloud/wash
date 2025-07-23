@@ -12,7 +12,7 @@ use crate::bindings::exports::wasi::blobstore::types::{
 };
 use crate::bindings::exports::wasi::blobstore::types::{GuestIncomingValue, GuestOutgoingValue};
 use crate::bindings::exports::wasi::blobstore::{blobstore, container};
-use crate::bindings::wasi::logging::logging::{Level, log};
+use crate::bindings::wasi::logging::logging::{log, Level};
 
 /// Generated WIT bindings
 pub mod bindings;

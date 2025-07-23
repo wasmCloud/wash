@@ -2,8 +2,8 @@
 mod bindings;
 
 use crate::bindings::{
-    wasi::logging::logging::{Level, log},
-    wasmcloud::wash::types::{Command, CredentialType, HookType, Metadata, Runner},
+    wasi::logging::logging::{log, Level},
+    wasmcloud::wash::types::{Command, HookType, Metadata, Runner},
 };
 
 pub(crate) struct Component;
@@ -20,12 +20,12 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
             url: "https://github.com/wasmcloud/wash".to_string(),
             license: "Apache-2.0".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            default_command: None,
-            commands: vec![],
-            hooks: Some(vec![HookType::BeforeDev, HookType::AfterDev]),
+            command: None,
+            sub_commands: vec![],
+            hooks: vec![HookType::BeforeDev, HookType::AfterDev],
         }
     }
-    fn hook(r: Runner, ty: HookType) -> anyhow::Result<(), ()> {
+    fn hook(r: Runner, ty: HookType) -> anyhow::Result<String, String> {
         match ty {
             HookType::BeforeDev => {
                 log(
@@ -33,7 +33,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     "aspire-otel",
                     "starting aspire dashboard container",
                 );
-                r.host_exec(
+                let res = r.host_exec(
                     "docker",
                     &[
                         "run".to_string(),
@@ -56,6 +56,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     "aspire-otel",
                     "observability dashboard available at http://localhost:18888",
                 );
+                Ok(res.0)
             }
             HookType::AfterDev => {
                 log(
@@ -63,23 +64,23 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     "aspire-otel",
                     "stopping aspire dashboard container",
                 );
-                r.host_exec(
+                Ok(r.host_exec(
                     "docker",
                     &["stop".to_string(), "aspire-dashboard".to_string()],
-                )?;
+                )?
+                .0)
             }
             _ => {
                 log(Level::Warn, "aspire-otel", "unsupported hook type");
+                Err("unsupported hook type".to_string())
             }
         }
-
-        Ok(())
     }
     // All of these functions aren't valid for this type of plugin
-    fn initialize(_: Runner) -> anyhow::Result<(), ()> {
-        Ok(())
+    fn initialize(_: Runner) -> anyhow::Result<String, String> {
+        Ok(String::with_capacity(0))
     }
-    fn run(_: Runner, _: Command) -> anyhow::Result<(), ()> {
-        Err(())
+    fn run(_: Runner, _: Command) -> anyhow::Result<String, String> {
+        Err("no command registered".to_string())
     }
 }

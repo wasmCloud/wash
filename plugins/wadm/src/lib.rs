@@ -2,10 +2,8 @@
 mod bindings;
 
 use crate::bindings::{
-    wasi::logging::logging::{Level, log},
-    wasmcloud::wash::types::{
-        Command, CommandArgument, CredentialType, HookType, Metadata, Runner,
-    },
+    wasi::logging::logging::{log, Level},
+    wasmcloud::wash::types::{Command, CommandArgument, HookType, Metadata, Runner},
 };
 
 pub(crate) struct Component;
@@ -22,8 +20,8 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
             url: "https://github.com/wasmcloud/wash".to_string(),
             license: "Apache-2.0".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            default_command: None,
-            commands: vec![Command {
+            sub_commands: vec![],
+            command: Some(Command {
                 id: "wadm".to_string(),
                 name: "wadm".to_string(),
                 description: "Generates a wadm manifest for a component or component project".to_string(),
@@ -59,28 +57,28 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     }
                 ],
                 usage: vec!["Make sure to drink your Ovaltine!".to_string()],
-            }],
-            hooks: Some(vec![HookType::AfterDev]),
+            }),
+            hooks: vec![HookType::AfterDev],
         }
     }
-    fn hook(_r: Runner, ty: HookType) -> anyhow::Result<(), ()> {
+    fn hook(_r: Runner, ty: HookType) -> anyhow::Result<String, String> {
         match ty {
             HookType::AfterDev => {
                 log(Level::Info, "wadm", "generating wadm manifests...");
+                Ok("generating wadm manifests...".to_string())
             }
             _ => {
                 log(Level::Warn, "wadm", "unsupported hook type");
+                Err("unsupported hook type".to_string())
             }
         }
-
-        Ok(())
     }
-    fn run(r: Runner, cmd: Command) -> anyhow::Result<(), ()> {
+    fn run(_: Runner, _: Command) -> anyhow::Result<String, String> {
         log(Level::Debug, "wadm", "executing command");
         log(Level::Info, "wadm", "generating wadm manifests...");
-        Ok(())
+        Ok("generating wadm manifests...".to_string())
     }
-    fn initialize(_: Runner) -> anyhow::Result<(), ()> {
-        Ok(())
+    fn initialize(_: Runner) -> anyhow::Result<String, String> {
+        Ok(String::with_capacity(0))
     }
 }
