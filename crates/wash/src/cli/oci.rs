@@ -95,8 +95,6 @@ impl PushCommand {
             .await
             .context("failed to read component file")?;
 
-        // TODO: validate component?
-
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
 
         push_component(&self.reference, &component, oci_config).await?;

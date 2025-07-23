@@ -12,7 +12,7 @@ use crate::bindings::exports::wasi::blobstore::types::{
 };
 use crate::bindings::exports::wasi::blobstore::types::{GuestIncomingValue, GuestOutgoingValue};
 use crate::bindings::exports::wasi::blobstore::{blobstore, container};
-use crate::bindings::wasi::logging::logging::{log, Level};
+use crate::bindings::wasi::logging::logging::{Level, log};
 
 /// Generated WIT bindings
 pub mod bindings;
@@ -404,7 +404,7 @@ impl container::GuestContainer for crate::Container {
             )
             .map_err(|e| container::Error::from(e.to_string()))?;
 
-        // TODO: Decide whether or not to follow symlinks
+        // TODO(ISSUE#5): Decide whether or not to follow symlinks
         Ok(container.stat_at(PathFlags::empty(), &name).is_ok())
     }
 

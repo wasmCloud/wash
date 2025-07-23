@@ -1,6 +1,6 @@
 use std::io::BufWriter;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use tracing::{Level, error, info, instrument, trace, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -15,6 +15,9 @@ use wash::cli::{
     about,
     version,
     arg_required_else_help = true,
+    disable_help_subcommand = true,
+    subcommand_required = true,
+    subcommand_value_name = "COMMAND|PLUGIN",
     color = clap::ColorChoice::Auto
 )]
 struct Cli {
@@ -29,7 +32,6 @@ struct Cli {
 
     #[clap(
         long = "help-markdown",
-        conflicts_with = "help",
         help = "Print help in markdown format (conflicts with --help and --output json)",
         hide = true,
         global = true
@@ -83,9 +85,6 @@ enum WashCliCommand {
     /// Update wash to the latest version
     #[clap(name = "update", alias = "upgrade")]
     Update(wash::cli::update::UpdateCommand),
-    /// A command registered and implemented by a Wash component plugin
-    #[clap(external_subcommand)]
-    ComponentPlugin(Vec<String>),
 }
 
 impl CliCommand for WashCliCommand {
@@ -102,10 +101,6 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Plugin(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Update(cmd) => cmd.handle(ctx).await,
-            WashCliCommand::ComponentPlugin(args) => {
-                let cmd: ComponentPluginCommand = args.into();
-                cmd.handle(ctx).await
-            }
         }
     }
 
@@ -122,10 +117,6 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
-            WashCliCommand::ComponentPlugin(args) => {
-                let cmd: ComponentPluginCommand = args.into();
-                cmd.enable_pre_hook()
-            }
         }
     }
     fn enable_post_hook(
@@ -141,17 +132,46 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_post_hook(),
-            WashCliCommand::ComponentPlugin(args) => {
-                let cmd: ComponentPluginCommand = args.into();
-                cmd.enable_post_hook()
-            }
         }
     }
 }
 
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
+    let mut wash_cmd = Cli::command();
+
+    // Create global context with output kind and directory paths
+    let ctx = match CliContext::new().await {
+        Ok(ctx) => {
+            // Register plugin commands
+            let plugins = ctx.plugin_manager().get_commands();
+            // Slight hack to display a delimiter between builtins and plugins (\x1b[4munderlined\x1b[0m)
+            if !plugins.is_empty() {
+                wash_cmd =
+                    wash_cmd.subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
+            }
+            for plugin in plugins {
+                wash_cmd = wash_cmd.subcommand(plugin.metadata())
+            }
+
+            ctx
+        }
+        Err(e) => {
+            error!(error = ?e, "failed to infer global context");
+            // In the rare case that this fails, we'll parse and initialize the CLI here to output properly.
+            let cli = Cli::parse();
+            let (mut stdout, _stderr) = initialize_tracing(cli.log_level, cli.verbose);
+            exit_with_output(
+                &mut stdout,
+                CommandOutput::error(e, None).with_output_kind(cli.output),
+            );
+        }
+    };
+    trace!(ctx = ?ctx, "inferred global context");
+
+    let matches = wash_cmd.get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+
     trace!(cli = ?cli, "parsed CLI");
 
     // Implements clap_markdown for markdown generation of command line documentation. Most straightforward way to invoke is probably `wash app get --help-markdown > help.md`
@@ -164,19 +184,6 @@ async fn main() {
     let (stdout, _stderr) = initialize_tracing(cli.log_level, cli.verbose);
     // Use a buffered writer to prevent broken pipe errors
     let mut stdout_buf = BufWriter::new(stdout);
-
-    // Create global context with output kind and directory paths
-    let ctx = match CliContext::new().await {
-        Ok(ctx) => ctx,
-        Err(e) => {
-            error!(error = ?e, "failed to infer global context");
-            exit_with_output(
-                &mut stdout_buf,
-                CommandOutput::error(e, None).with_output_kind(cli.output),
-            );
-        }
-    };
-    trace!(ctx = ?ctx, "inferred global context");
 
     // Recommend a new version of wash if available
     if ctx
@@ -195,29 +202,40 @@ async fn main() {
     if let Err(e) = ctrlc::set_handler(move || {
         let term = dialoguer::console::Term::stdout();
         let _ = term.show_cursor();
-        // TODO: If the runtime is executing a component here, we need to stop it.
+        // TODO(IMPORTANT): If the runtime is executing a component here, we need to stop it.
     }) {
         warn!(err = ?e, "failed to set ctrl_c handler, interactive prompts may not restore cursor visibility");
     }
 
-    let Some(command) = cli.command else {
-        exit_with_output(
-            &mut stdout_buf,
-            CommandOutput::error(
-                "No command provided. Use `wash --help` to see available commands.",
-                None,
-            )
-            .with_output_kind(cli.output),
-        );
+    let command_output = if let Some(command) = cli.command {
+        run_command(ctx, command).await
+    } else if let Some((subcommand, args)) = matches.subcommand() {
+        let command: ComponentPluginCommand = ComponentPluginCommand::new(subcommand, args);
+        run_command(ctx, command).await
+    } else {
+        Ok(CommandOutput::error(
+            "No command provided. Use `wash --help` to see available commands.",
+            None,
+        ))
     };
 
+    exit_with_output(
+        &mut stdout_buf,
+        command_output
+            .unwrap_or_else(|e| CommandOutput::error(e, None).with_output_kind(cli.output))
+            .with_output_kind(cli.output),
+    )
+}
+
+/// Helper function to execute a command that impl's [`CliCommand`], returning the output
+async fn run_command<C>(ctx: CliContext, command: C) -> anyhow::Result<CommandOutput>
+where
+    C: CliCommand + std::fmt::Debug,
+{
     trace!(command = ?command, "running command pre-hook");
     if let Err(e) = command.pre_hook(&ctx).await {
         error!(error = ?e, "failed to run pre-hook for command");
-        exit_with_output(
-            &mut stdout_buf,
-            CommandOutput::error(e, None).with_output_kind(cli.output),
-        );
+        return Ok(CommandOutput::error(e, None));
     }
 
     trace!(command = ?command, "handling command");
@@ -226,23 +244,10 @@ async fn main() {
     trace!(command = ?command, "running command post-hook");
     if let Err(e) = command.post_hook(&ctx).await {
         error!(error = ?e, "failed to run post-hook for command");
-        exit_with_output(
-            &mut stdout_buf,
-            CommandOutput::error(e, None).with_output_kind(cli.output),
-        );
+        return Ok(CommandOutput::error(e, None));
     }
 
-    match command_output {
-        Ok(output) => {
-            exit_with_output(&mut stdout_buf, output.with_output_kind(cli.output));
-        }
-        Err(e) => {
-            exit_with_output(
-                &mut stdout_buf,
-                CommandOutput::error(format!("{e:?}"), None).with_output_kind(cli.output),
-            );
-        }
-    }
+    command_output
 }
 
 /// Initialize tracing with a custom format

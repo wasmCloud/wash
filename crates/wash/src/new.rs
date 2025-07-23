@@ -40,7 +40,7 @@ pub async fn new_project_from_template(
     template: &NewTemplate,
     output_dir: &Path,
 ) -> anyhow::Result<()> {
-    // TODO: Support local paths
+    // TODO(GFI#2): Support local paths
 
     clone_template(
         &template.repository,

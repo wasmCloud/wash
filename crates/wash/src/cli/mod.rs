@@ -70,7 +70,7 @@ pub trait CliCommandExt: CliCommand {
                 for hook in hooks {
                     trace!(?hook, ?hook_type, "executing pre-hook for command");
                     let mut data = Ctx::default();
-                    // TODO: context about the command and runner
+                    // TODO(IMPORTANT): context about the command and runner
                     let runner = data
                         .table
                         .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
@@ -109,7 +109,7 @@ pub trait CliCommandExt: CliCommand {
                 for hook in hooks {
                     trace!(?hook, "executing post-hook for command");
                     let mut data = Ctx::default();
-                    // TODO: context about the command and runner
+                    // TODO(IMPORTANT): context about the command and runner
                     let runner = data
                         .table
                         .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
@@ -256,7 +256,7 @@ impl CommandOutput {
 /// or a custom configuration if needed.
 #[derive(Debug, Clone)]
 pub struct CliContext {
-    // TODO: Just store an Arc-ed trait object
+    // TODO(GFI): Just store an Arc-ed trait object
     #[cfg(unix)]
     app_strategy: Xdg,
     #[cfg(windows)]
@@ -265,7 +265,7 @@ pub struct CliContext {
     /// dev loops will use this runtime to execute Wasm code.
     runtime: wasmcloud_runtime::Runtime,
     runtime_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
-    plugin_manager: PluginManager,
+    plugin_manager: Arc<PluginManager>,
 }
 
 #[cfg(unix)]
@@ -352,7 +352,7 @@ impl CliContext {
             app_strategy,
             runtime: plugin_runtime,
             runtime_thread: Arc::new(thread),
-            plugin_manager,
+            plugin_manager: Arc::new(plugin_manager),
         })
     }
 
@@ -428,7 +428,6 @@ impl CliContext {
         load_config(&self.config_path(), project_dir, None::<Config>)
     }
 
-    // TODO: consider if this should be exposed or used internally
     pub fn runtime(&self) -> &wasmcloud_runtime::Runtime {
         &self.runtime
     }

@@ -1,6 +1,7 @@
 use anyhow::{self, Context as _};
 use std::collections::HashMap;
 use std::fmt::Debug;
+use std::path::Path;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use tokio::sync::RwLock;
@@ -13,7 +14,9 @@ use wasmtime::component::ResourceTable;
 use wasmtime_wasi::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
-use crate::{dev::DevPluginManager, runtime::wasm::link_imports_plugin_exports};
+use crate::{
+    dev::DevPluginManager, plugin::PluginComponent, runtime::wasm::link_imports_plugin_exports,
+};
 
 pub mod bindings;
 pub mod plugin;
@@ -145,7 +148,7 @@ impl WasiHttpView for Ctx {
     }
 }
 
-// TODO: Remove in favor of stdout/stderr logging
+// TODO(IMPORTANT): Remove in favor of stdout/stderr logging
 // Implementation of `wasi:logging/logging` using the `tracing` crate
 impl wasmcloud_runtime::capability::logging::logging::Host for Ctx {
     async fn log(&mut self, level: Level, context: String, message: String) -> anyhow::Result<()> {
@@ -191,7 +194,8 @@ pub async fn new_runtime() -> anyhow::Result<(Runtime, JoinHandle<Result<(), ()>
 pub async fn prepare_component_plugin(
     runtime: &Runtime,
     wasm: &[u8],
-) -> anyhow::Result<wasmcloud_runtime::component::CustomCtxComponent<Ctx>> {
+    data_dir: Option<&Path>,
+) -> anyhow::Result<PluginComponent> {
     let component = wasmcloud_runtime::component::CustomCtxComponent::new_with_linker_minimal(
         runtime,
         wasm,
@@ -215,7 +219,7 @@ pub async fn prepare_component_plugin(
         },
     )?;
 
-    Ok(component)
+    PluginComponent::new(component, data_dir).await
 }
 
 /// Creates a WebAssembly component from bytes and compiles using [Runtime].
@@ -276,10 +280,7 @@ mod test {
         types::HostIncomingRequest,
     };
 
-    use crate::{
-        dev::DevPluginManager,
-        runtime::bindings::{dev::Dev, plugin::WashPlugin},
-    };
+    use crate::{dev::DevPluginManager, runtime::bindings::dev::Dev};
 
     use super::*;
 
@@ -291,20 +292,11 @@ mod test {
         let wasm = tokio::fs::read("./tests/fixtures/blobstore_filesystem.wasm").await?;
 
         let (runtime, _handle) = new_runtime().await?;
-        let base_ctx = Ctx::default();
 
-        let component = prepare_component_plugin(&runtime, &wasm).await?;
-        let mut store = component.new_store(base_ctx);
+        let component = prepare_component_plugin(&runtime, &wasm, None).await?;
+        let metadata = component.call_info(Ctx::default()).await?;
 
-        let instance = component
-            .instance_pre()
-            .instantiate_async(&mut store)
-            .await?;
-        let wash_plugin = WashPlugin::new(&mut store, &instance)?;
-        let _ = wash_plugin
-            .wasmcloud_wash_plugin()
-            .call_info(&mut store)
-            .await?;
+        assert_eq!(metadata.name, "blobstore-filesystem");
 
         Ok(())
     }
@@ -385,7 +377,7 @@ mod test {
 
         let mut plugin_manager = DevPluginManager::default();
         plugin_manager
-            .register_plugin(&runtime, &blobstore_plugin)
+            .register_plugin(prepare_component_plugin(&runtime, &blobstore_plugin, None).await?)
             .context("failed to register blobstore plugin")?;
         let component = prepare_component_dev(&runtime, &wasm, Arc::new(plugin_manager)).await?;
 

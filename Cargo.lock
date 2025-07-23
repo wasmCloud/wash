@@ -5424,12 +5424,10 @@ dependencies = [
  "wasm-pkg-client",
  "wasm-pkg-core",
  "wasmcloud-runtime",
- "wasmparser 0.235.0",
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",
  "wit-component 0.235.0",
- "wit-parser 0.235.0",
 ]
 
 [[package]]

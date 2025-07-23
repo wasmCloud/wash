@@ -33,6 +33,8 @@ pub mod plugin {
     use std::fmt::Display;
     use wasmcloud::wash::types::{CommandArgument, HookType};
 
+    use crate::runtime::bindings::plugin::wasmcloud::wash::types::Metadata;
+
     impl Display for HookType {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
             let s = match self {
@@ -85,6 +87,50 @@ pub mod plugin {
             }
 
             cli_arg
+        }
+    }
+
+    impl From<&Metadata> for clap::Command {
+        fn from(arg: &Metadata) -> Self {
+            let mut cli_command = clap::Command::new(arg.name.clone())
+                .about(&arg.description)
+                .allow_hyphen_values(true)
+                // The help flag will get captured at a higher level
+                .disable_help_flag(false)
+                .arg_required_else_help(true)
+                // If a top level command isn't specified, a subcommand is required
+                .subcommand_required(arg.command.is_none());
+
+            // Register the information about the plugin command and its subcommands. This returns an optional
+            // command as we should be able to print the help text about the plugin command even if no args are provided.
+            if let Some(cmd) = arg.command.as_ref() {
+                // Populate the CLI command with args and flags
+                for argument in &cmd.arguments {
+                    cli_command = cli_command.arg(argument)
+                }
+                for (flag, argument) in &cmd.flags {
+                    cli_command = cli_command.arg(Into::<clap::Arg>::into(argument).long(flag))
+                }
+            } else if !arg.sub_commands.is_empty() {
+                for sub_command in &arg.sub_commands {
+                    // Register each subcommand
+                    let mut cli_sub_command = clap::Command::new(&sub_command.name)
+                        .about(&sub_command.description)
+                        .allow_hyphen_values(true)
+                        .disable_help_flag(false);
+                    // Populate the CLI command with args and flags
+                    for argument in &sub_command.arguments {
+                        cli_sub_command = cli_sub_command.arg(argument)
+                    }
+                    for (flag, argument) in &sub_command.flags {
+                        cli_sub_command =
+                            cli_sub_command.arg(Into::<clap::Arg>::into(argument).long(flag))
+                    }
+                    cli_command = cli_command.subcommand(cli_sub_command);
+                }
+            }
+
+            cli_command
         }
     }
 }
