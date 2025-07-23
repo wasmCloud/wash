@@ -10,6 +10,7 @@ use wasmtime_wasi::IoView;
 
 use crate::runtime::{Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::Metadata};
 
+#[derive(Clone, Debug)]
 pub struct Runner {
     #[allow(dead_code)]
     version: String,
@@ -101,58 +102,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostContext for C
     }
 }
 
-// impl crate::runtime::bindings::plugin_host::wasmcloud::wash::types::HostWashConfig for Ctx {
-//     async fn get(
-//         &mut self,
-//         _ctx: Resource<WashConfig>,
-//         _key: String,
-//         _default_value: String,
-//     ) -> String {
-//         String::new()
-//     }
-
-//     async fn list(&mut self, _ctx: Resource<WashConfig>) -> Vec<String> {
-//         vec![]
-//     }
-
-//     async fn drop(&mut self, ctx: Resource<WashConfig>) -> wasmtime::Result<()> {
-//         self.table()
-//             .delete(ctx)
-//             .context("[host-wash-config-drop] deleting wash config")?;
-//         Ok(())
-//     }
-// }
-
 impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostProjectConfig for Ctx {
-    // async fn wash_config_get(
-    //     &mut self,
-    //     _ctx: Resource<ProjectConfig>,
-    //     _key: String,
-    //     _default_value: String,
-    // ) -> String {
-    //     String::new()
-    // }
-
-    // async fn wash_config_path(&mut self, _ctx: Resource<ProjectConfig>) -> String {
-    //     String::new()
-    // }
-
-    // async fn project_config_get(
-    //     &mut self,
-    //     _ctx: Resource<ProjectConfig>,
-    //     _key: String,
-    //     _default_value: String,
-    // ) -> String {
-    //     String::new()
-    // }
-
-    // async fn project_path(
-    //     &mut self,
-    //     _ctx: Resource<ProjectConfig>,
-    // ) -> wasmtime::Result<String, ()> {
-    //     Ok(String::new())
-    // }
-
     async fn version(&mut self, ctx: Resource<ProjectConfig>) -> String {
         let c = self.table().get(&ctx).unwrap();
         c.version.clone()
@@ -191,7 +141,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
         args: Vec<String>,
     ) -> Result<(String, String), String> {
         let ctx = self.table.get(&ctx).map_err(|e| e.to_string())?;
-        // TODO: cache this somewhere
+        // TODO(ISSUE#3): cache this somewhere
         Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt(format!(
                 "{} wants to run `{bin}` with arguments: {args:?}.\nContinue?",
@@ -228,7 +178,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
     }
 
     async fn error(&mut self, _ctx: Resource<Runner>, message: String) {
-        panic!("{}", message);
+        eprintln!("{message}");
     }
 
     async fn drop(&mut self, ctx: Resource<Runner>) -> wasmtime::Result<()> {

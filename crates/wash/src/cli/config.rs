@@ -21,8 +21,8 @@ pub enum ConfigCommand {
     Info {},
     /// Print the current configuration file for wash
     Show {},
-    // TODO: validate config command
-    // TODO: cleanup config command, to clean the dirs we use
+    // TODO(GFI): validate config command
+    // TODO(GFI): cleanup config command, to clean the dirs we use
 }
 
 impl CliCommand for ConfigCommand {

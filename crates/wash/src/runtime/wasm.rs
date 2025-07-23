@@ -124,7 +124,7 @@ pub fn link_imports_plugin_exports(
 
                                             let mut results_buf =
                                                 vec![Val::Bool(false); results.len()];
-                                            // TODO: Enforce a timeout on this call
+                                            // TODO(IMPORTANT): Enforce a timeout on this call
                                             // to prevent hanging indefinitely.
                                             func.call_async(
                                                 &mut store,
@@ -189,7 +189,7 @@ pub fn link_imports_plugin_exports(
                                 continue;
                             };
 
-                            // TODO: this should get caught by the above host resource check, gotta figure that out
+                            // TODO(ISSUE#4): This should get caught by the above host resource check, gotta figure that out
                             if export_name == "output-stream"
                                 || export_name == "input-stream"
                                 || export_name == "incoming-value-async-body"
@@ -320,7 +320,6 @@ pub fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Result<Va
                     store.as_context_mut(),
                 )
             {
-                // TODO: I don't think this works?
                 trace!("lowering output stream");
                 let stream = store.data_mut().table().delete(res)?;
                 let resource = store.data_mut().table().push(stream)?;

@@ -339,7 +339,7 @@ pub enum TemplateSource {
     Local(PathBuf),
 }
 
-// TODO: support file templates?
+// TODO(GFI#2): support file templates?
 // All templates are git repositories for now.
 impl From<&NewTemplate> for TemplateSource {
     fn from(source: &NewTemplate) -> Self {

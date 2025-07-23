@@ -4,13 +4,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{trace, warn};
-use wasmcloud_runtime::Runtime;
 use wasmtime::{
     AsContextMut as _, StoreContextMut,
     component::{Component, Instance, InstancePre, Linker, types::ComponentItem},
 };
 
-use crate::runtime::Ctx;
+use crate::{plugin::PluginComponent, runtime::Ctx};
 
 /// A hash of the component bytes, type aliased for clarity
 type ComponentKey = String;
@@ -28,7 +27,7 @@ pub struct DevPluginManager {
     /// Map from interface name → component key (deduplicates lookups)
     interface_map: HashMap<String, ComponentKey>,
     /// Map from component key → compiled component
-    components: HashMap<ComponentKey, Component>,
+    components: HashMap<ComponentKey, Arc<PluginComponent>>,
     /// Map from component id (uuid) → component key (hash) -> instantiated instance (created lazily)
     /// Instances is keyed differently than components, as it's keyed by a specific Instance of a component
     /// This allows us to instantiate the same component multiple times with different configurations.
@@ -40,15 +39,23 @@ impl DevPluginManager {
     /// the plugin, but rather prepares it for use by compiling the Wasm bytes into a [`Component`].
     ///
     /// This only skips the `wasmcloud:wash/plugin` export, which is used internally by the plugin system.
-    pub fn register_plugin(&mut self, runtime: &Runtime, wasm: &[u8]) -> anyhow::Result<()> {
-        let (component, exported_instances) = compile_plugin_component(runtime, wasm)?;
+    pub fn register_plugin(&mut self, plugin: PluginComponent) -> anyhow::Result<()> {
+        // let (component, exported_instances) = compile_plugin_component(runtime, wasm)?;
+        let exported_instances =
+            component_instance_exports(plugin.component.instance_pre().component());
 
-        // The component key is simply a hash of the Wasm bytes
-        let component_key = format!("{:x}", Sha256::digest(wasm));
+        // The component key is simply a hash of the plugin metadata
+        let component_key = format!(
+            "{:x}",
+            Sha256::digest(
+                serde_json::to_vec(&plugin.metadata)
+                    .context("failed to serialize plugin metadata")?
+            )
+        );
         for (name, item) in exported_instances {
             // We don't need to expose the plugin export to the dev components
             // Additionally, this would actually error since each plugin exports this interface.
-            // TODO: It's probably a good idea to skip registering wasi@0.2 interfaces
+            // TODO(GFI): It's probably a good idea to skip registering wasi@0.2 interfaces
             match name.split_once('@') {
                 Some(("wasmcloud:wash/plugin", _)) => {
                     trace!(name, "skipping internal plugin export");
@@ -74,7 +81,7 @@ impl DevPluginManager {
             }
         }
 
-        self.components.insert(component_key, component);
+        self.components.insert(component_key, Arc::new(plugin));
 
         Ok(())
     }
@@ -82,7 +89,9 @@ impl DevPluginManager {
     /// Looks up a component for an interface name, or returns None if not found.
     pub fn get_component(&self, name: &str) -> Option<Component> {
         let key = self.interface_map.get(name)?;
-        self.components.get(key).cloned()
+        self.components
+            .get(key)
+            .map(|p| p.component.instance_pre().component().clone())
     }
 
     /// Preinstantiate an instance of a component for a given interface name.
@@ -150,20 +159,11 @@ impl DevPluginManager {
     }
 }
 
-/// Compiles a [`Component`] from the provided wasm bytes and extracts the
-/// [`ComponentItem::ComponentInstance`]s that it exports. This is used primarily to
-/// allow the plugin system to use these exports to fil
-///
-/// Returns a tuple containing the compiled [`Component`] and a vector of tuples
-/// where each tuple contains the name of the exported component instance and the
-/// corresponding [`ComponentItem`].
-fn compile_plugin_component(
-    runtime: &Runtime,
-    wasm: &[u8],
-) -> anyhow::Result<(Component, Vec<(String, ComponentItem)>)> {
-    let component = wasmtime::component::Component::new(runtime.engine(), wasm)
-        .context("failed to create component from wasm")?;
-    let exports = component
+/// Extracts the [`ComponentItem::ComponentInstance`]s that the given [`Component`] exports.
+/// This is used primarily to allow the plugin system to use these exports to implement imports
+/// of developing components.
+fn component_instance_exports(component: &Component) -> Vec<(String, ComponentItem)> {
+    component
         .component_type()
         .exports(component.engine())
         .filter_map(|(name, item)| {
@@ -175,6 +175,5 @@ fn compile_plugin_component(
                 None
             }
         })
-        .collect::<Vec<_>>();
-    Ok((component, exports))
+        .collect::<Vec<_>>()
 }

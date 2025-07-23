@@ -6,9 +6,11 @@
 use anyhow::{Context as _, bail};
 use etcetera::AppStrategy;
 use std::{
+    collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tokio::sync::RwLock;
 use tracing::{debug, info, instrument};
 use wasmcloud_runtime::{Runtime, component::CustomCtxComponent};
 
@@ -17,7 +19,14 @@ use crate::{
     oci::{OCI_CACHE_DIR, OciConfig, pull_component},
     runtime::{
         Ctx,
-        bindings::plugin::exports::wasmcloud::wash::plugin::{HookType, Metadata},
+        bindings::{
+            self,
+            plugin::{
+                WashPlugin,
+                exports::wasmcloud::wash::plugin::{HookType, Metadata},
+            },
+        },
+        plugin::Runner,
         prepare_component_plugin,
     },
 };
@@ -25,80 +34,207 @@ use crate::{
 /// A [PluginComponent] represents a precompiled and linked WebAssembly component that
 /// implements the wash plugin interface. It contains the component itself, its metadata,
 /// and the filesystem root where the plugin can read and write files using wasi:filesystem
-#[derive(Clone)]
 pub struct PluginComponent {
-    // TODO: un-arc, arc the PluginComponent instead
-    pub component: Arc<CustomCtxComponent<Ctx>>,
+    pub component: CustomCtxComponent<Ctx>,
     pub metadata: Metadata,
-    pub fs_root: PathBuf,
+    /// A read/write allowed directory for the component to use as its filesystem root
+    pub wasi_fs_root: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for PluginComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PluginComponent")
             .field("metadata", &self.metadata)
-            .field("fs_root", &self.fs_root)
+            .field("wasi_fs_root", &self.wasi_fs_root)
             .finish()
     }
 }
 
+impl PluginComponent {
+    pub async fn new(
+        component: CustomCtxComponent<Ctx>,
+        data_dir: Option<impl AsRef<Path>>,
+    ) -> anyhow::Result<Self> {
+        let pre = component.instance_pre();
+        let mut store = component.new_store(Ctx::default());
+        // Instantiate component
+        let instance = pre
+            .instantiate_async(&mut store)
+            .await
+            .context("failed to instantiate plugin")?;
+        // Call the plugin host bindings to get metadata. If this succeeds, we know that
+        // the component is a valid wash plugin.
+        let plugin = crate::runtime::bindings::plugin::WashPlugin::new(&mut store, &instance)
+            .context("failed to create plugin host bindings")?;
+        let metadata = plugin.wasmcloud_wash_plugin().call_info(&mut store).await?;
+
+        // Determine the filesystem root based on the plugin name
+        let wasi_fs_root = data_dir.map(|dir| {
+            dir.as_ref()
+                .join("plugins")
+                .join("fs")
+                .join(sanitize_plugin_name(&metadata.name))
+        });
+
+        if let Some(ref fs_root) = wasi_fs_root {
+            // Ensure the filesystem root directory exists
+            tokio::fs::create_dir_all(fs_root)
+                .await
+                .context("failed to create plugin filesystem root directory")?;
+        }
+
+        Ok(Self {
+            component,
+            metadata,
+            wasi_fs_root,
+        })
+    }
+
+    /// Call the plugin's `call_info` method to retrieve its metadata. Only use this
+    /// method if you need to get metadata without instantiating the component. Otherwise,
+    /// [`PluginComponent::metadata`] already contains the metadata.
+    pub async fn call_info(&self, ctx: Ctx) -> anyhow::Result<Metadata> {
+        // Create a new store with the default context
+        let mut store = self.component.new_store(ctx);
+        // Instantiate the component and call the plugin host bindings to get metadata
+        let instance = self
+            .component
+            .instance_pre()
+            .instantiate_async(&mut store)
+            .await
+            .context("failed to instantiate plugin")?;
+        // Get bindings
+        let plugin = crate::runtime::bindings::plugin::WashPlugin::new(&mut store, &instance)
+            .context("failed to create plugin host bindings")?;
+        plugin.wasmcloud_wash_plugin().call_info(&mut store).await
+    }
+
+    /// Instantiate a new instance of this component and call a specific hook
+    /// with the provided context
+    pub async fn call_hook(
+        &self,
+        ctx: Ctx,
+        hook: HookType,
+        runner_context: Arc<RwLock<HashMap<String, String>>>,
+    ) -> anyhow::Result<String> {
+        let mut store = self.component.new_store(ctx);
+        let instance = self
+            .component
+            .instance_pre()
+            .instantiate_async(&mut store)
+            .await
+            .context("failed to instantiate plugin")?;
+        let plugin = WashPlugin::new(&mut store, &instance)
+            .context("failed to create plugin host bindings")?;
+
+        // We'll use the same runner for initialization and the hook
+        let runner = Runner::new(self.metadata.clone(), runner_context);
+
+        let initialize_runner = store.data_mut().table.push(runner.clone())?;
+        plugin
+            .wasmcloud_wash_plugin()
+            .call_initialize(&mut store, initialize_runner)
+            .await?
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        let hook_runner = store.data_mut().table.push(runner)?;
+        // Call the hook with the provided runner
+        plugin
+            .wasmcloud_wash_plugin()
+            .call_hook(&mut store, hook_runner, hook)
+            .await?
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    /// Instantiate a new instance of this component and call the run function
+    pub async fn call_run(
+        &self,
+        ctx: Ctx,
+        command: &bindings::plugin::wasmcloud::wash::types::Command,
+        runner_context: Arc<RwLock<HashMap<String, String>>>,
+    ) -> anyhow::Result<String> {
+        let mut store = self.component.new_store(ctx);
+        let instance = self
+            .component
+            .instance_pre()
+            .instantiate_async(&mut store)
+            .await
+            .context("failed to instantiate plugin")?;
+        let plugin = WashPlugin::new(&mut store, &instance)
+            .context("failed to create plugin host bindings")?;
+        let runner = Runner::new(self.metadata.clone(), runner_context);
+
+        let initialize_runner = store.data_mut().table.push(runner.clone())?;
+        plugin
+            .wasmcloud_wash_plugin()
+            .call_initialize(&mut store, initialize_runner)
+            .await?
+            .map_err(|e| anyhow::anyhow!(e))?;
+
+        let command_runner = store.data_mut().table.push(runner)?;
+
+        // Call the hook with the provided runner
+        plugin
+            .wasmcloud_wash_plugin()
+            .call_run(&mut store, command_runner, command)
+            .await?
+            .map_err(|e| anyhow::anyhow!(e))
+    }
+
+    pub fn metadata(&self) -> &Metadata {
+        &self.metadata
+    }
+}
+
 /// A struct responsible for managing Wash plugins
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PluginManager {
-    pub plugins: Vec<PluginComponent>,
+    pub plugins: Vec<Arc<PluginComponent>>,
 }
 
 impl PluginManager {
     pub async fn initialize(runtime: &Runtime, data_dir: impl AsRef<Path>) -> anyhow::Result<Self> {
-        let raw_plugins = list_plugins(runtime, data_dir.as_ref()).await?;
-        let mut plugins = Vec::with_capacity(raw_plugins.len());
-        for (plugin, metadata) in raw_plugins {
-            match prepare_component_plugin(runtime, &plugin).await {
-                Ok(component) => {
-                    debug!(name = %metadata.name, "plugin component prepared successfully");
-
-                    plugins.push(PluginComponent {
-                        component: Arc::new(component),
-                        fs_root: data_dir
-                            .as_ref()
-                            .join("plugins")
-                            .join("fs")
-                            .join(sanitize_plugin_name(&metadata.name)),
-                        metadata,
-                    });
-                }
-                Err(e) => {
-                    tracing::error!(
-                        err = ?e,
-                        name = %metadata.name,
-                        "failed to prepare plugin component, continuing without it"
-                    );
-                }
-            }
-        }
-
+        let plugins = list_plugins(runtime, data_dir.as_ref())
+            .await?
+            .into_iter()
+            .map(Arc::new)
+            .collect();
         Ok(Self { plugins })
     }
 
     /// Filter plugins that implement the given hook type
-    pub fn get_hooks(&self, hook_type: HookType) -> Vec<&PluginComponent> {
+    pub fn get_hooks(&self, hook_type: HookType) -> Vec<Arc<PluginComponent>> {
         self.plugins
-            .iter()
+            .clone()
+            .into_iter()
             .filter(|plugin| plugin.metadata.hooks.contains(&hook_type))
             .collect()
     }
 
     /// Get all plugins that implement top level commands
-    pub fn get_commands(&self) -> Vec<&PluginComponent> {
+    pub fn get_commands(&self) -> Vec<Arc<PluginComponent>> {
         self.plugins
-            .iter()
+            .clone()
+            .into_iter()
             .filter(|plugin| plugin.metadata.command.is_none())
             .collect()
     }
 
+    /// Get the component for a specific top level command
+    pub fn get_command(&self, plugin_name: &str) -> Option<Arc<PluginComponent>> {
+        self.plugins
+            .clone()
+            .into_iter()
+            .find(|plugin| plugin.metadata.name == plugin_name && plugin.metadata.command.is_some())
+    }
+
     /// Get the component for a specific subcommand
-    pub fn get_subcommand(&self, plugin_name: &str, subcommand: &str) -> Option<&PluginComponent> {
-        self.plugins.iter().find(|plugin| {
+    pub fn get_subcommand(
+        &self,
+        plugin_name: &str,
+        subcommand: &str,
+    ) -> Option<Arc<PluginComponent>> {
+        self.plugins.clone().into_iter().find(|plugin| {
             plugin.metadata.name == plugin_name
                 && plugin
                     .metadata
@@ -109,7 +245,7 @@ impl PluginManager {
     }
 
     /// Get all registered plugins
-    pub fn get_plugins(&self) -> &[PluginComponent] {
+    pub fn get_plugins(&self) -> &[Arc<PluginComponent>] {
         &self.plugins
     }
 }
@@ -245,7 +381,7 @@ pub async fn uninstall_plugin(ctx: &CliContext, name: &str) -> anyhow::Result<()
 pub async fn list_plugins(
     runtime: &Runtime,
     data_dir: impl AsRef<Path>,
-) -> anyhow::Result<Vec<(Vec<u8>, Metadata)>> {
+) -> anyhow::Result<Vec<PluginComponent>> {
     let plugins_dir = data_dir.as_ref().join(PLUGINS_DIR);
 
     // If plugins directory doesn't exist, return empty list
@@ -278,38 +414,25 @@ pub async fn list_plugins(
             .await
             .with_context(|| format!("failed to read plugin file: {}", path.display()))?;
 
-        // Get plugin metadata using the guest call
-        let metadata = get_plugin_metadata(runtime, &plugin)
+        let component_plugin = prepare_component_plugin(runtime, &plugin, Some(data_dir.as_ref()))
             .await
-            .with_context(|| format!("failed to get metadata for plugin: {plugin_name}"))?;
+            .with_context(|| format!("failed to prepare plugin component: {plugin_name}"))?;
 
-        plugins.push((plugin, metadata));
+        plugins.push(component_plugin);
     }
 
     // Sort plugins by name
-    plugins.sort_by(|(_, a), (_, b)| a.name.cmp(&b.name));
+    plugins.sort_by(|a, b| a.metadata.name.cmp(&b.metadata.name));
 
     Ok(plugins)
 }
 
+/// Get metadata for a plugin from its WebAssembly bytes. This should only be used if you
+/// don't need to use the plugin component again, otherwise prefer to use [`prepare_component_plugin`] directly.
 pub async fn get_plugin_metadata(runtime: &Runtime, wasm: &[u8]) -> anyhow::Result<Metadata> {
-    // Load the wasm as a component
-    let component = prepare_component_plugin(runtime, wasm).await?;
-    let pre = component.instance_pre();
-    let mut store = component.new_store(Ctx::default());
-
-    // Instantiate component
-    let instance = pre
-        .instantiate_async(&mut store)
-        .await
-        .context("failed to instantiate plugin")?;
-
-    // Call the plugin host bindings to get metadata
-    let plugin = crate::runtime::bindings::plugin::WashPlugin::new(&mut store, &instance)
-        .context("failed to create plugin host bindings")?;
-    let metadata = plugin.wasmcloud_wash_plugin().call_info(&mut store).await?;
-
-    Ok(metadata)
+    Ok(prepare_component_plugin(runtime, wasm, None)
+        .await?
+        .metadata)
 }
 
 /// Sanitize a plugin name for filesystem storage

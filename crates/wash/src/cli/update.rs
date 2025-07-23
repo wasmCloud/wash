@@ -21,7 +21,7 @@ use tokio::{fs, io::AsyncWriteExt};
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 
-// TODO: Make this wasmCloud/wasmCloud once this moves
+// TODO(IMPORTANT): Make this wasmCloud/wasmCloud once this moves
 const REPO: &str = "cosmonic-labs/wash";
 const BINARY_NAME: &str = "wash";
 
@@ -68,7 +68,7 @@ pub struct UpdateCommand {
     #[clap(long, short = 'd')]
     dry_run: bool,
 
-    // TODO: support --major, --minor, --patch flags to control update granularity
+    // TODO(GFI): support --major, --minor, --patch flags to control update granularity
     /// Point at a different repository for updates
     #[clap(long, default_value = REPO)]
     git: String,
