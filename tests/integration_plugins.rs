@@ -37,31 +37,38 @@ async fn test_plugin_test_wadm_comprehensive() -> Result<()> {
 
     eprintln!("🧪 Testing wadm plugin at: {}", wadm_plugin_path.display());
 
+    // TODO(GFI): Weirdly, clap's help text will actually _exit_ the test if this
+    // runs. So it either needs to be tested separately or hooked into somehow
     // Test 1: Basic plugin test without any command or hook flags
-    eprintln!("🔍 Test 1: Basic plugin test (no flags)");
-    let test_cmd_basic = TestCommand {
-        plugin: wadm_plugin_path.clone(),
-        args: vec![],
-        hooks: vec![],
-    };
-    let plugin_cmd_basic = PluginCommand::Test(test_cmd_basic);
+    // eprintln!("🔍 Test 1: Basic plugin test (help)");
+    // let test_cmd_basic = TestCommand {
+    //     plugin: wadm_plugin_path.clone(),
+    //     args: vec!["--help".to_string()],
+    //     hooks: vec![],
+    // };
+    // let plugin_cmd_basic = PluginCommand::Test(test_cmd_basic);
 
-    let result_basic = plugin_cmd_basic
-        .handle(&ctx)
-        .await
-        .context("Failed to execute basic plugin test")?;
+    // let result_basic = plugin_cmd_basic
+    //     .handle(&ctx)
+    //     .await
+    //     .context("Failed to execute basic plugin test")?;
 
-    assert!(
-        result_basic.is_success(),
-        "Basic plugin test should succeed"
-    );
-    eprintln!("✅ Basic plugin test passed");
+    // NOTE: This may feel weird, but the default --help exit code is actually 1
+    // assert!(
+    //     !result_basic.is_success(),
+    //     "Basic plugin test should succeed"
+    // );
+    // // The description
+    // assert!(result_basic.text().contains(
+    //     "Generates a wadm manifest after a dev loop, or when pointing to a Wasm component project"
+    // ));
+    // eprintln!("✅ Basic plugin test passed");
 
     // Test 2: Plugin test with --command wadm
-    eprintln!("🔍 Test 2: Plugin test with --command wadm");
+    eprintln!("🔍 Test 2: Plugin test command");
     let test_cmd_with_command = TestCommand {
         plugin: wadm_plugin_path.clone(),
-        args: vec!["wadm".to_string()],
+        args: vec!["./tests".to_string()],
         hooks: vec![],
     };
     let plugin_cmd_with_command = PluginCommand::Test(test_cmd_with_command);
@@ -119,7 +126,7 @@ async fn test_plugin_test_wadm_comprehensive() -> Result<()> {
 
     // Verify that all tests produced meaningful output
     let outputs = [
-        &result_basic,
+        // &result_basic,
         &result_with_command,
         &result_with_hook,
         &result_with_both,

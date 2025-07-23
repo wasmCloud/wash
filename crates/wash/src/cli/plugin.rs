@@ -38,7 +38,7 @@ pub enum PluginCommand {
     List(ListCommand),
     /// Test run a plugin component to inspect its metadata or run commands and hooks.
     /// This parses the arguments just like wash does for an installed plugin, so it's
-    /// functionally equivalent to run `wash foo bar --arg 1` and `wash plugin test ./component.wasm foo bar --arg 1`
+    /// functionally equivalent to run `wash foo bar --arg 1` and `wash plugin test ./component.wasm bar --arg 1`
     Test(TestCommand),
 }
 
@@ -431,8 +431,15 @@ impl TestCommand {
         // Handle the command if no hooks were executed
         let component = Arc::new(component);
         if output.is_empty() {
+            // Prepend the name of the command to the args.
+            // E.g. instead of wash plugin test ./foo.wasm foo bar
+            //      make it    wash plugin test ./foo.wasm bar
+            let mut args = Vec::with_capacity(self.args.len() + 1);
+            args.push(&component.metadata().name);
+            args.extend(self.args.iter());
+
             let cli_command: clap::Command = component.metadata().into();
-            let matches = cli_command.get_matches_from(self.args.iter());
+            let matches = cli_command.get_matches_from(args);
 
             let component_plugin_command = ComponentPluginCommand {
                 command_name: &component.metadata().name,

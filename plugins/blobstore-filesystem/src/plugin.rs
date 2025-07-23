@@ -1,7 +1,5 @@
 //! Implementation of `wasmcloud:wash/plugin` for this [`crate::Component`]
-use crate::bindings::wasmcloud::wash::types::{
-    Command, CredentialType, HookType, Metadata, Runner,
-};
+use crate::bindings::wasmcloud::wash::types::{Command, HookType, Metadata, Runner};
 
 impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Component {
     /// Called by wash to retrieve the plugin metadata
@@ -15,19 +13,19 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
             url: "https://github.com/wasmcloud/wash".to_string(),
             license: "Apache-2.0".to_string(),
             version: env!("CARGO_PKG_VERSION").to_string(),
-            default_command: None,
-            commands: vec![],
-            hooks: Some(vec![HookType::DevRegister]),
+            command: None,
+            sub_commands: vec![],
+            hooks: vec![HookType::DevRegister],
         }
     }
-    fn initialize(_: Runner) -> anyhow::Result<(), ()> {
-        Ok(())
+    fn initialize(_: Runner) -> anyhow::Result<String, String> {
+        Ok(String::with_capacity(0))
     }
     // All of these functions aren't valid for this type of plugin
-    fn run(_: Runner, _: Command) -> anyhow::Result<(), ()> {
-        Err(())
+    fn run(_: Runner, _: Command) -> anyhow::Result<String, String> {
+        Err("no command registered".to_string())
     }
-    fn hook(_: Runner, _: HookType) -> anyhow::Result<(), ()> {
-        Err(())
+    fn hook(_: Runner, _: HookType) -> anyhow::Result<String, String> {
+        Err("invalid hook usage".to_string())
     }
 }
