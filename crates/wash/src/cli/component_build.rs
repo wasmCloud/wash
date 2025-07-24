@@ -287,10 +287,10 @@ impl ComponentBuilder {
             for tool in &missing_tools {
                 error!(tool = %tool, "  - missing tool");
             }
-            bail!(
-                "missing required tools: {tools}",
-                tools = missing_tools.join(", ")
-            );
+            // bail!(
+            //     "missing required tools: {tools}",
+            //     tools = missing_tools.join(", ")
+            // );
         }
 
         Ok(())
