@@ -6,7 +6,8 @@ use clap::Args;
 use etcetera::AppStrategy as _;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, instrument, trace};
+use which::which;
 
 #[derive(Debug, Clone, Args)]
 pub struct DoctorCommand {
@@ -71,7 +72,7 @@ impl CliCommand for DoctorCommand {
         }
 
         // Check required binaries
-        if !binary_exists_in_path("git").await {
+        if !binary_exists_in_path("git") {
             issues.push("Git not found");
             recommendations.push("• Install Git: https://git-scm.com/downloads");
             recommendations.push("  - macOS: 'brew install git' or 'xcode-select --install'");
@@ -167,7 +168,7 @@ impl CliCommand for DoctorCommand {
             "Common tools:".to_string(),
             format!(
                 "  git:   {}",
-                if binary_exists_in_path("git").await {
+                if binary_exists_in_path("git") {
                     "✅ installed"
                 } else {
                     "❌ not found"
@@ -227,8 +228,7 @@ impl CliCommand for DoctorCommand {
         });
 
         // Add context-specific binary data
-        self.add_context_specific_json(&project_context, &mut json_data)
-            .await;
+        self.add_context_specific_json(&project_context, &mut json_data);
 
         Ok(CommandOutput::ok(output_lines.join("\n"), Some(json_data)))
     }
@@ -246,38 +246,43 @@ impl DoctorCommand {
                 // Show all tool categories for general context
                 output_lines.extend([
                     "Rust tools:".to_string(),
-                    format!("  cargo: {status}", status = tool_status("cargo").await),
+                    format!("  cargo: {status}", status = tool_status("cargo")),
                     "".to_string(),
                     "Go tools:".to_string(),
-                    format!("  go: {status}", status = tool_status("go").await),
+                    format!("  go: {status}", status = tool_status("go")),
                     "".to_string(),
                     "TypeScript tools:".to_string(),
-                    format!("  node: {status}", status = tool_status("node").await),
-                    format!("  npm: {status}", status = tool_status("npm").await),
+                    format!("  node: {status}", status = tool_status("node")),
+                    format!("  npm: {status}", status = tool_status("npm")),
                 ]);
             }
             ProjectContext::Rust { .. } => {
                 output_lines.extend([
                     "Rust WebAssembly tools:".to_string(),
-                    format!("  cargo: {status}", status = tool_status("cargo").await),
+                    format!("  cargo: {status}", status = tool_status("cargo")),
                 ]);
 
-                // Check wasm32-wasip2 target synchronously for display
-                if binary_exists_in_path("cargo").await {
-                    let target_status = match tokio::process::Command::new("rustup")
-                        .args(["target", "list", "--installed"])
-                        .output()
-                        .await
-                    {
-                        Ok(output) if output.status.success() => {
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            if stdout.lines().any(|line| line.trim() == "wasm32-wasip2") {
-                                "✅ installed"
-                            } else {
-                                "❌ not found"
+                // Check wasm32-wasip2 target asynchronously for display
+                if binary_exists_in_path("cargo") {
+                    let target_status = match which("rustup") {
+                        Ok(rustup_path) => {
+                            match Command::new(rustup_path)
+                                .args(["target", "list", "--installed"])
+                                .output()
+                                .await
+                            {
+                                Ok(output) if output.status.success() => {
+                                    let stdout = String::from_utf8_lossy(&output.stdout);
+                                    if stdout.lines().any(|line| line.trim() == "wasm32-wasip2") {
+                                        "✅ installed"
+                                    } else {
+                                        "❌ not found"
+                                    }
+                                }
+                                _ => "🟨 check failed",
                             }
                         }
-                        _ => "🟨 check failed",
+                        Err(_) => "🟨 rustup not found",
                     };
                     output_lines.push(format!("  wasm32-wasip2: {target_status}"));
                 }
@@ -285,24 +290,18 @@ impl DoctorCommand {
             ProjectContext::Go { .. } => {
                 output_lines.extend([
                     "Go WebAssembly tools:".to_string(),
-                    format!("  go: {status}", status = tool_status("go").await),
-                    format!("  tinygo: {status}", status = tool_status("tinygo").await),
-                    format!(
-                        "  wasm-opt: {status}",
-                        status = tool_status("wasm-opt").await
-                    ),
-                    format!(
-                        "  wasm-tools: {status}",
-                        status = tool_status("wasm-tools").await
-                    ),
+                    format!("  go: {status}", status = tool_status("go")),
+                    format!("  tinygo: {status}", status = tool_status("tinygo")),
+                    format!("  wasm-opt: {status}", status = tool_status("wasm-opt")),
+                    format!("  wasm-tools: {status}", status = tool_status("wasm-tools")),
                 ]);
             }
             ProjectContext::TypeScript { .. } => {
                 output_lines.extend([
                     "TypeScript/JavaScript tools:".to_string(),
-                    format!("  node: {status}", status = tool_status("node").await),
-                    format!("  npm: {status}", status = tool_status("npm").await),
-                    format!("  tsc: {status}", status = tool_status("tsc").await),
+                    format!("  node: {status}", status = tool_status("node")),
+                    format!("  npm: {status}", status = tool_status("npm")),
+                    format!("  tsc: {status}", status = tool_status("tsc")),
                 ]);
             }
             ProjectContext::Mixed { detected_types } => {
@@ -311,23 +310,23 @@ impl DoctorCommand {
                         "Rust" => {
                             output_lines.extend([
                                 "Rust tools:".to_string(),
-                                format!("  cargo: {status}", status = tool_status("cargo").await),
+                                format!("  cargo: {status}", status = tool_status("cargo")),
                                 "".to_string(),
                             ]);
                         }
                         "Go" => {
                             output_lines.extend([
                                 "Go tools:".to_string(),
-                                format!("  go: {status}", status = tool_status("go").await),
-                                format!("  tinygo: {status}", status = tool_status("tinygo").await),
+                                format!("  go: {status}", status = tool_status("go")),
+                                format!("  tinygo: {status}", status = tool_status("tinygo")),
                                 "".to_string(),
                             ]);
                         }
                         "TypeScript/JavaScript" => {
                             output_lines.extend([
                                 "TypeScript/JavaScript tools:".to_string(),
-                                format!("  node: {status}", status = tool_status("node").await),
-                                format!("  npm: {status}", status = tool_status("npm").await),
+                                format!("  node: {status}", status = tool_status("node")),
+                                format!("  npm: {status}", status = tool_status("npm")),
                                 "".to_string(),
                             ]);
                         }
@@ -339,7 +338,7 @@ impl DoctorCommand {
     }
 
     /// Add context-specific data to JSON output
-    async fn add_context_specific_json(
+    fn add_context_specific_json(
         &self,
         context: &ProjectContext,
         json_data: &mut serde_json::Value,
@@ -347,7 +346,7 @@ impl DoctorCommand {
         let mut binaries = serde_json::Map::new();
         binaries.insert(
             "git".to_string(),
-            serde_json::Value::Bool(binary_exists_in_path("git").await),
+            serde_json::Value::Bool(binary_exists_in_path("git")),
         );
 
         match context {
@@ -355,93 +354,93 @@ impl DoctorCommand {
                 // Include all tools for general context
                 binaries.insert(
                     "cargo".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("cargo").await),
+                    serde_json::Value::Bool(binary_exists_in_path("cargo")),
                 );
                 binaries.insert(
                     "go".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("go").await),
+                    serde_json::Value::Bool(binary_exists_in_path("go")),
                 );
                 binaries.insert(
                     "node".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("node").await),
+                    serde_json::Value::Bool(binary_exists_in_path("node")),
                 );
                 binaries.insert(
                     "npm".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("npm").await),
+                    serde_json::Value::Bool(binary_exists_in_path("npm")),
                 );
                 binaries.insert(
                     "tsc".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("tsc").await),
+                    serde_json::Value::Bool(binary_exists_in_path("tsc")),
                 );
             }
             ProjectContext::Rust { .. } => {
                 binaries.insert(
                     "cargo".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("cargo").await),
+                    serde_json::Value::Bool(binary_exists_in_path("cargo")),
                 );
                 // Note: wasm32-wasip2 target check would require async, so we'll skip it in JSON for now
             }
             ProjectContext::Go { .. } => {
                 binaries.insert(
                     "go".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("go").await),
+                    serde_json::Value::Bool(binary_exists_in_path("go")),
                 );
                 binaries.insert(
                     "tinygo".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("tinygo").await),
+                    serde_json::Value::Bool(binary_exists_in_path("tinygo")),
                 );
                 binaries.insert(
                     "wasm-opt".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("wasm-opt").await),
+                    serde_json::Value::Bool(binary_exists_in_path("wasm-opt")),
                 );
                 binaries.insert(
                     "wasm-tools".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("wasm-tools").await),
+                    serde_json::Value::Bool(binary_exists_in_path("wasm-tools")),
                 );
             }
             ProjectContext::TypeScript { .. } => {
                 binaries.insert(
                     "node".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("node").await),
+                    serde_json::Value::Bool(binary_exists_in_path("node")),
                 );
                 binaries.insert(
                     "npm".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("npm").await),
+                    serde_json::Value::Bool(binary_exists_in_path("npm")),
                 );
                 binaries.insert(
                     "tsc".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("tsc").await),
+                    serde_json::Value::Bool(binary_exists_in_path("tsc")),
                 );
             }
             ProjectContext::Mixed { .. } => {
                 // Include all potentially relevant tools
                 binaries.insert(
                     "cargo".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("cargo").await),
+                    serde_json::Value::Bool(binary_exists_in_path("cargo")),
                 );
                 binaries.insert(
                     "go".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("go").await),
+                    serde_json::Value::Bool(binary_exists_in_path("go")),
                 );
                 binaries.insert(
                     "tinygo".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("tinygo").await),
+                    serde_json::Value::Bool(binary_exists_in_path("tinygo")),
                 );
                 binaries.insert(
                     "node".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("node").await),
+                    serde_json::Value::Bool(binary_exists_in_path("node")),
                 );
                 binaries.insert(
                     "npm".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("npm").await),
+                    serde_json::Value::Bool(binary_exists_in_path("npm")),
                 );
                 binaries.insert(
                     "wasm-opt".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("wasm-opt").await),
+                    serde_json::Value::Bool(binary_exists_in_path("wasm-opt")),
                 );
                 binaries.insert(
                     "wasm-tools".to_string(),
-                    serde_json::Value::Bool(binary_exists_in_path("wasm-tools").await),
+                    serde_json::Value::Bool(binary_exists_in_path("wasm-tools")),
                 );
             }
         }
@@ -462,16 +461,16 @@ pub async fn check_project_specific_tools(
     match context {
         ProjectContext::General => {
             // For general context, check all optional tools
-            check_optional_tools(&mut issues, &mut recommendations).await;
+            check_optional_tools(&mut issues, &mut recommendations);
         }
         ProjectContext::Rust { .. } => {
             check_rust_tools(&mut issues, &mut recommendations).await?;
         }
         ProjectContext::Go { .. } => {
-            check_go_tools(&mut issues, &mut recommendations).await?;
+            check_go_tools(&mut issues, &mut recommendations);
         }
         ProjectContext::TypeScript { .. } => {
-            check_typescript_tools(&mut issues, &mut recommendations).await;
+            check_typescript_tools(&mut issues, &mut recommendations);
         }
         ProjectContext::Mixed { detected_types } => {
             // Check tools for all detected project types
@@ -479,10 +478,10 @@ pub async fn check_project_specific_tools(
                 check_rust_tools(&mut issues, &mut recommendations).await?;
             }
             if detected_types.iter().any(|t| t == "Go") {
-                check_go_tools(&mut issues, &mut recommendations).await?;
+                check_go_tools(&mut issues, &mut recommendations);
             }
             if detected_types.iter().any(|t| t == "TypeScript/JavaScript") {
-                check_typescript_tools(&mut issues, &mut recommendations).await;
+                check_typescript_tools(&mut issues, &mut recommendations);
             }
         }
     }
@@ -548,7 +547,7 @@ async fn check_rust_tools(
     recommendations: &mut Vec<&str>,
 ) -> anyhow::Result<()> {
     // Check for cargo
-    if !binary_exists_in_path("cargo").await {
+    if !binary_exists_in_path("cargo") {
         issues.push("Cargo not found (required for Rust development)");
         recommendations.push("• Install Rust and Cargo: https://rustup.rs/");
         recommendations
@@ -576,12 +575,9 @@ async fn check_rust_tools(
 }
 
 /// Check tools needed for Go WebAssembly development  
-async fn check_go_tools(
-    issues: &mut Vec<&str>,
-    recommendations: &mut Vec<&str>,
-) -> anyhow::Result<()> {
+fn check_go_tools(issues: &mut Vec<&str>, recommendations: &mut Vec<&str>) {
     // Check for go
-    if !binary_exists_in_path("go").await {
+    if !binary_exists_in_path("go") {
         issues.push("Go not found (required for Go development)");
         recommendations.push("• Install Go: https://golang.org/dl/");
         recommendations.push("  - macOS: 'brew install go'");
@@ -589,7 +585,7 @@ async fn check_go_tools(
     }
 
     // Check for tinygo
-    if !binary_exists_in_path("tinygo").await {
+    if !binary_exists_in_path("tinygo") {
         issues.push("TinyGo not found (required for Go WebAssembly)");
         recommendations.push("• Install TinyGo: https://tinygo.org/getting-started/install/");
         recommendations.push("  - macOS: 'brew tap tinygo-org/tools && brew install tinygo'");
@@ -600,7 +596,7 @@ async fn check_go_tools(
     }
 
     // Check for wasm-opt
-    if !binary_exists_in_path("wasm-opt").await {
+    if !binary_exists_in_path("wasm-opt") {
         issues.push("wasm-opt not found (recommended for Go WebAssembly)");
         recommendations
             .push("• Install wasm-opt (from binaryen): https://github.com/WebAssembly/binaryen");
@@ -609,18 +605,16 @@ async fn check_go_tools(
     }
 
     // Check for wasm-tools
-    if !binary_exists_in_path("wasm-tools").await {
+    if !binary_exists_in_path("wasm-tools") {
         issues.push("wasm-tools not found (recommended for Go WebAssembly)");
         recommendations.push("• Install wasm-tools: 'cargo install wasm-tools'");
     }
-
-    Ok(())
 }
 
 /// Check tools needed for TypeScript/JavaScript development
-async fn check_typescript_tools(issues: &mut Vec<&str>, recommendations: &mut Vec<&str>) {
+fn check_typescript_tools(issues: &mut Vec<&str>, recommendations: &mut Vec<&str>) {
     // Check for node
-    if !binary_exists_in_path("node").await {
+    if !binary_exists_in_path("node") {
         issues.push("Node.js not found (required for TypeScript development)");
         recommendations.push("• Install Node.js: https://nodejs.org/");
         recommendations.push("  - macOS: 'brew install node'");
@@ -629,7 +623,7 @@ async fn check_typescript_tools(issues: &mut Vec<&str>, recommendations: &mut Ve
     }
 
     // Check for npm
-    if !binary_exists_in_path("npm").await {
+    if !binary_exists_in_path("npm") {
         issues.push("npm not found (should come with Node.js)");
         recommendations.push("• npm should be included with Node.js installation");
         recommendations.push("• Try reinstalling Node.js from https://nodejs.org/");
@@ -637,16 +631,16 @@ async fn check_typescript_tools(issues: &mut Vec<&str>, recommendations: &mut Ve
 }
 
 /// Check all optional tools for general context
-async fn check_optional_tools(_issues: &mut [&str], recommendations: &mut Vec<&str>) {
-    if !binary_exists_in_path("cargo").await {
+fn check_optional_tools(_issues: &mut [&str], recommendations: &mut Vec<&str>) {
+    if !binary_exists_in_path("cargo") {
         recommendations.push("• Install Rust and Cargo for Rust development: https://rustup.rs/");
     }
 
-    if !binary_exists_in_path("go").await {
+    if !binary_exists_in_path("go") {
         recommendations.push("• Install Go for Go development: https://golang.org/dl/");
     }
 
-    if !binary_exists_in_path("node").await {
+    if !binary_exists_in_path("node") {
         recommendations
             .push("• Install Node.js for TypeScript/JavaScript development: https://nodejs.org/");
     }
@@ -654,7 +648,9 @@ async fn check_optional_tools(_issues: &mut [&str], recommendations: &mut Vec<&s
 
 /// Check if a Rust target is installed
 async fn check_rust_target(target: &str) -> anyhow::Result<bool> {
-    let output = Command::new("rustup")
+    let rustup_path = which("rustup").context("rustup not found in PATH")?;
+
+    let output = Command::new(rustup_path)
         .args(["target", "list", "--installed"])
         .output()
         .await
@@ -669,25 +665,18 @@ async fn check_rust_target(target: &str) -> anyhow::Result<bool> {
 }
 
 /// Helper function to check if a binary exists in the system's PATH
-pub async fn binary_exists_in_path(binary_name: &str) -> bool {
-    match tokio::process::Command::new(binary_name).spawn() {
-        Ok(mut child) => {
-            if let Err(e) = child.kill().await {
-                error!(binary_name, err = ?e, "failed to kill spawned process when checking for binary");
-            }
-            true
-        }
-        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => false,
-        Err(e) => {
-            error!(binary_name, err = ?e, "failed to check for binary");
-            false
-        }
-    }
+pub fn binary_exists_in_path(binary_name: &str) -> bool {
+    which(binary_name).is_ok()
+}
+
+/// Helper function to get the full path of a binary in the system's PATH
+pub fn get_binary_path(binary_name: &str) -> Option<PathBuf> {
+    which(binary_name).ok()
 }
 
 /// Helper function to get tool status string
-async fn tool_status(tool: &str) -> &'static str {
-    if binary_exists_in_path(tool).await {
+fn tool_status(tool: &str) -> &'static str {
+    if binary_exists_in_path(tool) {
         "✅ installed"
     } else {
         "🟨 not found"

@@ -53,6 +53,7 @@ wasmcloud-runtime = { git = "https://github.com/brooksmtownsend/wasmCloud", vers
 wasmtime = { version = "31", default-features = false }
 wasmtime-wasi = { version = "31", default-features = false }
 wasmtime-wasi-http = { version = "31", default-features = false }
+which = { version = "6.0.3", default-features = false }
 wit-component = { version = "0.235.0", default-features = false }
 
 [dev-dependencies]
