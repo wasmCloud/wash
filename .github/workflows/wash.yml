@@ -150,7 +150,9 @@ jobs:
       - name: Create GitHub Release and upload binaries
         uses: softprops/action-gh-release@v2
         with:
-          name: Release ${{ github.ref_name }}
+          name: wash ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           files: ./artifacts/*/*
           token: ${{ github.token }}
+          prerelease: true
+          generate_release_notes: true
