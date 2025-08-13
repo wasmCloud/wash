@@ -3417,8 +3417,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "22505a5c94da8e3b7c2996394d1c933236c4d743e81a410bcca4e6989fc066a4"
 dependencies = [
  "bytes",
- "heck 0.5.0",
- "itertools 0.12.1",
+ "heck 0.4.1",
+ "itertools 0.11.0",
  "log",
  "multimap",
  "once_cell",
@@ -3438,7 +3438,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "81bddcdb20abf9501610992b6759a4c888aef7d1a7247ef75e2404275ac24af1"
 dependencies = [
  "anyhow",
- "itertools 0.12.1",
+ "itertools 0.11.0",
  "proc-macro2",
  "quote",
  "syn",
@@ -3496,7 +3496,7 @@ dependencies = [
 [[package]]
 name = "provider-archive"
 version = "0.16.0"
-source = "git+https://github.com/brooksmtownsend/wasmCloud?branch=feat%2Fminimal-runtime-handler#bb2c337328d2bb6018228d63b115d62edb7854c3"
+source = "git+https://github.com/wasmCloud/wasmCloud#0f01a8c29a2c76adfe7a86b096ab951e59b62238"
 dependencies = [
  "async-compression",
  "data-encoding",
@@ -5378,7 +5378,7 @@ dependencies = [
 [[package]]
 name = "wascap"
 version = "0.16.1"
-source = "git+https://github.com/brooksmtownsend/wasmCloud?branch=feat%2Fminimal-runtime-handler#bb2c337328d2bb6018228d63b115d62edb7854c3"
+source = "git+https://github.com/wasmCloud/wasmCloud#0f01a8c29a2c76adfe7a86b096ab951e59b62238"
 dependencies = [
  "data-encoding",
  "humantime",
@@ -5394,7 +5394,7 @@ dependencies = [
 
 [[package]]
 name = "wash"
-version = "0.50.1"
+version = "1.0.0-beta.1"
 dependencies = [
  "anyhow",
  "bytes",
@@ -5773,10 +5773,12 @@ dependencies = [
 [[package]]
 name = "wasmcloud-core"
 version = "0.20.0"
-source = "git+https://github.com/brooksmtownsend/wasmCloud?branch=feat%2Fminimal-runtime-handler#bb2c337328d2bb6018228d63b115d62edb7854c3"
+source = "git+https://github.com/wasmCloud/wasmCloud#0f01a8c29a2c76adfe7a86b096ab951e59b62238"
 dependencies = [
  "anyhow",
  "async-nats",
+ "bytes",
+ "futures",
  "once_cell",
  "provider-archive",
  "rustls 0.23.27",
@@ -5788,12 +5790,14 @@ dependencies = [
  "tracing",
  "url",
  "wascap",
+ "wasmtime-wasi-http",
+ "wrpc-interface-http",
 ]
 
 [[package]]
 name = "wasmcloud-runtime"
 version = "0.11.0"
-source = "git+https://github.com/brooksmtownsend/wasmCloud?branch=feat%2Fminimal-runtime-handler#bb2c337328d2bb6018228d63b115d62edb7854c3"
+source = "git+https://github.com/wasmCloud/wasmCloud#0f01a8c29a2c76adfe7a86b096ab951e59b62238"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5803,6 +5807,7 @@ dependencies = [
  "opentelemetry",
  "secrecy 0.10.3",
  "semver",
+ "serde",
  "tokio",
  "tokio-stream",
  "tracing",
