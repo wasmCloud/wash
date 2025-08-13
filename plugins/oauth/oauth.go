@@ -6,9 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/preopens"
-	fsTypes "github.com/cosmonic/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/types"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/logging/v0.1.0-draft/logging"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/preopens"
+	fsTypes "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/types"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/logging/v0.1.0-draft/logging"
 	"github.com/julienschmidt/httprouter"
 	"go.bytecodealliance.org/cm"
 	"go.wasmcloud.dev/component/gen/wasi/config/runtime"

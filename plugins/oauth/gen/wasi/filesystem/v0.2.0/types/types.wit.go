@@ -4,8 +4,8 @@
 package types
 
 import (
-	wallclock "github.com/cosmonic/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/wall-clock"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
+	wallclock "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/wall-clock"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
 	"go.bytecodealliance.org/cm"
 )
 

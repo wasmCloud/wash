@@ -7,7 +7,7 @@
 package terminalstderr
 
 import (
-	terminaloutput "github.com/cosmonic/wash/plugins/oauth/gen/wasi/cli/v0.2.0/terminal-output"
+	terminaloutput "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/cli/v0.2.0/terminal-output"
 	"go.bytecodealliance.org/cm"
 )
 

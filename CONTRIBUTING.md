@@ -18,7 +18,7 @@ Pull requests are welcome! The [good first issue][1] label is a great way to fin
 ### Building from Source
 
 ```bash
-git clone https://github.com/cosmonic-labs/wash.git
+git clone https://github.com/wasmcloud/wash.git
 cd wash
 cargo build
 ```
@@ -164,5 +164,5 @@ All submissions require review. We use GitHub pull requests for this process.
 - [WebAssembly Component Model](https://component-model.bytecodealliance.org/) - Learn about the component model
 - [WASI Preview 2](https://github.com/WebAssembly/WASI/tree/main/preview2) - WebAssembly System Interface
 
-[0]: https://github.com/cosmonic-labs/wash/issues/new/choose
-[1]: https://github.com/cosmonic-labs/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22
+[0]: https://github.com/wasmcloud/wash/issues/new/choose
+[1]: https://github.com/wasmcloud/wash/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22

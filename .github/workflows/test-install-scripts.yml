@@ -28,8 +28,8 @@ jobs:
           cd /tmp/wash-test
 
           # Test the actual curl installation that users will run
-          echo "Running: curl -sSL https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.sh | bash"
-          curl -sSL https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.sh | INSTALL_DIR=/tmp/wash-test bash
+          echo "Running: curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash"
+          curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | INSTALL_DIR=/tmp/wash-test bash
 
           # Verify installation
           if [ -f "/tmp/wash-test/wash" ]; then
@@ -66,7 +66,7 @@ jobs:
           $env:INSTALL_DIR = $testDir
 
           # Test the actual PowerShell installation that users will run
-          iwr -useb https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.ps1 | iex
+          iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex
           
           # Verify installation
           $washPath = Join-Path $testDir "wash.exe"
@@ -89,7 +89,7 @@ jobs:
           $env:INSTALL_DIR = $testDir
           $env:ADD_TO_PATH = "true"
           
-          iwr -useb https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.ps1 | iex
+          iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex
           
           $washPath = Join-Path $testDir "wash.exe"
           if (Test-Path $washPath) {
@@ -112,7 +112,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Test Configuration" >> $GITHUB_STEP_SUMMARY
           echo "- Test Version: ${{ inputs.test_version || 'latest' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Repository: cosmonic-labs/wash (public)" >> $GITHUB_STEP_SUMMARY
+          echo "- Repository: wasmcloud/wash (public)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### Results" >> $GITHUB_STEP_SUMMARY
@@ -132,10 +132,10 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Linux/macOS:**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo 'curl -sSL https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.sh | bash' >> $GITHUB_STEP_SUMMARY
+          echo 'curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Windows (PowerShell):**" >> $GITHUB_STEP_SUMMARY
           echo '```powershell' >> $GITHUB_STEP_SUMMARY
-          echo 'iwr -useb https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.ps1 | iex' >> $GITHUB_STEP_SUMMARY
+          echo 'iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

@@ -21,8 +21,7 @@ use tokio::{fs, io::AsyncWriteExt};
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 
-// TODO(IMPORTANT): Make this wasmCloud/wasmCloud once this moves
-const REPO: &str = "cosmonic-labs/wash";
+const REPO: &str = "wasmcloud/wash";
 const BINARY_NAME: &str = "wash";
 
 #[derive(Debug, Deserialize)]

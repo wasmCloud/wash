@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Install script for wash - The Wasm Shell
-# Usage: curl -fsSL https://raw.githubusercontent.com/cosmonic-labs/wash/main/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash
 # 
 # Environment variables:
 # - GITHUB_TOKEN: GitHub personal access token (optional, for higher API rate limits)
@@ -17,7 +17,7 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Constants
-REPO="cosmonic-labs/wash"
+REPO="wasmcloud/wash"
 INSTALL_DIR="${INSTALL_DIR:-$(pwd)}"
 TMP_DIR="/tmp/wash-install-$$"
 

@@ -1,4 +1,4 @@
-module github.com/cosmonic/wash/plugins/oauth
+module github.com/wasmcloud/wash/plugins/oauth
 
 go 1.23.0
 

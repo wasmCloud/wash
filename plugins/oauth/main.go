@@ -6,12 +6,12 @@ import (
 	"runtime"
 	"time"
 
-	monotonicclock "github.com/cosmonic/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/monotonic-clock"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/preopens"
-	fsTypes "github.com/cosmonic/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/types"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/logging/v0.1.0-draft/logging"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/plugin"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/types"
+	monotonicclock "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/monotonic-clock"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/preopens"
+	fsTypes "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/types"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/logging/v0.1.0-draft/logging"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/plugin"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/types"
 	"go.bytecodealliance.org/cm"
 	"go.wasmcloud.dev/component/net/wasihttp"
 )
@@ -84,8 +84,8 @@ func Info() plugin.Metadata {
 		ID:          "oauth",
 		Name:        "oauth",
 		Description: "OAuth2 server for authentication",
-		Contact:     "Cosmonic Team",
-		URL:         "https://github.com/cosmonic/wash",
+		Contact:     "wasmCloud Team",
+		URL:         "https://github.com/wasmcloud/wash",
 		License:     "Apache-2.0",
 		Version:     "0.1.0",
 		Command:     cm.None[types.Command](),

@@ -8,10 +8,10 @@
 package types
 
 import (
-	monotonicclock "github.com/cosmonic/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/monotonic-clock"
-	ioerror "github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/error"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
+	monotonicclock "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/monotonic-clock"
+	ioerror "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/error"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
 	"go.bytecodealliance.org/cm"
 )
 

@@ -3,7 +3,7 @@
 package tcp
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/network"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/network"
 	"go.bytecodealliance.org/cm"
 	"unsafe"
 )

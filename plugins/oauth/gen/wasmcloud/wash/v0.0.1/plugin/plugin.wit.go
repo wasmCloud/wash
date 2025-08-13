@@ -4,7 +4,7 @@
 package plugin
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/types"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/types"
 )
 
 // Metadata represents the type alias "wasmcloud:wash/plugin@0.0.1#metadata".
