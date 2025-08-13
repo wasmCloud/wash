@@ -3,7 +3,7 @@
 package plugin
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/types"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/types"
 	"go.bytecodealliance.org/cm"
 )
 

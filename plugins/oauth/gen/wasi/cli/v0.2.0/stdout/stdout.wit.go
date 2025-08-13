@@ -4,7 +4,7 @@
 package stdout
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
 	"go.bytecodealliance.org/cm"
 )
 

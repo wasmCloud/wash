@@ -3,7 +3,7 @@
 package outgoinghandler
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/http/v0.2.0/types"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/http/v0.2.0/types"
 	"go.bytecodealliance.org/cm"
 	"unsafe"
 )

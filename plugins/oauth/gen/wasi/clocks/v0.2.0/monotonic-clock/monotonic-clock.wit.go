@@ -4,7 +4,7 @@
 package monotonicclock
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
 	"go.bytecodealliance.org/cm"
 )
 

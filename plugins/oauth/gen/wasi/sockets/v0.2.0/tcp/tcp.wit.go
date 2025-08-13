@@ -4,10 +4,10 @@
 package tcp
 
 import (
-	monotonicclock "github.com/cosmonic/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/monotonic-clock"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/network"
+	monotonicclock "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/monotonic-clock"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/streams"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/network"
 	"go.bytecodealliance.org/cm"
 )
 

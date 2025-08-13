@@ -4,8 +4,8 @@
 package tcpcreatesocket
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/network"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/tcp"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/network"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/sockets/v0.2.0/tcp"
 	"go.bytecodealliance.org/cm"
 )
 

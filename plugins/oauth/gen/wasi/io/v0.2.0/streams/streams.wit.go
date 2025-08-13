@@ -4,8 +4,8 @@
 package streams
 
 import (
-	ioerror "github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/error"
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
+	ioerror "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/error"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/io/v0.2.0/poll"
 	"go.bytecodealliance.org/cm"
 )
 

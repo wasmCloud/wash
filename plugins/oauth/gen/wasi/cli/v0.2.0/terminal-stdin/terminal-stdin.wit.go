@@ -7,7 +7,7 @@
 package terminalstdin
 
 import (
-	terminalinput "github.com/cosmonic/wash/plugins/oauth/gen/wasi/cli/v0.2.0/terminal-input"
+	terminalinput "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/cli/v0.2.0/terminal-input"
 	"go.bytecodealliance.org/cm"
 )
 

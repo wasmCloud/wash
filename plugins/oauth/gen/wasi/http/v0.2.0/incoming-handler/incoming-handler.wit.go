@@ -7,7 +7,7 @@
 package incominghandler
 
 import (
-	"github.com/cosmonic/wash/plugins/oauth/gen/wasi/http/v0.2.0/types"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/http/v0.2.0/types"
 )
 
 // IncomingRequest represents the exported type alias "wasi:http/incoming-handler@0.2.0#incoming-request".

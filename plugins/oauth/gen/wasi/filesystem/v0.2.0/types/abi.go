@@ -3,7 +3,7 @@
 package types
 
 import (
-	wallclock "github.com/cosmonic/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/wall-clock"
+	wallclock "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/wall-clock"
 	"go.bytecodealliance.org/cm"
 	"unsafe"
 )

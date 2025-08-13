@@ -8,7 +8,7 @@ readme = "README.md"
 authors = ["The wasmCloud Team"]
 edition = "2024"
 license = "Apache-2.0"
-repository = "https://github.com/cosmonic-labs/wash"
+repository = "https://github.com/wasmcloud/wash"
 
 [lib]
 name = "wash"
