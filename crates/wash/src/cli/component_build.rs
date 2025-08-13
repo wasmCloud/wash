@@ -818,7 +818,7 @@ impl ComponentBuilder {
         let stdout = String::from_utf8_lossy(&output.stdout);
         debug!(stdout = %stdout, "custom build command output");
 
-        // TODO(GFI): we need to handle this better.
+        // TODO(#26): we need to handle this better.
         // After running custom command, look for common build artifact locations
         let possible_paths = [
             self.project_path.join("build").join("component.wasm"),

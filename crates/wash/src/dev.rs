@@ -55,7 +55,7 @@ impl DevPluginManager {
         for (name, item) in exported_instances {
             // We don't need to expose the plugin export to the dev components
             // Additionally, this would actually error since each plugin exports this interface.
-            // TODO(GFI): It's probably a good idea to skip registering wasi@0.2 interfaces
+            // TODO(#11): It's probably a good idea to skip registering wasi@0.2 interfaces
             match name.split_once('@') {
                 Some(("wasmcloud:wash/plugin", _)) => {
                     trace!(name, "skipping internal plugin export");

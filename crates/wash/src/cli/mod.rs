@@ -256,7 +256,7 @@ impl CommandOutput {
 /// or a custom configuration if needed.
 #[derive(Debug, Clone)]
 pub struct CliContext {
-    // TODO(GFI): Just store an Arc-ed trait object
+    // TODO(#25): Just store an Arc-ed trait object
     #[cfg(unix)]
     app_strategy: Xdg,
     #[cfg(windows)]

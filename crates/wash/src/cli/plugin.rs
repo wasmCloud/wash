@@ -398,7 +398,7 @@ impl TestCommand {
             tokio::fs::read(&self.plugin)
                 .await
                 .context("Failed to read component file")?
-            // TODO(GFI): support OCI references too
+            // TODO(#14): support OCI references too
         };
 
         let mut output = String::new();

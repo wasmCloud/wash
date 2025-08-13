@@ -42,7 +42,7 @@ pub struct Config {
     /// WIT dependency management configuration (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wit: Option<WitConfig>,
-    // TODO(GFI): Support dev config which can be overridden in local project config
+    // TODO(#15): Support dev config which can be overridden in local project config
     // e.g. for runtime config, http ports, etc
 }
 
@@ -150,7 +150,7 @@ where
     // Environment variables with WASH_ prefix
     figment = figment.merge(Env::prefixed("WASH_"));
 
-    // TODO(GFI): There's more testing to be done here to ensure that CLI args can override existing
+    // TODO(#16): There's more testing to be done here to ensure that CLI args can override existing
     // config without replacing present values with empty values.
     if let Some(args) = cli_args {
         // Convert CLI args to configuration format
