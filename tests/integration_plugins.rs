@@ -40,7 +40,7 @@ async fn test_plugin_test_oauth_comprehensive() -> Result<()> {
         oauth_plugin_path.display()
     );
 
-    // TODO(GFI): Weirdly, clap's help text will actually _exit_ the test if this
+    // TODO(#12): Weirdly, clap's help text will actually _exit_ the test if this
     // runs. So it either needs to be tested separately or hooked into somehow
     // Test 1: Basic plugin test without any command or hook flags
     // eprintln!("🔍 Test 1: Basic plugin test (help)");

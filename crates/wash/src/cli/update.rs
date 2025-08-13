@@ -67,7 +67,7 @@ pub struct UpdateCommand {
     #[clap(long, short = 'd')]
     dry_run: bool,
 
-    // TODO(GFI): support --major, --minor, --patch flags to control update granularity
+    // TODO(#30): support --major, --minor, --patch flags to control update granularity
     /// Point at a different repository for updates
     #[clap(long, default_value = REPO)]
     git: String,

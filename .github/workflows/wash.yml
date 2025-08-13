@@ -71,7 +71,7 @@ jobs:
         run: |
           cargo +nightly fmt -- --check
       - name: Lint
-        # TODO(GFI): Deny warnings for code quality
+        # TODO(#13): Deny warnings for code quality
         # cargo clippy --workspace -- -D warnings
         run: |
           cargo clippy --workspace
