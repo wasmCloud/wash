@@ -7,6 +7,7 @@ use reqwest::{
     Client,
     header::{AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT},
 };
+use semver::Version;
 use serde::Deserialize;
 use serde_json::json;
 use std::ops::Deref;
@@ -88,41 +89,38 @@ pub struct UpdateCommand {
     patch: bool,
 }
 
-fn parse_version_tuple(tag: &str) -> Option<(u8, u8, u8)> {
+fn parse_version(tag: &str) -> Option<Version> {
     let t = tag.strip_prefix("wash-").unwrap_or(tag);
     let t = t.strip_prefix('v').unwrap_or(t);
 
-    let parts: Vec<&str> = t.split('.').collect();
-    if parts.len() < 3 {
-        return None;
+    match Version::parse(t) {
+        Ok(version) => {
+            trace!("Parsed version '{}' as {}", tag, version);
+            Some(version)
+        }
+        Err(e) => {
+            trace!("Failed to parse version '{}': {}", tag, e);
+            None
+        }
     }
-    let major = parts[0].parse::<u8>().ok()?;
-    let minor = parts[1].parse::<u8>().ok()?;
-    let patch = parts[2]
-        .split('-')
-        .next()
-        .unwrap_or("0")
-        .parse::<u8>()
-        .ok()?;
-
-    trace!("Parsed version '{}' as {}.{}.{}", tag, major, minor, patch);
-    Some((major, minor, patch))
 }
 
-fn is_newer(a: (u8, u8, u8), b: (u8, u8, u8)) -> bool {
-    a > b
+fn is_newer(candidate: &Version, current: &Version) -> bool {
+    candidate > current
 }
 
-fn matches_patch(curr: (u8, u8, u8), cand: (u8, u8, u8)) -> bool {
-    cand.0 == curr.0 && cand.1 == curr.1 && is_newer(cand, curr)
+fn matches_patch(current: &Version, candidate: &Version) -> bool {
+    candidate.major == current.major 
+        && candidate.minor == current.minor 
+        && is_newer(candidate, current)
 }
 
-fn matches_minor(curr: (u8, u8, u8), cand: (u8, u8, u8)) -> bool {
-    cand.0 == curr.0 && is_newer(cand, curr)
+fn matches_minor(current: &Version, candidate: &Version) -> bool {
+    candidate.major == current.major && is_newer(candidate, current)
 }
 
-fn matches_major(curr: (u8, u8, u8), cand: (u8, u8, u8)) -> bool {
-    is_newer(cand, curr)
+fn matches_major(current: &Version, candidate: &Version) -> bool {
+    is_newer(candidate, current)
 }
 
 impl CliCommand for UpdateCommand {
@@ -134,10 +132,7 @@ impl CliCommand for UpdateCommand {
         // Check current version and constraints
         if !self.force && !self.dry_run {
             if let Some(current) = self.get_current_version() {
-                debug!(
-                    "Current wash version: {}.{}.{}",
-                    current.0, current.1, current.2
-                );
+                debug!("Current wash version: {}", current);
             }
         }
 
@@ -150,7 +145,7 @@ impl CliCommand for UpdateCommand {
         if self.dry_run {
             let current_version_str = self
                 .get_current_version()
-                .map(|(maj, min, pat)| format!("{maj}.{min}.{pat}"))
+                .map(|v| v.to_string())
                 .unwrap_or_else(|| "unknown".to_string());
 
             return Ok(CommandOutput::ok(
@@ -244,9 +239,9 @@ impl CliCommand for UpdateCommand {
 
 impl UpdateCommand {
     /// Get the current version of wash
-    fn get_current_version(&self) -> Option<(u8, u8, u8)> {
+    fn get_current_version(&self) -> Option<Version> {
         let version = env!("CARGO_PKG_VERSION");
-        parse_version_tuple(version)
+        parse_version(version)
     }
 
     /// Find the best release based on version constraints
@@ -262,36 +257,36 @@ impl UpdateCommand {
         let releases = self.fetch_all_releases(config).await?;
         debug!("Found {} releases to evaluate", releases.len());
         
-        let mut suitable_releases: Vec<((u8, u8, u8), Release)> = releases
+        let mut suitable_releases: Vec<(Version, Release)> = releases
             .into_iter()
             .filter_map(|release| {
-                let candidate_version = parse_version_tuple(&release.tag_name)?;
+                let candidate_version = parse_version(&release.tag_name)?;
 
                 // Skip if current version is unknown
-                let current = current_version?;
+                let current = current_version.as_ref()?;
 
                 debug!(
-                    "Evaluating release {} ({}.{}.{}) against current {}.{}.{}",
+                    "Evaluating release {} ({}) against current {}",
                     release.tag_name,
-                    candidate_version.0, candidate_version.1, candidate_version.2,
-                    current.0, current.1, current.2
+                    candidate_version,
+                    current
                 );
 
                 // Apply version constraint filters
                 let matches = if self.patch {
-                    let result = matches_patch(current, candidate_version);
+                    let result = matches_patch(current, &candidate_version);
                     debug!("Patch constraint: {}", result);
                     result
                 } else if self.minor {
-                    let result = matches_minor(current, candidate_version);
+                    let result = matches_minor(current, &candidate_version);
                     debug!("Minor constraint: {}", result);
                     result
                 } else if self.major {
-                    let result = matches_major(current, candidate_version);
+                    let result = matches_major(current, &candidate_version);
                     debug!("Major constraint: {}", result);
                     result
                 } else {
-                    let result = is_newer(candidate_version, current);
+                    let result = is_newer(&candidate_version, current);
                     debug!("Newer check: {}", result);
                     result
                 };
@@ -309,10 +304,8 @@ impl UpdateCommand {
         if suitable_releases.is_empty() {
             if let Some(current) = current_version {
                 return Err(anyhow::anyhow!(
-                    "No suitable updates found for current version {}.{}.{} with the specified constraints",
-                    current.0,
-                    current.1,
-                    current.2
+                    "No suitable updates found for current version {} with the specified constraints",
+                    current
                 ));
             } else {
                 return Err(anyhow::anyhow!("No suitable updates found"));
