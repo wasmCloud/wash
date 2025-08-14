@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - '.github/workflows/wash.yml'
+      - 'crates/**'
       - 'src/**'
       - 'tests/**'
       - 'Cargo.*'
