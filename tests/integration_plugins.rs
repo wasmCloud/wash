@@ -69,20 +69,24 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
 
     // Test 2: Plugin test with inspect command using a test component
     eprintln!("🔍 Test 2: Plugin test command with component inspection");
-    
+
     // Copy test component to plugin accessible location
     let test_component_host_path = "./tests/fixtures/http_hello_world_rust.wasm";
     let component_arg = if std::path::Path::new(test_component_host_path).exists() {
-        // Copy to /tmp so the plugin can access it
-        std::fs::copy(test_component_host_path, "/tmp/http_hello_world_rust.wasm")
-            .context("Failed to copy test component to /tmp")?;
-        "http_hello_world_rust.wasm".to_string() // Plugin will see this relative to /tmp
+        // Copy to temp dir so the plugin can access it
+        let tmp_path = std::env::temp_dir().join("http_hello_world_rust.wasm");
+        std::fs::copy(test_component_host_path, &tmp_path)
+            .context("Failed to copy test component to temp dir")?;
+        "http_hello_world_rust.wasm".to_string() // Plugin will see this relative to temp dir
     } else {
         // Skip this test if no test component is available
-        eprintln!("⚠️  Skipping component inspection test - no test component found at {}", test_component_host_path);
+        eprintln!(
+            "⚠️  Skipping component inspection test - no test component found at {}",
+            test_component_host_path
+        );
         "nonexistent.wasm".to_string() // This will test error handling
     };
-    
+
     let test_cmd_with_command = TestCommand {
         plugin: inspect_plugin_path.clone(),
         args: vec![component_arg.clone()],
