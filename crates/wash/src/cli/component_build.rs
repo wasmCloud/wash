@@ -273,7 +273,7 @@ impl ComponentBuilder {
                 if !self.tool_exists("node", "--version").await {
                     missing_tools.push("node (Node.js runtime)");
                 }
-                if !self.tool_exists("npm", "--version").await {
+                if !self.npm_exists().await {
                     missing_tools.push("npm (Node.js package manager)");
                 }
             }
@@ -287,16 +287,16 @@ impl ComponentBuilder {
             warn!(warning = %warning, "⚠️  Warning");
         }
 
-        // Report missing tools
+        // Report missing tools and fail early to prevent confusing errors later
         if !missing_tools.is_empty() {
             error!("missing required tools:");
             for tool in &missing_tools {
                 error!(tool = %tool, "  - missing tool");
             }
-            // bail!(
-            //     "missing required tools: {tools}",
-            //     tools = missing_tools.join(", ")
-            // );
+            bail!(
+                "missing required tools: {tools}",
+                tools = missing_tools.join(", ")
+            );
         }
 
         Ok(())
@@ -314,6 +314,44 @@ impl ComponentBuilder {
             .await
             .map(|status| status.success())
             .unwrap_or(false)
+    }
+
+    /// Check if npm exists, handling cross-platform differences
+    /// On Windows, npm is typically npm.cmd, on Unix it's npm
+    async fn npm_exists(&self) -> bool {
+        // Try npm first (works on Unix and some Windows setups)
+        if self.tool_exists("npm", "--version").await {
+            return true;
+        }
+
+        // On Windows, try npm.cmd
+        #[cfg(target_os = "windows")]
+        {
+            self.tool_exists("npm.cmd", "--version").await
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
+        }
+    }
+
+    /// Get the correct npm command name for the current platform
+    /// This method checks which npm variant is actually available
+    async fn get_npm_command(&self) -> Option<&'static str> {
+        // Try npm first (works on Unix and some Windows setups)
+        if self.tool_exists("npm", "--version").await {
+            return Some("npm");
+        }
+
+        // On Windows, try npm.cmd
+        #[cfg(target_os = "windows")]
+        {
+            if self.tool_exists("npm.cmd", "--version").await {
+                return Some("npm.cmd");
+            }
+        }
+
+        None
     }
 
     /// Fetch WIT dependencies if the project has any
@@ -682,6 +720,13 @@ impl ComponentBuilder {
             // Use explicit default from config
             let package_manager = &ts_config.package_manager;
 
+            // Get the correct command name for the package manager, handling Windows npm.cmd
+            let package_manager_cmd = if package_manager == "npm" {
+                self.get_npm_command().await.unwrap_or("npm")
+            } else {
+                package_manager.as_str()
+            };
+
             // Run install step before build to ensure dependencies are available
             let install_args = match package_manager.as_str() {
                 "pnpm" => vec!["install".to_string()],
@@ -692,7 +737,7 @@ impl ComponentBuilder {
             if !ts_config.skip_install {
                 info!(package_manager = %package_manager, install_args = ?install_args, "running install command");
 
-                let install_output = Command::new(package_manager)
+                let install_output = Command::new(package_manager_cmd)
                     .args(&install_args)
                     .current_dir(&self.project_path)
                     .output()
@@ -726,7 +771,7 @@ impl ComponentBuilder {
             debug!(package_manager = %package_manager, build_args = ?build_args, "running build command");
 
             // Run package manager build command
-            let output = Command::new(package_manager)
+            let output = Command::new(package_manager_cmd)
                 .args(&build_args)
                 .current_dir(&self.project_path)
                 .output()
