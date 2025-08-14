@@ -10,3 +10,7 @@ tests/output
 
 # Ignore Rust target directory
 target/
+
+# AI things
+.claude
+CLAUDE.md

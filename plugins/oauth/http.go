@@ -13,6 +13,7 @@ import (
 func Router() http.Handler {
 	router := httprouter.New()
 	// OAuth2 handlers
+	// GET  /                     -> Displays OAuth stored information or requests login
 	// GET  /login                -> Initiates OAuth flow
 	// GET  /callback             -> Handles OAuth callback
 	router.GET("/", homeHandler)

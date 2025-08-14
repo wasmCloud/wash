@@ -31,6 +31,7 @@ pub mod plugin {
 
     // Using module imports here to keep the top-level `use` statements clean
     use std::fmt::Display;
+    use tracing::debug;
     use wasmcloud::wash::types::{CommandArgument, HookType};
 
     use crate::runtime::bindings::plugin::wasmcloud::wash::types::Metadata;
@@ -92,18 +93,15 @@ pub mod plugin {
 
     impl From<&Metadata> for clap::Command {
         fn from(arg: &Metadata) -> Self {
-            let mut cli_command = clap::Command::new(arg.name.clone())
-                .about(&arg.description)
-                .allow_hyphen_values(true)
-                // The help flag will get captured at a higher level
-                .disable_help_flag(false)
-                .arg_required_else_help(true)
-                // If a top level command isn't specified, a subcommand is required
-                .subcommand_required(arg.command.is_none());
-
-            // Register the information about the plugin command and its subcommands. This returns an optional
-            // command as we should be able to print the help text about the plugin command even if no args are provided.
+            // Register the information about the plugin command and its subcommands.
             if let Some(cmd) = arg.command.as_ref() {
+                // Register command under `wash <command-name>`
+                let mut cli_command = clap::Command::new(&cmd.name)
+                    .about(&arg.description)
+                    .allow_hyphen_values(true)
+                    .disable_help_flag(false)
+                    .arg_required_else_help(false)
+                    .subcommand_required(false);
                 // Populate the CLI command with args and flags
                 for argument in &cmd.arguments {
                     cli_command = cli_command.arg(argument)
@@ -111,7 +109,16 @@ pub mod plugin {
                 for (flag, argument) in &cmd.flags {
                     cli_command = cli_command.arg(Into::<clap::Arg>::into(argument).long(flag))
                 }
+                cli_command
             } else if !arg.sub_commands.is_empty() {
+                // Register subcommands under `wash <plugin-name> <subcommand-name>`
+                let mut cli_command = clap::Command::new(arg.name.clone())
+                    .about(&arg.description)
+                    .allow_hyphen_values(true)
+                    .disable_help_flag(false)
+                    .arg_required_else_help(false)
+                    // If a top level command isn't specified, a subcommand is required
+                    .subcommand_required(arg.command.is_none());
                 for sub_command in &arg.sub_commands {
                     // Register each subcommand
                     let mut cli_sub_command = clap::Command::new(&sub_command.name)
@@ -128,9 +135,15 @@ pub mod plugin {
                     }
                     cli_command = cli_command.subcommand(cli_sub_command);
                 }
+                cli_command
+            // Backup case
+            } else {
+                debug!(
+                    name = arg.name,
+                    "plugin didn't register a command or subcommands, assuming hook"
+                );
+                clap::Command::new(arg.name.clone()).about(&arg.description)
             }
-
-            cli_command
         }
     }
 }

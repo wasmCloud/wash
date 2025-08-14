@@ -49,7 +49,6 @@ func newOAuth2Config() *oauth2.Config {
 func loginHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	config := newOAuth2Config()
 	url := config.AuthCodeURL("state", oauth2.AccessTypeOffline)
-	runtime.Get("SPECIAL_authenticated").Result() // Ensure authenticated state is set
 	http.Redirect(w, r, url, http.StatusTemporaryRedirect)
 }
 

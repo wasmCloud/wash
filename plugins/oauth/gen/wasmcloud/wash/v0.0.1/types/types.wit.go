@@ -309,7 +309,7 @@ func (self PluginConfig) Set(key string, value string) (result cm.Option[string]
 
 // ProjectConfig represents the imported resource "wasmcloud:wash/types@0.0.1#project-config".
 //
-// TODO: Expose project configuration to plugins
+// TODO(ISSUE#5): Expose project configuration to plugins
 //
 //	resource project-config
 type ProjectConfig cm.Resource
@@ -512,7 +512,7 @@ func (self Runner) HostExec(bin string, args cm.List[string]) (result cm.Result[
 
 // Output represents the imported method "output".
 //
-// TODO: No wasi:logging, fix this up for how we want to do output
+// TODO(IMPORTANT): No wasi:logging, fix this up for how we want to do output
 // User visible Output
 // For debugging, see wasi:logging
 //

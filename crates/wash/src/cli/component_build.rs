@@ -11,6 +11,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::component_build::ProjectType;
 use crate::runtime::bindings::plugin::wasmcloud::wash::types::HookType;
+use crate::wit::WitConfig;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
     config::{Config, generate_project_config, load_config, save_config},
@@ -45,6 +46,11 @@ impl CliCommand for ComponentBuildCommand {
         // Ensure the CLI argument takes precedence
         if let Some(wit) = config.wit.as_mut() {
             wit.skip_fetch = self.skip_fetch;
+        } else {
+            config.wit = Some(WitConfig {
+                skip_fetch: self.skip_fetch,
+                ..Default::default()
+            })
         }
         let result = build_component(&self.project_path, ctx, &config).await?;
 
