@@ -4,6 +4,7 @@ use std::{ops::Deref, path::Path, sync::Arc};
 
 use anyhow::Context as _;
 use etcetera::{AppStrategy as _, AppStrategyArgs, choose_app_strategy};
+use tracing::info;
 
 #[cfg(windows)]
 use etcetera::app_strategy::Windows;
@@ -435,5 +436,103 @@ impl CliContext {
     }
     pub fn plugin_manager(&self) -> &PluginManager {
         &self.plugin_manager
+    }
+
+    /// Call pre-hooks for the specified hook type with the provided runtime context.
+    /// This will execute ALL plugins that support the given hook type.
+    pub async fn call_pre_hooks(
+        &self,
+        runtime_context: std::sync::Arc<
+            tokio::sync::RwLock<std::collections::HashMap<String, String>>,
+        >,
+        hook_type: HookType,
+    ) -> anyhow::Result<()> {
+        let hooks = self.plugin_manager.get_hooks(hook_type);
+        for hook in hooks {
+            trace!(?hook, ?hook_type, "executing pre-hook");
+            let mut data = Ctx::default();
+            let runner = data
+                .table
+                .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
+            let mut store = hook.component.new_store(data);
+            let instance = hook
+                .component
+                .instance_pre()
+                .instantiate_async(&mut store)
+                .await
+                .context("failed to instantiate pre-hook")?;
+            let plugin_guest = WashPlugin::new(&mut store, &instance)?;
+            match plugin_guest
+                .wasmcloud_wash_plugin()
+                .call_hook(&mut store, runner, hook_type)
+                .await
+                .context("failed to call pre-hook")?
+            {
+                Ok(response) => {
+                    info!(
+                        plugin = hook.metadata.name,
+                        response = response,
+                        "pre-hook executed successfully"
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        err = e,
+                        plugin = hook.metadata.name,
+                        "pre-hook execution failed"
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Call post-hooks for the specified hook type with the provided runtime context.
+    /// This will execute ALL plugins that support the given hook type.
+    pub async fn call_post_hooks(
+        &self,
+        runtime_context: std::sync::Arc<
+            tokio::sync::RwLock<std::collections::HashMap<String, String>>,
+        >,
+        hook_type: HookType,
+    ) -> anyhow::Result<()> {
+        let hooks = self.plugin_manager.get_hooks(hook_type);
+        for hook in hooks {
+            trace!(?hook, ?hook_type, "executing post-hook");
+            let mut data = Ctx::default();
+            let runner = data
+                .table
+                .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
+            let mut store = hook.component.new_store(data);
+            let instance = hook
+                .component
+                .instance_pre()
+                .instantiate_async(&mut store)
+                .await
+                .context("failed to instantiate post-hook")?;
+            let plugin_guest = WashPlugin::new(&mut store, &instance)?;
+            match plugin_guest
+                .wasmcloud_wash_plugin()
+                .call_hook(&mut store, runner, hook_type)
+                .await
+                .context("failed to call post-hook")?
+            {
+                Ok(response) => {
+                    info!(
+                        plugin = hook.metadata.name,
+                        response = response,
+                        "post-hook executed successfully"
+                    );
+                }
+                Err(e) => {
+                    error!(
+                        err = e,
+                        plugin = hook.metadata.name,
+                        "post-hook execution failed"
+                    );
+                }
+            }
+        }
+        Ok(())
     }
 }

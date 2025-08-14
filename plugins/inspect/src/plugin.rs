@@ -1,5 +1,6 @@
 //! Implementation of `wasmcloud:wash/plugin` for the inspect plugin
 
+use base64::Engine;
 use crate::bindings::wasi::logging::logging::{log, Level};
 use crate::bindings::wasmcloud::wash::types::{
     Command, CommandArgument, HookType, Metadata, Runner,
@@ -100,11 +101,22 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     .context()
                     .map_err(|e| format!("Failed to get runner context: {}", e))?;
 
-                // Look for the artifact path in the context
-                let artifact_path = match context.get("dev.artifact_path") {
-                    Some(path) => path,
+                // Look for component bytes in the context (base64 encoded)
+                let component_bytes = match context.get("dev.component_bytes_base64") {
+                    Some(b64_data) => {
+                        match base64::engine::general_purpose::STANDARD.decode(b64_data) {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                let error_msg = format!(
+                                    "Failed to decode component bytes from base64: {}", e
+                                );
+                                log(Level::Error, "", &error_msg);
+                                return Err(error_msg);
+                            }
+                        }
+                    }
                     None => {
-                        // Try some common artifact locations as fallback
+                        // Fallback: try to read from common artifact locations
                         let common_paths = [
                             "./target/wasm32-wasip2/release/component.wasm",
                             "./build/component.wasm",
@@ -112,29 +124,38 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                             "./component.wasm",
                         ];
 
-                        let mut found_path = None;
+                        let mut found_bytes = None;
                         for path in &common_paths {
                             if file_exists(path).unwrap_or(false) {
-                                found_path = Some(path.to_string());
-                                break;
+                                match read_file_bytes(path) {
+                                    Ok(bytes) => {
+                                        log(
+                                            Level::Info,
+                                            "",
+                                            &format!(
+                                                "No component bytes in context, using fallback: {}",
+                                                path
+                                            ),
+                                        );
+                                        found_bytes = Some(bytes);
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        log(
+                                            Level::Debug,
+                                            "",
+                                            &format!("Failed to read {}: {}", path, e),
+                                        );
+                                    }
+                                }
                             }
                         }
 
-                        match found_path {
-                            Some(path) => {
-                                log(
-                                    Level::Info,
-                                    "",
-                                    &format!(
-                                        "No artifact path in context, using fallback: {}",
-                                        path
-                                    ),
-                                );
-                                path
-                            }
+                        match found_bytes {
+                            Some(bytes) => bytes,
                             None => {
                                 let msg = "No component artifact found after development session. \
-                                          Expected to find artifact path in context or at common locations.";
+                                          Expected to find component bytes in context or at common locations.";
                                 log(Level::Warn, "", msg);
                                 return Ok(msg.to_string());
                             }
@@ -142,33 +163,21 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     }
                 };
 
-                // Inspect the component
-                match read_file_bytes(&artifact_path) {
-                    Ok(component_bytes) => {
-                        match inspect_component_bytes(&component_bytes) {
-                            Ok(wit) => {
-                                let message = format!(
-                                    "🔍 Component inspection complete for: {}\n\
-                                     \n\
-                                     WIT Interface:\n\
-                                     {}\n",
-                                    artifact_path, wit
-                                );
-                                Ok(message)
-                            }
-                            Err(e) => {
-                                let error_msg = format!(
-                                    "Failed to inspect component '{}' after dev session: {}",
-                                    artifact_path, e
-                                );
-                                Err(error_msg)
-                            }
-                        }
+                // Inspect the component bytes
+                match inspect_component_bytes(&component_bytes) {
+                    Ok(wit) => {
+                        let message = format!(
+                            "🔍 Component inspection complete after development session\n\
+                             \n\
+                             WIT Interface:\n\
+                             {}\n",
+                            wit
+                        );
+                        Ok(message)
                     }
                     Err(e) => {
                         let error_msg = format!(
-                            "Failed to read component '{}' after dev session: {}",
-                            artifact_path, e
+                            "Failed to inspect component after dev session: {}", e
                         );
                         Err(error_msg)
                     }

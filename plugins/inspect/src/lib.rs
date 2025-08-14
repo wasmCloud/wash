@@ -2,11 +2,11 @@
 //! It can be used as a command-line plugin and includes an AfterDev hook to automatically
 //! inspect components after the development loop ends.
 
-use std::io::Read;
 use anyhow::Context;
-use wit_component::DecodedWasm;
-use wasi::filesystem::types::{Descriptor, DescriptorFlags, OpenFlags, PathFlags};
+use std::io::Read;
 use wasi::filesystem::preopens;
+use wasi::filesystem::types::{Descriptor, DescriptorFlags, OpenFlags, PathFlags};
+use wit_component::DecodedWasm;
 
 /// Generated WIT bindings
 pub mod bindings;
@@ -46,18 +46,17 @@ pub fn inspect_component_bytes(component_bytes: &[u8]) -> anyhow::Result<String>
 /// Get the root directory of the filesystem
 fn get_root_dir() -> anyhow::Result<(Descriptor, String)> {
     let dirs = preopens::get_directories();
-    
+
     // Log all available directories for debugging
     for (i, (_, path)) in dirs.iter().enumerate() {
         crate::bindings::wasi::logging::logging::log(
             crate::bindings::wasi::logging::logging::Level::Info,
             "",
-            &format!("Preopened directory {}: {}", i, path)
+            &format!("Preopened directory {}: {}", i, path),
         );
     }
-    
-    let mut dirs = dirs;
-    if let Some(dir) = dirs.pop() {
+
+    if let Some(dir) = dirs.into_iter().next() {
         Ok((dir.0, dir.1))
     } else {
         anyhow::bail!("No preopened directories found")
@@ -66,13 +65,15 @@ fn get_root_dir() -> anyhow::Result<(Descriptor, String)> {
 
 /// Read a file using wasi:filesystem
 fn read_file_bytes(file_path: &str) -> anyhow::Result<Vec<u8>> {
-    let (root_dir, root_path) = get_root_dir()
-        .context("Failed to get root directory")?;
+    let (root_dir, root_path) = get_root_dir().context("Failed to get root directory")?;
 
     crate::bindings::wasi::logging::logging::log(
         crate::bindings::wasi::logging::logging::Level::Info,
         "",
-        &format!("Attempting to read file: {} from root: {}", file_path, root_path)
+        &format!(
+            "Attempting to read file: {} from root: {}",
+            file_path, root_path
+        ),
     );
 
     let file = root_dir
@@ -98,8 +99,7 @@ fn read_file_bytes(file_path: &str) -> anyhow::Result<Vec<u8>> {
 
 /// Check if a file exists using wasi:filesystem
 fn file_exists(file_path: &str) -> anyhow::Result<bool> {
-    let (root_dir, _root_path) = get_root_dir()
-        .context("Failed to get root directory")?;
+    let (root_dir, _root_path) = get_root_dir().context("Failed to get root directory")?;
 
     match root_dir.stat_at(PathFlags::empty(), file_path) {
         Ok(_) => Ok(true),

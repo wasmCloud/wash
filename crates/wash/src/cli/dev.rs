@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{Context as _, ensure};
+use base64::Engine;
 use clap::Args;
 use etcetera::AppStrategy as _;
 use hyper::server::conn::http1;
@@ -15,7 +16,11 @@ use notify::{
     Event as NotifyEvent, RecursiveMode, Watcher,
     event::{EventKind, ModifyKind},
 };
-use tokio::{net::TcpListener, select, sync::mpsc};
+use tokio::{
+    net::TcpListener,
+    select,
+    sync::{RwLock, mpsc},
+};
 use tracing::{debug, error, info, trace, warn};
 use wasmcloud_runtime::component::CustomCtxComponent;
 use wasmtime::{AsContextMut, StoreContextMut, component::InstancePre};
@@ -154,6 +159,21 @@ impl CliCommand for DevCommand {
         let wasm_bytes = tokio::fs::read(&artifact_path)
             .await
             .context("failed to read artifact file")?;
+
+        // Call pre-hooks before starting dev session
+        let pre_context = HashMap::new(); // Empty context for pre-hooks
+        let pre_runtime_context = Arc::new(RwLock::new(pre_context));
+        match ctx
+            .call_pre_hooks(pre_runtime_context, HookType::BeforeDev)
+            .await
+        {
+            Ok(_) => {}
+            Err(e) => {
+                error!("pre-hook execution failed, will not start dev session");
+                error!("{e}");
+                return Err(e);
+            }
+        }
 
         let mut plugin_manager = DevPluginManager::default();
         let plugins = match list_plugins(ctx.runtime(), ctx.data_dir()).await {
@@ -363,16 +383,22 @@ impl CliCommand for DevCommand {
             }
         }
 
+        // Call post-hooks with component bytes context
+        // Base64 encode the bytes since context only supports HashMap<String, String>
+        let component_bytes_b64 = base64::engine::general_purpose::STANDARD.encode(&wasm_bytes);
+        let mut post_context = HashMap::new();
+        post_context.insert(
+            "dev.component_bytes_base64".to_string(),
+            component_bytes_b64,
+        );
+        let post_runtime_context = Arc::new(RwLock::new(post_context));
+        ctx.call_post_hooks(post_runtime_context, HookType::AfterDev)
+            .await?;
+
         Ok(CommandOutput::ok(
             "Development command executed successfully".to_string(),
             None,
         ))
-    }
-    fn enable_pre_hook(&self) -> Option<HookType> {
-        Some(HookType::BeforeDev)
-    }
-    fn enable_post_hook(&self) -> Option<HookType> {
-        Some(HookType::AfterDev)
     }
 }
 
