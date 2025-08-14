@@ -143,7 +143,7 @@ interface types {
 		set: func(key: string, value: string) -> option<string>;
 	}
 
-	/// TODO: Expose project configuration to plugins
+	/// TODO(ISSUE#5): Expose project configuration to plugins
 	resource project-config {
 
 		/// Current wash version
@@ -216,7 +216,7 @@ interface types {
 		/// Returns the stdout and stderr of the command as a tuple.
 		host-exec: func(bin: string, args: list<string>) -> result<tuple<string, string>, string>;
 
-		/// TODO: No wasi:logging, fix this up for how we want to do output
+		/// TODO(IMPORTANT): No wasi:logging, fix this up for how we want to do output
 		/// User visible Output
 		/// For debugging, see wasi:logging
 		output: func(message: string);

@@ -197,9 +197,23 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
             }
         });
 
+        let mut ctx = Ctx::builder();
+        if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
+            ctx = ctx.with_wasi_ctx(
+                WasiCtx::builder()
+                    .preopened_dir(fs_root.as_path(), "/tmp", DirPerms::all(), FilePerms::all())
+                    .expect("failed to create WASI context")
+                    .build(),
+            )
+        }
+
         // Instantiate and run plugin
         match plugin_component
-            .call_run(Ctx::default(), &run_command, Arc::default())
+            .call_run(
+                ctx.with_runtime_config_arc(runtime_config).build(),
+                &run_command,
+                Arc::default(),
+            )
             .await
         {
             Ok(res) => {
@@ -262,7 +276,12 @@ pub struct TestCommand {
     #[clap(name = "type", long = "hook", conflicts_with = "arg")]
     pub hooks: Vec<HookType>,
     /// The arguments to pass to the plugin command
-    #[clap(name = "arg", conflicts_with = "type", trailing_var_arg = true)]
+    #[clap(
+        name = "arg",
+        conflicts_with = "type",
+        trailing_var_arg = true,
+        // TODO: --help won't get collected into this args
+    )]
     pub args: Vec<String>,
 }
 
