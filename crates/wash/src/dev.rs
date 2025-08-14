@@ -124,11 +124,11 @@ impl DevPluginManager {
         // This is cloned to avoid holding a reference to the store
         let id = store.data().id.clone();
 
-        if let Some(instances) = self.instances.read().await.get(&id) {
-            if let Some(instance) = instances.get(key) {
-                trace!(id, "found existing instance for component");
-                return Ok(*instance);
-            }
+        if let Some(instances) = self.instances.read().await.get(&id)
+            && let Some(instance) = instances.get(key)
+        {
+            trace!(id, "found existing instance for component");
+            return Ok(*instance);
         }
 
         let instance = pre.instantiate_async(store.as_context_mut()).await?;

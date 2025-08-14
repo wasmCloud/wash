@@ -110,8 +110,8 @@ fn is_newer(candidate: &Version, current: &Version) -> bool {
 }
 
 fn matches_patch(current: &Version, candidate: &Version) -> bool {
-    candidate.major == current.major 
-        && candidate.minor == current.minor 
+    candidate.major == current.major
+        && candidate.minor == current.minor
         && is_newer(candidate, current)
 }
 
@@ -130,10 +130,11 @@ impl CliCommand for UpdateCommand {
         let (os, arch) = get_os_arch();
 
         // Check current version and constraints
-        if !self.force && !self.dry_run {
-            if let Some(current) = self.get_current_version() {
-                debug!("Current wash version: {}", current);
-            }
+        if !self.force
+            && !self.dry_run
+            && let Some(current) = self.get_current_version()
+        {
+            debug!("Current wash version: {}", current);
         }
 
         let release = self.find_suitable_release(&config).await?;
@@ -256,7 +257,7 @@ impl UpdateCommand {
         // Get all releases to filter based on version constraints
         let releases = self.fetch_all_releases(config).await?;
         debug!("Found {} releases to evaluate", releases.len());
-        
+
         let mut suitable_releases: Vec<(Version, Release)> = releases
             .into_iter()
             .filter_map(|release| {
@@ -267,9 +268,7 @@ impl UpdateCommand {
 
                 debug!(
                     "Evaluating release {} ({}) against current {}",
-                    release.tag_name,
-                    candidate_version,
-                    current
+                    release.tag_name, candidate_version, current
                 );
 
                 // Apply version constraint filters

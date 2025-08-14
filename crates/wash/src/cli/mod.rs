@@ -372,10 +372,9 @@ impl CliContext {
             if let (Ok(new_ver), Ok(cur_ver)) = (
                 semver::Version::parse(contents.trim()),
                 semver::Version::parse(CARGO_PKG_VERSION),
-            ) {
-                if new_ver > cur_ver {
-                    return Ok(true);
-                }
+            ) && new_ver > cur_ver
+            {
+                return Ok(true);
             }
         }
 
@@ -387,16 +386,16 @@ impl CliContext {
                 .unwrap_or(&release.tag_name);
 
             debug!(ver = ?tagged_version, "determined tagged version");
-            if let Ok(new_ver) = semver::Version::parse(tagged_version) {
-                if let Ok(cur_ver) = semver::Version::parse(CARGO_PKG_VERSION) {
-                    debug!(cur_ver = ?cur_ver, new_ver = ?new_ver, "comparing versions");
-                    if new_ver > cur_ver {
-                        // Write the new version to the cache file
-                        tokio::fs::write(&new_version_available, tagged_version)
-                            .await
-                            .context("failed to write new version to cache file")?;
-                        return Ok(true);
-                    }
+            if let Ok(new_ver) = semver::Version::parse(tagged_version)
+                && let Ok(cur_ver) = semver::Version::parse(CARGO_PKG_VERSION)
+            {
+                debug!(cur_ver = ?cur_ver, new_ver = ?new_ver, "comparing versions");
+                if new_ver > cur_ver {
+                    // Write the new version to the cache file
+                    tokio::fs::write(&new_version_available, tagged_version)
+                        .await
+                        .context("failed to write new version to cache file")?;
+                    return Ok(true);
                 }
             }
         } else {
