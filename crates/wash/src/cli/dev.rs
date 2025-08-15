@@ -131,7 +131,7 @@ impl CliCommand for DevCommand {
         spinner.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} {msg}")
-                .unwrap(),
+                .context("failed to create spinner")?,
         );
         spinner.set_message("Building component...");
         spinner.enable_steady_tick(Duration::from_millis(100));
@@ -338,7 +338,7 @@ impl CliCommand for DevCommand {
         dev_spinner.set_style(
             ProgressStyle::default_spinner()
                 .template("{spinner:.green} {msg}")
-                .unwrap(),
+                .context("failed to create spinner")?,
         );
 
         loop {
