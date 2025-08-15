@@ -1,6 +1,6 @@
 use std::{
-    collections::HashMap,
-    path::PathBuf,
+    collections::{HashMap, HashSet},
+    path::{Path, PathBuf},
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -38,7 +38,7 @@ use crate::{
     cli::{
         CliCommand, CliContext, CommandOutput,
         component_build::build_component,
-        doctor::{check_project_specific_tools, detect_project_context},
+        doctor::{ProjectContext, check_project_specific_tools, detect_project_context},
     },
     component_build::BuildConfig,
     config::{Config, load_config},
@@ -48,6 +48,140 @@ use crate::{
         Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::HookType, prepare_component_dev,
     },
 };
+
+/// Helper function to check if a path should be ignored during file watching
+/// to prevent artifact directories from triggering rebuilds
+///
+/// # Arguments
+/// * `path` - The file path to check
+/// * `canonical_project_root` - The canonicalized project root directory
+/// * `ignore_paths` - Set of canonicalized paths that should be ignored
+fn is_ignored(path: &Path, canonical_project_root: &Path, ignore_paths: &HashSet<PathBuf>) -> bool {
+    // Try to get the canonical path, fall back to the original if canonicalization fails
+    let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+
+    // Check if the canonical path starts with any of the ignore paths
+    for ignore_path in ignore_paths {
+        if canonical_path.starts_with(ignore_path) {
+            return true;
+        }
+    }
+
+    // Also check relative paths from canonical project root
+    if let Ok(relative_path) = canonical_path.strip_prefix(canonical_project_root) {
+        // Check if any component of the relative path matches common build directories
+        for component in relative_path.components() {
+            if let Some(component_str) = component.as_os_str().to_str() {
+                match component_str {
+                    "target" |           // Rust builds
+                    "build" |            // General builds  
+                    "dist" |             // Distribution builds
+                    "node_modules" |     // Node.js dependencies
+                    ".wash" |            // Wash artifacts
+                    ".git" |             // Git metadata
+                    ".wasmbuild" => {     // WebAssembly build artifacts
+                        return true;
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Build a set of paths that should be ignored during file watching
+/// Uses project-type-specific defaults when available
+///
+/// # Arguments
+/// * `canonical_project_root` - The canonicalized project root directory
+/// * `artifact_path` - Optional path to the build artifact
+/// * `project_context` - Detected project type for specific ignore patterns
+///
+/// # Returns
+/// A set of canonicalized paths that should be ignored during file watching
+fn build_ignore_set(
+    canonical_project_root: &Path,
+    artifact_path: Option<&Path>,
+    project_context: &ProjectContext,
+) -> HashSet<PathBuf> {
+    let mut ignore_paths = HashSet::new();
+
+    // Add the artifact path's parent directory if provided
+    if let Some(artifact) = artifact_path {
+        if let Some(artifact_dir) = artifact.parent() {
+            if let Ok(canonical) = artifact_dir.canonicalize() {
+                ignore_paths.insert(canonical);
+            }
+        }
+    }
+
+    // Common directories for all project types
+    let mut dirs_to_ignore = vec![".git", ".wash"];
+
+    // Add project-type-specific ignore patterns
+    match project_context {
+        ProjectContext::Rust { .. } => {
+            dirs_to_ignore.extend_from_slice(&["target", ".wasmbuild"]);
+        }
+        ProjectContext::TypeScript { .. } => {
+            dirs_to_ignore.extend_from_slice(&["node_modules", "dist", "build", ".next", ".nuxt"]);
+        }
+        ProjectContext::Go { .. } => {
+            dirs_to_ignore.extend_from_slice(&["bin", "pkg", "vendor"]);
+        }
+        ProjectContext::Mixed { detected_types } => {
+            // Add ignore patterns for all detected project types
+            if detected_types.iter().any(|t| t == "Rust") {
+                dirs_to_ignore.extend_from_slice(&["target", ".wasmbuild"]);
+            }
+            if detected_types
+                .iter()
+                .any(|t| t == "TypeScript" || t == "JavaScript")
+            {
+                dirs_to_ignore.extend_from_slice(&[
+                    "node_modules",
+                    "dist",
+                    "build",
+                    ".next",
+                    ".nuxt",
+                ]);
+            }
+            if detected_types.iter().any(|t| t == "Go") {
+                dirs_to_ignore.extend_from_slice(&["bin", "pkg", "vendor"]);
+            }
+        }
+        ProjectContext::General => {
+            // For general context, include common patterns from all project types
+            dirs_to_ignore.extend_from_slice(&[
+                "target",
+                "build",
+                "dist",
+                "node_modules",
+                ".wasmbuild",
+                ".next",
+                ".nuxt",
+                "bin",
+                "pkg",
+                "vendor",
+            ]);
+        }
+    }
+
+    // Build canonical paths for ignore directories relative to canonical project root
+    for dir in &dirs_to_ignore {
+        let dir_path = canonical_project_root.join(dir);
+        if let Ok(canonical) = dir_path.canonicalize() {
+            ignore_paths.insert(canonical);
+        } else {
+            // Even if the directory doesn't exist yet, include the absolute path
+            ignore_paths.insert(dir_path);
+        }
+    }
+
+    ignore_paths
+}
 
 #[derive(Debug, Clone, Args)]
 pub struct DevCommand {
@@ -261,6 +395,19 @@ impl CliCommand for DevCommand {
             }
         });
 
+        // Canonicalize project root once to ensure consistent path comparisons
+        let canonical_project_root = self.project_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize project directory: {}",
+                self.project_dir.display()
+            )
+        })?;
+        debug!(
+            original = ?self.project_dir.display(),
+            canonical = ?canonical_project_root.display(),
+            "canonicalized project root for file watching"
+        );
+
         // Enable/disable watching to prevent having the output artifact trigger a rebuild
         // This starts as true to prevent a rebuild on the first run
         let pause_watch = Arc::new(AtomicBool::new(true));
@@ -268,7 +415,21 @@ impl CliCommand for DevCommand {
         let (stop_tx, mut stop_rx) = mpsc::channel::<()>(1);
         let (reload_tx, mut reload_rx) = mpsc::channel::<()>(1);
 
-        // let project_path_notify = self.project_dir.clone();
+        // Build initial ignore set including artifact path and project-specific build directories
+        let initial_ignore_set = build_ignore_set(
+            &canonical_project_root,
+            Some(&artifact_path),
+            &project_context,
+        );
+        debug!(
+            ignore_count = initial_ignore_set.len(),
+            project_type = ?project_context,
+            "built initial file watcher ignore set"
+        );
+        let ignore_paths = Arc::new(RwLock::new(initial_ignore_set));
+        let ignore_paths_notify = ignore_paths.clone();
+
+        let canonical_project_root_notify = canonical_project_root.clone();
         debug!(path = ?self.project_dir.display(), "setting up watcher");
         // Watch for changes and rebuild/deploy as needed
         let mut watcher = notify::recommended_watcher(move |res: _| match res {
@@ -282,18 +443,24 @@ impl CliCommand for DevCommand {
                     ..
                 } = event
                 {
-                    // TODO(#20): ensure we ignore the artifact dirs
-                    // Ensure that paths that take place in ignored directories don't trigger a reload
-                    // This is primarily here to avoid recursively triggering reloads for files that are
-                    // generated by the build process.
-                    // if paths.iter().any(|p| {
-                    //     p.strip_prefix(project_path_notify.as_path())
-                    //         .is_ok_and(|p| {
-                    //             cmd.ignore_dirs.iter().any(|ignore| p.starts_with(ignore))
-                    //         })
-                    // }) {
-                    //     return;
-                    // }
+                    // Check if any of the changed paths should be ignored to prevent
+                    // recursive rebuilds from artifact directories
+                    match ignore_paths_notify.try_read() {
+                        Ok(ignore_paths_read) => {
+                            if paths.iter().any(|path| {
+                                is_ignored(path, &canonical_project_root_notify, &ignore_paths_read)
+                            }) {
+                                trace!(paths = ?paths, "ignoring file changes in artifact directories");
+                                return;
+                            }
+                        }
+                        Err(_) => {
+                            // If we can't acquire the lock, proceed with caution
+                            warn!(
+                                "failed to acquire read lock on ignore paths, proceeding with file change notification"
+                            );
+                        }
+                    }
                     // If watch has been paused for any reason, skip notifications
                     if watcher_paused.load(Ordering::SeqCst) {
                         return;
@@ -371,6 +538,24 @@ impl CliCommand for DevCommand {
                             dev_spinner.set_message("Deploying rebuilt component...");
                             info!(path = %artifact_path.display(), "component rebuilt successfully");
 
+                            // Update ignore paths with the new artifact path
+                            match ignore_paths.try_write() {
+                                Ok(mut ignore_paths_write) => {
+                                    let new_ignore_set = build_ignore_set(&canonical_project_root, Some(&artifact_path), &project_context);
+                                    debug!(
+                                        old_count = ignore_paths_write.len(),
+                                        new_count = new_ignore_set.len(),
+                                        artifact_path = %artifact_path.display(),
+                                        "updated ignore paths after successful rebuild"
+                                    );
+                                    *ignore_paths_write = new_ignore_set;
+                                }
+                                Err(_) => {
+                                    warn!("failed to acquire write lock on ignore paths, continuing with old ignore set");
+                                }
+                            }
+
+                            info!("deploying rebuilt component ...");
                             let wasm_bytes = tokio::fs::read(&artifact_path)
                                 .await
                                 .context("failed to read artifact file")?;
@@ -568,5 +753,226 @@ pub async fn handle_request<'a>(
             //     }
             // })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_is_ignored_rust_project() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_root = temp_dir
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp dir");
+
+        // Create target directory
+        fs::create_dir_all(project_root.join("target")).expect("failed to create target dir");
+
+        let context = ProjectContext::Rust {
+            cargo_toml_path: project_root.join("Cargo.toml"),
+        };
+        let ignore_paths = build_ignore_set(&project_root, None, &context);
+
+        // Test that target/ is ignored
+        let target_file = project_root.join("target").join("test.txt");
+        assert!(is_ignored(&target_file, &project_root, &ignore_paths));
+
+        // Test that src/ is not ignored
+        let src_file = project_root.join("src").join("lib.rs");
+        assert!(!is_ignored(&src_file, &project_root, &ignore_paths));
+    }
+
+    #[test]
+    fn test_is_ignored_typescript_project() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_root = temp_dir
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp dir");
+
+        fs::create_dir_all(project_root.join("node_modules"))
+            .expect("failed to create node_modules");
+
+        let context = ProjectContext::TypeScript {
+            package_json_path: project_root.join("package.json"),
+        };
+        let ignore_paths = build_ignore_set(&project_root, None, &context);
+
+        // Test that node_modules/ is ignored
+        let node_modules_file = project_root.join("node_modules").join("test");
+        assert!(is_ignored(&node_modules_file, &project_root, &ignore_paths));
+
+        // Test that src/ is not ignored
+        let src_file = project_root.join("src").join("index.ts");
+        assert!(!is_ignored(&src_file, &project_root, &ignore_paths));
+    }
+
+    #[test]
+    fn test_artifact_path_ignored() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_root = temp_dir
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp dir");
+        let artifact_dir = project_root.join("custom");
+        let artifact_path = artifact_dir.join("output.wasm");
+
+        // Create the artifact directory and a test file in it
+        fs::create_dir_all(&artifact_dir).expect("failed to create artifact dir");
+        fs::write(&artifact_path, "test content").expect("failed to create artifact file");
+
+        let context = ProjectContext::General;
+        let ignore_paths = build_ignore_set(&project_root, Some(&artifact_path), &context);
+
+        // Test that files in the artifact directory are ignored
+        let sibling_file = artifact_dir.join("other.wasm");
+        fs::write(&sibling_file, "other content").expect("failed to create sibling file");
+
+        assert!(is_ignored(&sibling_file, &project_root, &ignore_paths));
+
+        // Test that files outside the artifact directory are not ignored
+        let outside_file = project_root.join("src").join("main.rs");
+        assert!(!is_ignored(&outside_file, &project_root, &ignore_paths));
+    }
+
+    #[test]
+    fn test_mixed_project_includes_all_patterns() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_root = temp_dir
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp dir");
+
+        // Create directories for different project types
+        fs::create_dir_all(project_root.join("target")).expect("failed to create target");
+        fs::create_dir_all(project_root.join("node_modules"))
+            .expect("failed to create node_modules");
+
+        let context = ProjectContext::Mixed {
+            detected_types: vec!["Rust".to_string(), "TypeScript".to_string()],
+        };
+        let ignore_paths = build_ignore_set(&project_root, None, &context);
+
+        // Test that both Rust and TypeScript patterns are ignored
+        let target_file = project_root.join("target").join("test");
+        let node_modules_file = project_root.join("node_modules").join("test");
+
+        assert!(is_ignored(&target_file, &project_root, &ignore_paths));
+        assert!(is_ignored(&node_modules_file, &project_root, &ignore_paths));
+    }
+
+    #[test]
+    fn test_relative_vs_absolute_path_consistency() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_root = temp_dir
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp dir");
+
+        // Create target directory
+        fs::create_dir_all(project_root.join("target")).expect("failed to create target dir");
+
+        let context = ProjectContext::Rust {
+            cargo_toml_path: project_root.join("Cargo.toml"),
+        };
+        let ignore_paths = build_ignore_set(&project_root, None, &context);
+
+        // Test with absolute path
+        let absolute_target_file = project_root.join("target").join("test.txt");
+
+        // Test with relative path (simulate what might come from file watcher)
+        let relative_target_file = PathBuf::from("./target/test.txt");
+
+        // Both should be consistently ignored when checked against canonical project root
+        assert!(is_ignored(
+            &absolute_target_file,
+            &project_root,
+            &ignore_paths
+        ));
+
+        // Note: For relative paths to work correctly, they need to be resolved
+        // relative to the project root first, which is what our canonicalization handles
+        let resolved_relative = project_root.join(
+            relative_target_file
+                .strip_prefix("./")
+                .unwrap_or(&relative_target_file),
+        );
+        assert!(is_ignored(&resolved_relative, &project_root, &ignore_paths));
+    }
+
+    #[test]
+    fn test_symlink_handling() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_root = temp_dir
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp dir");
+
+        // Create actual target directory outside project
+        let external_target = temp_dir.path().join("external_target");
+        fs::create_dir_all(&external_target).expect("failed to create external target");
+
+        // Create symlink from project to external target
+        let symlink_target = project_root.join("target");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&external_target, &symlink_target)
+            .expect("failed to create symlink");
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_dir(&external_target, &symlink_target)
+            .expect("failed to create symlink");
+
+        let context = ProjectContext::Rust {
+            cargo_toml_path: project_root.join("Cargo.toml"),
+        };
+        let ignore_paths = build_ignore_set(&project_root, None, &context);
+
+        // Test file accessed through symlink
+        let file_through_symlink = symlink_target.join("test.txt");
+        fs::write(&external_target.join("test.txt"), "content").expect("failed to write test file");
+
+        // Should be ignored because the symlink resolves to target/ pattern
+        assert!(is_ignored(
+            &file_through_symlink,
+            &project_root,
+            &ignore_paths
+        ));
+
+        // Also test direct access to the external target
+        let external_file = external_target.join("test.txt");
+        // This might or might not be ignored depending on canonicalization
+        // The key is that symlinked paths are handled consistently
+        let _is_external_ignored = is_ignored(&external_file, &project_root, &ignore_paths);
+    }
+
+    #[test]
+    fn test_nested_ignore_patterns() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_root = temp_dir
+            .path()
+            .canonicalize()
+            .expect("failed to canonicalize temp dir");
+
+        // Create nested structure: project/subproject/target
+        let subproject_dir = project_root.join("subproject");
+        let nested_target = subproject_dir.join("target");
+        fs::create_dir_all(&nested_target).expect("failed to create nested target");
+
+        let context = ProjectContext::Rust {
+            cargo_toml_path: project_root.join("Cargo.toml"),
+        };
+        let ignore_paths = build_ignore_set(&project_root, None, &context);
+
+        // Test that nested target directories are also ignored
+        let nested_file = nested_target.join("debug").join("test.wasm");
+        assert!(is_ignored(&nested_file, &project_root, &ignore_paths));
+
+        // Test that the subproject source files are not ignored
+        let subproject_src = subproject_dir.join("src").join("main.rs");
+        assert!(!is_ignored(&subproject_src, &project_root, &ignore_paths));
     }
 }
