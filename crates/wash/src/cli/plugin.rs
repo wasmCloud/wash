@@ -201,7 +201,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
         if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
             ctx = ctx.with_wasi_ctx(
                 WasiCtx::builder()
-                    .preopened_dir(fs_root.as_path(), "/tmp", DirPerms::READ, FilePerms::READ)
+                    .preopened_dir(fs_root.as_path(), "/tmp", DirPerms::all(), FilePerms::all())
                     .expect("failed to create WASI context")
                     .build(),
             )
