@@ -4,13 +4,17 @@
 //! dependencies for wasmCloud components. It integrates with the wasm-pkg-client for
 //! fetching dependencies from registries and manages lock files for reproducible builds.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, instrument};
+use url::Url;
 use wasm_pkg_client::{
-    RegistryMapping,
+    PackageRef, RegistryMapping,
     caching::{CachingClient, FileCache},
 };
 use wasm_pkg_core::{lock::LockFile, wit::OutputType};
@@ -31,6 +35,9 @@ pub struct WitConfig {
     /// The directory where WIT files are stored, if not `./wit` in the project root
     #[serde(default)]
     pub wit_dir: Option<PathBuf>,
+    /// Source overrides for WIT dependencies (target -> source mapping)
+    #[serde(default)]
+    pub sources: HashMap<String, String>,
 }
 
 /// Default WIT registries (just the standard wasm.pkg registry)
@@ -51,6 +58,30 @@ pub struct WitRegistry {
     /// Optional authentication token
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
+}
+
+/// Registry pull source types for WIT dependency overrides
+#[derive(Debug, Clone)]
+pub enum RegistryPullSource {
+    /// Local filesystem path
+    LocalPath(String),
+    /// HTTP/HTTPS URL (tar.gz archives)
+    RemoteHttp(String),
+    /// Git repository URL
+    RemoteGit(String),
+    /// OCI registry reference
+    RemoteOci(String),
+}
+
+impl TryFrom<RegistryPullSource> for RegistryMapping {
+    type Error = anyhow::Error;
+
+    fn try_from(source: RegistryPullSource) -> Result<Self, Self::Error> {
+        match source {
+            RegistryPullSource::RemoteOci(url) => Ok(RegistryMapping::Registry(url.parse()?)),
+            _ => bail!("Cannot convert {:?} to RegistryMapping", source),
+        }
+    }
 }
 
 /// Wrapper around a `wasm_pkg_client::Client` including configuration for fetching WIT dependencies.
@@ -182,145 +213,80 @@ impl WkgFetcher {
         Ok(Self::new(wkg_config, wkg_client_config, cache))
     }
 
-    // TODO(#1): Enable extended pull configurations for wkg config. Call before calling `Self::get_client` to
-    // update configuration used.
-    // pub async fn resolve_extended_pull_configs(
-    //     &mut self,
-    //     pull_cfg: &RegistryPullConfig,
-    //     wasmcloud_toml_dir: impl AsRef<Path>,
-    // ) -> Result<()> {
-    //     let wkg_config_overrides = self.wkg_config.overrides.get_or_insert_default();
+    /// Enable extended pull configurations for wkg config. Call before calling `fetch_wit_dependencies` to
+    /// update configuration used.
+    pub async fn resolve_extended_pull_configs(
+        &mut self,
+        sources: &HashMap<String, String>,
+        project_dir: impl AsRef<Path>,
+    ) -> Result<()> {
+        let wkg_config_overrides = self.wkg_config.overrides.get_or_insert_default();
 
-    // for RegistryPullSourceOverride { target, source } in &pull_cfg.sources {
-    //     let (ns, pkgs, _, _, maybe_version) = parse_wit_package_name(target)?;
-    //     let version_suffix = maybe_version.map(|v| format!("@{v}")).unwrap_or_default();
+        for (target, source) in sources {
+            let (ns, pkgs, maybe_version) = parse_wit_package_name(target)?;
+            let version_suffix = maybe_version.map(|v| format!("@{v}")).unwrap_or_default();
 
-    //     match source {
-    //         // Local files can be used by adding them to the config
-    //         RegistryPullSource::LocalPath(_) => {
-    //             let path = source
-    //                 .resolve_file_path(wasmcloud_toml_dir.as_ref())
-    //                 .await?;
-    //             if !tokio::fs::try_exists(&path).await.with_context(|| {
-    //                 format!(
-    //                     "failed to check for registry pull source local path [{}]",
-    //                     path.display()
-    //                 )
-    //             })? {
-    //                 bail!(
-    //                     "registry pull source path [{}] does not exist",
-    //                     path.display()
-    //                 );
-    //             }
+            let registry_pull_source = detect_source_type(source);
 
-    //             // Set the local override for the namespaces and/or packages
-    //             update_override_dir(wkg_config_overrides, ns, pkgs.as_slice(), path);
-    //         }
-    //         RegistryPullSource::Builtin => bail!("no builtins are supported"),
-    //         RegistryPullSource::RemoteHttp(s) => {
-    //             let url = Url::parse(s)
-    //                 .with_context(|| format!("invalid registry pull source url [{s}]"))?;
-    //             let tempdir = tempfile::tempdir()
-    //                 .with_context(|| {
-    //                     format!("failed to create temp dir for downloading [{url}]")
-    //                 })?
-    //                 .keep();
-    //             let output_path = tempdir.join("unpacked");
-    //             let http_client = crate::lib::start::get_download_client()?;
-    //             let req = http_client.get(url.clone()).send().await.with_context(|| {
-    //                 format!("failed to retrieve WIT output from URL [{}]", &url)
-    //             })?;
-    //             let mut archive = tokio_tar::Archive::new(GzipDecoder::new(
-    //                 tokio_util::io::StreamReader::new(req.bytes_stream().map_err(|e| {
-    //                     std::io::Error::other(format!(
-    //                     "failed to receive byte stream while downloading from URL [{}]: {e}",
-    //                     &url
-    //                 ))
-    //                 })),
-    //             ));
-    //             archive.unpack(&output_path).await.with_context(|| {
-    //                 format!("failed to unpack archive downloaded from URL [{}]", &url)
-    //             })?;
-
-    //             // Find the first nested directory named 'wit', if present
-    //             let output_wit_dir = find_wit_folder_in_path(&output_path).await?;
-
-    //             // Set the local override for the namespaces and/or packages
-    //             // Set the local override for the namespaces and/or packages
-    //             update_override_dir(wkg_config_overrides, ns, pkgs.as_slice(), output_wit_dir);
-    //         }
-    //         RegistryPullSource::RemoteGit(s) => {
-    //             let url = Url::parse(s)
-    //                 .with_context(|| format!("invalid registry pull source url [{s}]"))?;
-    //             let query_pairs = url.query_pairs().collect::<HashMap<_, _>>();
-    //             let tempdir = tempfile::tempdir()
-    //                 .with_context(|| {
-    //                     format!("failed to create temp dir for downloading [{url}]")
-    //                 })?
-    //                 .keep();
-
-    //             // Determine the right git ref to use, based on the submitted query params
-    //             let git_ref = match (
-    //                 query_pairs.get("branch"),
-    //                 query_pairs.get("sha"),
-    //                 query_pairs.get("ref"),
-    //             ) {
-    //                 (Some(branch), _, _) => Some(RepoRef::Branch(String::from(branch.clone()))),
-    //                 (_, Some(sha), _) => Some(RepoRef::from_str(sha)?),
-    //                 (_, _, Some(r)) => Some(RepoRef::Unknown(String::from(r.clone()))),
-    //                 _ => None,
-    //             };
-
-    //             clone_git_repo(
-    //                 None,
-    //                 &tempdir,
-    //                 s.into(),
-    //                 query_pairs
-    //                     .get("subfolder")
-    //                     .map(|s| String::from(s.clone())),
-    //                 git_ref,
-    //             )
-    //             .await
-    //             .with_context(|| {
-    //                 format!("failed to clone repo for pull source git repo [{s}]",)
-    //             })?;
-
-    //             // Find the first nested directory named 'wit', if present
-    //             let output_wit_dir = find_wit_folder_in_path(&tempdir).await?;
-
-    //             // Set the local override for the namespaces and/or packages
-    //             update_override_dir(wkg_config_overrides, ns, pkgs.as_slice(), output_wit_dir);
-    //         }
-    //         // All other registry pull sources should be directly convertible to `RegistryMapping`s
-    //         rps @ (RegistryPullSource::RemoteOci(_)
-    //         | RegistryPullSource::RemoteHttpWellKnown(_)) => {
-    //             let registry = rps.clone().try_into()?;
-    //             match (ns, pkgs.as_slice()) {
-    //                 // namespace-level override
-    //                 (ns, []) => {
-    //                     self.wkg_client_config.set_namespace_registry(
-    //                         format!("{ns}{version_suffix}").try_into()?,
-    //                         registry,
-    //                     );
-    //                 }
-    //                 // package-level override
-    //                 (ns, packages) => {
-    //                     for pkg in packages {
-    //                         self.wkg_client_config.set_package_registry_override(
-    //                             PackageRef::new(
-    //                                 ns.clone().try_into()?,
-    //                                 pkg.to_string().try_into()?,
-    //                             ),
-    //                             registry.clone(),
-    //                         );
-    //                     }
-    //                 }
-    //             }
-    //         }
-    //     }
-    // }
-    // Ok(())
-    // }
+            match registry_pull_source {
+                RegistryPullSource::LocalPath(_) => {
+                    let resolved_path = project_dir.as_ref().join(source);
+                    if !tokio::fs::try_exists(&resolved_path)
+                        .await
+                        .with_context(|| {
+                            format!(
+                                "failed to check for WIT source path [{}]",
+                                resolved_path.display()
+                            )
+                        })?
+                    {
+                        bail!(
+                            "WIT source path [{}] does not exist",
+                            resolved_path.display()
+                        );
+                    }
+                    set_override_for_target(wkg_config_overrides, &ns, &pkgs, resolved_path);
+                }
+                RegistryPullSource::RemoteHttp(_) => {
+                    let wit_dir = download_and_extract_http(source)
+                        .await
+                        .with_context(|| format!("failed to download HTTP source [{}]", source))?;
+                    set_override_for_target(wkg_config_overrides, &ns, &pkgs, wit_dir);
+                }
+                RegistryPullSource::RemoteGit(_) => {
+                    let wit_dir = clone_git_and_find_wit(source)
+                        .await
+                        .with_context(|| format!("failed to clone Git source [{}]", source))?;
+                    set_override_for_target(wkg_config_overrides, &ns, &pkgs, wit_dir);
+                }
+                RegistryPullSource::RemoteOci(_) => {
+                    let registry = registry_pull_source.try_into()?;
+                    match pkgs.as_slice() {
+                        [] => {
+                            // Namespace-level override
+                            self.wkg_client_config.set_namespace_registry(
+                                format!("{ns}{version_suffix}").try_into()?,
+                                registry,
+                            );
+                        }
+                        packages => {
+                            // Package-level overrides
+                            for pkg in packages {
+                                self.wkg_client_config.set_package_registry_override(
+                                    PackageRef::new(
+                                        ns.clone().try_into()?,
+                                        pkg.to_string().try_into()?,
+                                    ),
+                                    registry.clone(),
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
 
     pub async fn fetch_wit_dependencies(
         self,
@@ -343,6 +309,175 @@ impl WkgFetcher {
 
         Ok(())
     }
+}
+
+/// Detect source type from string format
+fn detect_source_type(source: &str) -> RegistryPullSource {
+    if source.starts_with("git+") || source.contains(".git") {
+        RegistryPullSource::RemoteGit(source.to_string())
+    } else if source.starts_with("http://") || source.starts_with("https://") {
+        RegistryPullSource::RemoteHttp(source.to_string())
+    } else if source.contains('/') && !source.starts_with('.') && !source.starts_with("file://") {
+        // Likely OCI reference (contains slash but not relative path)
+        RegistryPullSource::RemoteOci(source.to_string())
+    } else {
+        // Default to local path
+        RegistryPullSource::LocalPath(source.to_string())
+    }
+}
+
+/// Parse a WIT package name into namespace, packages, and version
+/// Format: namespace:package@version or namespace@version
+fn parse_wit_package_name(target: &str) -> Result<(String, Vec<String>, Option<String>)> {
+    // Split on @ to separate version
+    let (name_part, version) = if let Some((name, ver)) = target.rsplit_once('@') {
+        (name, Some(ver.to_string()))
+    } else {
+        (target, None)
+    };
+
+    // Split on : to separate namespace and packages
+    if let Some((namespace, packages_part)) = name_part.split_once(':') {
+        let packages = if packages_part.is_empty() {
+            vec![]
+        } else {
+            vec![packages_part.to_string()]
+        };
+        Ok((namespace.to_string(), packages, version))
+    } else {
+        // Just namespace, no packages
+        Ok((name_part.to_string(), vec![], version))
+    }
+}
+
+/// Set override for the target WIT package using the wkg config overrides map
+fn set_override_for_target(
+    overrides: &mut std::collections::HashMap<String, wasm_pkg_core::config::Override>,
+    namespace: &str,
+    packages: &[String],
+    path: PathBuf,
+) {
+    use wasm_pkg_core::config::Override;
+
+    if packages.is_empty() {
+        // Namespace-level override: "namespace" = { path = "..." }
+        overrides.insert(
+            namespace.to_string(),
+            Override {
+                path: Some(path),
+                version: None,
+            },
+        );
+    } else {
+        // Package-level override: "namespace:package" = { path = "..." }
+        for package in packages {
+            let key = format!("{}:{}", namespace, package);
+            overrides.insert(
+                key,
+                Override {
+                    path: Some(path.clone()),
+                    version: None,
+                },
+            );
+        }
+    }
+}
+
+/// Download and extract HTTP tar.gz source
+async fn download_and_extract_http(url: &str) -> Result<PathBuf> {
+    let parsed_url = Url::parse(url).with_context(|| format!("invalid HTTP URL [{}]", url))?;
+
+    let tempdir = tempfile::tempdir()
+        .with_context(|| format!("failed to create temp dir for downloading [{}]", url))?
+        .keep();
+
+    let output_path = tempdir.join("unpacked");
+
+    // Use reqwest to download the archive with rustls-tls
+    let client = reqwest::ClientBuilder::new()
+        .use_rustls_tls()
+        .build()
+        .context("failed to build HTTP client")?;
+    let response = client
+        .get(parsed_url)
+        .send()
+        .await
+        .with_context(|| format!("failed to download from URL [{}]", url))?;
+
+    let bytes = response
+        .bytes()
+        .await
+        .with_context(|| format!("failed to read response from URL [{}]", url))?;
+
+    // Extract tar.gz
+    let decoder = flate2::read::GzDecoder::new(&bytes[..]);
+    let mut archive = tar::Archive::new(decoder);
+    archive
+        .unpack(&output_path)
+        .with_context(|| format!("failed to unpack archive from URL [{}]", url))?;
+
+    find_wit_folder_in_path(&output_path).await
+}
+
+/// Clone git repository and find WIT directory
+async fn clone_git_and_find_wit(url: &str) -> Result<PathBuf> {
+    let tempdir = tempfile::tempdir()
+        .with_context(|| format!("failed to create temp dir for cloning [{}]", url))?
+        .keep();
+
+    // Parse git URL to handle git+ prefix
+    let git_url = if let Some(stripped) = url.strip_prefix("git+") {
+        stripped
+    } else {
+        url
+    };
+
+    // Use git2 to clone the repository
+    let _repo = git2::Repository::clone(git_url, &tempdir)
+        .with_context(|| format!("failed to clone git repository [{}]", git_url))?;
+
+    find_wit_folder_in_path(&tempdir).await
+}
+
+/// Find the first nested directory named 'wit' in the given path
+async fn find_wit_folder_in_path(search_path: &Path) -> Result<PathBuf> {
+    find_wit_folder_in_path_internal(search_path, 0).await
+}
+
+/// Internal helper for find_wit_folder_in_path with depth limit to prevent infinite recursion
+fn find_wit_folder_in_path_internal(
+    search_path: &Path,
+    depth: usize,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<PathBuf>> + Send + '_>> {
+    Box::pin(async move {
+        if depth > 10 {
+            // Prevent infinite recursion
+            return Ok(search_path.to_path_buf());
+        }
+
+        let mut entries = tokio::fs::read_dir(search_path)
+            .await
+            .with_context(|| format!("failed to read directory [{}]", search_path.display()))?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.is_dir() {
+                if path.file_name().and_then(|n| n.to_str()) == Some("wit") {
+                    return Ok(path);
+                }
+
+                // Recursively search subdirectories
+                if let Ok(nested_wit) = find_wit_folder_in_path_internal(&path, depth + 1).await
+                    && nested_wit != path
+                {
+                    return Ok(nested_wit);
+                }
+            }
+        }
+
+        // If no wit directory found, return the search path itself
+        Ok(search_path.to_path_buf())
+    })
 }
 
 /// Load a lock file from the project directory
@@ -402,5 +537,94 @@ pub async fn load_lock_file(project_dir: impl AsRef<Path>) -> Result<LockFile> {
         LockFile::new_with_path([], &project_lock_file_path)
             .await
             .context("failed to create new lock file")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_detect_source_type() {
+        assert!(matches!(
+            detect_source_type("../shared-wit"),
+            RegistryPullSource::LocalPath(_)
+        ));
+        assert!(matches!(
+            detect_source_type("./local/path"),
+            RegistryPullSource::LocalPath(_)
+        ));
+        assert!(matches!(
+            detect_source_type("https://example.com/archive.tar.gz"),
+            RegistryPullSource::RemoteHttp(_)
+        ));
+        assert!(matches!(
+            detect_source_type("git+https://github.com/user/repo.git"),
+            RegistryPullSource::RemoteGit(_)
+        ));
+        assert!(matches!(
+            detect_source_type("ghcr.io/user/package"),
+            RegistryPullSource::RemoteOci(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_wit_package_name() {
+        let (ns, pkgs, ver) = parse_wit_package_name("wasmcloud:bus@1.0.0").unwrap();
+        assert_eq!(ns, "wasmcloud");
+        assert_eq!(pkgs, vec!["bus"]);
+        assert_eq!(ver, Some("1.0.0".to_string()));
+
+        let (ns, pkgs, ver) = parse_wit_package_name("wasi:config").unwrap();
+        assert_eq!(ns, "wasi");
+        assert_eq!(pkgs, vec!["config"]);
+        assert_eq!(ver, None);
+
+        let (ns, pkgs, ver) = parse_wit_package_name("wasmcloud@2.0.0").unwrap();
+        assert_eq!(ns, "wasmcloud");
+        assert_eq!(pkgs, Vec::<String>::new());
+        assert_eq!(ver, Some("2.0.0".to_string()));
+    }
+
+    #[test]
+    fn test_set_override_for_target() {
+        let mut overrides = HashMap::new();
+        let path = PathBuf::from("/tmp/test-wit");
+
+        // Test namespace-level override
+        set_override_for_target(&mut overrides, "wasmcloud", &[], path.clone());
+        assert!(overrides.contains_key("wasmcloud"));
+        assert_eq!(overrides["wasmcloud"].path, Some(path.clone()));
+
+        // Test package-level override
+        set_override_for_target(
+            &mut overrides,
+            "wasi",
+            &["config".to_string()],
+            path.clone(),
+        );
+        assert!(overrides.contains_key("wasi:config"));
+        assert_eq!(overrides["wasi:config"].path, Some(path));
+    }
+
+    #[test]
+    fn test_wit_config_deserialization() {
+        let json = r#"
+        {
+            "sources": {
+                "wasmcloud:bus": "../shared-wit",
+                "wasi:config": "https://example.com/config.tar.gz"
+            }
+        }
+        "#;
+
+        let config: WitConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(config.sources.len(), 2);
+        assert_eq!(config.sources["wasmcloud:bus"], "../shared-wit");
+        assert_eq!(
+            config.sources["wasi:config"],
+            "https://example.com/config.tar.gz"
+        );
     }
 }

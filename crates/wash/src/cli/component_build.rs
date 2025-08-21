@@ -357,13 +357,13 @@ impl ComponentBuilder {
     /// Fetch WIT dependencies if the project has any
     #[instrument(
         level = "debug",
-        skip(self, ctx, _config),
+        skip(self, ctx, config),
         name = "fetch_wit_dependencies"
     )]
     async fn fetch_wit_dependencies(
         &self,
         ctx: &CliContext,
-        _config: &Config,
+        config: &Config,
     ) -> anyhow::Result<()> {
         let wit_dir = self.get_wit_dir();
 
@@ -384,8 +384,19 @@ impl ComponentBuilder {
             config: None, // TODO(#1): config
             cache: Some(ctx.cache_dir().join("package_cache")),
         };
-        let config = wasm_pkg_core::config::Config::default();
-        let fetcher = WkgFetcher::from_common(&args, config).await?;
+        let wkg_config = wasm_pkg_core::config::Config::default();
+        let mut fetcher = WkgFetcher::from_common(&args, wkg_config).await?;
+
+        // Apply WIT source overrides if present in configuration
+        if let Some(wit_config) = &config.wit
+            && !wit_config.sources.is_empty()
+        {
+            debug!("applying WIT source overrides: {:?}", wit_config.sources);
+            fetcher
+                .resolve_extended_pull_configs(&wit_config.sources, &self.project_path)
+                .await
+                .context("failed to resolve WIT source overrides")?;
+        }
 
         // Fetch dependencies
         fetcher
