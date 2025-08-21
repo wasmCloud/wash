@@ -231,41 +231,9 @@ world plugin-guest {
     // can import/export HTTP
 }
 
-// An example of a fully featured world for a plugin command
-// that supports HTTP as well as the plugin interface
-world plugin-guest-http {
-    // tinygo requirement
-    include wasi:cli/imports@0.2.0;
-    // can log
-    import wasi:logging/logging@0.1.0-draft;
-    // can get runtime config
-    import wasi:config/runtime@0.2.0-draft;
-    // can make outbound HTTP calls
-    import wasi:http/outgoing-handler@0.2.0;
-    // can setup HTTP handlers
-    export wasi:http/incoming-handler@0.2.0;
-    // Must export the plugin interface
-    export plugin;
-}
-
 // An example world of a plugin that can be used in the hot reload loop, namely exporting the HTTP bindings
 world dev {
     import wasi:logging/logging@0.1.0-draft;
-    import wasi:blobstore/blobstore@0.2.0-draft;
-    import wasi:blobstore/container@0.2.0-draft;
-    import wasi:blobstore/types@0.2.0-draft;
 
     export wasi:http/incoming-handler@0.2.0;
-}
-
-// An example world of a component that implements `wasi:blobstore` for a DevRegister hook plugin
-// DevRegister plugins can export any interface for reuse in the developer loop
-// as long as they export the plugin interface and register a DevRegister hook.
-world blobstore-host {
-    import wasi:logging/logging@0.1.0-draft;
-
-    export plugin;
-    export wasi:blobstore/blobstore@0.2.0-draft;
-    export wasi:blobstore/container@0.2.0-draft;
-    export wasi:blobstore/types@0.2.0-draft;
 }

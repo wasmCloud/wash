@@ -1,4 +1,4 @@
-//go:generate go tool wit-bindgen-go generate --world plugin-guest-http --out gen ../../wit
+//go:generate go tool wit-bindgen-go generate --world oauth --out gen ./wit
 package main
 
 import (

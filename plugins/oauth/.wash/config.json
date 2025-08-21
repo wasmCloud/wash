@@ -5,14 +5,13 @@
       "build_flags": [],
       "disable_go_generate": false,
       "scheduler": "asyncify",
-      "wit_world": "plugin-guest-http"
+      "wit_world": "oauth"
     },
     "artifact_path": "build/output.wasm"
   },
-  "templates": [],
   "wit": {
-    "registries": [],
-    "skip_fetch": true,
-    "wit_dir": "../../wit"
+    "sources": {
+      "wasmcloud:wash": "../../wit"
+    }
   }
 }

@@ -2,8 +2,7 @@
 use crate::Component;
 
 wit_bindgen::generate!({
-    path: "../../wit",
-    world: "plugin-guest",
+    world: "aspire-otel",
     generate_all,
 });
 
