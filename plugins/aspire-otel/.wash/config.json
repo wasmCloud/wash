@@ -8,8 +8,10 @@
       "no_default_features": false
     }
   },
+  "templates": [],
   "wit": {
-    "skip_fetch": true
-  },
-  "templates": []
+    "sources": {
+      "wasmcloud:wash": "../../wit"
+    }
+  }
 }

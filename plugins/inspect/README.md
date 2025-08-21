@@ -1,12 +1,38 @@
 # Inspect Plugin for wash
 
-A wash plugin that provides component inspection functionality, replicating the behavior of `wash inspect` but as a plugin that can be used in both command mode and as an automatic hook after development sessions.
+A wash plugin that provides component inspection functionality, allowing you to inspect WebAssembly components both as a command and automatically after development sessions.
 
-## Features
+## What it does
 
-- **Command Mode**: Execute `wash inspect <component-path>` to inspect WebAssembly components
+The inspect plugin provides detailed analysis of WebAssembly components, showing their interfaces, exports, imports, and metadata. It can be used in two ways:
+
+- **Command Mode**: Execute `wash plugin-inspect <component-path>` to inspect WebAssembly components on demand
 - **AfterDev Hook**: Automatically inspects components when `wash dev` sessions end
-- **WIT Interface Display**: Shows the WebAssembly Interface Types (WIT) of components
+
+## Building
+
+To build the plugin from source:
+
+```bash
+cd plugins/inspect
+wash build
+```
+
+This will create a WebAssembly component at `target/wasm32-wasip2/debug/inspect.wasm` (or `release/` if built with `--release`).
+
+## Installation
+
+Install the plugin into your wash environment:
+
+```bash
+wash plugin install target/wasm32-wasip2/debug/inspect.wasm
+```
+
+Or install directly from the build directory:
+
+```bash
+wash plugin install file://$(pwd)/target/wasm32-wasip2/debug/inspect.wasm
+```
 
 ## Usage
 
@@ -14,55 +40,25 @@ A wash plugin that provides component inspection functionality, replicating the 
 
 ```bash
 # Inspect a local component file
-wash inspect ./my-component.wasm
+wash plugin-inspect ./my-component.wasm
 
-# Inspect a component at a specific path  
-wash inspect /path/to/component.wasm
+# Inspect a component at a specific path
+wash plugin-inspect /path/to/component.wasm
 ```
 
 ### As an AfterDev Hook
 
-The plugin automatically registers an `AfterDev` hook that will run when `wash dev` sessions end. It will:
+The plugin automatically registers an `after-dev` hook that will run when `wash dev` sessions end. It will:
 
 1. Look for the component artifact path in the development context
-2. Fall back to common artifact locations if not found in context
-3. Inspect the component and display its WIT interface
-4. Provide a summary of the inspection results
+2. Inspect the component and display its interface information
+3. Provide a summary of the component's exports, imports, and capabilities
 
-## Implementation Status
+This gives you immediate feedback about your component after each development iteration.
 
-⚠️ **Note**: This plugin is currently a proof-of-concept implementation with some limitations:
+## Features
 
-- **Synchronous Inspection**: The current plugin interface doesn't support async operations, so the full WIT parsing is not yet implemented
-- **Local Files Only**: OCI reference support is not yet implemented (TODO)
-- **Basic Output**: Full WIT formatting and display needs enhancement
-
-## TODOs
-
-- [ ] Implement full synchronous component inspection
-- [ ] Add support for OCI references like the main `wash inspect` command
-- [ ] Enhance WIT output formatting
-- [ ] Add error handling for malformed components
-- [ ] Add configuration options for output format
-- [ ] Add caching for repeated inspections
-
-## Development
-
-To build the plugin:
-
-```bash
-cd plugins/inspect
-cargo component build --release
-```
-
-The plugin will be built as a WebAssembly component that can be loaded by wash.
-
-## Architecture
-
-The plugin follows the standard wash plugin architecture:
-
-- `src/lib.rs`: Core inspection logic (adapted from wash's inspect module)
-- `src/plugin.rs`: Plugin interface implementation with metadata and command handling
-- `src/bindings.rs`: WIT bindings generation
-
-The plugin exports the `wasmcloud:wash/plugin` interface and can be used by wash's plugin system.
+- **WIT Interface Display**: Shows WebAssembly Interface Types (WIT) and component interfaces
+- **Export/Import Analysis**: Lists all component exports and imports
+- **Component Metadata**: Displays component metadata and version information
+- **Automatic Integration**: Works seamlessly with `wash dev` workflow

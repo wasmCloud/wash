@@ -9,7 +9,8 @@
     }
   },
   "wit": {
-    "skip_fetch": true
-  },
-  "templates": []
+    "sources": {
+      "wasmcloud:wash": "../../wit"
+    }
+  }
 }
