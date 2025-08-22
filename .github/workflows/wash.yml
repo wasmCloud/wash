@@ -72,10 +72,8 @@ jobs:
         run: |
           cargo +nightly fmt -- --check
       - name: Lint
-        # TODO(#13): Deny warnings for code quality
-        # cargo clippy --workspace -- -D warnings
         run: |
-          cargo clippy --workspace
+          cargo clippy --workspace -- -D warnings
       - name: Check for unused dependencies
         run: |
           cargo machete
