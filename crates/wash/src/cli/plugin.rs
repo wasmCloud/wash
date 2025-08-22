@@ -458,7 +458,20 @@ impl TestCommand {
             args.extend(self.args.iter());
 
             let cli_command: clap::Command = component.metadata().into();
-            let matches = cli_command.get_matches_from(args);
+            let matches = match cli_command.try_get_matches_from(args) {
+                Ok(matches) => matches,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        clap::error::ErrorKind::DisplayHelp
+                            | clap::error::ErrorKind::DisplayVersion
+                    ) =>
+                {
+                    let _ = e.print();
+                    return Ok(CommandOutput::error(e.to_string(), None));
+                }
+                Err(e) => anyhow::bail!("Failed to parse command arguments: {}", e),
+            };
 
             let component_plugin_command = ComponentPluginCommand {
                 command_name: &component.metadata().name,
