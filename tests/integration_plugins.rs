@@ -40,32 +40,35 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
         inspect_plugin_path.display()
     );
 
-    // TODO(#12): Weirdly, clap's help text will actually _exit_ the test if this
-    // runs. So it either needs to be tested separately or hooked into somehow
     // Test 1: Basic plugin test without any command or hook flags
-    // eprintln!("🔍 Test 1: Basic plugin test (help)");
-    // let test_cmd_basic = TestCommand {
-    //     plugin: oauth_plugin_path.clone(),
-    //     args: vec!["--help".to_string()],
-    //     hooks: vec![],
-    // };
-    // let plugin_cmd_basic = PluginCommand::Test(test_cmd_basic);
+    eprintln!("🔍 Test 1: Basic plugin test (help)");
 
-    // let result_basic = plugin_cmd_basic
-    //     .handle(&ctx)
-    //     .await
-    //     .context("Failed to execute basic plugin test")?;
+    let oauth_plugin_path = PathBuf::from("plugins/oauth");
+
+    let test_cmd_basic = TestCommand {
+        plugin: oauth_plugin_path.clone(),
+        args: vec!["--help".to_string()],
+        hooks: vec![],
+    };
+    let plugin_cmd_basic = PluginCommand::Test(test_cmd_basic);
+
+    let result_basic = plugin_cmd_basic
+        .handle(&ctx)
+        .await
+        .context("Failed to execute basic plugin test")?;
 
     // NOTE: This may feel weird, but the default --help exit code is actually 1
-    // assert!(
-    //     !result_basic.is_success(),
-    //     "Basic plugin test should succeed"
-    // );
-    // // The description
-    // assert!(result_basic.text().contains(
-    //     "OAuth2 server for authentication"
-    // ));
-    // eprintln!("✅ Basic plugin test passed");
+    assert!(
+        !result_basic.is_success(),
+        "Basic plugin test should succeed"
+    );
+    // The description
+    assert!(
+        result_basic
+            .text()
+            .contains("OAuth2 server for authentication")
+    );
+    eprintln!("✅ Basic plugin test passed");
 
     // Test 2: Plugin test with inspect command using a test component
     eprintln!("🔍 Test 2: Plugin test command with component inspection");
