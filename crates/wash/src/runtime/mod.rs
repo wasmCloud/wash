@@ -4,7 +4,7 @@ use std::fmt::Debug;
 use std::path::Path;
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use tokio::sync::RwLock;
+use tokio::{process::Child, sync::RwLock};
 use tracing::{debug, error, info, trace, warn};
 use wasmcloud_runtime::Runtime;
 use wasmcloud_runtime::capability::config::runtime::ConfigError;
@@ -41,12 +41,16 @@ pub struct Ctx {
 
     /// Powers the built-in implementation of `wasi:config/runtime`
     pub runtime_config: Arc<RwLock<HashMap<String, String>>>,
+    /// Stores the handles to background processes spawned by host_exec_background. Once this
+    /// context struct is dropped the processes will be removed
+    pub background_processes: Arc<RwLock<Vec<Child>>>,
 }
 
 /// Helper struct to build a [`Ctx`] with a builder pattern
 pub struct CtxBuilder {
     ctx: WasiCtx,
     runtime_config: Option<Arc<RwLock<HashMap<String, String>>>>,
+    background_processes: Option<Arc<RwLock<Vec<Child>>>>,
 }
 
 impl CtxBuilder {
@@ -57,6 +61,7 @@ impl CtxBuilder {
                 .inherit_stderr()
                 .build(),
             runtime_config: None,
+            background_processes: None,
         }
     }
 
@@ -81,10 +86,18 @@ impl CtxBuilder {
         self
     }
 
+    /// Sets the background processes list for the context using an Arc-wrapped RwLock. This allows sharing
+    /// the background processes list across multiple Ctx instances, typically from CliContext.
+    pub fn with_background_processes(mut self, processes: Arc<RwLock<Vec<Child>>>) -> Self {
+        self.background_processes = Some(processes);
+        self
+    }
+
     pub fn build(self) -> Ctx {
         Ctx {
             ctx: self.ctx,
             runtime_config: self.runtime_config.unwrap_or_default(),
+            background_processes: self.background_processes.unwrap_or_default(),
             ..Default::default()
         }
     }
@@ -113,6 +126,7 @@ impl Default for Ctx {
                 .build(),
             http: WasiHttpCtx::new(),
             runtime_config: Arc::default(),
+            background_processes: Arc::default(),
         }
     }
 }
@@ -124,6 +138,7 @@ impl Debug for Ctx {
             .field("table", &self.table)
             .field("http", &self.http)
             .field("runtime_config", &self.runtime_config)
+            .field("background_processes", &self.background_processes)
             .finish()
     }
 }

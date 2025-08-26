@@ -351,8 +351,16 @@ impl CliCommand for DevCommand {
         debug!(path = ?blobstore_root.display(), "using blobstore root directory");
 
         // TODO(#19): Only spawn the server if the component exports wasi:http
+        let background_processes = ctx.background_processes.clone();
         tokio::spawn(async move {
-            if let Err(e) = server(&mut component_rx, address, runtime_config, blobstore_root).await
+            if let Err(e) = server(
+                &mut component_rx,
+                address,
+                runtime_config,
+                blobstore_root,
+                background_processes,
+            )
+            .await
             {
                 error!(err = ?e,"error running http server for dev");
             }
@@ -560,6 +568,7 @@ async fn server(
     address: String,
     runtime_config: HashMap<String, String>,
     blobstore_root: PathBuf,
+    background_processes: Arc<RwLock<Vec<tokio::process::Child>>>,
 ) -> anyhow::Result<()> {
     // Prepare our server state and start listening for connections.
     let mut component = rx.borrow_and_update().to_owned();
@@ -568,6 +577,7 @@ async fn server(
     loop {
         let blobstore_root = blobstore_root.clone();
         let runtime_config = runtime_config.clone();
+        let background_processes = background_processes.clone();
         select! {
             // If the component changed, replace the current one
             _ = rx.changed() => {
@@ -579,6 +589,7 @@ async fn server(
             // tokio task. Note that for now this only works with HTTP/1.1.
             Ok((client, addr)) = listener.accept() => {
                 let component = component.clone();
+                let background_processes = background_processes.clone();
                 debug!(addr = ?addr, "serving new client");
 
                 tokio::spawn(async move {
@@ -589,6 +600,7 @@ async fn server(
                             TokioIo::new(client),
                             hyper::service::service_fn(move |req| {
                                 let component = component.clone();
+                                let background_processes = background_processes.clone();
                                 let wasi_ctx = match WasiCtxBuilder::new()
                                     .preopened_dir(&blobstore_root, "/dev", DirPerms::all(), FilePerms::all())
                                 {
@@ -601,6 +613,7 @@ async fn server(
                                 let ctx = Ctx::builder()
                                     .with_wasi_ctx(wasi_ctx)
                                     .with_runtime_config(runtime_config.clone())
+                                    .with_background_processes(background_processes)
                                     .build();
                                 async move { component.handle_request(Some(ctx), req).await }
                             }),
