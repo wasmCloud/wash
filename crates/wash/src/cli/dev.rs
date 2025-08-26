@@ -5,7 +5,6 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
 };
 
 use anyhow::{Context as _, ensure};
@@ -13,7 +12,6 @@ use base64::Engine;
 use clap::Args;
 use etcetera::AppStrategy as _;
 use hyper::server::conn::http1;
-use indicatif::{ProgressBar, ProgressStyle};
 use notify::{
     Event as NotifyEvent, RecursiveMode, Watcher,
     event::{EventKind, ModifyKind},
@@ -224,15 +222,6 @@ impl CliCommand for DevCommand {
             debug!("no recommendations found for project tools");
         }
 
-        let spinner = ProgressBar::new_spinner();
-        spinner.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .context("failed to create spinner")?,
-        );
-        spinner.set_message("Building component...");
-        spinner.enable_steady_tick(Duration::from_millis(100));
-
         let artifact_path = match build_component(&self.project_dir, ctx, &config).await {
             // Edge case where the build was successful, but the artifact path in the config is different
             // than the one returned by the build process.
@@ -243,19 +232,16 @@ impl CliCommand for DevCommand {
                     .and_then(|b| b.artifact_path.as_ref())
                     .is_some_and(|p| p != &build_result.artifact_path) =>
             {
-                spinner.finish_with_message("✅ Component built successfully");
                 warn!(path = ?build_result.artifact_path, "component built successfully, but artifact path in config is different");
                 // Ensure the artifact path is set in the config
                 build_result.artifact_path
             }
             // Use the build result artifact path if the config does not specify one
             Ok(build_result) => {
-                spinner.finish_with_message("✅ Component built successfully");
                 debug!(path = ?build_result.artifact_path, "component built successfully, using as artifact path");
                 build_result.artifact_path
             }
             Err(e) => {
-                spinner.finish_with_message("❌ Build failed");
                 // TODO(#18): Support continuing, npm start works like that.
                 error!("failed to build component, will not start dev session");
                 error!("{e}");
@@ -459,13 +445,6 @@ impl CliCommand for DevCommand {
         info!("development session started successfully");
         info!(address = self.address, "listening for HTTP requests");
 
-        // Create a single spinner for the entire dev session
-        let dev_spinner = ProgressBar::new_spinner();
-        dev_spinner.set_style(
-            ProgressStyle::default_spinner()
-                .template("{spinner:.green} {msg}")
-                .context("failed to create spinner")?,
-        );
 
         loop {
             info!("watching for file changes (press Ctrl+c to stop)...");
@@ -474,27 +453,21 @@ impl CliCommand for DevCommand {
                 _ = reload_rx.recv() => {
                     pause_watch.store(true, Ordering::SeqCst);
 
-                    dev_spinner.set_message("Rebuilding component...");
-                    dev_spinner.enable_steady_tick(Duration::from_millis(100));
-
                     info!("rebuilding component after file changed ...");
 
                     // TODO(IMPORTANT): ensure that this calls the build pre-post hooks
                     // TODO(#21): Skip wit fetch if no .wit change
                     // TODO(#22): Typescript: Skip install if no package.json change
-                    let rebuild_result = dev_spinner.suspend(|| async {
-                        build_component(
-                            &self.project_dir,
-                            ctx,
-                            &config,
-                        ).await
-                    }).await;
+                    let rebuild_result = build_component(
+                        &self.project_dir,
+                        ctx,
+                        &config,
+                    ).await;
 
                     match rebuild_result {
                         Ok(build_result) => {
                             // Use the new artifact path from the build result
                             let artifact_path = build_result.artifact_path;
-                            dev_spinner.set_message("Deploying rebuilt component...");
                             info!(path = %artifact_path.display(), "component rebuilt successfully");
 
                             info!("deploying rebuilt component ...");
@@ -506,9 +479,6 @@ impl CliCommand for DevCommand {
                                 .context("failed to prepare component")?;
                             component_tx.send_replace(Arc::new(component));
 
-                            dev_spinner.finish_with_message("✅ Component rebuilt and deployed successfully");
-                            dev_spinner.reset();
-
                             // Avoid jitter with reloads by pausing the watcher for a short time
                             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                             // Make sure that the reload channel is empty before unpausing the watcher
@@ -516,8 +486,6 @@ impl CliCommand for DevCommand {
                             pause_watch.store(false, Ordering::SeqCst);
                         }
                         Err(e) => {
-                            dev_spinner.finish_with_message("❌ Rebuild failed");
-                            dev_spinner.reset();
                             info!("failed to build component, will retry on next file change");
                             // TODO(#23): This doesn't include color output
                             // This nicely formats the error message

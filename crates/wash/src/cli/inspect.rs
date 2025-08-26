@@ -61,11 +61,11 @@ impl CliCommand for InspectCommand {
 
                     // Load project config and build the component
                     let config = ctx
-                        .ensure_config(Some(&path))
+                        .ensure_config(Some(path))
                         .await
                         .context("Failed to load project configuration")?;
 
-                    let build_result = build_component(&path, ctx, &config)
+                    let build_result = build_component(path, ctx, &config)
                         .await
                         .context("Failed to build component from project directory")?;
 
