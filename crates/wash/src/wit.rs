@@ -432,15 +432,45 @@ async fn clone_git_and_find_wit(url: &str) -> Result<PathBuf> {
         url
     };
 
-    // Use git2 to clone the repository
-    let _repo = git2::Repository::clone(git_url, &tempdir)
-        .with_context(|| format!("failed to clone git repository [{}]", git_url))?;
+    debug!(
+        "cloning git repository: {} to {}",
+        git_url,
+        tempdir.display()
+    );
 
-    find_wit_folder_in_path(&tempdir).await
+    // Use system git command to clone the repository
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.args(&["clone", git_url, tempdir.to_string_lossy().as_ref()]);
+
+    let output = cmd
+        .output()
+        .await
+        .with_context(|| format!("failed to execute git clone command for [{}]", git_url))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        bail!("Git clone failed for [{}]: {}", git_url, stderr);
+    }
+
+    debug!(url = git_url, "successfully cloned git repository");
+
+    let wit_path = find_wit_folder_in_path(&tempdir).await?;
+    debug!(path = %wit_path.display(), "found WIT path");
+    Ok(wit_path)
 }
 
-/// Find the first nested directory named 'wit' in the given path
+/// Find the WIT directory in the given path, preferring root-level 'wit' directories
 async fn find_wit_folder_in_path(search_path: &Path) -> Result<PathBuf> {
+    use tracing::debug;
+
+    // First check if there's a 'wit' directory at the root level
+    let root_wit = search_path.join("wit");
+    if root_wit.exists() && root_wit.is_dir() {
+        debug!(path = %root_wit.display(), "found root-level WIT directory");
+        return Ok(root_wit);
+    }
+
+    // If no root-level wit directory, search recursively
     find_wit_folder_in_path_internal(search_path, 0).await
 }
 
