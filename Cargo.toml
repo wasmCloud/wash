@@ -1,6 +1,6 @@
 [package]
 name = "wash"
-version = "1.0.0-beta.2"
+version = "1.0.0-beta.3"
 categories = ["wasm", "command-line-utilities"]
 description = "The Wasm Shell (wash) for developing and publishing Wasm components"
 keywords = ["webassembly", "wasm", "component", "wash", "cli"]
@@ -35,7 +35,6 @@ docker_credential = { version = "1.3.1", default-features = false }
 etcetera = { version = "0.10.0", default-features = false }
 figment = { version = "0.10.19", default-features = false, features = ["json", "env"] }
 flate2 = { version = "1.0", default-features = false }
-git2 = { version = "0.19", default-features = false }
 hyper = { version = "1.6.0", default-features = false }
 indicatif = { version = "0.18.0", default-features = false }
 notify = { version = "8.0.0", default-features = false, features = ["macos_fsevent"] }
