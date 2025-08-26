@@ -456,17 +456,8 @@ pub(crate) fn sanitize_plugin_name(name: &str) -> String {
 
 /// Built-in wash commands that cannot be overridden by plugins
 const BUILT_IN_COMMANDS: &[&str] = &[
-    "build",
-    "config", 
-    "dev",
-    "doctor",
-    "inspect",
-    "new",
-    "oci",
-    "docker", // alias for oci
-    "plugin",
-    "update",
-    "upgrade", // alias for update
+    "build", "config", "dev", "doctor", "inspect", "new", "oci", "docker", // alias for oci
+    "plugin", "update", "upgrade", // alias for update
 ];
 
 /// Validate that plugin commands don't conflict with built-in commands
@@ -512,26 +503,29 @@ fn validate_plugin_commands(metadata: &Metadata) -> anyhow::Result<()> {
 }
 
 /// Validate that plugin commands don't conflict with existing plugins
-async fn validate_plugin_conflicts(ctx: &CliContext, new_metadata: &Metadata) -> anyhow::Result<()> {
+async fn validate_plugin_conflicts(
+    ctx: &CliContext,
+    new_metadata: &Metadata,
+) -> anyhow::Result<()> {
     // Get all existing plugins
     let existing_plugins = list_plugins(ctx.runtime(), ctx.data_dir()).await?;
-    
+
     let new_plugin_name = new_metadata.name.to_lowercase();
-    
+
     for existing_plugin in existing_plugins {
         let existing_name = existing_plugin.metadata.name.to_lowercase();
-        
+
         // Skip if this is the same plugin (for force installs)
         if existing_name == new_plugin_name {
             continue;
         }
-        
+
         // Check for top-level command conflicts
         match (&new_metadata.command, &existing_plugin.metadata.command) {
             (Some(new_cmd), Some(existing_cmd)) => {
                 let new_cmd_name = new_cmd.name.to_lowercase();
                 let existing_cmd_name = existing_cmd.name.to_lowercase();
-                
+
                 if new_cmd_name == existing_cmd_name {
                     bail!(
                         "Plugin command '{}' conflicts with existing plugin '{}' command '{}'. \
@@ -571,38 +565,39 @@ async fn validate_plugin_conflicts(ctx: &CliContext, new_metadata: &Metadata) ->
                 // Both plugins use their names as commands - already handled by plugin name uniqueness
             }
         }
-        
+
         // Check for subcommand conflicts (same plugin namespace)
         if let Some(ref new_cmd) = new_metadata.command
-            && let Some(ref existing_cmd) = existing_plugin.metadata.command {
-                let new_cmd_name = new_cmd.name.to_lowercase();
-                let existing_cmd_name = existing_cmd.name.to_lowercase();
-                
-                // Only check subcommands if plugins have the same top-level command name
-                if new_cmd_name == existing_cmd_name {
-                    for new_sub in &new_metadata.sub_commands {
-                        for existing_sub in &existing_plugin.metadata.sub_commands {
-                            let new_sub_name = new_sub.name.to_lowercase();
-                            let existing_sub_name = existing_sub.name.to_lowercase();
-                            
-                            if new_sub_name == existing_sub_name {
-                                bail!(
-                                    "Plugin '{}' subcommand '{} {}' conflicts with existing plugin '{}' subcommand '{} {}'. \
+            && let Some(ref existing_cmd) = existing_plugin.metadata.command
+        {
+            let new_cmd_name = new_cmd.name.to_lowercase();
+            let existing_cmd_name = existing_cmd.name.to_lowercase();
+
+            // Only check subcommands if plugins have the same top-level command name
+            if new_cmd_name == existing_cmd_name {
+                for new_sub in &new_metadata.sub_commands {
+                    for existing_sub in &existing_plugin.metadata.sub_commands {
+                        let new_sub_name = new_sub.name.to_lowercase();
+                        let existing_sub_name = existing_sub.name.to_lowercase();
+
+                        if new_sub_name == existing_sub_name {
+                            bail!(
+                                "Plugin '{}' subcommand '{} {}' conflicts with existing plugin '{}' subcommand '{} {}'. \
                                     Subcommand names must be unique within the same command namespace.",
-                                    new_metadata.name,
-                                    new_cmd.name,
-                                    new_sub.name,
-                                    existing_plugin.metadata.name,
-                                    existing_cmd.name,
-                                    existing_sub.name
-                                );
-                            }
+                                new_metadata.name,
+                                new_cmd.name,
+                                new_sub.name,
+                                existing_plugin.metadata.name,
+                                existing_cmd.name,
+                                existing_sub.name
+                            );
                         }
                     }
                 }
             }
+        }
     }
-    
+
     Ok(())
 }
 
@@ -672,7 +667,12 @@ mod tests {
 
         let result = validate_plugin_commands(&metadata);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("conflicts with built-in wash command"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("conflicts with built-in wash command")
+        );
     }
 
     #[test]
@@ -692,7 +692,12 @@ mod tests {
 
         let result = validate_plugin_commands(&metadata);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("conflicts with built-in wash command"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("conflicts with built-in wash command")
+        );
     }
 
     #[test]
@@ -719,7 +724,12 @@ mod tests {
 
         let result = validate_plugin_commands(&metadata);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("conflicts with built-in wash command"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("conflicts with built-in wash command")
+        );
     }
 
     #[test]
@@ -756,6 +766,11 @@ mod tests {
 
         let result = validate_plugin_commands(&metadata);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("duplicate subcommand name"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate subcommand name")
+        );
     }
 }

@@ -445,7 +445,6 @@ impl CliCommand for DevCommand {
         info!("development session started successfully");
         info!(address = self.address, "listening for HTTP requests");
 
-
         loop {
             info!("watching for file changes (press Ctrl+c to stop)...");
             select! {
