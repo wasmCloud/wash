@@ -182,6 +182,14 @@ interface types {
         /// Returns the stdout and stderr of the command as a tuple.
         host-exec: func(bin: string, args: list<string>) -> result<tuple<string, string>, string>;
 
+        /// Executes a host native binary on behalf of a plugin in the background.
+        /// Commands are executed under 'sh -c' and inherit the environment and working directory.
+        /// wash will ask the user for confirmation before executing this function.
+        /// 
+        /// The lifecycle of this command is tied to the CLI execution context. This means it will
+        /// continue to run until the CLI session ends and then be killed.
+        host-exec-background: func(bin: string, args: list<string>) -> result<_, string>;
+
         // TODO(IMPORTANT): No wasi:logging, fix this up for how we want to do output
         // User visible Output
         // For debugging, see wasi:logging
