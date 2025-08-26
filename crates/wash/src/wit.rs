@@ -440,7 +440,7 @@ async fn clone_git_and_find_wit(url: &str) -> Result<PathBuf> {
 
     // Use system git command to clone the repository
     let mut cmd = tokio::process::Command::new("git");
-    cmd.args(&["clone", git_url, tempdir.to_string_lossy().as_ref()]);
+    cmd.args(["clone", git_url, tempdir.to_string_lossy().as_ref()]);
 
     let output = cmd
         .output()
