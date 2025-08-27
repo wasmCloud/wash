@@ -676,12 +676,40 @@ impl ComponentBuilder {
                 "WIT directory does not exist, skipping WIT-related flags: {}",
                 wit_dir.display()
             );
-        } // Apply garbage collector - now uses explicit default from config
+        }
+
+        // Apply garbage collector - now uses explicit default from config
         tinygo_args.push("-gc".to_string());
         tinygo_args.push(tinygo_config.gc.to_string());
 
-        // Add debug settings - disable by default for smaller builds
-        tinygo_args.push("-no-debug".to_string());
+        // Apply scheduler - now uses explicit default from config
+        tinygo_args.push("-scheduler".to_string());
+        tinygo_args.push(tinygo_config.scheduler.to_string());
+
+        // Apply optimization level
+        tinygo_args.push("-opt".to_string());
+        tinygo_args.push(tinygo_config.opt.to_string());
+
+        // Apply panic strategy
+        tinygo_args.push("-panic".to_string());
+        tinygo_args.push(tinygo_config.panic.to_string());
+
+        // Apply build tags if configured
+        if !tinygo_config.tags.is_empty() {
+            tinygo_args.push("-tags".to_string());
+            tinygo_args.push(tinygo_config.tags.join(","));
+        }
+
+        // Apply stack size if configured
+        if let Some(stack_size) = &tinygo_config.stack_size {
+            tinygo_args.push("-stack-size".to_string());
+            tinygo_args.push(stack_size.clone());
+        }
+
+        // Add debug settings - configurable via no_debug flag
+        if tinygo_config.no_debug {
+            tinygo_args.push("-no-debug".to_string());
+        }
 
         // Add any additional build flags if configured
         for flag in &tinygo_config.build_flags {
