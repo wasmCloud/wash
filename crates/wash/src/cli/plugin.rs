@@ -188,6 +188,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                                         store.as_context_mut(),
                                         pre,
                                         req,
+                                        wasmtime_wasi_http::bindings::http::types::Scheme::Http,
                                     )
                                     .await
                                 }

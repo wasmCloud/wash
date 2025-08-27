@@ -1,6 +1,6 @@
 [package]
 name = "wash"
-version = "1.0.0-beta.3"
+version = "1.0.0-beta.4"
 categories = ["wasm", "command-line-utilities"]
 description = "The Wasm Shell (wash) for developing and publishing Wasm components"
 keywords = ["webassembly", "wasm", "component", "wash", "cli"]
@@ -41,6 +41,8 @@ notify = { version = "8.0.0", default-features = false, features = ["macos_fseve
 oci-client = { version = "0.15.0", default-features = false, features = ["rustls-tls", "rustls-tls-native-roots"]}
 oci-wasm = { version = "0.3.0", default-features = false, features = ["rustls-tls"] }
 reqwest = { version = "0.12.20", default-features = false, features = ["json", "rustls-tls"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls-pemfile = { version = "2.2", default-features = false, features = ["std"] }
 semver = { version = "1.0.26", default-features = false }
 serde = { version = "1.0.219", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0.140", default-features = false, features = ["std"] }
@@ -48,6 +50,7 @@ sha2 = { version = "0.10.8", default-features = false }
 tar = { version = "0.4", default-features = false }
 tempfile = { version = "3.15.0", default-features = false }
 tokio = { version = "1.45.1", default-features = false, features = ["full"] }
+tokio-rustls = { version = "0.26", default-features = false }
 tracing = { version = "0.1.41", default-features = false, features = ["attributes"] }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["env-filter", "ansi", "time", "json"] }
 url = { version = "2.5", default-features = false }
@@ -65,6 +68,7 @@ wit-component = { version = "0.235.0", default-features = false }
 bytes = { version = "1", default-features = false }
 http = { version = "1.3.1", default-features = false }
 http-body-util = { version = "0.1.3", default-features = false }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
 tempfile = { version = "3.0", default-features = false }
 tokio = { version = "1.45.1", default-features = false, features = ["full"] }
 

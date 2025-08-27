@@ -184,8 +184,7 @@ interface types {
     ///
     /// The lifecycle of this command is tied to the CLI execution context. This means it will
     /// continue to run until the CLI session ends and then be killed.
-    /// @since(version = 0.0.2)
-    /// host-exec-background: func(bin: string, args: list<string>) -> result<_, string>;
+    host-exec-background: func(bin: string, args: list<string>) -> result<_, string>;
     /// TODO(IMPORTANT): No wasi:logging, fix this up for how we want to do output
     /// User visible Output
     /// For debugging, see wasi:logging
