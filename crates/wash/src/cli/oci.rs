@@ -95,6 +95,11 @@ pub struct PushCommand {
     #[clap(name = "component_path")]
     component_path: PathBuf,
     /// Add an OCI annotation to the image manifest (can be specified multiple times)
+    ///
+    /// Annotations from CLI flags will be merged with annotations from the wash config file.
+    /// CLI annotations take precedence if the same key exists in both.
+    ///
+    /// Example: --annotation "org.opencontainers.image.description=My component"
     #[clap(long = "annotation", value_parser = parse_annotation)]
     annotations: Vec<(String, String)>,
 }
@@ -107,12 +112,22 @@ impl PushCommand {
             .await
             .context("failed to read component file")?;
 
-        // Build annotations from explicit annotations
-        let all_annotations: HashMap<String, String> = self
-            .annotations
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect();
+        // Build annotations from explicit annotations and config file annotations
+        let mut all_annotations = HashMap::new();
+
+        // First, load annotations from config file if available
+        if let Ok(config) = ctx.ensure_config(None).await
+            && let Some(oci_config) = config.oci
+        {
+            for (key, value) in oci_config.annotations {
+                all_annotations.insert(key, value);
+            }
+        }
+
+        // Then add explicit CLI annotations (these override config annotations)
+        for (key, value) in &self.annotations {
+            all_annotations.insert(key.clone(), value.clone());
+        }
 
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
 
