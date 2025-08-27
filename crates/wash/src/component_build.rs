@@ -183,6 +183,26 @@ pub struct TinyGoBuildConfig {
     #[serde(default = "default_tinygo_gc")]
     pub gc: TinyGoGarbageCollector,
 
+    /// Optimization level (default: "z")
+    #[serde(default = "default_tinygo_opt")]
+    pub opt: String,
+
+    /// Panic strategy (default: "print")
+    #[serde(default = "default_tinygo_panic")]
+    pub panic: String,
+
+    /// Build tags (default: empty)
+    #[serde(default)]
+    pub tags: Vec<String>,
+
+    /// Strip debug information (default: true)
+    #[serde(default = "default_tinygo_no_debug")]
+    pub no_debug: bool,
+
+    /// Goroutine stack size (optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stack_size: Option<String>,
+
     /// The WIT package to use for TinyGo builds, if not provided
     /// it will assume only one WIT package is defined in the project
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -203,6 +223,11 @@ impl Default for TinyGoBuildConfig {
             disable_go_generate: false,
             scheduler: default_tinygo_scheduler(),
             gc: default_tinygo_gc(),
+            opt: default_tinygo_opt(),
+            panic: default_tinygo_panic(),
+            tags: Vec::new(),
+            no_debug: default_tinygo_no_debug(),
+            stack_size: None,
             wit_package: None,
             wit_world: None,
         }
@@ -219,6 +244,18 @@ fn default_tinygo_scheduler() -> TinyGoScheduler {
 
 fn default_tinygo_gc() -> TinyGoGarbageCollector {
     TinyGoGarbageCollector::Conservative
+}
+
+fn default_tinygo_opt() -> String {
+    "z".to_string()
+}
+
+fn default_tinygo_panic() -> String {
+    "print".to_string()
+}
+
+fn default_tinygo_no_debug() -> bool {
+    true
 }
 
 /// TypeScript-specific build configuration with explicit defaults
