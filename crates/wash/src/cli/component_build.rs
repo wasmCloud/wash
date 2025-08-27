@@ -19,6 +19,7 @@ use crate::wit::WitConfig;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
     config::{Config, generate_project_config, load_config, save_config},
+    typescript_utils::PackageFileInfo,
     wit::{CommonPackageArgs, WkgFetcher, load_lock_file},
 };
 
@@ -101,15 +102,36 @@ pub async fn build_component(
     ctx: &CliContext,
     config: &Config,
 ) -> anyhow::Result<ComponentBuildResult> {
+    build_component_with_cache(project_path, ctx, config, None).await
+}
+
+/// Build a component at the specified project path with optional TypeScript package file cache
+///
+/// This version supports smart dependency installation for TypeScript projects by accepting
+/// previous package file information to determine if dependencies need to be reinstalled.
+#[instrument(
+    level = "debug",
+    skip(ctx, config, last_package_check),
+    name = "build_component_with_cache"
+)]
+pub async fn build_component_with_cache(
+    project_path: &Path,
+    ctx: &CliContext,
+    config: &Config,
+    last_package_check: Option<&PackageFileInfo>,
+) -> anyhow::Result<ComponentBuildResult> {
     let skip_fetch = config.wit.as_ref().map(|w| w.skip_fetch).unwrap_or(false);
     let wit_dir = config.wit.as_ref().and_then(|w| w.wit_dir.clone());
     debug!(
         project_path = ?project_path.display(),
         wit_dir = ?wit_dir.as_ref().map(|p| p.display()),
+        has_package_cache = last_package_check.is_some(),
         "building component at specified project path",
     );
     let builder = ComponentBuilder::new(project_path.to_path_buf(), wit_dir, skip_fetch);
-    builder.build(ctx, config).await
+    builder
+        .build_with_cache(ctx, config, last_package_check)
+        .await
 }
 
 /// Component builder that handles the actual build process
@@ -190,9 +212,21 @@ impl ComponentBuilder {
         ctx: &CliContext,
         config: &Config,
     ) -> anyhow::Result<ComponentBuildResult> {
+        self.build_with_cache(ctx, config, None).await
+    }
+
+    /// Build the component with optional TypeScript package file cache for smart install
+    #[instrument(level = "debug", skip(self, ctx, config, last_package_check))]
+    pub async fn build_with_cache(
+        &self,
+        ctx: &CliContext,
+        config: &Config,
+        last_package_check: Option<&PackageFileInfo>,
+    ) -> anyhow::Result<ComponentBuildResult> {
         debug!(
             path = ?self.project_path.display(),
-            "building component",
+            has_package_cache = last_package_check.is_some(),
+            "building component with cache support",
         );
 
         // Validate project path exists
@@ -229,7 +263,10 @@ impl ComponentBuilder {
         let artifact_path = match project_type {
             ProjectType::Rust => self.build_rust_component(config).await?,
             ProjectType::Go => self.build_tinygo_component(config).await?,
-            ProjectType::TypeScript => self.build_typescript_component(config).await?,
+            ProjectType::TypeScript => {
+                self.build_typescript_component_with_cache(config, last_package_check)
+                    .await?
+            }
             ProjectType::Unknown => {
                 bail!("unknown project type. Expected to find Cargo.toml, go.mod, or package.json");
             }
@@ -756,8 +793,12 @@ impl ComponentBuilder {
         Ok(output_file)
     }
 
-    /// Build a TypeScript component using npm/node
-    async fn build_typescript_component(&self, config: &Config) -> anyhow::Result<PathBuf> {
+    /// Build a TypeScript component using npm/node with optional package file cache for smart install
+    async fn build_typescript_component_with_cache(
+        &self,
+        config: &Config,
+        last_package_check: Option<&PackageFileInfo>,
+    ) -> anyhow::Result<PathBuf> {
         debug!("building typescript component with npm");
 
         // Get TypeScript build configuration, use defaults if not specified
@@ -799,14 +840,43 @@ impl ComponentBuilder {
                 package_manager.as_str()
             };
 
-            // Run install step before build to ensure dependencies are available
-            let install_args = match package_manager.as_str() {
-                "pnpm" => vec!["install".to_string()],
-                "yarn" => vec!["install".to_string()],
-                _ => vec!["install".to_string()], // default to npm
+            // Smart dependency installation logic
+            let should_skip_install = if ts_config.skip_install {
+                // Explicitly skip if configured
+                true
+            } else if ts_config.smart_install {
+                // Check if dependencies have changed when smart install is enabled
+                match PackageFileInfo::scan(&self.project_path).await {
+                    Ok(current_info) => {
+                        let skip = !current_info.have_dependencies_changed(last_package_check);
+                        if skip {
+                            info!(
+                                "smart install: no package file changes detected, skipping dependency installation"
+                            );
+                        } else {
+                            debug!(
+                                "smart install: package files changed, will run dependency installation"
+                            );
+                        }
+                        skip
+                    }
+                    Err(e) => {
+                        warn!(err = ?e, "failed to scan package files for smart install, will run install");
+                        false
+                    }
+                }
+            } else {
+                // Smart install disabled, always run install
+                false
             };
 
-            if !ts_config.skip_install {
+            if !should_skip_install {
+                let install_args = match package_manager.as_str() {
+                    "pnpm" => vec!["install".to_string()],
+                    "yarn" => vec!["install".to_string()],
+                    _ => vec!["install".to_string()], // default to npm
+                };
+
                 info!(package_manager = %package_manager, install_args = ?install_args, "running install command");
 
                 let install_output = self
@@ -829,7 +899,7 @@ impl ComponentBuilder {
                 let stdout = String::from_utf8_lossy(&install_output.stdout);
                 debug!(package_manager = %package_manager, stdout = %stdout, "install output");
             } else {
-                info!(package_manager = %package_manager, "skipping install step as per configuration");
+                info!(package_manager = %package_manager, "skipping install step (smart install or explicit skip)");
             }
 
             // Build npm/pnpm/yarn command arguments

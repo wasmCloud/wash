@@ -22,5 +22,8 @@ pub mod runtime;
 /// Manage WebAssembly Interface Types (WIT) for wash components
 pub(crate) mod wit;
 
+/// TypeScript project utilities for dependency management and optimization
+pub(crate) mod typescript_utils;
+
 /// The current version of the wash package, set at build time
 pub const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");

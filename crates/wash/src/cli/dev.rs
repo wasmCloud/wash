@@ -38,7 +38,7 @@ use wasmtime_wasi_http::{
 use crate::{
     cli::{
         CliCommand, CliContext, CommandOutput,
-        component_build::build_component,
+        component_build::{build_component, build_component_with_cache},
         doctor::{ProjectContext, check_project_specific_tools, detect_project_context},
     },
     component_build::BuildConfig,
@@ -48,6 +48,7 @@ use crate::{
     runtime::{
         Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::HookType, prepare_component_dev,
     },
+    typescript_utils::PackageFileInfo,
 };
 
 /// Helper function to check if a path should be ignored during file watching
@@ -500,6 +501,23 @@ impl CliCommand for DevCommand {
             Result::<_, anyhow::Error>::Ok(())
         });
 
+        // Initialize package file tracking for TypeScript projects
+        let mut last_package_check: Option<PackageFileInfo> = match &project_context {
+            ProjectContext::TypeScript { .. } => {
+                match PackageFileInfo::scan(&self.project_dir).await {
+                    Ok(info) => {
+                        debug!("initialized package file tracking for TypeScript project");
+                        Some(info)
+                    }
+                    Err(e) => {
+                        warn!(err = ?e, "failed to initialize package file tracking, will not use smart install");
+                        None
+                    }
+                }
+            }
+            _ => None,
+        };
+
         // Enable file watching
         pause_watch.store(false, Ordering::SeqCst);
         // Make sure the reload channel is empty before starting the loop
@@ -519,12 +537,21 @@ impl CliCommand for DevCommand {
 
                     // TODO(IMPORTANT): ensure that this calls the build pre-post hooks
                     // TODO(#21): Skip wit fetch if no .wit change
-                    // TODO(#22): Typescript: Skip install if no package.json change
-                    let rebuild_result = build_component(
-                        &self.project_dir,
-                        ctx,
-                        &config,
-                    ).await;
+                    // Use smart build with package file caching for TypeScript projects
+                    let rebuild_result = if last_package_check.is_some() {
+                        build_component_with_cache(
+                            &self.project_dir,
+                            ctx,
+                            &config,
+                            last_package_check.as_ref(),
+                        ).await
+                    } else {
+                        build_component(
+                            &self.project_dir,
+                            ctx,
+                            &config,
+                        ).await
+                    };
 
                     match rebuild_result {
                         Ok(build_result) => {
@@ -540,6 +567,19 @@ impl CliCommand for DevCommand {
                                 .await
                                 .context("failed to prepare component")?;
                             component_tx.send_replace(Arc::new(component));
+
+                            // Update package file cache for TypeScript projects after successful rebuild
+                            if matches!(project_context, ProjectContext::TypeScript { .. }) {
+                                match PackageFileInfo::scan(&self.project_dir).await {
+                                    Ok(new_info) => {
+                                        debug!("updated package file cache after successful TypeScript build");
+                                        last_package_check = Some(new_info);
+                                    }
+                                    Err(e) => {
+                                        warn!(err = ?e, "failed to update package file cache after build");
+                                    }
+                                }
+                            }
 
                             // Avoid jitter with reloads by pausing the watcher for a short time
                             tokio::time::sleep(std::time::Duration::from_millis(100)).await;

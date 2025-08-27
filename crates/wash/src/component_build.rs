@@ -249,6 +249,11 @@ pub struct TypeScriptBuildConfig {
     #[serde(default)]
     pub skip_install: bool,
 
+    /// Smart dependency installation - skip install when package files haven't changed (default: true)
+    /// When enabled, npm install is only run when package.json, lock files, or node_modules changes
+    #[serde(default = "default_ts_smart_install")]
+    pub smart_install: bool,
+
     /// Enable source maps (default: false)
     #[serde(default)]
     pub source_maps: bool,
@@ -263,6 +268,7 @@ impl Default for TypeScriptBuildConfig {
             build_command: default_ts_build_command(),
             build_flags: Vec::new(),
             skip_install: false,
+            smart_install: default_ts_smart_install(),
             source_maps: false,
         }
     }
@@ -274,4 +280,83 @@ fn default_ts_package_manager() -> String {
 
 fn default_ts_build_command() -> String {
     "build".to_string()
+}
+
+fn default_ts_smart_install() -> bool {
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_typescript_build_config_defaults() {
+        let config = TypeScriptBuildConfig::default();
+        assert_eq!(config.package_manager, "npm");
+        assert_eq!(config.build_command, "build");
+        assert!(!config.skip_install);
+        assert!(config.smart_install); // Should be true by default
+        assert!(!config.source_maps);
+        assert!(config.build_flags.is_empty());
+        assert!(config.custom_command.is_none());
+        assert!(config.node_version.is_none());
+    }
+
+    #[test]
+    fn test_typescript_build_config_serialization() {
+        let config = TypeScriptBuildConfig {
+            custom_command: None,
+            node_version: Some("18.x".to_string()),
+            package_manager: "pnpm".to_string(),
+            build_command: "compile".to_string(),
+            build_flags: vec!["--verbose".to_string()],
+            skip_install: true,
+            smart_install: false,
+            source_maps: true,
+        };
+
+        // Test serialization round-trip
+        let json = serde_json::to_string(&config).expect("should serialize");
+        let deserialized: TypeScriptBuildConfig =
+            serde_json::from_str(&json).expect("should deserialize");
+
+        assert_eq!(deserialized.package_manager, "pnpm");
+        assert_eq!(deserialized.build_command, "compile");
+        assert!(deserialized.skip_install);
+        assert!(!deserialized.smart_install);
+        assert!(deserialized.source_maps);
+        assert_eq!(deserialized.build_flags, vec!["--verbose"]);
+        assert_eq!(deserialized.node_version, Some("18.x".to_string()));
+    }
+
+    #[test]
+    fn test_typescript_build_config_with_defaults() {
+        // Test that serde defaults work correctly when fields are missing
+        let json = r#"{"package_manager": "yarn"}"#;
+        let config: TypeScriptBuildConfig = serde_json::from_str(json).expect("should deserialize");
+
+        assert_eq!(config.package_manager, "yarn");
+        assert_eq!(config.build_command, "build"); // default
+        assert!(!config.skip_install); // default
+        assert!(config.smart_install); // default should be true
+        assert!(!config.source_maps); // default
+        assert!(config.build_flags.is_empty()); // default
+    }
+
+    #[test]
+    fn test_build_config_with_typescript() {
+        let config = BuildConfig {
+            typescript: Some(TypeScriptBuildConfig {
+                smart_install: false,
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        assert!(config.typescript.is_some());
+        let ts_config = config.typescript.unwrap();
+        assert!(!ts_config.smart_install);
+        assert_eq!(ts_config.package_manager, "npm");
+    }
 }
