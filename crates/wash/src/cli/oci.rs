@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 
 use anyhow::Context as _;
 use clap::{Args, Subcommand};
@@ -10,6 +10,15 @@ use crate::{
     oci::{OCI_CACHE_DIR, OciConfig, pull_component, push_component},
     runtime::bindings::plugin::wasmcloud::wash::types::HookType,
 };
+
+/// Parse annotation in key=value format
+fn parse_annotation(s: &str) -> Result<(String, String), String> {
+    let parts: Vec<&str> = s.splitn(2, '=').collect();
+    if parts.len() != 2 || parts[0].is_empty() {
+        return Err("Annotation must be in key=value format".to_string());
+    }
+    Ok((parts[0].to_string(), parts[1].to_string()))
+}
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum OciCommand {
@@ -85,6 +94,14 @@ pub struct PushCommand {
     /// The path to the component to push
     #[clap(name = "component_path")]
     component_path: PathBuf,
+    /// Add an OCI annotation to the image manifest (can be specified multiple times)
+    ///
+    /// Annotations from CLI flags will be merged with annotations from the wash config file.
+    /// CLI annotations take precedence if the same key exists in both.
+    ///
+    /// Example: --annotation "org.opencontainers.image.description=My component"
+    #[clap(long = "annotation", value_parser = parse_annotation)]
+    annotations: Vec<(String, String)>,
 }
 
 impl PushCommand {
@@ -95,16 +112,134 @@ impl PushCommand {
             .await
             .context("failed to read component file")?;
 
+        // Build annotations from explicit annotations and config file annotations
+        let mut all_annotations = HashMap::new();
+
+        // First, load annotations from config file if available
+        if let Ok(config) = ctx.ensure_config(None).await
+            && let Some(oci_config) = config.oci
+        {
+            for (key, value) in oci_config.annotations {
+                all_annotations.insert(key, value);
+            }
+        }
+
+        // Then add explicit CLI annotations (these override config annotations)
+        for (key, value) in &self.annotations {
+            all_annotations.insert(key.clone(), value.clone());
+        }
+
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
 
-        push_component(&self.reference, &component, oci_config).await?;
+        let digest = push_component(
+            &self.reference,
+            &component,
+            oci_config,
+            if all_annotations.is_empty() {
+                None
+            } else {
+                Some(all_annotations)
+            },
+        )
+        .await?;
 
         Ok(CommandOutput::ok(
-            "OCI command executed successfully.".to_string(),
+            format!("Successfully pushed component\ndigest: {}", digest),
             Some(serde_json::json!({
                 "message": "OCI command executed successfully.",
+                "digest": digest,
                 "success": true,
             })),
         ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_annotation_valid() {
+        // Test valid key=value format
+        let result = parse_annotation("key=value");
+        assert!(result.is_ok());
+        let (key, value) = result.unwrap();
+        assert_eq!(key, "key");
+        assert_eq!(value, "value");
+    }
+
+    #[test]
+    fn test_parse_annotation_with_equals_in_value() {
+        // Test key=value where value contains equals sign
+        let result = parse_annotation("url=http://example.com/path?param=value");
+        assert!(result.is_ok());
+        let (key, value) = result.unwrap();
+        assert_eq!(key, "url");
+        assert_eq!(value, "http://example.com/path?param=value");
+    }
+
+    #[test]
+    fn test_parse_annotation_opencontainer_format() {
+        // Test OpenContainer annotation format
+        let result = parse_annotation("org.opencontainers.image.description=A test component");
+        assert!(result.is_ok());
+        let (key, value) = result.unwrap();
+        assert_eq!(key, "org.opencontainers.image.description");
+        assert_eq!(value, "A test component");
+    }
+
+    #[test]
+    fn test_parse_annotation_empty_value() {
+        // Test annotation with empty value
+        let result = parse_annotation("key=");
+        assert!(result.is_ok());
+        let (key, value) = result.unwrap();
+        assert_eq!(key, "key");
+        assert_eq!(value, "");
+    }
+
+    #[test]
+    fn test_parse_annotation_invalid_format() {
+        // Test invalid format (no equals sign)
+        let result = parse_annotation("just-a-key");
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Annotation must be in key=value format"
+        );
+    }
+
+    #[test]
+    fn test_parse_annotation_only_equals() {
+        // Test invalid format (only equals sign)
+        let result = parse_annotation("=");
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            "Annotation must be in key=value format"
+        );
+    }
+
+    #[test]
+    fn test_annotation_collection_and_conversion() {
+        // Test that multiple annotations can be collected and converted properly
+        let annotations = vec![
+            parse_annotation("key1=value1").unwrap(),
+            parse_annotation("key2=value2").unwrap(),
+            parse_annotation("org.opencontainers.image.description=A test").unwrap(),
+        ];
+
+        let mut annotation_map = HashMap::new();
+        for (key, value) in annotations {
+            annotation_map.insert(key, value);
+        }
+
+        assert_eq!(annotation_map.len(), 3);
+        assert_eq!(annotation_map.get("key1"), Some(&"value1".to_string()));
+        assert_eq!(annotation_map.get("key2"), Some(&"value2".to_string()));
+        assert_eq!(
+            annotation_map.get("org.opencontainers.image.description"),
+            Some(&"A test".to_string())
+        );
     }
 }
