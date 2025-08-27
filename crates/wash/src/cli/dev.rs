@@ -48,7 +48,7 @@ use crate::{
     runtime::{
         Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::HookType, prepare_component_dev,
     },
-    wit::change_detection::{WitChangeCache, has_wit_files_changed},
+    wit::change_detection::DependencyTracker,
 };
 
 /// Helper function to check if a path should be ignored during file watching
@@ -446,9 +446,9 @@ impl CliCommand for DevCommand {
         let ignore_paths = Arc::new(initial_ignore_set);
         let ignore_paths_notify = ignore_paths.clone();
 
-        // Initialize WIT change cache for optimizing rebuild performance
-        let mut wit_change_cache = WitChangeCache::load(&canonical_project_root).await?;
-        debug!("loaded WIT change cache for development session");
+        // Initialize dependency tracker for optimizing rebuild performance
+        let mut dependency_tracker = DependencyTracker::new();
+        debug!("initialized dependency tracker for development session");
 
         let canonical_project_root_notify = canonical_project_root.clone();
         debug!(path = ?self.project_dir.display(), "setting up watcher");
@@ -522,33 +522,24 @@ impl CliCommand for DevCommand {
 
                     info!("rebuilding component after file changed ...");
 
-                    // Optimize WIT fetching by checking if WIT files changed
-                    let wit_dir = config.wit.as_ref()
-                        .and_then(|w| w.wit_dir.clone())
-                        .unwrap_or_else(|| self.project_dir.join("wit"));
-
-                    // Check if WIT change detection is disabled in config
+                    // Check if dependency change detection is disabled in config
                     let change_detection_disabled = config.wit.as_ref()
                         .map(|w| w.disable_change_detection)
                         .unwrap_or(false);
 
-                    let wit_changed = if change_detection_disabled {
-                        debug!("WIT change detection disabled, forcing WIT fetch");
+                    let dependencies_changed = if change_detection_disabled {
+                        debug!("dependency change detection disabled, forcing full fetch");
                         true
                     } else {
-                        has_wit_files_changed(
-                            &self.project_dir,
-                            &wit_dir,
-                            config.wit.as_ref(),
-                            &wit_change_cache
-                        ).await.unwrap_or(true) // Default to true if check fails
+                        dependency_tracker.check_dependencies_changed(&self.project_dir)
+                            .await.unwrap_or(true) // Default to true if check fails
                     };
 
-                    let build_config = if wit_changed {
-                        info!("WIT files changed, fetching dependencies...");
+                    let build_config = if dependencies_changed {
+                        info!("dependencies changed, fetching all dependencies...");
                         config.clone()
                     } else {
-                        info!("WIT files unchanged, skipping fetch for faster build...");
+                        info!("dependencies unchanged, skipping fetch for faster build...");
                         // Create a modified config with skip_fetch = true
                         let mut modified_config = config.clone();
                         if let Some(wit_config) = &mut modified_config.wit {
@@ -563,7 +554,7 @@ impl CliCommand for DevCommand {
                     };
 
                     // TODO(IMPORTANT): ensure that this calls the build pre-post hooks
-                    // TODO(#22): Typescript: Skip install if no package.json change
+                    // Dependency changes are now automatically handled above
                     let rebuild_result = build_component(
                         &self.project_dir,
                         ctx,
@@ -585,16 +576,8 @@ impl CliCommand for DevCommand {
                                 .context("failed to prepare component")?;
                             component_tx.send_replace(Arc::new(component));
 
-                            // Update WIT change cache after successful build if WIT files changed
-                            if wit_changed {
-                                if let Err(e) = wit_change_cache.update_cache(&self.project_dir, &wit_dir, config.wit.as_ref()).await {
-                                    warn!("failed to update WIT change cache: {}", e);
-                                } else if let Err(e) = wit_change_cache.save(&self.project_dir).await {
-                                    warn!("failed to save WIT change cache: {}", e);
-                                } else {
-                                    debug!("updated WIT change cache after successful build");
-                                }
-                            }
+                            // Dependency tracker is automatically updated during the check
+                            debug!("dependency tracking updated after successful build");
 
                             // Avoid jitter with reloads by pausing the watcher for a short time
                             tokio::time::sleep(std::time::Duration::from_millis(100)).await;

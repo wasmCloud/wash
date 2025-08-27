@@ -662,178 +662,46 @@ mod tests {
     }
 }
 
-/// WIT change detection for optimizing development rebuilds
+/// Simple dependency change detection for optimizing development rebuilds
 ///
-/// This module provides functionality to track changes to WIT files and their dependencies
-/// to skip expensive WIT fetching operations during development when no relevant files have changed.
+/// This module provides lightweight functionality to track changes to dependency manifest
+/// files to skip expensive install operations during development when dependencies haven't changed.
 pub mod change_detection {
-    use super::*;
     use anyhow::{Context, Result};
-    use serde::{Deserialize, Serialize};
-    use std::{
-        collections::HashMap,
-        path::{Path, PathBuf},
-        time::SystemTime,
-    };
-    use tracing::{debug, trace};
+    use std::{collections::HashMap, path::Path, time::SystemTime};
+    use tracing::debug;
 
-    /// Cache for WIT file modification times and dependency metadata
-    #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-    pub struct WitChangeCache {
-        /// Last check timestamp
-        pub last_check: Option<SystemTime>,
-        /// Tracked WIT files with their modification times
-        pub wit_files: HashMap<PathBuf, SystemTime>,
-        /// Dependency configuration files with their modification times  
-        pub dependency_files: HashMap<PathBuf, SystemTime>,
-        /// Hash of the current WIT configuration
-        pub wit_config_hash: Option<u64>,
+    /// Simple in-memory tracker for manifest file modification times
+    #[derive(Debug, Default)]
+    pub struct DependencyTracker {
+        /// Manifest files with their last known modification times
+        last_modified: HashMap<String, SystemTime>,
     }
 
-    impl WitChangeCache {
-        /// Create a new empty WIT change cache
+    impl DependencyTracker {
+        /// Create a new dependency tracker
         pub fn new() -> Self {
             Self::default()
         }
 
-        /// Load WIT change cache from the project's .wash directory
-        pub async fn load(project_dir: &Path) -> Result<Self> {
-            let cache_path = project_dir.join(".wash").join("wit-change-cache.json");
-
-            if !cache_path.exists() {
-                debug!("WIT change cache does not exist, creating new cache");
-                return Ok(Self::new());
-            }
-
-            let cache_content =
-                tokio::fs::read_to_string(&cache_path)
-                    .await
-                    .with_context(|| {
-                        format!(
-                            "failed to read WIT change cache from {}",
-                            cache_path.display()
-                        )
-                    })?;
-
-            let cache: WitChangeCache = serde_json::from_str(&cache_content)
-                .with_context(|| "failed to deserialize WIT change cache")?;
-
-            debug!(
-                "loaded WIT change cache with {} WIT files and {} dependency files",
-                cache.wit_files.len(),
-                cache.dependency_files.len()
-            );
-            Ok(cache)
-        }
-
-        /// Save WIT change cache to the project's .wash directory
-        pub async fn save(&self, project_dir: &Path) -> Result<()> {
-            let wash_dir = project_dir.join(".wash");
-            tokio::fs::create_dir_all(&wash_dir)
-                .await
-                .with_context(|| {
-                    format!("failed to create .wash directory at {}", wash_dir.display())
-                })?;
-
-            let cache_path = wash_dir.join("wit-change-cache.json");
-            let cache_content = serde_json::to_string_pretty(self)
-                .with_context(|| "failed to serialize WIT change cache")?;
-
-            tokio::fs::write(&cache_path, cache_content)
-                .await
-                .with_context(|| {
-                    format!(
-                        "failed to write WIT change cache to {}",
-                        cache_path.display()
-                    )
-                })?;
-
-            debug!(
-                "saved WIT change cache with {} WIT files and {} dependency files",
-                self.wit_files.len(),
-                self.dependency_files.len()
-            );
-            Ok(())
-        }
-
-        /// Update the cache with current file states
-        pub async fn update_cache(
-            &mut self,
-            project_dir: &Path,
-            wit_dir: &Path,
-            wit_config: Option<&WitConfig>,
-        ) -> Result<()> {
-            self.last_check = Some(SystemTime::now());
-            self.wit_files.clear();
-            self.dependency_files.clear();
-
-            // Update WIT config hash if provided
-            if let Some(config) = wit_config {
-                self.wit_config_hash = Some(calculate_wit_config_hash(config));
-            }
-
-            // Track WIT files
-            if wit_dir.exists() {
-                self.track_wit_files(wit_dir).await?;
-            }
-
-            // Track dependency configuration files
-            self.track_dependency_files(project_dir).await?;
-
-            Ok(())
-        }
-
-        /// Track all WIT files in the given directory recursively
-        async fn track_wit_files(&mut self, wit_dir: &Path) -> Result<()> {
-            let mut stack = vec![wit_dir.to_path_buf()];
-
-            while let Some(current_dir) = stack.pop() {
-                let mut entries = tokio::fs::read_dir(&current_dir).await.with_context(|| {
-                    format!("failed to read WIT directory: {}", current_dir.display())
-                })?;
-
-                while let Some(entry) = entries.next_entry().await? {
-                    let path = entry.path();
-                    let metadata = entry.metadata().await?;
-
-                    if metadata.is_dir() {
-                        // Skip hidden directories and common build output directories
-                        if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                            && !name.starts_with('.') && !name.starts_with("_") {
-                            stack.push(path);
-                        }
-                    } else if metadata.is_file()
-                        && let Some(ext) = path.extension().and_then(|e| e.to_str())
-                        && ext == "wit" {
-                        let modified = metadata.modified().with_context(|| {
-                            format!(
-                                "failed to get modification time for {}",
-                                path.display()
-                            )
-                        })?;
-                        self.wit_files.insert(path.clone(), modified);
-                        trace!("tracked WIT file: {}", path.display());
-                    }
-                }
-            }
-
-            debug!("tracked {} WIT files", self.wit_files.len());
-            Ok(())
-        }
-
-        /// Track dependency configuration files
-        async fn track_dependency_files(&mut self, project_dir: &Path) -> Result<()> {
-            let dependency_files = [
-                "wit.toml",
-                "Cargo.toml",
+        /// Check if any dependency manifests have changed since last check
+        pub async fn check_dependencies_changed(&mut self, project_dir: &Path) -> Result<bool> {
+            let manifest_files = [
                 "package.json",
+                "package-lock.json",
+                "Cargo.toml",
+                "Cargo.lock",
                 "go.mod",
-                ".wash/config.json",
+                "go.sum",
+                "wit.toml",
                 "wkg.lock",
-                ".wash/wasmcloud.lock",
             ];
 
-            for file_name in &dependency_files {
+            let mut current_modified = HashMap::new();
+            let mut any_changed = false;
+
+            // Check each manifest file
+            for file_name in &manifest_files {
                 let file_path = project_dir.join(file_name);
                 if file_path.exists() {
                     let metadata = tokio::fs::metadata(&file_path).await.with_context(|| {
@@ -845,615 +713,212 @@ pub mod change_detection {
                             file_path.display()
                         )
                     })?;
-                    self.dependency_files.insert(file_path.clone(), modified);
-                    trace!("tracked dependency file: {}", file_path.display());
-                }
-            }
 
-            debug!("tracked {} dependency files", self.dependency_files.len());
-            Ok(())
-        }
-    }
+                    current_modified.insert(file_name.to_string(), modified);
 
-    /// Calculate a hash of the WIT configuration for change detection
-    fn calculate_wit_config_hash(wit_config: &WitConfig) -> u64 {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-
-        let mut hasher = DefaultHasher::new();
-
-        // Hash the registries
-        for registry in &wit_config.registries {
-            registry.url.hash(&mut hasher);
-            // Note: We don't hash the token for security reasons
-        }
-
-        // Hash skip_fetch setting
-        wit_config.skip_fetch.hash(&mut hasher);
-
-        // Hash wit_dir if present
-        if let Some(wit_dir) = &wit_config.wit_dir {
-            wit_dir.hash(&mut hasher);
-        }
-
-        // Hash source overrides
-        for (key, value) in &wit_config.sources {
-            key.hash(&mut hasher);
-            value.hash(&mut hasher);
-        }
-
-        hasher.finish()
-    }
-
-    /// Check if WIT files or dependencies have changed since the last check
-    pub async fn has_wit_files_changed(
-        project_dir: &Path,
-        wit_dir: &Path,
-        wit_config: Option<&WitConfig>,
-        cache: &WitChangeCache,
-    ) -> Result<bool> {
-        // If we have no previous cache data, assume files have changed
-        if cache.last_check.is_none() {
-            debug!("no previous WIT change cache found, assuming files have changed");
-            return Ok(true);
-        }
-
-        // Check if WIT configuration has changed
-        if let Some(config) = wit_config {
-            let current_hash = calculate_wit_config_hash(config);
-            if cache.wit_config_hash != Some(current_hash) {
-                debug!("WIT configuration has changed, forcing WIT fetch");
-                return Ok(true);
-            }
-        }
-
-        // Check WIT files for changes
-        if wit_dir.exists() {
-            if check_wit_files_changed(wit_dir, &cache.wit_files).await? {
-                return Ok(true);
-            }
-        } else if !cache.wit_files.is_empty() {
-            // WIT directory was removed
-            debug!("WIT directory no longer exists but cache had WIT files, assuming changed");
-            return Ok(true);
-        }
-
-        // Check dependency files for changes
-        if check_dependency_files_changed(project_dir, &cache.dependency_files).await? {
-            return Ok(true);
-        }
-
-        debug!("no WIT file changes detected since last check");
-        Ok(false)
-    }
-
-    /// Check if WIT files have been modified
-    async fn check_wit_files_changed(
-        wit_dir: &Path,
-        cached_files: &HashMap<PathBuf, SystemTime>,
-    ) -> Result<bool> {
-        let mut current_files = HashMap::new();
-        let mut stack = vec![wit_dir.to_path_buf()];
-
-        // Collect all current WIT files
-        while let Some(current_dir) = stack.pop() {
-            let mut entries = tokio::fs::read_dir(&current_dir).await.with_context(|| {
-                format!("failed to read WIT directory: {}", current_dir.display())
-            })?;
-
-            while let Some(entry) = entries.next_entry().await? {
-                let path = entry.path();
-                let metadata = entry.metadata().await?;
-
-                if metadata.is_dir() {
-                    if let Some(name) = path.file_name().and_then(|n| n.to_str())
-                        && !name.starts_with('.') && !name.starts_with("_") {
-                        stack.push(path);
+                    // Check if this file changed since last check
+                    match self.last_modified.get(*file_name) {
+                        Some(last_time) if *last_time == modified => {
+                            // File unchanged
+                        }
+                        _ => {
+                            debug!("dependency file changed: {}", file_name);
+                            any_changed = true;
+                        }
                     }
-                } else if metadata.is_file()
-                    && let Some(ext) = path.extension().and_then(|e| e.to_str())
-                    && ext == "wit" {
-                    let modified = metadata.modified().with_context(|| {
-                        format!("failed to get modification time for {}", path.display())
-                    })?;
-                    current_files.insert(path.clone(), modified);
                 }
             }
-        }
 
-        // Check if the file sets are different
-        if current_files.len() != cached_files.len() {
+            // Check if any previously tracked files were deleted
+            for file_name in self.last_modified.keys() {
+                if !current_modified.contains_key(file_name) {
+                    debug!("dependency file deleted: {}", file_name);
+                    any_changed = true;
+                }
+            }
+
+            // Update our tracking with current state
+            self.last_modified = current_modified;
+
+            // If this is the first check, assume changed
+            if self.last_modified.is_empty() {
+                debug!("first dependency check, assuming changed");
+                any_changed = true;
+            }
+
             debug!(
-                "number of WIT files changed: {} -> {}",
-                cached_files.len(),
-                current_files.len()
+                "dependency check result: {} (tracking {} files)",
+                if any_changed { "changed" } else { "unchanged" },
+                self.last_modified.len()
             );
-            return Ok(true);
-        }
 
-        // Check each file for modifications
-        for (file_path, current_modified) in &current_files {
-            match cached_files.get(file_path) {
-                Some(cached_modified) => {
-                    if current_modified != cached_modified {
-                        debug!("WIT file modified: {}", file_path.display());
-                        return Ok(true);
-                    }
-                }
-                None => {
-                    debug!("new WIT file found: {}", file_path.display());
-                    return Ok(true);
-                }
-            }
+            Ok(any_changed)
         }
-
-        // Check for deleted files
-        for file_path in cached_files.keys() {
-            if !current_files.contains_key(file_path) {
-                debug!("WIT file deleted: {}", file_path.display());
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
     }
 
-    /// Check if dependency configuration files have been modified
-    async fn check_dependency_files_changed(
-        project_dir: &Path,
-        cached_files: &HashMap<PathBuf, SystemTime>,
-    ) -> Result<bool> {
-        let dependency_files = [
-            "wit.toml",
-            "Cargo.toml",
-            "package.json",
-            "go.mod",
-            ".wash/config.json",
-            "wkg.lock",
-            ".wash/wasmcloud.lock",
-        ];
-
-        let mut current_files = HashMap::new();
-
-        // Check each possible dependency file
-        for file_name in &dependency_files {
-            let file_path = project_dir.join(file_name);
-            if file_path.exists() {
-                let metadata = tokio::fs::metadata(&file_path).await.with_context(|| {
-                    format!("failed to get metadata for {}", file_path.display())
-                })?;
-                let modified = metadata.modified().with_context(|| {
-                    format!(
-                        "failed to get modification time for {}",
-                        file_path.display()
-                    )
-                })?;
-                current_files.insert(file_path, modified);
-            }
-        }
-
-        // Check if the file sets are different
-        if current_files.len() != cached_files.len() {
-            debug!(
-                "number of dependency files changed: {} -> {}",
-                cached_files.len(),
-                current_files.len()
-            );
-            return Ok(true);
-        }
-
-        // Check each file for modifications
-        for (file_path, current_modified) in &current_files {
-            match cached_files.get(file_path) {
-                Some(cached_modified) => {
-                    if current_modified != cached_modified {
-                        debug!("dependency file modified: {}", file_path.display());
-                        return Ok(true);
-                    }
-                }
-                None => {
-                    debug!("new dependency file found: {}", file_path.display());
-                    return Ok(true);
-                }
-            }
-        }
-
-        // Check for deleted files
-        for file_path in cached_files.keys() {
-            if !current_files.contains_key(file_path) {
-                debug!("dependency file deleted: {}", file_path.display());
-                return Ok(true);
-            }
-        }
-
-        Ok(false)
-    }
 
     #[cfg(test)]
     mod tests {
         use super::*;
-        use std::{fs, time::SystemTime};
+        use std::fs;
         use tempfile::TempDir;
 
         #[tokio::test]
-        async fn test_wit_change_cache_new() {
-            let cache = WitChangeCache::new();
-            assert!(cache.last_check.is_none());
-            assert!(cache.wit_files.is_empty());
-            assert!(cache.dependency_files.is_empty());
-            assert!(cache.wit_config_hash.is_none());
+        async fn test_dependency_tracker_new() {
+            let tracker = DependencyTracker::new();
+            assert!(tracker.last_modified.is_empty());
         }
 
         #[tokio::test]
-        async fn test_wit_change_cache_load_nonexistent() {
+        async fn test_first_check_returns_changed() {
             let temp_dir = TempDir::new().expect("failed to create temp dir");
             let project_dir = temp_dir.path();
 
-            let cache = WitChangeCache::load(project_dir)
-                .await
-                .expect("failed to load cache");
-            assert!(cache.last_check.is_none());
-            assert!(cache.wit_files.is_empty());
-            assert!(cache.dependency_files.is_empty());
-        }
-
-        #[tokio::test]
-        async fn test_wit_change_cache_save_and_load() {
-            let temp_dir = TempDir::new().expect("failed to create temp dir");
-            let project_dir = temp_dir.path();
-
-            let mut cache = WitChangeCache::new();
-            cache.last_check = Some(SystemTime::now());
-            cache
-                .wit_files
-                .insert(PathBuf::from("wit/world.wit"), SystemTime::now());
-            cache
-                .dependency_files
-                .insert(PathBuf::from("Cargo.toml"), SystemTime::now());
-            cache.wit_config_hash = Some(12345);
-
-            // Save the cache
-            cache.save(project_dir).await.expect("failed to save cache");
-
-            // Load the cache
-            let loaded_cache = WitChangeCache::load(project_dir)
-                .await
-                .expect("failed to load cache");
-            assert!(loaded_cache.last_check.is_some());
-            assert_eq!(loaded_cache.wit_files.len(), 1);
-            assert_eq!(loaded_cache.dependency_files.len(), 1);
-            assert_eq!(loaded_cache.wit_config_hash, Some(12345));
-            assert!(
-                loaded_cache
-                    .wit_files
-                    .contains_key(&PathBuf::from("wit/world.wit"))
-            );
-            assert!(
-                loaded_cache
-                    .dependency_files
-                    .contains_key(&PathBuf::from("Cargo.toml"))
-            );
-        }
-
-        #[tokio::test]
-        async fn test_wit_change_cache_update_cache() {
-            let temp_dir = TempDir::new().expect("failed to create temp dir");
-            let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
-
-            // Create WIT directory and files
-            fs::create_dir_all(&wit_dir).expect("failed to create wit dir");
-            let wit_file1 = wit_dir.join("world.wit");
-            let wit_file2 = wit_dir.join("types.wit");
-            fs::write(&wit_file1, "package example:world;").expect("failed to write wit file");
-            fs::write(&wit_file2, "interface types {}").expect("failed to write wit file");
-
-            // Create dependency files
+            // Create a manifest file
             let cargo_toml = project_dir.join("Cargo.toml");
             fs::write(&cargo_toml, "[package]\nname = \"test\"")
                 .expect("failed to write cargo.toml");
 
-            let mut cache = WitChangeCache::new();
-            let wit_config = WitConfig::default();
+            let mut tracker = DependencyTracker::new();
 
-            // Update cache
-            cache
-                .update_cache(project_dir, &wit_dir, Some(&wit_config))
+            // First check should return true (changed)
+            let result = tracker
+                .check_dependencies_changed(project_dir)
                 .await
-                .expect("failed to update cache");
-
-            assert!(cache.last_check.is_some());
-            assert_eq!(cache.wit_files.len(), 2);
-            assert_eq!(cache.dependency_files.len(), 1);
-            assert!(cache.wit_files.contains_key(&wit_file1));
-            assert!(cache.wit_files.contains_key(&wit_file2));
-            assert!(cache.dependency_files.contains_key(&cargo_toml));
-            assert!(cache.wit_config_hash.is_some());
-        }
-
-        #[tokio::test]
-        async fn test_calculate_wit_config_hash() {
-            let config1 = WitConfig {
-                skip_fetch: false,
-                wit_dir: Some(PathBuf::from("wit")),
-                sources: [("test:package".to_string(), "../local".to_string())].into(),
-                ..Default::default()
-            };
-
-            let config2 = WitConfig {
-                skip_fetch: true, // Different skip_fetch
-                wit_dir: Some(PathBuf::from("wit")),
-                sources: [("test:package".to_string(), "../local".to_string())].into(),
-                ..Default::default()
-            };
-
-            let config3 = WitConfig {
-                skip_fetch: false,
-                wit_dir: Some(PathBuf::from("different")), // Different wit_dir
-                sources: [("test:package".to_string(), "../local".to_string())].into(),
-                ..Default::default()
-            };
-
-            let hash1 = calculate_wit_config_hash(&config1);
-            let hash2 = calculate_wit_config_hash(&config2);
-            let hash3 = calculate_wit_config_hash(&config3);
-
-            assert_ne!(hash1, hash2);
-            assert_ne!(hash1, hash3);
-            assert_ne!(hash2, hash3);
-
-            // Same config should produce same hash
-            let hash1_duplicate = calculate_wit_config_hash(&config1);
-            assert_eq!(hash1, hash1_duplicate);
-        }
-
-        #[tokio::test]
-        async fn test_has_wit_files_changed_no_cache() {
-            let temp_dir = TempDir::new().expect("failed to create temp dir");
-            let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
-
-            let empty_cache = WitChangeCache::new();
-
-            // Should return true when no cache data exists
-            let result = has_wit_files_changed(project_dir, &wit_dir, None, &empty_cache)
-                .await
-                .expect("failed to check wit files changed");
+                .expect("failed to check dependencies");
             assert!(result);
+            assert_eq!(tracker.last_modified.len(), 1);
         }
 
         #[tokio::test]
-        async fn test_has_wit_files_changed_config_change() {
+        async fn test_no_changes_returns_false() {
             let temp_dir = TempDir::new().expect("failed to create temp dir");
             let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
 
-            let mut cache = WitChangeCache::new();
-            cache.last_check = Some(SystemTime::now());
-
-            let config1 = WitConfig {
-                skip_fetch: false,
-                ..Default::default()
-            };
-            let config2 = WitConfig {
-                skip_fetch: true, // Different config
-                ..Default::default()
-            };
-
-            // Set cache with config1 hash
-            cache.wit_config_hash = Some(calculate_wit_config_hash(&config1));
-
-            // Should return true when config changes
-            let result = has_wit_files_changed(project_dir, &wit_dir, Some(&config2), &cache)
-                .await
-                .expect("failed to check wit files changed");
-            assert!(result);
-        }
-
-        #[tokio::test]
-        async fn test_has_wit_files_changed_no_changes() {
-            let temp_dir = TempDir::new().expect("failed to create temp dir");
-            let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
-
-            // Create WIT directory and file
-            fs::create_dir_all(&wit_dir).expect("failed to create wit dir");
-            let wit_file = wit_dir.join("world.wit");
-            fs::write(&wit_file, "package example:world;").expect("failed to write wit file");
-
-            let mut cache = WitChangeCache::new();
-            let wit_config = WitConfig::default();
-
-            // Update cache with current state
-            cache
-                .update_cache(project_dir, &wit_dir, Some(&wit_config))
-                .await
-                .expect("failed to update cache");
-
-            // Should return false when nothing has changed
-            let result = has_wit_files_changed(project_dir, &wit_dir, Some(&wit_config), &cache)
-                .await
-                .expect("failed to check wit files changed");
-            assert!(!result);
-        }
-
-        #[tokio::test]
-        async fn test_has_wit_files_changed_wit_file_modified() {
-            let temp_dir = TempDir::new().expect("failed to create temp dir");
-            let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
-
-            // Create WIT directory and file
-            fs::create_dir_all(&wit_dir).expect("failed to create wit dir");
-            let wit_file = wit_dir.join("world.wit");
-            fs::write(&wit_file, "package example:world;").expect("failed to write wit file");
-
-            let mut cache = WitChangeCache::new();
-            let wit_config = WitConfig::default();
-
-            // Update cache with current state
-            cache
-                .update_cache(project_dir, &wit_dir, Some(&wit_config))
-                .await
-                .expect("failed to update cache");
-
-            // Modify the WIT file
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await; // Ensure different timestamp
-            fs::write(&wit_file, "package example:world;\n// modified")
-                .expect("failed to modify wit file");
-
-            // Should return true when WIT file is modified
-            let result = has_wit_files_changed(project_dir, &wit_dir, Some(&wit_config), &cache)
-                .await
-                .expect("failed to check wit files changed");
-            assert!(result);
-        }
-
-        #[tokio::test]
-        async fn test_has_wit_files_changed_dependency_file_modified() {
-            let temp_dir = TempDir::new().expect("failed to create temp dir");
-            let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
-
-            // Create dependency file
+            // Create manifest files
             let cargo_toml = project_dir.join("Cargo.toml");
             fs::write(&cargo_toml, "[package]\nname = \"test\"")
                 .expect("failed to write cargo.toml");
 
-            let mut cache = WitChangeCache::new();
-            let wit_config = WitConfig::default();
+            let package_json = project_dir.join("package.json");
+            fs::write(&package_json, "{\"name\": \"test\"}").expect("failed to write package.json");
 
-            // Update cache with current state
-            cache
-                .update_cache(project_dir, &wit_dir, Some(&wit_config))
+            let mut tracker = DependencyTracker::new();
+
+            // First check
+            let result1 = tracker
+                .check_dependencies_changed(project_dir)
                 .await
-                .expect("failed to update cache");
+                .expect("failed to check dependencies");
+            assert!(result1); // First check should be true
 
-            // Modify the dependency file
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await; // Ensure different timestamp
+            // Second check with no changes
+            let result2 = tracker
+                .check_dependencies_changed(project_dir)
+                .await
+                .expect("failed to check dependencies");
+            assert!(!result2); // Second check should be false
+        }
+
+        #[tokio::test]
+        async fn test_file_modification_detected() {
+            let temp_dir = TempDir::new().expect("failed to create temp dir");
+            let project_dir = temp_dir.path();
+
+            // Create a manifest file
+            let cargo_toml = project_dir.join("Cargo.toml");
+            fs::write(&cargo_toml, "[package]\nname = \"test\"")
+                .expect("failed to write cargo.toml");
+
+            let mut tracker = DependencyTracker::new();
+
+            // First check
+            tracker
+                .check_dependencies_changed(project_dir)
+                .await
+                .expect("failed to check dependencies");
+
+            // Wait a moment to ensure different timestamp
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+            // Modify the file
             fs::write(
                 &cargo_toml,
                 "[package]\nname = \"test\"\nversion = \"0.1.0\"",
             )
             .expect("failed to modify cargo.toml");
 
-            // Should return true when dependency file is modified
-            let result = has_wit_files_changed(project_dir, &wit_dir, Some(&wit_config), &cache)
+            // Should detect the change
+            let result = tracker
+                .check_dependencies_changed(project_dir)
                 .await
-                .expect("failed to check wit files changed");
+                .expect("failed to check dependencies");
             assert!(result);
         }
 
         #[tokio::test]
-        async fn test_has_wit_files_changed_new_wit_file() {
+        async fn test_new_file_detected() {
             let temp_dir = TempDir::new().expect("failed to create temp dir");
             let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
 
-            // Create WIT directory and file
-            fs::create_dir_all(&wit_dir).expect("failed to create wit dir");
-            let wit_file1 = wit_dir.join("world.wit");
-            fs::write(&wit_file1, "package example:world;").expect("failed to write wit file");
+            // Create initial manifest file
+            let cargo_toml = project_dir.join("Cargo.toml");
+            fs::write(&cargo_toml, "[package]\nname = \"test\"")
+                .expect("failed to write cargo.toml");
 
-            let mut cache = WitChangeCache::new();
-            let wit_config = WitConfig::default();
+            let mut tracker = DependencyTracker::new();
 
-            // Update cache with current state
-            cache
-                .update_cache(project_dir, &wit_dir, Some(&wit_config))
+            // First check
+            tracker
+                .check_dependencies_changed(project_dir)
                 .await
-                .expect("failed to update cache");
+                .expect("failed to check dependencies");
 
-            // Add a new WIT file
-            let wit_file2 = wit_dir.join("types.wit");
-            fs::write(&wit_file2, "interface types {}").expect("failed to write new wit file");
+            // Add a new manifest file
+            let package_json = project_dir.join("package.json");
+            fs::write(&package_json, "{\"name\": \"test\"}").expect("failed to write package.json");
 
-            // Should return true when new WIT file is added
-            let result = has_wit_files_changed(project_dir, &wit_dir, Some(&wit_config), &cache)
+            // Should detect the new file
+            let result = tracker
+                .check_dependencies_changed(project_dir)
                 .await
-                .expect("failed to check wit files changed");
+                .expect("failed to check dependencies");
             assert!(result);
         }
 
         #[tokio::test]
-        async fn test_has_wit_files_changed_wit_file_deleted() {
+        async fn test_file_deletion_detected() {
             let temp_dir = TempDir::new().expect("failed to create temp dir");
             let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
 
-            // Create WIT directory and files
-            fs::create_dir_all(&wit_dir).expect("failed to create wit dir");
-            let wit_file1 = wit_dir.join("world.wit");
-            let wit_file2 = wit_dir.join("types.wit");
-            fs::write(&wit_file1, "package example:world;").expect("failed to write wit file");
-            fs::write(&wit_file2, "interface types {}").expect("failed to write wit file");
+            // Create manifest files
+            let cargo_toml = project_dir.join("Cargo.toml");
+            fs::write(&cargo_toml, "[package]\nname = \"test\"")
+                .expect("failed to write cargo.toml");
 
-            let mut cache = WitChangeCache::new();
-            let wit_config = WitConfig::default();
+            let package_json = project_dir.join("package.json");
+            fs::write(&package_json, "{\"name\": \"test\"}").expect("failed to write package.json");
 
-            // Update cache with current state
-            cache
-                .update_cache(project_dir, &wit_dir, Some(&wit_config))
+            let mut tracker = DependencyTracker::new();
+
+            // First check - should track both files
+            tracker
+                .check_dependencies_changed(project_dir)
                 .await
-                .expect("failed to update cache");
+                .expect("failed to check dependencies");
+            assert_eq!(tracker.last_modified.len(), 2);
 
-            // Delete a WIT file
-            fs::remove_file(&wit_file2).expect("failed to delete wit file");
+            // Delete one file
+            fs::remove_file(&package_json).expect("failed to delete package.json");
 
-            // Should return true when WIT file is deleted
-            let result = has_wit_files_changed(project_dir, &wit_dir, Some(&wit_config), &cache)
+            // Should detect the deletion
+            let result = tracker
+                .check_dependencies_changed(project_dir)
                 .await
-                .expect("failed to check wit files changed");
+                .expect("failed to check dependencies");
             assert!(result);
+            assert_eq!(tracker.last_modified.len(), 1);
         }
 
-        #[tokio::test]
-        async fn test_has_wit_files_changed_wit_directory_removed() {
-            let temp_dir = TempDir::new().expect("failed to create temp dir");
-            let project_dir = temp_dir.path();
-            let wit_dir = project_dir.join("wit");
-
-            // Create WIT directory and file
-            fs::create_dir_all(&wit_dir).expect("failed to create wit dir");
-            let wit_file = wit_dir.join("world.wit");
-            fs::write(&wit_file, "package example:world;").expect("failed to write wit file");
-
-            let mut cache = WitChangeCache::new();
-            let wit_config = WitConfig::default();
-
-            // Update cache with current state
-            cache
-                .update_cache(project_dir, &wit_dir, Some(&wit_config))
-                .await
-                .expect("failed to update cache");
-
-            // Remove entire WIT directory
-            fs::remove_dir_all(&wit_dir).expect("failed to remove wit directory");
-
-            // Should return true when WIT directory is removed but cache had WIT files
-            let result = has_wit_files_changed(project_dir, &wit_dir, Some(&wit_config), &cache)
-                .await
-                .expect("failed to check wit files changed");
-            assert!(result);
-        }
-
-        #[test]
-        fn test_wit_config_with_disable_change_detection() {
-            let json = r#"
-            {
-                "skip_fetch": true,
-                "disable_change_detection": true,
-                "sources": {
-                    "test:package": "../local"
-                }
-            }
-            "#;
-
-            let config: WitConfig = serde_json::from_str(json).unwrap();
-            assert!(config.skip_fetch);
-            assert!(config.disable_change_detection);
-            assert_eq!(config.sources.len(), 1);
-            assert_eq!(config.sources["test:package"], "../local");
-        }
     }
 }
