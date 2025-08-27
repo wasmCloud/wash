@@ -88,7 +88,7 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     };
 
     let test_cmd_with_command = TestCommand {
-        plugin: inspect_plugin_path.clone(),
+        plugin: inspect_plugin_path.to_string_lossy().to_string(),
         args: vec![component_arg.clone()],
         hooks: vec![],
     };
@@ -118,7 +118,7 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     // Test 3: Plugin test with --hook afterdev
     eprintln!("🔍 Test 3: Plugin test with AfterDev hook");
     let test_cmd_with_hook = TestCommand {
-        plugin: inspect_plugin_path.clone(),
+        plugin: inspect_plugin_path.to_string_lossy().to_string(),
         args: vec![],
         hooks: vec![HookType::AfterDev],
     };
@@ -138,7 +138,7 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     // Test 4: Plugin test with both command and AfterDev hook
     eprintln!("🔍 Test 4: Plugin test with both component inspection and AfterDev hook");
     let test_cmd_with_both = TestCommand {
-        plugin: inspect_plugin_path.clone(),
+        plugin: inspect_plugin_path.to_string_lossy().to_string(),
         args: vec![component_arg.clone()],
         hooks: vec![HookType::AfterDev],
     };
