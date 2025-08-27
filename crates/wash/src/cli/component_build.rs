@@ -1,10 +1,14 @@
 //! CLI command for building components, including Rust, TinyGo, and TypeScript projects
 
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context as _, bail};
 use clap::Args;
 use etcetera::AppStrategy;
+use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use tokio::{fs, process::Command};
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -124,6 +128,50 @@ impl ComponentBuilder {
             wit_dir,
             skip_wit_fetch,
         }
+    }
+
+    /// Helper to run a command with a spinner displaying the command and args with elapsed time
+    async fn run_command_with_spinner(
+        &self,
+        command: &mut Command,
+        command_name: &str,
+        args: &[String],
+    ) -> anyhow::Result<std::process::Output> {
+        let spinner = ProgressBar::new_spinner();
+        spinner.set_style(
+            ProgressStyle::default_spinner()
+                .template("{spinner:.green} {msg} [{elapsed}]")
+                .context("failed to create spinner style")?,
+        );
+
+        // Create message showing command + args
+        let message = if args.is_empty() {
+            command_name.to_string()
+        } else {
+            format!("{} {}", command_name, args.join(" "))
+        };
+        spinner.set_message(message);
+        spinner.enable_steady_tick(Duration::from_millis(100));
+
+        let start = Instant::now();
+        let result = command
+            .output()
+            .await
+            .context("failed to execute command")?;
+        let elapsed = start.elapsed();
+
+        spinner.finish_and_clear();
+        info!(
+            "{} completed in {:.2}s",
+            if args.is_empty() {
+                command_name.to_string()
+            } else {
+                format!("{} {}", command_name, args.join(" "))
+            },
+            elapsed.as_secs_f64()
+        );
+
+        Ok(result)
     }
 
     /// Get the WIT directory, defaulting to project_path/wit if not specified
@@ -460,10 +508,14 @@ impl ComponentBuilder {
         debug!(cargo_args = ?cargo_args, "running cargo with args");
 
         // Change to project directory and run cargo build
-        let output = Command::new("cargo")
-            .args(&cargo_args)
-            .current_dir(&self.project_path)
-            .output()
+        let output = self
+            .run_command_with_spinner(
+                Command::new("cargo")
+                    .args(&cargo_args)
+                    .current_dir(&self.project_path),
+                "cargo",
+                &cargo_args,
+            )
             .await
             .context("failed to execute cargo build")?;
 
@@ -647,10 +699,15 @@ impl ComponentBuilder {
             .is_some_and(|c| !c.disable_go_generate)
         {
             debug!("running `go generate ./...` before TinyGo build");
-            let output = Command::new("go")
-                .args(["generate", "./..."])
-                .current_dir(&self.project_path)
-                .output()
+            let go_args = vec!["generate".to_string(), "./...".to_string()];
+            let output = self
+                .run_command_with_spinner(
+                    Command::new("go")
+                        .args(&go_args)
+                        .current_dir(&self.project_path),
+                    "go",
+                    &go_args,
+                )
                 .await
                 .context("failed to execute `go generate ./...`")?;
 
@@ -668,10 +725,14 @@ impl ComponentBuilder {
         debug!(tinygo_args = ?tinygo_args, "running tinygo with args");
 
         // Run tinygo build command
-        let output = Command::new("tinygo")
-            .args(&tinygo_args)
-            .current_dir(&self.project_path)
-            .output()
+        let output = self
+            .run_command_with_spinner(
+                Command::new("tinygo")
+                    .args(&tinygo_args)
+                    .current_dir(&self.project_path),
+                "tinygo",
+                &tinygo_args,
+            )
             .await
             .context("failed to execute tinygo build")?;
 
@@ -748,10 +809,14 @@ impl ComponentBuilder {
             if !ts_config.skip_install {
                 info!(package_manager = %package_manager, install_args = ?install_args, "running install command");
 
-                let install_output = Command::new(package_manager_cmd)
-                    .args(&install_args)
-                    .current_dir(&self.project_path)
-                    .output()
+                let install_output = self
+                    .run_command_with_spinner(
+                        Command::new(package_manager_cmd)
+                            .args(&install_args)
+                            .current_dir(&self.project_path),
+                        package_manager_cmd,
+                        &install_args,
+                    )
                     .await
                     .context(format!("failed to execute {package_manager} install"))?;
 
@@ -782,10 +847,14 @@ impl ComponentBuilder {
             debug!(package_manager = %package_manager, build_args = ?build_args, "running build command");
 
             // Run package manager build command
-            let output = Command::new(package_manager_cmd)
-                .args(&build_args)
-                .current_dir(&self.project_path)
-                .output()
+            let output = self
+                .run_command_with_spinner(
+                    Command::new(package_manager_cmd)
+                        .args(&build_args)
+                        .current_dir(&self.project_path),
+                    package_manager_cmd,
+                    &build_args,
+                )
                 .await
                 .context(format!("failed to execute {package_manager} run build"))?;
 
@@ -864,10 +933,15 @@ impl ComponentBuilder {
 
         info!(command = command, args = ?args, "executing custom build command");
 
-        let output = Command::new(command)
-            .args(args)
-            .current_dir(&self.project_path)
-            .output()
+        let args_strings: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        let output = self
+            .run_command_with_spinner(
+                Command::new(command)
+                    .args(args)
+                    .current_dir(&self.project_path),
+                command,
+                &args_strings,
+            )
             .await
             .context(format!("failed to execute custom command: {command}"))?;
 
