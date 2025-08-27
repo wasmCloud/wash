@@ -11,6 +11,9 @@ tests/output
 # Ignore Rust target directory
 target/
 
+# Ignore worktrees
+worktrees/
+
 # AI things
 .claude
 CLAUDE.md
