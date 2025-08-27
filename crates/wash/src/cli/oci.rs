@@ -94,27 +94,9 @@ pub struct PushCommand {
     /// The path to the component to push
     #[clap(name = "component_path")]
     component_path: PathBuf,
-    /// An optional author to set for the pushed component
-    #[clap(short = 'a', long = "author")]
-    author: Option<String>,
     /// Add an OCI annotation to the image manifest (can be specified multiple times)
     #[clap(long = "annotation", value_parser = parse_annotation)]
     annotations: Vec<(String, String)>,
-    /// Component description (sets org.opencontainers.image.description)
-    #[clap(long = "description")]
-    description: Option<String>,
-    /// Source code URL (sets org.opencontainers.image.source)
-    #[clap(long = "source")]
-    source: Option<String>,
-    /// Homepage URL (sets org.opencontainers.image.url)
-    #[clap(long = "url")]
-    url: Option<String>,
-    /// Component version (sets org.opencontainers.image.version)
-    #[clap(long = "version")]
-    version: Option<String>,
-    /// License information (sets org.opencontainers.image.licenses)
-    #[clap(long = "licenses")]
-    licenses: Option<String>,
 }
 
 impl PushCommand {
@@ -125,48 +107,12 @@ impl PushCommand {
             .await
             .context("failed to read component file")?;
 
-        // Build annotations from both explicit annotations and convenience parameters
-        let mut all_annotations = HashMap::new();
-
-        // Add explicit annotations
-        for (key, value) in &self.annotations {
-            all_annotations.insert(key.clone(), value.clone());
-        }
-
-        // Add convenience parameters as standard OpenContainer annotations
-        if let Some(description) = &self.description {
-            all_annotations.insert(
-                "org.opencontainers.image.description".to_string(),
-                description.clone(),
-            );
-        }
-        if let Some(source) = &self.source {
-            all_annotations.insert(
-                "org.opencontainers.image.source".to_string(),
-                source.clone(),
-            );
-        }
-        if let Some(url) = &self.url {
-            all_annotations.insert("org.opencontainers.image.url".to_string(), url.clone());
-        }
-        if let Some(version) = &self.version {
-            all_annotations.insert(
-                "org.opencontainers.image.version".to_string(),
-                version.clone(),
-            );
-        }
-        if let Some(licenses) = &self.licenses {
-            all_annotations.insert(
-                "org.opencontainers.image.licenses".to_string(),
-                licenses.clone(),
-            );
-        }
-        if let Some(author) = &self.author {
-            all_annotations.insert(
-                "org.opencontainers.image.authors".to_string(),
-                author.clone(),
-            );
-        }
+        // Build annotations from explicit annotations
+        let all_annotations: HashMap<String, String> = self
+            .annotations
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect();
 
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
 
@@ -174,7 +120,11 @@ impl PushCommand {
             &self.reference,
             &component,
             oci_config,
-            Some(all_annotations),
+            if all_annotations.is_empty() {
+                None
+            } else {
+                Some(all_annotations)
+            },
         )
         .await?;
 
@@ -276,24 +226,5 @@ mod tests {
             annotation_map.get("org.opencontainers.image.description"),
             Some(&"A test".to_string())
         );
-    }
-
-    #[test]
-    fn test_convenience_parameter_mapping() {
-        // Test that convenience parameters map to correct OpenContainer annotations
-        let test_cases = vec![
-            ("description", "org.opencontainers.image.description"),
-            ("source", "org.opencontainers.image.source"),
-            ("url", "org.opencontainers.image.url"),
-            ("version", "org.opencontainers.image.version"),
-            ("licenses", "org.opencontainers.image.licenses"),
-            ("author", "org.opencontainers.image.authors"),
-        ];
-
-        for (_convenience_param, expected_annotation) in test_cases {
-            // This test documents the expected mapping
-            // In actual CLI usage, these would be handled by the PushCommand logic
-            assert!(expected_annotation.starts_with("org.opencontainers.image."));
-        }
     }
 }

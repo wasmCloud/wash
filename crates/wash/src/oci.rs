@@ -275,7 +275,14 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<Vec<u8
 ///
 /// # Returns
 /// The digest of the pushed component
-#[instrument(skip(component_data, config, annotations), fields(reference = %reference, size = component_data.len()))]
+#[instrument(
+    skip(component_data, config, annotations),
+    fields(
+        reference = %reference,
+        size = component_data.len(),
+        annotation_count = annotations.as_ref().map_or(0, |a| a.len())
+    )
+)]
 pub async fn push_component(
     reference: &str,
     component_data: &[u8],
@@ -325,46 +332,40 @@ pub async fn push_component(
         .with_context(|| "failed to convert WebAssembly config")?;
 
     // Create custom manifest with annotations if provided
-    let manifest = if let Some(annotations) = annotations {
-        if !annotations.is_empty() {
-            // Convert HashMap to BTreeMap for annotations
-            let btree_annotations: BTreeMap<String, String> = annotations.into_iter().collect();
+    let manifest = annotations.filter(|a| !a.is_empty()).map(|annotations| {
+        // Convert HashMap to BTreeMap for annotations
+        let btree_annotations: BTreeMap<String, String> = annotations.into_iter().collect();
 
-            // Create manifest descriptors for the config and layers
-            let config_descriptor = OciDescriptor {
-                media_type: config_obj.media_type.clone(),
-                digest: config_obj.sha256_digest(),
-                size: config_obj.data.len() as i64,
+        // Create manifest descriptors for the config and layers
+        let config_descriptor = OciDescriptor {
+            media_type: config_obj.media_type.clone(),
+            digest: config_obj.sha256_digest(),
+            size: config_obj.data.len() as i64,
+            urls: None,
+            annotations: None,
+        };
+
+        let layer_descriptors: Vec<OciDescriptor> = layers
+            .iter()
+            .map(|layer| OciDescriptor {
+                media_type: layer.media_type.clone(),
+                digest: layer.sha256_digest(),
+                size: layer.data.len() as i64,
                 urls: None,
                 annotations: None,
-            };
-
-            let layer_descriptors: Vec<OciDescriptor> = layers
-                .iter()
-                .map(|layer| OciDescriptor {
-                    media_type: layer.media_type.clone(),
-                    digest: layer.sha256_digest(),
-                    size: layer.data.len() as i64,
-                    urls: None,
-                    annotations: None,
-                })
-                .collect();
-
-            Some(OciImageManifest {
-                schema_version: 2,
-                media_type: Some("application/vnd.oci.image.manifest.v1+json".to_string()),
-                config: config_descriptor,
-                layers: layer_descriptors,
-                subject: None,
-                artifact_type: None,
-                annotations: Some(btree_annotations),
             })
-        } else {
-            None
+            .collect();
+
+        OciImageManifest {
+            schema_version: 2,
+            media_type: Some("application/vnd.oci.image.manifest.v1+json".to_string()),
+            config: config_descriptor,
+            layers: layer_descriptors,
+            subject: None,
+            artifact_type: None,
+            annotations: Some(btree_annotations),
         }
-    } else {
-        None
-    };
+    });
 
     // Push the component
     client
