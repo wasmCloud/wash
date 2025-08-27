@@ -214,7 +214,7 @@ impl ComponentBuilder {
         }
 
         let cache_file = self.project_path.join(".wash/wit_cache_info");
-        
+
         // Get the latest modification time of non-deps wit files
         let latest_wit_time = match self.get_latest_wit_modification_time(&wit_dir).await {
             Ok(time) => time,
@@ -225,7 +225,7 @@ impl ComponentBuilder {
         if let Ok(cached_time_str) = tokio::fs::read_to_string(&cache_file).await {
             if let Ok(cached_time) = cached_time_str.trim().parse::<u64>() {
                 let cached_system_time = SystemTime::UNIX_EPOCH + Duration::from_secs(cached_time);
-                
+
                 // Compare times
                 if latest_wit_time <= cached_system_time {
                     debug!("WIT files unchanged, skipping dependency fetch");
@@ -244,7 +244,11 @@ impl ComponentBuilder {
     }
 
     /// Get the latest modification time of files in wit directory, excluding wit/deps
-    fn get_latest_wit_modification_time<'a>(&'a self, wit_dir: &'a Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<SystemTime>> + Send + 'a>> {
+    fn get_latest_wit_modification_time<'a>(
+        &'a self,
+        wit_dir: &'a Path,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<SystemTime>> + Send + 'a>>
+    {
         Box::pin(async move {
             let mut latest_time = SystemTime::UNIX_EPOCH;
 
@@ -252,7 +256,7 @@ impl ComponentBuilder {
             while let Some(entry) = entries.next_entry().await? {
                 let path = entry.path();
                 let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                
+
                 // Skip deps directory
                 if file_name == "deps" {
                     continue;
