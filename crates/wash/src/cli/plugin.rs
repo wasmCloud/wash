@@ -146,10 +146,12 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
         tokio::spawn({
             let plugin_component = plugin_component.clone();
             let runtime_config = runtime_config.clone();
+            let background_processes = ctx.background_processes.clone();
             async move {
                 loop {
                     let runtime_config = runtime_config.clone();
                     let plugin_component = plugin_component.clone();
+                    let background_processes = background_processes.clone();
                     let (client, addr) = listener
                         .accept()
                         .await
@@ -160,7 +162,9 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                             TokioIo::new(client),
                             hyper::service::service_fn(move |req| {
                                 let runtime_config = runtime_config.clone();
-                                let mut ctx = Ctx::builder();
+                                let background_processes = background_processes.clone();
+                                let mut ctx =
+                                    Ctx::builder().with_background_processes(background_processes);
                                 if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
                                     ctx = ctx.with_wasi_ctx(
                                         WasiCtx::builder()
@@ -184,6 +188,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                                         store.as_context_mut(),
                                         pre,
                                         req,
+                                        wasmtime_wasi_http::bindings::http::types::Scheme::Http,
                                     )
                                     .await
                                 }
@@ -197,9 +202,10 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
             }
         });
 
-        let mut ctx = Ctx::builder();
+        let mut ctx_builder =
+            Ctx::builder().with_background_processes(ctx.background_processes.clone());
         if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
-            ctx = ctx.with_wasi_ctx(
+            ctx_builder = ctx_builder.with_wasi_ctx(
                 WasiCtx::builder()
                     .preopened_dir(fs_root.as_path(), "/tmp", DirPerms::all(), FilePerms::all())
                     .expect("failed to create WASI context")
@@ -210,7 +216,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
         // Instantiate and run plugin
         match plugin_component
             .call_run(
-                ctx.with_runtime_config_arc(runtime_config).build(),
+                ctx_builder.with_runtime_config_arc(runtime_config).build(),
                 &run_command,
                 Arc::default(),
             )
@@ -429,7 +435,13 @@ impl TestCommand {
         for name in &self.hooks {
             if let Some(hook) = component.metadata.hooks.iter().find(|h| h == &name) {
                 match component
-                    .call_hook(Ctx::default(), hook.to_owned(), Arc::default())
+                    .call_hook(
+                        Ctx::builder()
+                            .with_background_processes(ctx.background_processes.clone())
+                            .build(),
+                        hook.to_owned(),
+                        Arc::default(),
+                    )
                     .await
                     .context("failed to run hook")
                 {

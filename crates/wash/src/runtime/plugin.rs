@@ -2,8 +2,8 @@
 
 use anyhow::{Context as _, Result};
 use dialoguer::{Confirm, theme::ColorfulTheme};
-use std::{collections::HashMap, env, process::Command, sync::Arc};
-use tokio::sync::RwLock;
+use std::{collections::HashMap, env, sync::Arc};
+use tokio::{process::Command, sync::RwLock};
 use tracing::debug;
 use wasmtime::component::Resource;
 use wasmtime_wasi::IoView;
@@ -142,7 +142,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
     ) -> Result<(String, String), String> {
         let ctx = self.table.get(&ctx).map_err(|e| e.to_string())?;
         // TODO(ISSUE#3): cache this somewhere
-        Confirm::with_theme(&ColorfulTheme::default())
+        let confirmed = Confirm::with_theme(&ColorfulTheme::default())
             .with_prompt(format!(
                 "{} wants to run `{bin}` with arguments: {args:?}.\nContinue?",
                 ctx.metadata.name
@@ -150,12 +150,50 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
             .default(true)
             .interact()
             .map_err(|e| e.to_string())?;
+
+        if !confirmed {
+            debug!(bin = %bin, ?args, "host command execution denied by user");
+            return Ok((String::new(), String::new()));
+        }
+
         debug!(bin = %bin, ?args, "executing host command");
-        match Command::new(bin).args(args).output() {
+        match Command::new(bin).args(args).output().await {
             Ok(output) => {
                 let stdout = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
                 let stderr = String::from_utf8(output.stderr).map_err(|e| e.to_string())?;
                 Ok((stdout, stderr))
+            }
+            Err(e) => Err(e.to_string()),
+        }
+    }
+
+    async fn host_exec_background(
+        &mut self,
+        ctx: Resource<Runner>,
+        bin: String,
+        args: Vec<String>,
+    ) -> Result<(), String> {
+        let ctx = self.table.get(&ctx).map_err(|e| e.to_string())?;
+        // TODO(ISSUE#3): cache this somewhere
+        let confirmed = Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt(format!(
+                "{} wants to run `{bin}` with arguments in the background: {args:?}.\nContinue?",
+                ctx.metadata.name
+            ))
+            .default(true)
+            .interact()
+            .map_err(|e| e.to_string())?;
+
+        if !confirmed {
+            debug!(bin = %bin, ?args, "background host command execution denied by user");
+            return Ok(());
+        }
+
+        debug!(bin = %bin, ?args, "executing host command in background");
+        match Command::new(bin).args(args).kill_on_drop(true).spawn() {
+            Ok(child) => {
+                self.background_processes.write().await.push(child);
+                Ok(())
             }
             Err(e) => Err(e.to_string()),
         }

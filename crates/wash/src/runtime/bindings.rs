@@ -97,10 +97,11 @@ pub mod plugin {
             if let Some(cmd) = arg.command.as_ref() {
                 // Register command under `wash <command-name>`
                 let mut cli_command = clap::Command::new(&cmd.name)
-                    .about(&arg.description)
+                    .about(&cmd.description)
                     .allow_hyphen_values(true)
                     .disable_help_flag(false)
-                    .arg_required_else_help(false)
+                    // If arguments are present, display help. Otherwise we can execute without arguments
+                    .arg_required_else_help(!cmd.arguments.is_empty())
                     .subcommand_required(false);
                 // Populate the CLI command with args and flags
                 for argument in &cmd.arguments {

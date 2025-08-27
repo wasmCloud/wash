@@ -1,6 +1,6 @@
 module github.com/wasmcloud/wash/plugins/oauth
 
-go 1.23.0
+go 1.25.0
 
 require (
 	github.com/julienschmidt/httprouter v1.3.0

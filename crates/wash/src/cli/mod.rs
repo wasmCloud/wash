@@ -4,6 +4,7 @@ use std::{ops::Deref, path::Path, sync::Arc};
 
 use anyhow::Context as _;
 use etcetera::{AppStrategy as _, AppStrategyArgs, choose_app_strategy};
+use tokio::{process::Child, sync::RwLock};
 use tracing::info;
 
 #[cfg(windows)]
@@ -70,7 +71,9 @@ pub trait CliCommandExt: CliCommand {
                 let hooks = ctx.plugin_manager.get_hooks(hook_type);
                 for hook in hooks {
                     trace!(?hook, ?hook_type, "executing pre-hook for command");
-                    let mut data = Ctx::default();
+                    let mut data = Ctx::builder()
+                        .with_background_processes(ctx.background_processes.clone())
+                        .build();
                     // TODO(IMPORTANT): context about the command and runner
                     let runner = data
                         .table
@@ -109,7 +112,9 @@ pub trait CliCommandExt: CliCommand {
                 let hooks = ctx.plugin_manager.get_hooks(hook_type);
                 for hook in hooks {
                     trace!(?hook, "executing post-hook for command");
-                    let mut data = Ctx::default();
+                    let mut data = Ctx::builder()
+                        .with_background_processes(ctx.background_processes.clone())
+                        .build();
                     // TODO(IMPORTANT): context about the command and runner
                     let runner = data
                         .table
@@ -267,6 +272,9 @@ pub struct CliContext {
     runtime: wasmcloud_runtime::Runtime,
     runtime_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
     plugin_manager: Arc<PluginManager>,
+    /// Stores the handles to background processes spawned by host_exec_background. We want to
+    /// constrain the processes spawned by components to the lifetime of the CLI context.
+    background_processes: Arc<RwLock<Vec<Child>>>,
 }
 
 #[cfg(unix)]
@@ -354,6 +362,7 @@ impl CliContext {
             runtime: plugin_runtime,
             runtime_thread: Arc::new(thread),
             plugin_manager: Arc::new(plugin_manager),
+            background_processes: Arc::default(),
         })
     }
 
@@ -450,7 +459,9 @@ impl CliContext {
         let hooks = self.plugin_manager.get_hooks(hook_type);
         for hook in hooks {
             trace!(?hook, ?hook_type, "executing pre-hook");
-            let mut data = Ctx::default();
+            let mut data = Ctx::builder()
+                .with_background_processes(self.background_processes.clone())
+                .build();
             let runner = data
                 .table
                 .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
@@ -499,7 +510,9 @@ impl CliContext {
         let hooks = self.plugin_manager.get_hooks(hook_type);
         for hook in hooks {
             trace!(?hook, ?hook_type, "executing post-hook");
-            let mut data = Ctx::default();
+            let mut data = Ctx::builder()
+                .with_background_processes(self.background_processes.clone())
+                .build();
             let runner = data
                 .table
                 .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
