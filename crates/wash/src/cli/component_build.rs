@@ -2,7 +2,7 @@
 
 use std::{
     path::{Path, PathBuf},
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use anyhow::{Context as _, bail};
@@ -205,6 +205,80 @@ impl ComponentBuilder {
         }
     }
 
+    /// Check if any files in the wit directory (excluding wit/deps) have changed
+    /// since the last build. Returns true if files have changed or on error.
+    async fn wit_files_changed(&self) -> bool {
+        let wit_dir = self.get_wit_dir();
+        if !wit_dir.exists() {
+            return false; // No wit dir, nothing changed
+        }
+
+        let cache_file = self.project_path.join(".wash/wit_cache_info");
+        
+        // Get the latest modification time of non-deps wit files
+        let latest_wit_time = match self.get_latest_wit_modification_time(&wit_dir).await {
+            Ok(time) => time,
+            Err(_) => return true, // Error reading files, assume changed
+        };
+
+        // Check if we have cached info
+        if let Ok(cached_time_str) = tokio::fs::read_to_string(&cache_file).await {
+            if let Ok(cached_time) = cached_time_str.trim().parse::<u64>() {
+                let cached_system_time = SystemTime::UNIX_EPOCH + Duration::from_secs(cached_time);
+                
+                // Compare times
+                if latest_wit_time <= cached_system_time {
+                    debug!("WIT files unchanged, skipping dependency fetch");
+                    return false; // No changes
+                }
+            }
+        }
+
+        // Files have changed or no cache exists, update cache
+        if let Ok(duration) = latest_wit_time.duration_since(SystemTime::UNIX_EPOCH) {
+            let _ = tokio::fs::create_dir_all(cache_file.parent().unwrap()).await;
+            let _ = tokio::fs::write(&cache_file, duration.as_secs().to_string()).await;
+        }
+
+        true // Files changed
+    }
+
+    /// Get the latest modification time of files in wit directory, excluding wit/deps
+    fn get_latest_wit_modification_time<'a>(&'a self, wit_dir: &'a Path) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<SystemTime>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut latest_time = SystemTime::UNIX_EPOCH;
+
+            let mut entries = tokio::fs::read_dir(wit_dir).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                
+                // Skip deps directory
+                if file_name == "deps" {
+                    continue;
+                }
+
+                let metadata = entry.metadata().await?;
+                let modified = metadata.modified()?;
+
+                if path.is_dir() {
+                    // Recursively check subdirectories (except deps)
+                    let subdir_time = self.get_latest_wit_modification_time(&path).await?;
+                    if subdir_time > latest_time {
+                        latest_time = subdir_time;
+                    }
+                } else {
+                    // Check file modification time
+                    if modified > latest_time {
+                        latest_time = modified;
+                    }
+                }
+            }
+
+            Ok(latest_time)
+        })
+    }
+
     /// Build the component
     #[instrument(level = "debug", skip(self, ctx, config))]
     pub async fn build(
@@ -246,10 +320,15 @@ impl ComponentBuilder {
 
         // Fetch WIT dependencies if needed
         if !self.skip_wit_fetch {
-            debug!("fetching WIT dependencies for project");
-            if let Err(e) = self.fetch_wit_dependencies(ctx, config).await {
-                error!(err = ?e, "unable to fetch WIT dependencies. If dependencies are already present locally, you can skip this step with --skip-fetch");
-                bail!(e);
+            // Check if WIT files have changed before fetching
+            if self.wit_files_changed().await {
+                debug!("WIT files have changed, fetching WIT dependencies for project");
+                if let Err(e) = self.fetch_wit_dependencies(ctx, config).await {
+                    error!(err = ?e, "unable to fetch WIT dependencies. If dependencies are already present locally, you can skip this step with --skip-fetch");
+                    bail!(e);
+                }
+            } else {
+                debug!("WIT files unchanged, skipping dependency fetch");
             }
         } else {
             debug!("skipping WIT dependency fetching as per configuration");
