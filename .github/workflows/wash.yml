@@ -43,6 +43,17 @@ jobs:
           node-version: '22'
       - name: wth windows
         run: npm --version
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '^1.25.0'
+          cache: true
+      - name: Setup TinyGo
+        uses: acifani/setup-tinygo@v2
+        with:
+          tinygo-version: '0.39.0'
+      - name: Setup wasm-tools
+        uses: bytecodealliance/actions/wasm-tools/setup@v1
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
       - name: Build
