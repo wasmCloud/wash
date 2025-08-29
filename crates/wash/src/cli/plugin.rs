@@ -303,7 +303,7 @@ impl InstallCommand {
         match install_plugin(ctx, options).await {
             Ok(result) => Ok(CommandOutput::ok(
                 format!(
-                    "Plugin '{}' installed successfully from '{}'",
+                    "Plugin '{}' installed successfully from '{}'\n\nNote: If you are using shell completions, regenerate them to include the new plugin:\n  wash completion <shell> > <completion-file>",
                     result.name, result.source
                 ),
                 Some(json!({
@@ -328,7 +328,10 @@ impl UninstallCommand {
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match uninstall_plugin(ctx, &self.name).await {
             Ok(()) => Ok(CommandOutput::ok(
-                format!("Plugin '{}' uninstalled successfully", self.name),
+                format!(
+                    "Plugin '{}' uninstalled successfully\n\nNote: If you are using shell completions, regenerate them to remove the plugin:\n  wash completion <shell> > <completion-file>",
+                    self.name
+                ),
                 Some(json!({
                     "name": self.name,
                     "success": true
