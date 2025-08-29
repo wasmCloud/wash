@@ -56,7 +56,12 @@ pub struct RustBuildConfig {
     pub cargo_flags: Vec<String>,
 
     /// Release mode (default: false)
-    #[serde(default)]
+    /// Defaulting to release mode == false leads to a 6.6MB file size in the `http-hello-world` example
+    /// instead of a 237KB file size.
+    /// The work-around is known and likely to be fixed Soon TM,
+    /// see https://github.com/serde-rs/serde/issues/2815#issuecomment-2329810263
+    /// for why the function `make_true` below is needed.
+    #[serde(default = "make_true")]
     pub release: bool,
 
     /// Features to enable (default: empty)
@@ -68,13 +73,17 @@ pub struct RustBuildConfig {
     pub no_default_features: bool,
 }
 
+fn make_true() -> bool {
+    true
+}
+
 impl Default for RustBuildConfig {
     fn default() -> Self {
         Self {
             custom_command: None,
             target: default_rust_target(),
             cargo_flags: Vec::new(),
-            release: false,
+            release: true,
             features: Vec::new(),
             no_default_features: false,
         }
