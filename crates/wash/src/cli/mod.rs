@@ -30,6 +30,7 @@ use crate::{
     },
 };
 
+pub mod completion;
 pub mod component_build;
 pub mod config;
 /// Developer hot-reload loop for Wasm components
