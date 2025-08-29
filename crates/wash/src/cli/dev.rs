@@ -999,7 +999,7 @@ mod tests {
 
         // Test file accessed through symlink
         let file_through_symlink = symlink_target.join("test.txt");
-        fs::write(&external_target.join("test.txt"), "content").expect("failed to write test file");
+        fs::write(external_target.join("test.txt"), "content").expect("failed to write test file");
 
         // Should be ignored because the symlink resolves to target/ pattern
         assert!(is_ignored(
