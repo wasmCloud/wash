@@ -36,7 +36,7 @@ pub struct Config {
     pub build: Option<BuildConfig>,
 
     /// Template configuration for new project creation (default: wasmCloud templates)
-    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub templates: Vec<NewTemplate>,
 
     /// WIT dependency management configuration (default: empty/optional)
@@ -263,7 +263,7 @@ pub async fn generate_default_config(path: &Path, force: bool) -> Result<()> {
         );
     }
 
-    let default_config = Config::default_with_templates();
+    let default_config = Config::default();
     save_config(&default_config, path).await?;
 
     info!(config_path = %path.display(), "Generated default configuration");
