@@ -36,7 +36,7 @@ pub struct Config {
     pub build: Option<BuildConfig>,
 
     /// Template configuration for new project creation (default: wasmCloud templates)
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub templates: Vec<NewTemplate>,
 
     /// WIT dependency management configuration (default: empty/optional)
@@ -254,7 +254,11 @@ pub fn local_config_path(project_dir: &Path) -> PathBuf {
 
 /// Generate a default configuration file with all explicit defaults
 /// This is useful for `wash config init` command
-pub async fn generate_default_config(path: &Path, force: bool) -> Result<()> {
+pub async fn generate_default_config(
+    path: &Path,
+    force: bool,
+    include_templates: bool,
+) -> Result<()> {
     // Don't overwrite existing config unless force is specified
     if path.exists() && !force {
         bail!(
@@ -263,7 +267,11 @@ pub async fn generate_default_config(path: &Path, force: bool) -> Result<()> {
         );
     }
 
-    let default_config = Config::default_with_templates();
+    let default_config = if include_templates {
+        Config::default_with_templates()
+    } else {
+        Config::default()
+    };
     save_config(&default_config, path).await?;
 
     info!(config_path = %path.display(), "Generated default configuration");

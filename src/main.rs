@@ -1,6 +1,7 @@
 use std::io::BufWriter;
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap_complete::generate;
 use tracing::{Level, error, info, instrument, trace, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -61,6 +62,9 @@ enum WashCliCommand {
     /// Build a Wasm component
     #[clap(name = "build")]
     Build(wash::cli::component_build::ComponentBuildCommand),
+    /// Generate shell completions
+    #[clap(name = "completion")]
+    Completion(wash::cli::completion::CompletionCommand),
     /// View configuration for wash
     #[clap(name = "config", subcommand)]
     Config(wash::cli::config::ConfigCommand),
@@ -93,6 +97,24 @@ impl CliCommand for WashCliCommand {
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match self {
             WashCliCommand::Build(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Completion(cmd) => {
+                // Handle completion generation directly here since we need access to the full CLI
+                let mut wash_cmd = Cli::command();
+
+                let plugins = ctx.plugin_manager().get_commands();
+                if !plugins.is_empty() {
+                    wash_cmd = wash_cmd
+                        .subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
+                }
+                for plugin in plugins {
+                    wash_cmd = wash_cmd.subcommand(plugin.metadata())
+                }
+
+                let cli_name = wash_cmd.get_name().to_owned();
+                generate(cmd.shell(), &mut wash_cmd, cli_name, &mut std::io::stdout());
+
+                Ok(CommandOutput::ok("", None))
+            }
             WashCliCommand::Config(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Dev(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Doctor(cmd) => cmd.handle(ctx).await,
@@ -109,6 +131,7 @@ impl CliCommand for WashCliCommand {
     ) -> Option<wash::runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType> {
         match self {
             WashCliCommand::Build(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Completion(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Dev(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Doctor(cmd) => cmd.enable_pre_hook(),
@@ -124,6 +147,7 @@ impl CliCommand for WashCliCommand {
     ) -> Option<wash::runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType> {
         match self {
             WashCliCommand::Build(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Completion(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Dev(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Doctor(cmd) => cmd.enable_post_hook(),

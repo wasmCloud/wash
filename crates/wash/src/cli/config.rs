@@ -5,7 +5,7 @@ use tracing::instrument;
 
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
-    config::generate_default_config,
+    config::{generate_default_config, local_config_path},
 };
 
 /// Create a new component project from a template, git repository, or local path
@@ -16,6 +16,9 @@ pub enum ConfigCommand {
         #[clap(long)]
         /// Overwrite existing configuration
         force: bool,
+        #[clap(long)]
+        /// Overwrite global configuration instead of project
+        global: bool,
     },
     /// Print the current version and local directories used by wash
     Info {},
@@ -29,9 +32,17 @@ impl CliCommand for ConfigCommand {
     #[instrument(level = "debug", skip_all, name = "config")]
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match self {
-            ConfigCommand::Init { force } => {
-                let config_path = ctx.config_path();
-                generate_default_config(&config_path, *force)
+            ConfigCommand::Init { force, global } => {
+                let config_path = if *global {
+                    ctx.config_path()
+                } else {
+                    local_config_path(
+                        &std::env::current_dir().context("failed to get current dir")?,
+                    )
+                };
+
+                // Global configuration should include templates, but local shouldn't by default
+                generate_default_config(&config_path, *force, *global)
                     .await
                     .context("failed to initialize config")?;
 

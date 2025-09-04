@@ -303,7 +303,7 @@ impl InstallCommand {
         match install_plugin(ctx, options).await {
             Ok(result) => Ok(CommandOutput::ok(
                 format!(
-                    "Plugin '{}' installed successfully from '{}'",
+                    "Plugin '{}' installed successfully from '{}'\n\nNote: If you are using shell completions, regenerate them to include the new plugin:\n  wash completion <shell> > <completion-file>",
                     result.name, result.source
                 ),
                 Some(json!({
@@ -328,7 +328,10 @@ impl UninstallCommand {
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         match uninstall_plugin(ctx, &self.name).await {
             Ok(()) => Ok(CommandOutput::ok(
-                format!("Plugin '{}' uninstalled successfully", self.name),
+                format!(
+                    "Plugin '{}' uninstalled successfully\n\nNote: If you are using shell completions, regenerate them to remove the plugin:\n  wash completion <shell> > <completion-file>",
+                    self.name
+                ),
                 Some(json!({
                     "name": self.name,
                     "success": true
@@ -470,7 +473,20 @@ impl TestCommand {
             args.extend(self.args.iter());
 
             let cli_command: clap::Command = component.metadata().into();
-            let matches = cli_command.get_matches_from(args);
+            let matches = match cli_command.try_get_matches_from(args) {
+                Ok(matches) => matches,
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        clap::error::ErrorKind::DisplayHelp
+                            | clap::error::ErrorKind::DisplayVersion
+                    ) =>
+                {
+                    let _ = e.print();
+                    return Ok(CommandOutput::error(e.to_string(), None));
+                }
+                Err(e) => anyhow::bail!("Failed to parse command arguments: {}", e),
+            };
 
             let component_plugin_command = ComponentPluginCommand {
                 command_name: &component.metadata().name,

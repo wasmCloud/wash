@@ -46,7 +46,7 @@ Make sure to move `wash` to somewhere in your `PATH`.
 ```bash
 git clone https://github.com/wasmcloud/wash.git
 cd wash
-cargo build --release
+cargo install --path .
 ```
 
 ## Quick Start
@@ -83,18 +83,19 @@ cargo build --release
 
 ## Commands
 
-| Command         | Description                                                |
-| --------------- | ---------------------------------------------------------- |
-| `wash build`    | Build a Wasm component                                     |
-| `wash config`   | View and manage wash configuration                         |
-| `wash dev`      | Start a development server for a Wasm component with hot-reload |
-| `wash doctor`   | Check the health of your wash installation and environment |
-| `wash inspect`  | Inspect a Wasm component's embedded WIT interfaces        |
-| `wash new`      | Create a new project from a template or git repository    |
-| `wash oci`      | Push or pull Wasm components to/from an OCI registry      |
-| `wash plugin`   | Manage wash plugins                                        |
-| `wash update`   | Update wash to the latest version                          |
-| `wash help`     | Print this message or the help of the given subcommand(s) |
+| Command           | Description                                                     |
+| ----------------- | --------------------------------------------------------------- |
+| `wash build`      | Build a Wasm component                                          |
+| `wash config`     | View and manage wash configuration                              |
+| `wash completion` | Generate shell completion scripts for wash                      |
+| `wash dev`        | Start a development server for a Wasm component with hot-reload |
+| `wash doctor`     | Check the health of your wash installation and environment      |
+| `wash inspect`    | Inspect a Wasm component's embedded WIT interfaces              |
+| `wash new`        | Create a new project from a template or git repository          |
+| `wash oci`        | Push or pull Wasm components to/from an OCI registry            |
+| `wash plugin`     | Manage wash plugins                                             |
+| `wash update`     | Update wash to the latest version                               |
+| `wash help`       | Print this message or the help of the given subcommand(s)       |
 
 Run `wash --help` or `wash <command> --help` for detailed usage information.
 
@@ -113,6 +114,55 @@ wash features an extensible plugin architecture built on WebAssembly:
 - **Hook System**: Plugins can register pre and post-command hooks for workflow customization
 
 Use `wash plugin --help` to see plugin management commands.
+
+### Shell Completion
+
+#### Zsh
+
+For zsh completion, please run:
+
+```shell
+mkdir -p ~/.zsh/completion
+wash completion zsh > ~/.zsh/completion/_wash
+```
+
+and put the following in `~/.zshrc`:
+
+```shell
+fpath=(~/.zsh/completion $fpath)
+```
+
+Note if you're not running a distribution like oh-my-zsh you may first have to enable autocompletion (and put in `~/.zshrc` to make it persistent):
+
+```shell
+autoload -Uz compinit && compinit
+```
+
+#### Bash
+
+To enable bash completion, run the following, or put it in `~/.bashrc` or `~/.profile`:
+
+```shell
+. <(wash completion bash)
+```
+
+#### Fish
+
+The below commands can be used for fish auto completion:
+
+```shell
+mkdir -p ~/.config/fish/completions
+wash completion fish > ~/.config/fish/completions/wash.fish
+```
+
+#### Powershell
+
+The below command can be referred for setting it up. Please note that the path might be different depending on your
+system settings.
+
+```shell
+wash completion powershell > $env:UserProfile\\Documents\\WindowsPowerShell\\Scripts\\wash.ps1
+```
 
 ## Architecture
 
