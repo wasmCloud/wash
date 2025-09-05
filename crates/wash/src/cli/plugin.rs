@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::Path, sync::Arc};
 
 use anyhow::Context;
 use anyhow::bail;
@@ -20,6 +20,7 @@ use wasmtime_wasi_http::io::TokioIo;
 use crate::runtime::bindings::plugin::wasmcloud::wash::types::Metadata;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput, OutputKind, component_build::build_component},
+    oci::{OCI_CACHE_DIR, OciConfig, pull_component},
     plugin::{
         InstallPluginOptions, PluginComponent, install_plugin, list_plugins, uninstall_plugin,
     },
@@ -275,9 +276,9 @@ pub struct ListCommand {
 
 #[derive(Args, Debug, Clone)]
 pub struct TestCommand {
-    /// Path to the component or component project to test
+    /// Plugin reference, which can be a local file path, project directory, or remote OCI reference
     #[clap(name = "plugin")]
-    pub plugin: PathBuf,
+    pub plugin: String,
     /// The hook types to test
     #[clap(name = "type", long = "hook", conflicts_with = "arg")]
     pub hooks: Vec<HookType>,
@@ -411,22 +412,76 @@ impl TestCommand {
     /// Handle the plugin test command
     #[instrument(level = "debug", skip_all, name = "plugin_test")]
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let wasm = if self.plugin.is_dir() {
-            let config = ctx
-                .ensure_config(Some(self.plugin.as_path()))
-                .await
-                .context("failed to load config")?;
-            let built_path = build_component(&self.plugin, ctx, &config)
-                .await
-                .context("Failed to build component from directory")?;
-            tokio::fs::read(&built_path.artifact_path)
-                .await
-                .context("Failed to read built component file")?
+        let path = Path::new(&self.plugin);
+
+        let wasm = if path.exists() {
+            if path.is_file() {
+                // Direct file path - load it
+                debug!(plugin_ref = ?self.plugin, "loading plugin from file");
+                tokio::fs::read(&self.plugin)
+                    .await
+                    .context("Failed to read component file")?
+            } else if path.is_dir() {
+                // Directory - check if it's a project and build it
+                debug!(
+                    plugin_ref = ?self.plugin,
+                    "directory detected, checking if it's a project"
+                );
+
+                // Check for project files
+                let project_files = [
+                    "Cargo.toml",
+                    "go.mod",
+                    "package.json",
+                    "wasmcloud.toml",
+                    ".wash/config.json",
+                ];
+                let is_project = project_files.iter().any(|file| path.join(file).exists());
+
+                if is_project {
+                    debug!(
+                        plugin_ref = ?self.plugin,
+                        "project directory detected, building component"
+                    );
+
+                    let config = ctx
+                        .ensure_config(Some(path))
+                        .await
+                        .context("Failed to load project configuration")?;
+
+                    let built_path = build_component(path, ctx, &config)
+                        .await
+                        .context("Failed to build component from project directory")?;
+
+                    debug!(artifact_path = ?built_path.artifact_path, "Component built successfully");
+
+                    tokio::fs::read(&built_path.artifact_path)
+                        .await
+                        .context("Failed to read built component file")?
+                } else {
+                    return Err(anyhow::anyhow!(
+                        "Directory '{}' does not appear to be a project (no Cargo.toml, go.mod, package.json, wasmcloud.toml, or .wash/config.json found)",
+                        self.plugin
+                    ));
+                }
+            } else {
+                return Err(anyhow::anyhow!(
+                    "Path '{}' exists but is neither a file nor directory",
+                    self.plugin
+                ));
+            }
         } else {
-            tokio::fs::read(&self.plugin)
-                .await
-                .context("Failed to read component file")?
-            // TODO(#14): support OCI references too
+            debug!(
+                plugin_ref = ?self.plugin,
+                "Path does not exist locally, attempting to pull from remote"
+            );
+            // Pull component from remote
+            pull_component(
+                &self.plugin,
+                OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR)),
+            )
+            .await
+            .context("Failed to pull plugin from remote")?
         };
 
         let mut output = String::new();
@@ -500,7 +555,7 @@ impl TestCommand {
         Ok(CommandOutput::ok(
             output,
             Some(json!({
-                "plugin_path": self.plugin.to_string_lossy(),
+                "plugin_path": self.plugin,
                 "args": self.args,
                 "hooks": self.hooks,
                 "metadata": component.metadata,
