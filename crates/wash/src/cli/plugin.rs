@@ -163,8 +163,9 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                             hyper::service::service_fn(move |req| {
                                 let runtime_config = runtime_config.clone();
                                 let background_processes = background_processes.clone();
-                                let mut ctx =
-                                    Ctx::builder().with_background_processes(background_processes);
+                                let mut ctx = Ctx::builder()
+                                    .with_background_processes(background_processes)
+                                    .with_component_name(plugin_component.metadata.name.clone());
                                 if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
                                     ctx = ctx.with_wasi_ctx(
                                         WasiCtx::builder()
@@ -202,8 +203,9 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
             }
         });
 
-        let mut ctx_builder =
-            Ctx::builder().with_background_processes(ctx.background_processes.clone());
+        let mut ctx_builder = Ctx::builder()
+            .with_background_processes(ctx.background_processes.clone())
+            .with_component_name(plugin_component.metadata.name.clone());
         if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
             ctx_builder = ctx_builder.with_wasi_ctx(
                 WasiCtx::builder()
@@ -441,6 +443,7 @@ impl TestCommand {
                     .call_hook(
                         Ctx::builder()
                             .with_background_processes(ctx.background_processes.clone())
+                            .with_component_name(component.metadata.name.clone())
                             .build(),
                         hook.to_owned(),
                         Arc::default(),
@@ -449,7 +452,7 @@ impl TestCommand {
                     .context("failed to run hook")
                 {
                     Ok(out) => {
-                        output.push_str(out.as_str());
+                        output.push_str(&out);
                         output.push_str(&format!("Hook '{name}' executed successfully"));
                     }
                     Err(e) => {
