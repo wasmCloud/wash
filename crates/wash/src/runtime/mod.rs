@@ -20,6 +20,7 @@ use crate::{
 
 pub mod bindings;
 pub mod plugin;
+pub mod tracing_streams;
 mod wasm;
 
 /// The context for a component store and linker, providing access to implementations of:
@@ -51,17 +52,16 @@ pub struct CtxBuilder {
     ctx: WasiCtx,
     runtime_config: Option<Arc<RwLock<HashMap<String, String>>>>,
     background_processes: Option<Arc<RwLock<Vec<Child>>>>,
+    component_name: Option<String>,
 }
 
 impl CtxBuilder {
     pub fn new() -> Self {
         Self {
-            ctx: WasiCtxBuilder::new()
-                .args(&["main.wasm"])
-                .inherit_stderr()
-                .build(),
+            ctx: WasiCtxBuilder::new().args(&["main.wasm"]).build(),
             runtime_config: None,
             background_processes: None,
+            component_name: None,
         }
     }
 
@@ -93,9 +93,31 @@ impl CtxBuilder {
         self
     }
 
+    /// Sets the component name, which will enable tracing-based stdout/stderr logging
+    pub fn with_component_name(mut self, name: String) -> Self {
+        self.component_name = Some(name);
+        self
+    }
+
     pub fn build(self) -> Ctx {
+        let ctx = if let Some(component_name) = self.component_name {
+            // Use tracing streams when component name is provided
+            WasiCtxBuilder::new()
+                .args(&["main.wasm"])
+                .stdout(crate::runtime::tracing_streams::TracingStream::stdout(
+                    component_name.clone(),
+                ))
+                .stderr(crate::runtime::tracing_streams::TracingStream::stderr(
+                    component_name,
+                ))
+                .build()
+        } else {
+            // Fall back to existing behavior when no component name
+            self.ctx
+        };
+
         Ctx {
-            ctx: self.ctx,
+            ctx,
             runtime_config: self.runtime_config.unwrap_or_default(),
             background_processes: self.background_processes.unwrap_or_default(),
             ..Default::default()
@@ -165,8 +187,15 @@ impl WasiHttpView for Ctx {
 
 // TODO(IMPORTANT): Remove in favor of stdout/stderr logging
 // Implementation of `wasi:logging/logging` using the `tracing` crate
+// DEPRECATED: Use stdout/stderr with component context instead of wasi:logging
 impl wasmcloud_runtime::capability::logging::logging::Host for Ctx {
     async fn log(&mut self, level: Level, context: String, message: String) -> anyhow::Result<()> {
+        // Emit deprecation warning on first use
+        static DEPRECATION_WARNED: std::sync::Once = std::sync::Once::new();
+        DEPRECATION_WARNED.call_once(|| {
+            warn!("wasi:logging is deprecated - use stdout/stderr for component logging instead");
+        });
+
         match level {
             Level::Critical => error!(ctx = context, "{message}"),
             Level::Error => error!(ctx = context, "{message}"),

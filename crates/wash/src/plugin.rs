@@ -11,7 +11,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 use wasmcloud_runtime::{Runtime, component::CustomCtxComponent};
 
 use crate::{
@@ -117,7 +117,14 @@ impl PluginComponent {
         hook: HookType,
         runner_context: Arc<RwLock<HashMap<String, String>>>,
     ) -> anyhow::Result<String> {
-        let mut store = self.component.new_store(ctx);
+        // Create context with plugin-specific stdout/stderr streams
+        let ctx_with_streams = Ctx::builder()
+            .with_wasi_ctx(ctx.ctx)
+            .with_runtime_config_arc(ctx.runtime_config)
+            .with_background_processes(ctx.background_processes)
+            .with_component_name(self.metadata.name.clone())
+            .build();
+        let mut store = self.component.new_store(ctx_with_streams);
         let instance = self
             .component
             .instance_pre()
@@ -153,7 +160,14 @@ impl PluginComponent {
         command: &bindings::plugin::wasmcloud::wash::types::Command,
         runner_context: Arc<RwLock<HashMap<String, String>>>,
     ) -> anyhow::Result<String> {
-        let mut store = self.component.new_store(ctx);
+        // Create context with plugin-specific stdout/stderr streams
+        let ctx_with_streams = Ctx::builder()
+            .with_wasi_ctx(ctx.ctx)
+            .with_runtime_config_arc(ctx.runtime_config)
+            .with_background_processes(ctx.background_processes)
+            .with_component_name(self.metadata.name.clone())
+            .build();
+        let mut store = self.component.new_store(ctx_with_streams);
         let instance = self
             .component
             .instance_pre()
@@ -420,9 +434,12 @@ pub async fn list_plugins(
             .await
             .with_context(|| format!("failed to read plugin file: {}", path.display()))?;
 
-        let component_plugin = prepare_component_plugin(runtime, &plugin, Some(data_dir.as_ref()))
-            .await
-            .with_context(|| format!("failed to prepare plugin component: {plugin_name}"))?;
+        let Ok(component_plugin) =
+            prepare_component_plugin(runtime, &plugin, Some(data_dir.as_ref())).await
+        else {
+            error!(plugin_name = %plugin_name, "failed to prepare plugin component, please uninstall, rebuild and reinstall the plugin");
+            continue;
+        };
 
         plugins.push(component_plugin);
     }

@@ -398,6 +398,13 @@ impl CliCommand for DevCommand {
             "http"
         };
 
+        // Extract component name from artifact path for tracing
+        let component_name = artifact_path
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("dev-component")
+            .to_string();
+
         // TODO(#19): Only spawn the server if the component exports wasi:http
         let background_processes = ctx.background_processes.clone();
         tokio::spawn(async move {
@@ -408,6 +415,7 @@ impl CliCommand for DevCommand {
                 blobstore_root,
                 background_processes,
                 tls_acceptor,
+                component_name,
             )
             .await
             {
@@ -660,6 +668,7 @@ async fn server(
     blobstore_root: PathBuf,
     background_processes: Arc<RwLock<Vec<tokio::process::Child>>>,
     tls_acceptor: Option<TlsAcceptor>,
+    component_name: String,
 ) -> anyhow::Result<()> {
     // Prepare our server state and start listening for connections.
     let mut component = rx.borrow_and_update().to_owned();
@@ -681,6 +690,7 @@ async fn server(
                 let component = component.clone();
                 let background_processes = background_processes.clone();
                 let tls_acceptor = tls_acceptor.clone();
+                let component_name = component_name.clone();
                 debug!(addr = ?addr, "serving new client");
 
                 tokio::spawn(async move {
@@ -711,6 +721,7 @@ async fn server(
                             .with_wasi_ctx(wasi_ctx)
                             .with_runtime_config(runtime_config.clone())
                             .with_background_processes(background_processes)
+                            .with_component_name(component_name.clone()) // Use component filename for tracing
                             .build();
                         async move { component.handle_request(Some(ctx), req, scheme).await }
                     });
