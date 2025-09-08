@@ -118,11 +118,10 @@ impl PluginComponent {
         runner_context: Arc<RwLock<HashMap<String, String>>>,
     ) -> anyhow::Result<String> {
         // Create context with plugin-specific stdout/stderr streams
-        let ctx_with_streams = Ctx::builder()
+        let ctx_with_streams = Ctx::builder(self.metadata.name.clone())
             .with_wasi_ctx(ctx.ctx)
             .with_runtime_config_arc(ctx.runtime_config)
             .with_background_processes(ctx.background_processes)
-            .with_component_name(self.metadata.name.clone())
             .build();
         let mut store = self.component.new_store(ctx_with_streams);
         let instance = self
@@ -161,11 +160,10 @@ impl PluginComponent {
         runner_context: Arc<RwLock<HashMap<String, String>>>,
     ) -> anyhow::Result<String> {
         // Create context with plugin-specific stdout/stderr streams
-        let ctx_with_streams = Ctx::builder()
+        let ctx_with_streams = Ctx::builder(self.metadata.name.clone())
             .with_wasi_ctx(ctx.ctx)
             .with_runtime_config_arc(ctx.runtime_config)
             .with_background_processes(ctx.background_processes)
-            .with_component_name(self.metadata.name.clone())
             .build();
         let mut store = self.component.new_store(ctx_with_streams);
         let instance = self

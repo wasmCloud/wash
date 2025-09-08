@@ -72,7 +72,7 @@ pub trait CliCommandExt: CliCommand {
                 let hooks = ctx.plugin_manager.get_hooks(hook_type);
                 for hook in hooks {
                     trace!(?hook, ?hook_type, "executing pre-hook for command");
-                    let mut data = Ctx::builder()
+                    let mut data = Ctx::builder(hook.metadata.name.clone())
                         .with_background_processes(ctx.background_processes.clone())
                         .build();
                     // TODO(IMPORTANT): context about the command and runner
@@ -113,7 +113,7 @@ pub trait CliCommandExt: CliCommand {
                 let hooks = ctx.plugin_manager.get_hooks(hook_type);
                 for hook in hooks {
                     trace!(?hook, "executing post-hook for command");
-                    let mut data = Ctx::builder()
+                    let mut data = Ctx::builder(hook.metadata.name.clone())
                         .with_background_processes(ctx.background_processes.clone())
                         .build();
                     // TODO(IMPORTANT): context about the command and runner
@@ -460,7 +460,7 @@ impl CliContext {
         let hooks = self.plugin_manager.get_hooks(hook_type);
         for hook in hooks {
             trace!(?hook, ?hook_type, "executing pre-hook");
-            let mut data = Ctx::builder()
+            let mut data = Ctx::builder(hook.metadata.name.clone())
                 .with_background_processes(self.background_processes.clone())
                 .build();
             let runner = data
@@ -511,7 +511,7 @@ impl CliContext {
         let hooks = self.plugin_manager.get_hooks(hook_type);
         for hook in hooks {
             trace!(?hook, ?hook_type, "executing post-hook");
-            let mut data = Ctx::builder()
+            let mut data = Ctx::builder(hook.metadata.name.clone())
                 .with_background_processes(self.background_processes.clone())
                 .build();
             let runner = data

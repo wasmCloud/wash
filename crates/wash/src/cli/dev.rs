@@ -717,11 +717,10 @@ async fn server(
                                 WasiCtxBuilder::new().build()
                             }
                         };
-                        let ctx = Ctx::builder()
+                        let ctx = Ctx::builder(component_name.clone()) // Use component filename for tracing
                             .with_wasi_ctx(wasi_ctx)
                             .with_runtime_config(runtime_config.clone())
                             .with_background_processes(background_processes)
-                            .with_component_name(component_name.clone()) // Use component filename for tracing
                             .build();
                         async move { component.handle_request(Some(ctx), req, scheme).await }
                     });

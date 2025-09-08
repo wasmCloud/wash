@@ -52,16 +52,16 @@ pub struct CtxBuilder {
     ctx: WasiCtx,
     runtime_config: Option<Arc<RwLock<HashMap<String, String>>>>,
     background_processes: Option<Arc<RwLock<Vec<Child>>>>,
-    component_name: Option<String>,
+    component_name: String,
 }
 
 impl CtxBuilder {
-    pub fn new() -> Self {
+    pub fn new(component_name: String) -> Self {
         Self {
             ctx: WasiCtxBuilder::new().args(&["main.wasm"]).build(),
             runtime_config: None,
             background_processes: None,
-            component_name: None,
+            component_name,
         }
     }
 
@@ -93,28 +93,16 @@ impl CtxBuilder {
         self
     }
 
-    /// Sets the component name, which will enable tracing-based stdout/stderr logging
-    pub fn with_component_name(mut self, name: String) -> Self {
-        self.component_name = Some(name);
-        self
-    }
-
     pub fn build(self) -> Ctx {
-        let ctx = if let Some(component_name) = self.component_name {
-            // Use tracing streams when component name is provided
-            WasiCtxBuilder::new()
-                .args(&["main.wasm"])
-                .stdout(crate::runtime::tracing_streams::TracingStream::stdout(
-                    component_name.clone(),
-                ))
-                .stderr(crate::runtime::tracing_streams::TracingStream::stderr(
-                    component_name,
-                ))
-                .build()
-        } else {
-            // Fall back to existing behavior when no component name
-            self.ctx
-        };
+        let ctx = WasiCtxBuilder::new()
+            .args(&["main.wasm"])
+            .stdout(crate::runtime::tracing_streams::TracingStream::stdout(
+                self.component_name.clone(),
+            ))
+            .stderr(crate::runtime::tracing_streams::TracingStream::stderr(
+                self.component_name,
+            ))
+            .build();
 
         Ctx {
             ctx,
@@ -125,15 +113,9 @@ impl CtxBuilder {
     }
 }
 
-impl Default for CtxBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Ctx {
-    pub fn builder() -> CtxBuilder {
-        CtxBuilder::default()
+    pub fn builder(component_name: String) -> CtxBuilder {
+        CtxBuilder::new(component_name)
     }
 }
 
@@ -144,7 +126,12 @@ impl Default for Ctx {
             table: ResourceTable::new(),
             ctx: WasiCtxBuilder::new()
                 .args(&["main.wasm"])
-                .inherit_stderr()
+                .stdout(crate::runtime::tracing_streams::TracingStream::stdout(
+                    "default".to_string(),
+                ))
+                .stderr(crate::runtime::tracing_streams::TracingStream::stderr(
+                    "default".to_string(),
+                ))
                 .build(),
             http: WasiHttpCtx::new(),
             runtime_config: Arc::default(),
@@ -430,7 +417,7 @@ mod test {
         let tmp_path = tmp_dir.path().join("blobstore_test");
         tokio::fs::create_dir_all(&tmp_path).await?;
 
-        let base_ctx = Ctx::builder()
+        let base_ctx = Ctx::builder("test_component".to_string())
             .with_wasi_ctx(
                 WasiCtxBuilder::new()
                     .preopened_dir(&tmp_path, "/tmp", DirPerms::all(), FilePerms::all())
