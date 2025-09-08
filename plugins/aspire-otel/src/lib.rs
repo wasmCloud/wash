@@ -2,7 +2,6 @@
 mod bindings;
 
 use crate::bindings::{
-    wasi::logging::logging::{log, Level},
     wasmcloud::wash::types::{Command, HookType, Metadata, Runner},
 };
 
@@ -28,11 +27,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
     fn hook(r: Runner, ty: HookType) -> anyhow::Result<String, String> {
         match ty {
             HookType::BeforeDev => {
-                log(
-                    Level::Info,
-                    "aspire-otel",
-                    "starting aspire dashboard container",
-                );
+                println!("starting aspire dashboard container");
                 let res = r.host_exec(
                     "docker",
                     &[
@@ -51,19 +46,11 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                         "mcr.microsoft.com/dotnet/aspire-dashboard:9.1".to_string(),
                     ],
                 )?;
-                log(
-                    Level::Info,
-                    "aspire-otel",
-                    "observability dashboard available at http://localhost:18888",
-                );
+                println!("observability dashboard available at http://localhost:18888");
                 Ok(res.0)
             }
             HookType::AfterDev => {
-                log(
-                    Level::Info,
-                    "aspire-otel",
-                    "stopping aspire dashboard container",
-                );
+                println!("stopping aspire dashboard container");
                 Ok(r.host_exec(
                     "docker",
                     &["stop".to_string(), "aspire-dashboard".to_string()],
@@ -71,7 +58,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                 .0)
             }
             _ => {
-                log(Level::Warn, "aspire-otel", "unsupported hook type");
+                eprintln!("unsupported hook type");
                 Err("unsupported hook type".to_string())
             }
         }

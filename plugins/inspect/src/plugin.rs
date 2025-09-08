@@ -1,6 +1,6 @@
 //! Implementation of `wasmcloud:wash/plugin` for the inspect plugin
 
-use crate::bindings::wasi::logging::logging::{Level, log};
+// Removed wasi-logging - using stdout/stderr directly
 use crate::bindings::wasmcloud::wash::types::{
     Command, CommandArgument, HookType, Metadata, Runner,
 };
@@ -9,15 +9,14 @@ use base64::Engine;
 
 /// Check if a path is a directory using wasi:filesystem
 fn is_directory(path: &str) -> anyhow::Result<bool> {
-    let (root_dir, _root_path) = crate::get_root_dir().map_err(|e| anyhow::anyhow!("Failed to get root directory: {}", e))?;
+    let (root_dir, _root_path) = crate::get_root_dir()
+        .map_err(|e| anyhow::anyhow!("Failed to get root directory: {}", e))?;
 
     match root_dir.stat_at(wasi::filesystem::types::PathFlags::empty(), path) {
-        Ok(stat) => {
-            match stat.type_ {
-                wasi::filesystem::types::DescriptorType::Directory => Ok(true),
-                _ => Ok(false),
-            }
-        }
+        Ok(stat) => match stat.type_ {
+            wasi::filesystem::types::DescriptorType::Directory => Ok(true),
+            _ => Ok(false),
+        },
         Err(e) => {
             if e == wasi::filesystem::types::ErrorCode::NoEntry {
                 Ok(false)
@@ -32,25 +31,24 @@ fn is_directory(path: &str) -> anyhow::Result<bool> {
 fn is_project_directory(path: &str) -> anyhow::Result<bool> {
     let project_files = [
         "Cargo.toml",
-        "go.mod", 
+        "go.mod",
         "package.json",
         "wasmcloud.toml",
         ".wash/config.json",
     ];
-    
+
     for file in &project_files {
         let project_file_path = if path == "." {
             file.to_string()
         } else {
             format!("{}/{}", path, file)
         };
-        
+
         if file_exists(&project_file_path).unwrap_or(false) {
-            log(Level::Debug, "", &format!("Found project file: {}", project_file_path));
             return Ok(true);
         }
     }
-    
+
     Ok(false)
 }
 
@@ -58,49 +56,52 @@ fn is_project_directory(path: &str) -> anyhow::Result<bool> {
 fn find_component_artifact(project_path: &str) -> anyhow::Result<Option<String>> {
     let common_artifact_paths = [
         "target/wasm32-wasip2/release/component.wasm",
-        "target/wasm32-wasip2/debug/component.wasm", 
+        "target/wasm32-wasip2/debug/component.wasm",
         "build/component.wasm",
         "build/output.wasm",
         "dist/component.wasm",
         "component.wasm",
     ];
-    
+
     for artifact_path in &common_artifact_paths {
         let full_path = if project_path == "." {
             artifact_path.to_string()
         } else {
             format!("{}/{}", project_path, artifact_path)
         };
-        
+
         if file_exists(&full_path).unwrap_or(false) {
-            log(Level::Debug, "", &format!("Found component artifact: {}", full_path));
             return Ok(Some(full_path));
         }
     }
-    
+
     Ok(None)
 }
 
 /// Request that wash build the project and return the artifact path
 fn request_project_build(runner: &Runner, project_path: &str) -> Result<String, String> {
-    log(Level::Info, "", &format!("Building project at: {}", project_path));
-    
+    println!("Building project at: {}", project_path);
+
     // Request wash to build the project
     match runner.host_exec("wash", &["build".to_string(), project_path.to_string()]) {
         Ok((stdout, stderr)) => {
-            log(Level::Debug, "", &format!("Build stdout: {}", stdout));
-            if !stderr.is_empty() {
-                log(Level::Debug, "", &format!("Build stderr: {}", stderr));
-            }
-            
             // Try to find the built artifact
             match find_component_artifact(project_path) {
                 Ok(Some(artifact_path)) => Ok(artifact_path),
-                Ok(None) => Err(format!("Build completed but no component artifact found in project: {}", project_path)),
-                Err(e) => Err(format!("Failed to find component artifact after build: {}", e)),
+                Ok(None) => Err(format!(
+                    "Build completed but no component artifact found in project: {}",
+                    project_path
+                )),
+                Err(e) => Err(format!(
+                    "Failed to find component artifact after build: {}",
+                    e
+                )),
             }
         }
-        Err(e) => Err(format!("Failed to build project at {}: {}", project_path, e)),
+        Err(e) => Err(format!(
+            "Failed to build project at {}: {}",
+            project_path, e
+        )),
     }
 }
 
@@ -142,66 +143,50 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
     }
 
     fn initialize(_runner: Runner) -> Result<String, String> {
-        log(Level::Info, "", "Inspect plugin initialized successfully");
+        println!("Inspect plugin initialized successfully");
         Ok("Inspect plugin ready".to_string())
     }
 
     fn run(runner: Runner, command: Command) -> Result<String, String> {
-        log(
-            Level::Debug,
-            "",
-            &format!("Executing inspect command: {}", command.name),
-        );
-
         // Get the component path from the first argument, defaulting to "." (current directory)
         let component_path = match command.arguments.first() {
-            Some(arg) => {
-                log(Level::Debug, "", &format!("Found argument: name={}, value={:?}, default={:?}", 
-                    arg.name, arg.value, arg.default));
-                match &arg.value {
-                    Some(path) => path.clone(),
-                    None => match &arg.default {
-                        Some(default) => default.clone(),
-                        None => ".".to_string(),
-                    },
-                }
+            // Some(CommandArgumentValue::Path(path)) => match &arg.value {
+            Some(arg) => match &arg.value {
+                Some(path) => path.clone(),
+                None => match &arg.default {
+                    Some(default) => default.clone(),
+                    None => ".".to_string(),
+                },
             },
-            None => {
-                log(Level::Debug, "", "No arguments found, using default '.'");
-                ".".to_string()
-            }
+            None => ".".to_string(),
         };
-
-        log(Level::Debug, "", &format!("Component path: {}", component_path));
 
         // Determine the actual component file to inspect
         let actual_component_path = if component_path.ends_with(".wasm") {
             // Direct wasm file path - use as-is
-            log(Level::Debug, "", "Direct WASM file specified");
             component_path
         } else {
             // Could be a directory or non-wasm file
             match is_directory(&component_path) {
                 Ok(true) => {
                     // It's a directory - check if it's a project
-                    log(Level::Debug, "", &format!("Path {} is a directory", component_path));
-                    
+
                     match is_project_directory(&component_path) {
                         Ok(true) => {
-                            log(Level::Info, "", &format!("Detected project directory: {}", component_path));
-                            
+                            println!("Detected project directory: {}", component_path);
+
                             // Try to find existing artifact first
                             match find_component_artifact(&component_path) {
                                 Ok(Some(artifact_path)) => {
-                                    log(Level::Info, "", &format!("Found existing artifact: {}", artifact_path));
+                                    println!("Found existing artifact: {}", artifact_path);
                                     artifact_path
                                 }
                                 Ok(None) => {
                                     // No existing artifact - build the project
-                                    log(Level::Info, "", "No existing artifact found, building project");
+                                    println!("No existing artifact found, building project");
                                     match request_project_build(&runner, &component_path) {
                                         Ok(built_path) => {
-                                            log(Level::Info, "", &format!("Built component: {}", built_path));
+                                            println!("Built component: {}", built_path);
                                             built_path
                                         }
                                         Err(e) => {
@@ -210,30 +195,41 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                                     }
                                 }
                                 Err(e) => {
-                                    return Err(format!("Failed to search for component artifact: {}", e));
+                                    return Err(format!(
+                                        "Failed to search for component artifact: {}",
+                                        e
+                                    ));
                                 }
                             }
                         }
                         Ok(false) => {
-                            return Err(format!("Directory {} does not appear to be a project (no Cargo.toml, go.mod, package.json, or .wash/config.json found)", component_path));
+                            return Err(format!(
+                                "Directory {} does not appear to be a project (no Cargo.toml, go.mod, package.json, or .wash/config.json found)",
+                                component_path
+                            ));
                         }
                         Err(e) => {
-                            return Err(format!("Failed to check if {} is a project directory: {}", component_path, e));
+                            return Err(format!(
+                                "Failed to check if {} is a project directory: {}",
+                                component_path, e
+                            ));
                         }
                     }
                 }
                 Ok(false) => {
                     // Not a directory - treat as file path
-                    log(Level::Debug, "", &format!("Path {} is a file", component_path));
                     component_path
                 }
                 Err(e) => {
-                    return Err(format!("Failed to check if {} is a directory: {}", component_path, e));
+                    return Err(format!(
+                        "Failed to check if {} is a directory: {}",
+                        component_path, e
+                    ));
                 }
             }
         };
 
-        log(Level::Info, "", &format!("Inspecting component: {}", actual_component_path));
+        println!("Inspecting component: {}", actual_component_path);
 
         // Read and inspect the component
         match read_file_bytes(&actual_component_path) {
@@ -244,18 +240,19 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                         actual_component_path, e
                     )
                 })?;
-                
+
                 let result = format!(
                     "🔍 Component inspection: {}\n\nWIT Interface:\n{}",
-                    actual_component_path,
-                    wit
+                    actual_component_path, wit
                 );
                 Ok(result)
             }
             Err(e) => {
-                let error_msg =
-                    format!("Failed to read component file '{}': {}", actual_component_path, e);
-                runner.error(&error_msg);
+                let error_msg = format!(
+                    "Failed to read component file '{}': {}",
+                    actual_component_path, e
+                );
+                eprintln!("{}", error_msg);
                 Err(error_msg)
             }
         }
@@ -264,10 +261,8 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
     fn hook(runner: Runner, hook: HookType) -> Result<String, String> {
         match hook {
             HookType::AfterDev => {
-                log(
-                    Level::Info,
-                    "",
-                    "Executing AfterDev hook - inspecting component after development session",
+                println!(
+                    "Executing AfterDev hook - inspecting component after development session"
                 );
 
                 // TODO: Get the artifact path from the context
@@ -284,7 +279,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                             Err(e) => {
                                 let error_msg =
                                     format!("Failed to decode component bytes from base64: {}", e);
-                                log(Level::Error, "", &error_msg);
+                                eprintln!("{}", error_msg);
                                 return Err(error_msg);
                             }
                         }
@@ -303,24 +298,14 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                             if file_exists(path).unwrap_or(false) {
                                 match read_file_bytes(path) {
                                     Ok(bytes) => {
-                                        log(
-                                            Level::Info,
-                                            "",
-                                            &format!(
-                                                "No component bytes in context, using fallback: {}",
-                                                path
-                                            ),
+                                        println!(
+                                            "No component bytes in context, using fallback: {}",
+                                            path
                                         );
                                         found_bytes = Some(bytes);
                                         break;
                                     }
-                                    Err(e) => {
-                                        log(
-                                            Level::Debug,
-                                            "",
-                                            &format!("Failed to read {}: {}", path, e),
-                                        );
-                                    }
+                                    Err(e) => {}
                                 }
                             }
                         }
@@ -330,7 +315,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                             None => {
                                 let msg = "No component artifact found after development session. \
                                           Expected to find component bytes in context or at common locations.";
-                                log(Level::Warn, "", msg);
+                                eprintln!("{}", msg);
                                 return Ok(msg.to_string());
                             }
                         }
@@ -361,7 +346,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     "Hook type {:?} is not supported by the inspect plugin",
                     hook
                 );
-                log(Level::Warn, "", &msg);
+                eprintln!("{}", msg);
                 Err(msg)
             }
         }
