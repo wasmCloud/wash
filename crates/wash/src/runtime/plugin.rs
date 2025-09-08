@@ -199,26 +199,6 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
         }
     }
 
-    async fn output(&mut self, _ctx: Resource<Runner>, output: String) {
-        println!("{output}");
-    }
-
-    async fn structured_output(
-        &mut self,
-        _ctx: Resource<Runner>,
-        headers: Vec<String>,
-        rows: Vec<Vec<String>>,
-    ) {
-        println!("{}", headers.join("\t"));
-        for r in rows {
-            println!("{}", r.join("\t"));
-        }
-    }
-
-    async fn error(&mut self, _ctx: Resource<Runner>, message: String) {
-        eprintln!("{message}");
-    }
-
     async fn drop(&mut self, ctx: Resource<Runner>) -> wasmtime::Result<()> {
         self.table()
             .delete(ctx)

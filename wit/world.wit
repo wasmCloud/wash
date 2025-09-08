@@ -1,4 +1,4 @@
-package wasmcloud:wash@0.0.1;
+package wasmcloud:wash@0.0.2;
 
 interface types {
     /// Hook types that can be registered by plugins
@@ -30,7 +30,7 @@ interface types {
     /// Used for flags and arguments in commands
     /// Flags are registered as `wash <plugin-name> <command-name> --<flag-name> <flag-value>`
     /// Arguments are registered in order as `wash <plugin-name> <command-name> <arg1-value> <arg2-value>`
-    /// 
+    ///
     /// Flags and arguments can be optional, and the final value is populated by the CLI parser. If you set default to None,
     /// then the final value should always be Some(value) before the command is executed. This should still be validated.
     record command-argument {
@@ -103,9 +103,9 @@ interface types {
     /// Plugin config is a key/value store that can be used to share information between instances of the plugin.
     /// This is useful for passing information between commands and hooks, or for storing state that's accessed
     /// across multiple invocations of the plugin.
-    /// 
+    ///
     /// Plugin config key/value pairs are available both in this object and through wasi:config/runtime calls.
-    /// 
+    ///
     /// This is a global store for all instances of the plugin and race contentions should be handled with care.
     /// The contents of the store are not persisted after wash's execution ends.
     resource plugin-config {
@@ -130,10 +130,10 @@ interface types {
     /// Shared context between the plugin and wash, enabling both to read and write key/value pairs
     /// for dynamic behavior modification. This allows plugins to influence wash operations by updating
     /// context values (e.g., modifying OCI artifact annotations before a push).
-    /// 
+    ///
     /// The context is accessible to both wash and plugins during command and hook execution, supporting
     /// collaborative state changes and behavioral overrides.
-    /// 
+    ///
     /// Context data is not persisted beyond the current wash execution and should be treated as ephemeral.
     resource context {
         /// Get the value for a given context key.
@@ -160,7 +160,7 @@ interface types {
         /// Shared context between the plugin and wash, enabling both to read and write key/value pairs
         /// for dynamic behavior modification. This allows plugins to influence wash operations by updating
         /// context values (e.g., modifying OCI artifact annotations before a push).
-        /// 
+        ///
         /// The context is accessible to both wash and plugins during command and hook execution, supporting
         /// collaborative state changes and behavioral overrides.
         context: func() -> result<context, string>;
@@ -168,9 +168,9 @@ interface types {
         /// Plugin config is a key/value store that can be used to share information between instances of the plugin.
         /// This is useful for passing information between commands and hooks, or for storing state that's accessed
         /// across multiple invocations of the plugin.
-        /// 
+        ///
         /// Plugin config key/value pairs are available both in this object and through wasi:config/runtime calls.
-        /// 
+        ///
         /// This is a global store for all instances of the plugin and race contentions should be handled with care.
         /// The contents of the store are not persisted after wash's execution ends.
         plugin-config: func() -> result<plugin-config, string>;
@@ -178,28 +178,17 @@ interface types {
         /// Executes a host native binary on behalf of a plugin
         /// Commands are executed under 'sh -c' and inherit the environment and working directory.
         /// wash will ask the user for confirmation before executing this function.
-        /// 
+        ///
         /// Returns the stdout and stderr of the command as a tuple.
         host-exec: func(bin: string, args: list<string>) -> result<tuple<string, string>, string>;
 
         /// Executes a host native binary on behalf of a plugin in the background.
         /// Commands are executed under 'sh -c' and inherit the environment and working directory.
         /// wash will ask the user for confirmation before executing this function.
-        /// 
+        ///
         /// The lifecycle of this command is tied to the CLI execution context. This means it will
         /// continue to run until the CLI session ends and then be killed.
         host-exec-background: func(bin: string, args: list<string>) -> result<_, string>;
-
-        // TODO(IMPORTANT): No wasi:logging, fix this up for how we want to do output
-        // User visible Output
-        // For debugging, see wasi:logging
-        output: func(message: string);
-        // User visible Output
-        // For debugging, see wasi:logging
-        structured-output: func(headers: list<string>, rows: list<list<string>>);
-        // Stop execution
-        // wash will notify the user and execute the error hooks (if any)
-        error: func(reason: string);
     }
 }
 
