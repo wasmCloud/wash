@@ -187,7 +187,7 @@ async fn main() {
             let (mut stdout, _stderr) = initialize_tracing(cli.log_level, cli.verbose);
             exit_with_output(
                 &mut stdout,
-                CommandOutput::error(e, None).with_output_kind(cli.output),
+                CommandOutput::error(format!("{e:?}"), None).with_output_kind(cli.output),
             );
         }
     };
@@ -246,7 +246,11 @@ async fn main() {
     exit_with_output(
         &mut stdout_buf,
         command_output
-            .unwrap_or_else(|e| CommandOutput::error(e, None).with_output_kind(cli.output))
+            .unwrap_or_else(|e| {
+                // NOTE: This format!() invocation specifically outputs the anyhow backtrace, which is why
+                // it's used over a `.to_string()` call.
+                CommandOutput::error(format!("{e:?}"), None).with_output_kind(cli.output)
+            })
             .with_output_kind(cli.output),
     )
 }
