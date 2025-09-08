@@ -549,7 +549,6 @@ impl CliCommand for DevCommand {
                         }
                         Err(e) => {
                             info!("failed to build component, will retry on next file change");
-                            // TODO(#23): This doesn't include color output
                             // This nicely formats the error message
                             error!("{e}");
                             // If the build fails, we pause the watcher to prevent further reloads
