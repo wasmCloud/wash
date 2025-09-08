@@ -3,15 +3,6 @@
 version = 1
 
 [[packages]]
-name = "wasi:blobstore"
-registry = "wasi.dev"
-
-[[packages.versions]]
-requirement = "=0.2.0-draft"
-version = "0.2.0-draft"
-digest = "sha256:de369d910c03300962eff97e9cb16d344c064da16e4a3d0c9b12b5c0d7ab8781"
-
-[[packages]]
 name = "wasi:cli"
 registry = "wasi.dev"
 
@@ -19,15 +10,6 @@ registry = "wasi.dev"
 requirement = "=0.2.0"
 version = "0.2.0"
 digest = "sha256:e7e85458e11caf76554b724ebf4f113259decf0f3b1ee2e2930de096f72114a7"
-
-[[packages]]
-name = "wasi:config"
-registry = "wasi.dev"
-
-[[packages.versions]]
-requirement = "=0.2.0-draft"
-version = "0.2.0-draft"
-digest = "sha256:aa2d36d0843999edad80a13bf22f4529277f7b6012429f8a5d1f9499f3793c1a"
 
 [[packages]]
 name = "wasi:http"

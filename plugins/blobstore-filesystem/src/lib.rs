@@ -12,7 +12,7 @@ use crate::bindings::exports::wasi::blobstore::types::{
 };
 use crate::bindings::exports::wasi::blobstore::types::{GuestIncomingValue, GuestOutgoingValue};
 use crate::bindings::exports::wasi::blobstore::{blobstore, container};
-use crate::bindings::wasi::logging::logging::{log, Level};
+// Removed wasi-logging - using stdout/stderr directly
 
 /// Generated WIT bindings
 pub mod bindings;
@@ -73,11 +73,7 @@ struct Component;
 fn get_root_dir() -> Result<(Descriptor, String), String> {
     let mut dirs = ::wasi::filesystem::preopens::get_directories();
     if dirs.len() > 1 {
-        log(
-            Level::Warn,
-            "",
-            "multiple preopened directories found, using the last one provided",
-        );
+        eprintln!("multiple preopened directories found, using the last one provided");
     }
 
     if let Some(dir) = dirs.pop() {
@@ -89,33 +85,18 @@ fn get_root_dir() -> Result<(Descriptor, String), String> {
 
 impl bindings::exports::wasi::blobstore::blobstore::Guest for Component {
     fn create_container(container: String) -> Result<blobstore::Container, String> {
-        log(
-            Level::Debug,
-            &format!("container={container}"),
-            "creating container",
-        );
         let (root_dir, root_path) = get_root_dir()?;
 
         root_dir
             .create_directory_at(&container)
             .map_err(|e| e.to_string())?;
 
-        log(
-            Level::Debug,
-            &format!("container={container}"),
-            &format!("created container at {root_path:?}"),
-        );
 
         // Return a new container instance
         Ok(blobstore::Container::new(container))
     }
 
     fn get_container(container: String) -> Result<blobstore::Container, String> {
-        log(
-            Level::Debug,
-            &format!("container={container}"),
-            "getting container",
-        );
         // Ensure the container exists
         if !Component::container_exists(container.clone())? {
             return Err(format!("container={container}: container does not exist"));
@@ -125,11 +106,6 @@ impl bindings::exports::wasi::blobstore::blobstore::Guest for Component {
     }
 
     fn delete_container(container: String) -> Result<(), String> {
-        log(
-            Level::Debug,
-            &format!("container={container}"),
-            "deleting container",
-        );
         let (root_dir, _root_path) = get_root_dir()?;
 
         if !Component::container_exists(container.clone())? {
@@ -147,11 +123,6 @@ impl bindings::exports::wasi::blobstore::blobstore::Guest for Component {
     }
 
     fn container_exists(container: String) -> Result<bool, String> {
-        log(
-            Level::Debug,
-            &format!("container={container}"),
-            "checking if container exists",
-        );
         let (root_dir, _root_path) = get_root_dir()?;
 
         match root_dir.stat_at(PathFlags::empty(), &container) {
@@ -171,14 +142,6 @@ impl bindings::exports::wasi::blobstore::blobstore::Guest for Component {
     }
 
     fn copy_object(src: ObjectId, dst: ObjectId) -> Result<(), String> {
-        log(
-            Level::Debug,
-            &format!(
-                "source={}/{},destination={}/{}",
-                src.container, src.object, dst.container, dst.object
-            ),
-            "copying object",
-        );
         let (root_dir, _root_path) = get_root_dir()?;
 
         // Build source and destination paths
@@ -229,14 +192,6 @@ impl bindings::exports::wasi::blobstore::blobstore::Guest for Component {
     }
 
     fn move_object(src: ObjectId, dst: ObjectId) -> Result<(), String> {
-        log(
-            Level::Debug,
-            &format!(
-                "source={}/{},destination={}/{}",
-                src.container, src.object, dst.container, dst.object
-            ),
-            "moving object",
-        );
         let (root_dir, _root_path) = get_root_dir()?;
         let src_path = format!("{}/{}", src.container, src.object);
 

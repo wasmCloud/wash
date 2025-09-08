@@ -12,15 +12,6 @@ version = "0.2.0"
 digest = "sha256:e7e85458e11caf76554b724ebf4f113259decf0f3b1ee2e2930de096f72114a7"
 
 [[packages]]
-name = "wasi:config"
-registry = "wasi.dev"
-
-[[packages.versions]]
-requirement = "=0.2.0-draft"
-version = "0.2.0-draft"
-digest = "sha256:aa2d36d0843999edad80a13bf22f4529277f7b6012429f8a5d1f9499f3793c1a"
-
-[[packages]]
 name = "wasi:http"
 registry = "wasi.dev"
 

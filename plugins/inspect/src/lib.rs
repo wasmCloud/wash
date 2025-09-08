@@ -49,11 +49,7 @@ fn get_root_dir() -> anyhow::Result<(Descriptor, String)> {
 
     // Log all available directories for debugging
     for (i, (_, path)) in dirs.iter().enumerate() {
-        crate::bindings::wasi::logging::logging::log(
-            crate::bindings::wasi::logging::logging::Level::Info,
-            "",
-            &format!("Preopened directory {}: {}", i, path),
-        );
+        println!("Preopened directory {}: {}", i, path);
     }
 
     if let Some(dir) = dirs.into_iter().next() {
@@ -67,14 +63,7 @@ fn get_root_dir() -> anyhow::Result<(Descriptor, String)> {
 fn read_file_bytes(file_path: &str) -> anyhow::Result<Vec<u8>> {
     let (root_dir, root_path) = get_root_dir().context("Failed to get root directory")?;
 
-    crate::bindings::wasi::logging::logging::log(
-        crate::bindings::wasi::logging::logging::Level::Info,
-        "",
-        &format!(
-            "Attempting to read file: {} from root: {}",
-            file_path, root_path
-        ),
-    );
+    println!("Attempting to read file: {} from root: {}", file_path, root_path);
 
     let file = root_dir
         .open_at(

@@ -1,131 +1,92 @@
-package wasmcloud:plugin@0.1.0;
+package wasi:cli@0.2.0;
 
-world oauth {
-	import wasi:logging/logging@0.1.0-draft;
-	import wasi:config/runtime@0.2.0-draft;
-	import wasi:io/poll@0.2.0;
-	import wasi:clocks/monotonic-clock@0.2.0;
-	import wasi:io/error@0.2.0;
-	import wasi:io/streams@0.2.0;
-	import wasi:http/types@0.2.0;
-	import wasi:http/outgoing-handler@0.2.0;
-	import wasi:cli/environment@0.2.0;
-	import wasi:cli/exit@0.2.0;
-	import wasi:cli/stdin@0.2.0;
-	import wasi:cli/stdout@0.2.0;
-	import wasi:cli/stderr@0.2.0;
-	import wasi:cli/terminal-input@0.2.0;
-	import wasi:cli/terminal-output@0.2.0;
-	import wasi:cli/terminal-stdin@0.2.0;
-	import wasi:cli/terminal-stdout@0.2.0;
-	import wasi:cli/terminal-stderr@0.2.0;
-	import wasi:clocks/wall-clock@0.2.0;
-	import wasi:filesystem/types@0.2.0;
-	import wasi:filesystem/preopens@0.2.0;
-	import wasi:sockets/network@0.2.0;
-	import wasi:sockets/instance-network@0.2.0;
-	import wasi:sockets/udp@0.2.0;
-	import wasi:sockets/udp-create-socket@0.2.0;
-	import wasi:sockets/tcp@0.2.0;
-	import wasi:sockets/tcp-create-socket@0.2.0;
-	import wasi:sockets/ip-name-lookup@0.2.0;
-	import wasi:random/random@0.2.0;
-	import wasi:random/insecure@0.2.0;
-	import wasi:random/insecure-seed@0.2.0;
-	import wasmcloud:wash/types@0.0.2;
-	export wasi:http/incoming-handler@0.2.0;
-	export wasmcloud:wash/plugin@0.0.2;
+interface environment {
+	/// Get the POSIX-style environment variables.
+	///
+	/// Each environment variable is provided as a pair of string variable names
+	/// and string value.
+	///
+	/// Morally, these are a value import, but until value imports are available
+	/// in the component model, this import function should return the same
+	/// values each time it is called.
+	get-environment: func() -> list<tuple<string, string>>;
+
+	/// Get the POSIX-style arguments to the program.
+	get-arguments: func() -> list<string>;
+
+	/// Return a path that programs should use as their initial current working
+	/// directory, interpreting `.` as shorthand for this.
+	initial-cwd: func() -> option<string>;
 }
 
-package wasi:cli@0.2.0 {
-	interface environment {
-		/// Get the POSIX-style environment variables.
-		///
-		/// Each environment variable is provided as a pair of string variable names
-		/// and string value.
-		///
-		/// Morally, these are a value import, but until value imports are available
-		/// in the component model, this import function should return the same
-		/// values each time it is called.
-		get-environment: func() -> list<tuple<string, string>>;
+interface exit {
+	/// Exit the current instance and any linked instances.
+	exit: func(status: result);
+}
 
-		/// Get the POSIX-style arguments to the program.
-		get-arguments: func() -> list<string>;
+interface stdin {
+	use wasi:io/streams@0.2.0.{input-stream};
+	get-stdin: func() -> input-stream;
+}
 
-		/// Return a path that programs should use as their initial current working
-		/// directory, interpreting `.` as shorthand for this.
-		initial-cwd: func() -> option<string>;
-	}
+interface stdout {
+	use wasi:io/streams@0.2.0.{output-stream};
+	get-stdout: func() -> output-stream;
+}
 
-	interface exit {
-		/// Exit the current instance and any linked instances.
-		exit: func(status: result);
-	}
+interface stderr {
+	use wasi:io/streams@0.2.0.{output-stream};
+	get-stderr: func() -> output-stream;
+}
 
-	interface stdin {
-		use wasi:io/streams@0.2.0.{input-stream};
-		get-stdin: func() -> input-stream;
-	}
+/// Terminal input.
+///
+/// In the future, this may include functions for disabling echoing,
+/// disabling input buffering so that keyboard events are sent through
+/// immediately, querying supported features, and so on.
+interface terminal-input {
+	/// The input side of a terminal.
+	resource terminal-input;
+}
 
-	interface stdout {
-		use wasi:io/streams@0.2.0.{output-stream};
-		get-stdout: func() -> output-stream;
-	}
+/// Terminal output.
+///
+/// In the future, this may include functions for querying the terminal
+/// size, being notified of terminal size changes, querying supported
+/// features, and so on.
+interface terminal-output {
+	/// The output side of a terminal.
+	resource terminal-output;
+}
 
-	interface stderr {
-		use wasi:io/streams@0.2.0.{output-stream};
-		get-stderr: func() -> output-stream;
-	}
+/// An interface providing an optional `terminal-input` for stdin as a
+/// link-time authority.
+interface terminal-stdin {
+	use terminal-input.{terminal-input};
 
-	/// Terminal input.
-	///
-	/// In the future, this may include functions for disabling echoing,
-	/// disabling input buffering so that keyboard events are sent through
-	/// immediately, querying supported features, and so on.
-	interface terminal-input {
-		/// The input side of a terminal.
-		resource terminal-input;
-	}
+	/// If stdin is connected to a terminal, return a `terminal-input` handle
+	/// allowing further interaction with it.
+	get-terminal-stdin: func() -> option<terminal-input>;
+}
 
-	/// Terminal output.
-	///
-	/// In the future, this may include functions for querying the terminal
-	/// size, being notified of terminal size changes, querying supported
-	/// features, and so on.
-	interface terminal-output {
-		/// The output side of a terminal.
-		resource terminal-output;
-	}
+/// An interface providing an optional `terminal-output` for stdout as a
+/// link-time authority.
+interface terminal-stdout {
+	use terminal-output.{terminal-output};
 
-	/// An interface providing an optional `terminal-input` for stdin as a
-	/// link-time authority.
-	interface terminal-stdin {
-		use terminal-input.{terminal-input};
+	/// If stdout is connected to a terminal, return a `terminal-output` handle
+	/// allowing further interaction with it.
+	get-terminal-stdout: func() -> option<terminal-output>;
+}
 
-		/// If stdin is connected to a terminal, return a `terminal-input` handle
-		/// allowing further interaction with it.
-		get-terminal-stdin: func() -> option<terminal-input>;
-	}
+/// An interface providing an optional `terminal-output` for stderr as a
+/// link-time authority.
+interface terminal-stderr {
+	use terminal-output.{terminal-output};
 
-	/// An interface providing an optional `terminal-output` for stdout as a
-	/// link-time authority.
-	interface terminal-stdout {
-		use terminal-output.{terminal-output};
-
-		/// If stdout is connected to a terminal, return a `terminal-output` handle
-		/// allowing further interaction with it.
-		get-terminal-stdout: func() -> option<terminal-output>;
-	}
-
-	/// An interface providing an optional `terminal-output` for stderr as a
-	/// link-time authority.
-	interface terminal-stderr {
-		use terminal-output.{terminal-output};
-
-		/// If stderr is connected to a terminal, return a `terminal-output` handle
-		/// allowing further interaction with it.
-		get-terminal-stderr: func() -> option<terminal-output>;
-	}
+	/// If stderr is connected to a terminal, return a `terminal-output` handle
+	/// allowing further interaction with it.
+	get-terminal-stderr: func() -> option<terminal-output>;
 }
 
 package wasi:filesystem@0.2.0 {
@@ -1395,36 +1356,41 @@ package wasi:io@0.2.0 {
 	}
 }
 
-package wasi:logging@0.1.0-draft {
-	/// WASI Logging is a logging API intended to let users emit log messages with
-	/// simple priority levels and context values.
-	interface logging {
-		/// A log level, describing a kind of message.
-		enum level {
-			/// Describes messages about the values of variables and the flow of
-			/// control within a program.
-			trace,
-			/// Describes messages likely to be of interest to someone debugging a
-			/// program.
-			debug,
-			/// Describes messages likely to be of interest to someone monitoring a
-			/// program.
-			info,
-			/// Describes messages indicating hazardous situations.
-			warn,
-			/// Describes messages indicating serious errors.
-			error,
-			/// Describes messages indicating fatal errors.
-			critical
-		}
-
-		/// Emit a log message.
-		///
-		/// A log message has a `level` describing what kind of message is being
-		/// sent, a context, which is an uninterpreted string meant to help
-		/// consumers group similar messages, and a string containing the message
-		/// text.
-		log: func(level: level, context: string, message: string);
+package wasmcloud:plugin@0.1.0 {
+	world oauth {
+		import wasi:config/runtime@0.2.0-draft;
+		import wasi:io/poll@0.2.0;
+		import wasi:clocks/monotonic-clock@0.2.0;
+		import wasi:io/error@0.2.0;
+		import wasi:io/streams@0.2.0;
+		import wasi:http/types@0.2.0;
+		import wasi:http/outgoing-handler@0.2.0;
+		import wasi:cli/environment@0.2.0;
+		import wasi:cli/exit@0.2.0;
+		import wasi:cli/stdin@0.2.0;
+		import wasi:cli/stdout@0.2.0;
+		import wasi:cli/stderr@0.2.0;
+		import wasi:cli/terminal-input@0.2.0;
+		import wasi:cli/terminal-output@0.2.0;
+		import wasi:cli/terminal-stdin@0.2.0;
+		import wasi:cli/terminal-stdout@0.2.0;
+		import wasi:cli/terminal-stderr@0.2.0;
+		import wasi:clocks/wall-clock@0.2.0;
+		import wasi:filesystem/types@0.2.0;
+		import wasi:filesystem/preopens@0.2.0;
+		import wasi:sockets/network@0.2.0;
+		import wasi:sockets/instance-network@0.2.0;
+		import wasi:sockets/udp@0.2.0;
+		import wasi:sockets/udp-create-socket@0.2.0;
+		import wasi:sockets/tcp@0.2.0;
+		import wasi:sockets/tcp-create-socket@0.2.0;
+		import wasi:sockets/ip-name-lookup@0.2.0;
+		import wasi:random/random@0.2.0;
+		import wasi:random/insecure@0.2.0;
+		import wasi:random/insecure-seed@0.2.0;
+		import wasmcloud:wash/types@0.0.2;
+		export wasi:http/incoming-handler@0.2.0;
+		export wasmcloud:wash/plugin@0.0.2;
 	}
 }
 

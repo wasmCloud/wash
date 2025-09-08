@@ -52,7 +52,6 @@ pub struct CtxBuilder {
     ctx: WasiCtx,
     runtime_config: Option<Arc<RwLock<HashMap<String, String>>>>,
     background_processes: Option<Arc<RwLock<Vec<Child>>>>,
-    component_name: String,
 }
 
 impl CtxBuilder {
@@ -69,7 +68,6 @@ impl CtxBuilder {
                 .build(),
             runtime_config: None,
             background_processes: None,
-            component_name,
         }
     }
 

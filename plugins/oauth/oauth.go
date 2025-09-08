@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
 
 	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/preopens"
 	fsTypes "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/types"
-	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/logging/v0.1.0-draft/logging"
 	"github.com/julienschmidt/httprouter"
 	"go.bytecodealliance.org/cm"
 	"go.wasmcloud.dev/component/gen/wasi/config/runtime"
@@ -27,12 +28,12 @@ var dexEndpoint = oauth2.Endpoint{
 func newOAuth2Config() *oauth2.Config {
 	clientId, err, isErr := runtime.Get(clientIdConfig).Result()
 	if isErr || clientId.None() {
-		logging.Log(logging.LevelError, "oauth", "failed to get client_id from config: "+err.String())
+		fmt.Fprintln(os.Stderr, "failed to get client_id from config: "+err.String())
 		return nil
 	}
 	clientSecret, err, isErr := runtime.Get(clientSecretConfig).Result()
 	if isErr || clientSecret.None() {
-		logging.Log(logging.LevelError, "oauth", "failed to get client_secret from config: "+err.String())
+		fmt.Fprintln(os.Stderr, "failed to get client_secret from config: "+err.String())
 		return nil
 	}
 	// TODO: Get port redirect from wash?
@@ -91,10 +92,10 @@ func callbackHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params
 
 	dirs := preopens.GetDirectories().Slice()
 	if len(dirs) == 0 {
-		logging.Log(logging.LevelError, "oauth_http", "No preopens found for filesystem access, can't validate authentication")
+		fmt.Fprintln(os.Stderr, "No preopens found for filesystem access, can't validate authentication")
 	}
 	if len(dirs) > 1 {
-		logging.Log(logging.LevelWarn, "oauth_http", "Multiple preopens found, using the first one for authentication validation")
+		fmt.Fprintln(os.Stderr, "Multiple preopens found, using the first one for authentication validation")
 	}
 
 	dir := dirs[0].F0
@@ -102,19 +103,19 @@ func callbackHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params
 	res, fsErr, isErr := dir.OpenAt(0, config.ClientID+".creds", fsTypes.OpenFlagsCreate|fsTypes.OpenFlagsTruncate, fsTypes.DescriptorFlagsWrite).Result()
 	if isErr {
 		errMsg := "Failed to open creds file: " + fsErr.String()
-		logging.Log(logging.LevelError, "oauth_http", errMsg)
+		fmt.Fprintln(os.Stderr, errMsg)
 		http.Error(w, errMsg, http.StatusInternalServerError)
 		return
 	}
 	writtenBytes, fsErr, isErr := res.Write(cm.ToList(userJSON), 0).Result()
 	if isErr {
 		errMsg := "Failed to write creds file: " + fsErr.String()
-		logging.Log(logging.LevelError, "oauth_http", errMsg)
+		fmt.Fprintln(os.Stderr, errMsg)
 		http.Error(w, errMsg, http.StatusInternalServerError)
 		return
 	}
 	if int(writtenBytes) != len(userJSON) {
-		logging.Log(logging.LevelError, "oauth_http", "Failed to write all bytes to creds file")
+		fmt.Fprintln(os.Stderr, "Failed to write all bytes to creds file")
 		http.Error(w, "failed to write all bytes to creds file", http.StatusInternalServerError)
 		return
 	}
@@ -132,7 +133,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 
 	dirs := preopens.GetDirectories().Slice()
 	if len(dirs) == 0 {
-		logging.Log(logging.LevelError, "oauth_http", "No preopens found for filesystem access")
+		fmt.Fprintln(os.Stderr, "No preopens found for filesystem access")
 		http.Error(w, "No filesystem access", http.StatusInternalServerError)
 		return
 	}
@@ -140,7 +141,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 
 	res, fsErr, isErr := dir.OpenAt(0, config.ClientID+".creds", 0, fsTypes.DescriptorFlagsRead).Result()
 	if isErr {
-		logging.Log(logging.LevelWarn, "oauth_http", "No creds file found: "+fsErr.String())
+		fmt.Fprintln(os.Stderr, "No creds file found: "+fsErr.String())
 		http.Error(w, "Not authenticated. Please log in.", http.StatusUnauthorized)
 		return
 	}
@@ -148,7 +149,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	// Read the file contents
 	data, fsErr, isErr := res.Read(4096, 0).Result()
 	if isErr {
-		logging.Log(logging.LevelError, "oauth_http", "Failed to read creds file: "+fsErr.String())
+		fmt.Fprintln(os.Stderr, "Failed to read creds file: "+fsErr.String())
 		http.Error(w, "Failed to read credentials", http.StatusInternalServerError)
 		return
 	}
@@ -156,7 +157,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	userJSON := data.F0.Slice()
 	var tokenInfo map[string]string
 	if err := json.Unmarshal(userJSON, &tokenInfo); err != nil {
-		logging.Log(logging.LevelError, "oauth_http", "Failed to parse user JSON: "+err.Error())
+		fmt.Fprintln(os.Stderr, "Failed to parse user JSON: "+err.Error())
 		http.Error(w, "Invalid user data", http.StatusInternalServerError)
 		return
 	}

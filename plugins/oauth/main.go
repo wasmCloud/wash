@@ -2,16 +2,17 @@
 package main
 
 import (
+	"fmt"
 	"net/http"
+	"os"
 	"runtime"
 	"time"
 
 	monotonicclock "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/clocks/v0.2.0/monotonic-clock"
 	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/preopens"
 	fsTypes "github.com/wasmcloud/wash/plugins/oauth/gen/wasi/filesystem/v0.2.0/types"
-	"github.com/wasmcloud/wash/plugins/oauth/gen/wasi/logging/v0.1.0-draft/logging"
-	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/plugin"
-	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/v0.0.1/types"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/plugin"
+	"github.com/wasmcloud/wash/plugins/oauth/gen/wasmcloud/wash/types"
 	"go.bytecodealliance.org/cm"
 	"go.wasmcloud.dev/component/net/wasihttp"
 )
@@ -123,14 +124,14 @@ func Run(runner plugin.Runner, cmd plugin.Command) (result cm.Result[string, str
 	clientSecret := flagOrDefault(flags, "client-secret")
 
 	if clientId == nil || clientSecret == nil {
-		logging.Log(logging.LevelError, cmd.Name, "Client ID and Client Secret must be provided")
+		fmt.Fprintln(os.Stderr, "Client ID and Client Secret must be provided")
 		return cm.Err[cm.Result[string, string, string]]("Client ID and Client Secret must be provided")
 	}
 
 	// SAFETY: We know that port, clientId, and clientSecret are not nil here.
 	runnerPluginConfig, err, isErr := runner.PluginConfig().Result()
 	if isErr {
-		logging.Log(logging.LevelError, cmd.Name, err)
+		fmt.Fprintln(os.Stderr, err)
 		return cm.Err[cm.Result[string, string, string]]("Failed to get plugin config: " + err)
 	}
 	runnerPluginConfig.Set(portConfig, *port)
@@ -140,17 +141,17 @@ func Run(runner plugin.Runner, cmd plugin.Command) (result cm.Result[string, str
 
 	dirs := preopens.GetDirectories().Slice()
 	if len(dirs) == 0 {
-		logging.Log(logging.LevelError, cmd.Name, "No preopens found for filesystem access, can't validate authentication")
+		fmt.Fprintln(os.Stderr, "No preopens found for filesystem access, can't validate authentication")
 		return cm.Err[cm.Result[string, string, string]]("No preopens found for filesystem access, can't validate authentication")
 	}
 	if len(dirs) > 1 {
-		logging.Log(logging.LevelWarn, cmd.Name, "Multiple preopens found, using the first one for authentication validation")
+		fmt.Fprintln(os.Stderr, "Multiple preopens found, using the first one for authentication validation")
 	}
 
 	dir := dirs[0].F0
 
 	// Now that we've set the context, we wait for the authentication to complete.
-	logging.Log(logging.LevelInfo, "oauth", "waiting for authentication at http://localhost:8888/login")
+	fmt.Println("waiting for authentication at http://localhost:8888/login")
 	backoffDuration := 1 * time.Millisecond
 	// var res fsTypes.Descriptor
 	for {
@@ -160,7 +161,7 @@ func Run(runner plugin.Runner, cmd plugin.Command) (result cm.Result[string, str
 		}
 		// res = openedDescriptor
 		// TODO: make sure this reads the file and validates?
-		logging.Log(logging.LevelDebug, cmd.Name, "creds does not exist, waiting for authentication")
+		// Debug logging removed
 		runtime.Gosched()
 		backoff := monotonicclock.SubscribeDuration(monotonicclock.Duration(backoffDuration))
 		backoff.Block()
@@ -182,7 +183,7 @@ func Run(runner plugin.Runner, cmd plugin.Command) (result cm.Result[string, str
 	// 	logging.Log(logging.LevelError, "oauth_http", "Failed to parse user JSON: "+err.Error())
 	// 	return
 	// }
-	logging.Log(logging.LevelInfo, cmd.Name, "Authenticated user, stored access token as"+*clientId+".creds") // Read the file to ensure it exists
+	fmt.Println("Authenticated user, stored access token as" + *clientId + ".creds") // Read the file to ensure it exists
 
 	// Command success
 	return cm.OK[cm.Result[string, string, string]]("Command executed successfully")
