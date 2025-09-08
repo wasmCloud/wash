@@ -3,7 +3,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::AsyncWrite;
 use tracing::{info, warn};
-use wasmtime_wasi::{pipe::AsyncWriteStream, AsyncStdoutStream, OutputStream, StdoutStream};
+use wasmtime_wasi::{AsyncStdoutStream, OutputStream, StdoutStream, pipe::AsyncWriteStream};
 
 /// AsyncWrite implementation that forwards all writes to tracing macros
 pub struct TracingAsyncWrite {
@@ -38,22 +38,22 @@ impl AsyncWrite for TracingAsyncWrite {
                     }
                 }
             }
-            
+
             // Handle the case where buffer doesn't end with newline (partial line)
             if !text.is_empty() && !text.ends_with('\n') {
                 // Find the last line (after the last newline)
-                if let Some(last_line) = text.lines().last() {
-                    if !last_line.trim().is_empty() {
-                        if self.is_stderr {
-                            warn!(ctx = self.component_name, "{}", last_line);
-                        } else {
-                            info!(ctx = self.component_name, "{}", last_line);
-                        }
+                if let Some(last_line) = text.lines().last()
+                    && !last_line.trim().is_empty()
+                {
+                    if self.is_stderr {
+                        warn!(ctx = self.component_name, "{}", last_line);
+                    } else {
+                        info!(ctx = self.component_name, "{}", last_line);
                     }
                 }
             }
         }
-        
+
         // Always report successful write of entire buffer
         Poll::Ready(Ok(buf.len()))
     }
@@ -82,7 +82,7 @@ impl TracingStream {
             is_stderr: false,
         }
     }
-    
+
     pub fn stderr(component_name: String) -> Self {
         Self {
             component_name,
