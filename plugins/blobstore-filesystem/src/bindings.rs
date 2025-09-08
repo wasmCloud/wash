@@ -11,8 +11,8 @@ wit_bindgen::generate!({
         "wasi:io/poll@0.2.1": ::wasi::io::poll,
         "wasi:io/streams@0.2.1": ::wasi::io::streams,
         "wasi:logging/logging@0.1.0-draft": generate,
-        "wasmcloud:wash/types@0.0.1": generate,
-        "wasmcloud:wash/plugin@0.0.1": generate,
+        "wasmcloud:wash/types@0.0.2": generate,
+        "wasmcloud:wash/plugin@0.0.2": generate,
     },
 });
 

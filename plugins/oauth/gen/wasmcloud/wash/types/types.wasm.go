@@ -6,80 +6,72 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "wasmcloud:wash@0.0.1".
+// This file contains wasmimport and wasmexport declarations for "wasmcloud:wash@0.0.2".
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [resource-drop]plugin-config
+//go:wasmimport wasmcloud:wash/types@0.0.2 [resource-drop]plugin-config
 //go:noescape
 func wasmimport_PluginConfigResourceDrop(self0 uint32)
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]plugin-config.delete
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]plugin-config.delete
 //go:noescape
 func wasmimport_PluginConfigDelete(self0 uint32, key0 *uint8, key1 uint32, result *cm.Option[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]plugin-config.get
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]plugin-config.get
 //go:noescape
 func wasmimport_PluginConfigGet(self0 uint32, key0 *uint8, key1 uint32, result *cm.Option[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]plugin-config.list
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]plugin-config.list
 //go:noescape
 func wasmimport_PluginConfigList(self0 uint32, result *cm.List[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]plugin-config.set
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]plugin-config.set
 //go:noescape
 func wasmimport_PluginConfigSet(self0 uint32, key0 *uint8, key1 uint32, value0 *uint8, value1 uint32, result *cm.Option[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [resource-drop]project-config
+//go:wasmimport wasmcloud:wash/types@0.0.2 [resource-drop]project-config
 //go:noescape
 func wasmimport_ProjectConfigResourceDrop(self0 uint32)
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]project-config.version
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]project-config.version
 //go:noescape
 func wasmimport_ProjectConfigVersion(self0 uint32, result *string)
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [resource-drop]context
+//go:wasmimport wasmcloud:wash/types@0.0.2 [resource-drop]context
 //go:noescape
 func wasmimport_ContextResourceDrop(self0 uint32)
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]context.delete
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]context.delete
 //go:noescape
 func wasmimport_ContextDelete(self0 uint32, key0 *uint8, key1 uint32, result *cm.Option[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]context.get
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]context.get
 //go:noescape
 func wasmimport_ContextGet(self0 uint32, key0 *uint8, key1 uint32, result *cm.Option[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]context.list
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]context.list
 //go:noescape
 func wasmimport_ContextList(self0 uint32, result *cm.List[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]context.set
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]context.set
 //go:noescape
 func wasmimport_ContextSet(self0 uint32, key0 *uint8, key1 uint32, value0 *uint8, value1 uint32, result *cm.Option[string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [resource-drop]runner
+//go:wasmimport wasmcloud:wash/types@0.0.2 [resource-drop]runner
 //go:noescape
 func wasmimport_RunnerResourceDrop(self0 uint32)
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]runner.context
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]runner.context
 //go:noescape
 func wasmimport_RunnerContext(self0 uint32, result *cm.Result[string, Context, string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]runner.error
-//go:noescape
-func wasmimport_RunnerError(self0 uint32, reason0 *uint8, reason1 uint32)
-
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]runner.host-exec
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]runner.host-exec
 //go:noescape
 func wasmimport_RunnerHostExec(self0 uint32, bin0 *uint8, bin1 uint32, args0 *string, args1 uint32, result *cm.Result[[2]string, [2]string, string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]runner.output
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]runner.host-exec-background
 //go:noescape
-func wasmimport_RunnerOutput(self0 uint32, message0 *uint8, message1 uint32)
+func wasmimport_RunnerHostExecBackground(self0 uint32, bin0 *uint8, bin1 uint32, args0 *string, args1 uint32, result *cm.Result[string, struct{}, string])
 
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]runner.plugin-config
+//go:wasmimport wasmcloud:wash/types@0.0.2 [method]runner.plugin-config
 //go:noescape
 func wasmimport_RunnerPluginConfig(self0 uint32, result *cm.Result[string, PluginConfig, string])
-
-//go:wasmimport wasmcloud:wash/types@0.0.1 [method]runner.structured-output
-//go:noescape
-func wasmimport_RunnerStructuredOutput(self0 uint32, headers0 *string, headers1 uint32, rows0 *cm.List[string], rows1 uint32)

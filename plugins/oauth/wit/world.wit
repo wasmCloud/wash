@@ -7,5 +7,5 @@ world oauth {
     import wasi:config/runtime@0.2.0-draft;
     import wasi:http/outgoing-handler@0.2.0;
     export wasi:http/incoming-handler@0.2.0;
-    export wasmcloud:wash/plugin@0.0.1;
+    export wasmcloud:wash/plugin@0.0.2;
 }
