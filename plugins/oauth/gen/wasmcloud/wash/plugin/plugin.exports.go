@@ -6,7 +6,7 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// Exports represents the caller-defined exports from "wasmcloud:wash/plugin@0.0.1".
+// Exports represents the caller-defined exports from "wasmcloud:wash/plugin@0.0.2".
 var Exports struct {
 	// Info represents the caller-defined, exported function "info".
 	//

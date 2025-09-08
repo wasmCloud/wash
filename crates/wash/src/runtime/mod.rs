@@ -58,7 +58,15 @@ pub struct CtxBuilder {
 impl CtxBuilder {
     pub fn new(component_name: String) -> Self {
         Self {
-            ctx: WasiCtxBuilder::new().args(&["main.wasm"]).build(),
+            ctx: WasiCtxBuilder::new()
+                .args(&["main.wasm"])
+                .stdout(crate::runtime::tracing_streams::TracingStream::stdout(
+                    component_name.clone(),
+                ))
+                .stderr(crate::runtime::tracing_streams::TracingStream::stderr(
+                    component_name.clone(),
+                ))
+                .build(),
             runtime_config: None,
             background_processes: None,
             component_name,
@@ -66,6 +74,8 @@ impl CtxBuilder {
     }
 
     pub fn with_wasi_ctx(mut self, ctx: WasiCtx) -> Self {
+        // Store the provided context, but we'll need to rebuild it in build() to add tracing streams
+        // This is a limitation of the current WasiCtx API
         self.ctx = ctx;
         self
     }
@@ -94,15 +104,9 @@ impl CtxBuilder {
     }
 
     pub fn build(self) -> Ctx {
-        let ctx = WasiCtxBuilder::new()
-            .args(&["main.wasm"])
-            .stdout(crate::runtime::tracing_streams::TracingStream::stdout(
-                self.component_name.clone(),
-            ))
-            .stderr(crate::runtime::tracing_streams::TracingStream::stderr(
-                self.component_name,
-            ))
-            .build();
+        // Use the configured context (which may include preopened directories and tracing streams)
+        // If no context was explicitly set via with_wasi_ctx(), use a default one with tracing streams
+        let ctx = self.ctx;
 
         Ctx {
             ctx,
@@ -422,6 +426,12 @@ mod test {
                 WasiCtxBuilder::new()
                     .preopened_dir(&tmp_path, "/tmp", DirPerms::all(), FilePerms::all())
                     .context("failed to create preopened dir")?
+                    .stdout(crate::runtime::tracing_streams::TracingStream::stdout(
+                        "test_component".to_string(),
+                    ))
+                    .stderr(crate::runtime::tracing_streams::TracingStream::stderr(
+                        "test_component".to_string(),
+                    ))
                     .build(),
             )
             .build();

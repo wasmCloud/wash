@@ -1,4 +1,4 @@
-package wasmcloud:wash@0.0.1;
+package wasmcloud:wash@0.0.2;
 
 interface types {
   /// Hook types that can be registered by plugins
@@ -184,18 +184,7 @@ interface types {
     ///
     /// The lifecycle of this command is tied to the CLI execution context. This means it will
     /// continue to run until the CLI session ends and then be killed.
-    /// @since(version = 0.0.2)
-    /// host-exec-background: func(bin: string, args: list<string>) -> result<_, string>;
-    /// TODO(IMPORTANT): No wasi:logging, fix this up for how we want to do output
-    /// User visible Output
-    /// For debugging, see wasi:logging
-    output: func(message: string);
-    /// User visible Output
-    /// For debugging, see wasi:logging
-    structured-output: func(headers: list<string>, rows: list<list<string>>);
-    /// Stop execution
-    /// wash will notify the user and execute the error hooks (if any)
-    error: func(reason: string);
+    host-exec-background: func(bin: string, args: list<string>) -> result<_, string>;
   }
 }
 
@@ -260,45 +249,6 @@ world plugin-guest {
   import wasi:random/insecure-seed@0.2.0;
   import types;
 
-  export plugin;
-}
-/// An example of a fully featured world for a plugin command
-/// that supports HTTP as well as the plugin interface
-world plugin-guest-http {
-  import wasi:logging/logging@0.1.0-draft;
-  import wasi:config/runtime@0.2.0-draft;
-  import wasi:io/poll@0.2.0;
-  import wasi:clocks/monotonic-clock@0.2.0;
-  import wasi:io/error@0.2.0;
-  import wasi:io/streams@0.2.0;
-  import wasi:http/types@0.2.0;
-  import wasi:http/outgoing-handler@0.2.0;
-  import wasi:cli/environment@0.2.0;
-  import wasi:cli/exit@0.2.0;
-  import wasi:cli/stdin@0.2.0;
-  import wasi:cli/stdout@0.2.0;
-  import wasi:cli/stderr@0.2.0;
-  import wasi:cli/terminal-input@0.2.0;
-  import wasi:cli/terminal-output@0.2.0;
-  import wasi:cli/terminal-stdin@0.2.0;
-  import wasi:cli/terminal-stdout@0.2.0;
-  import wasi:cli/terminal-stderr@0.2.0;
-  import wasi:clocks/wall-clock@0.2.0;
-  import wasi:filesystem/types@0.2.0;
-  import wasi:filesystem/preopens@0.2.0;
-  import wasi:sockets/network@0.2.0;
-  import wasi:sockets/instance-network@0.2.0;
-  import wasi:sockets/udp@0.2.0;
-  import wasi:sockets/udp-create-socket@0.2.0;
-  import wasi:sockets/tcp@0.2.0;
-  import wasi:sockets/tcp-create-socket@0.2.0;
-  import wasi:sockets/ip-name-lookup@0.2.0;
-  import wasi:random/random@0.2.0;
-  import wasi:random/insecure@0.2.0;
-  import wasi:random/insecure-seed@0.2.0;
-  import types;
-
-  export wasi:http/incoming-handler@0.2.0;
   export plugin;
 }
 /// An example world of a plugin that can be used in the hot reload loop, namely exporting the HTTP bindings

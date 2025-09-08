@@ -7,18 +7,18 @@ import (
 	"go.bytecodealliance.org/cm"
 )
 
-// This file contains wasmimport and wasmexport declarations for "wasmcloud:wash@0.0.1".
+// This file contains wasmimport and wasmexport declarations for "wasmcloud:wash@0.0.2".
 
-//go:wasmexport wasmcloud:wash/plugin@0.0.1#info
-//export wasmcloud:wash/plugin@0.0.1#info
+//go:wasmexport wasmcloud:wash/plugin@0.0.2#info
+//export wasmcloud:wash/plugin@0.0.2#info
 func wasmexport_Info() (result *Metadata) {
 	result_ := Exports.Info()
 	result = &result_
 	return
 }
 
-//go:wasmexport wasmcloud:wash/plugin@0.0.1#initialize
-//export wasmcloud:wash/plugin@0.0.1#initialize
+//go:wasmexport wasmcloud:wash/plugin@0.0.2#initialize
+//export wasmcloud:wash/plugin@0.0.2#initialize
 func wasmexport_Initialize(runner0 uint32) (result *cm.Result[string, string, string]) {
 	runner := cm.Reinterpret[Runner]((uint32)(runner0))
 	result_ := Exports.Initialize(runner)
@@ -26,8 +26,8 @@ func wasmexport_Initialize(runner0 uint32) (result *cm.Result[string, string, st
 	return
 }
 
-//go:wasmexport wasmcloud:wash/plugin@0.0.1#run
-//export wasmcloud:wash/plugin@0.0.1#run
+//go:wasmexport wasmcloud:wash/plugin@0.0.2#run
+//export wasmcloud:wash/plugin@0.0.2#run
 func wasmexport_Run(runner0 uint32, cmd0 *uint8, cmd1 uint32, cmd2 *uint8, cmd3 uint32, cmd4 *uint8, cmd5 uint32, cmd6 *cm.Tuple[string, types.CommandArgument], cmd7 uint32, cmd8 *types.CommandArgument, cmd9 uint32, cmd10 *string, cmd11 uint32) (result *cm.Result[string, string, string]) {
 	runner := cm.Reinterpret[Runner]((uint32)(runner0))
 	cmd := lift_Command((*uint8)(cmd0), (uint32)(cmd1), (*uint8)(cmd2), (uint32)(cmd3), (*uint8)(cmd4), (uint32)(cmd5), (*cm.Tuple[string, types.CommandArgument])(cmd6), (uint32)(cmd7), (*types.CommandArgument)(cmd8), (uint32)(cmd9), (*string)(cmd10), (uint32)(cmd11))
@@ -36,8 +36,8 @@ func wasmexport_Run(runner0 uint32, cmd0 *uint8, cmd1 uint32, cmd2 *uint8, cmd3 
 	return
 }
 
-//go:wasmexport wasmcloud:wash/plugin@0.0.1#hook
-//export wasmcloud:wash/plugin@0.0.1#hook
+//go:wasmexport wasmcloud:wash/plugin@0.0.2#hook
+//export wasmcloud:wash/plugin@0.0.2#hook
 func wasmexport_Hook(runner0 uint32, hook0 uint32) (result *cm.Result[string, string, string]) {
 	runner := cm.Reinterpret[Runner]((uint32)(runner0))
 	hook := (types.HookType)((uint32)(hook0))
