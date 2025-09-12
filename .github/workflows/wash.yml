@@ -54,6 +54,8 @@ jobs:
           tinygo-version: '0.39.0'
       - name: Setup wasm-tools
         uses: bytecodealliance/actions/wasm-tools/setup@v1
+        with:
+          version: '1.223.1'
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
       - name: Build
