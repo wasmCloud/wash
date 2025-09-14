@@ -64,6 +64,7 @@ wasmtime-wasi = { version = "31", default-features = false }
 wasmtime-wasi-http = { version = "31", default-features = false }
 which = { version = "6.0.3", default-features = false }
 wit-component = { version = "0.235.0", default-features = false }
+regex = { version = "1", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 bytes = { version = "1", default-features = false }

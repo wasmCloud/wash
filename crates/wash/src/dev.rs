@@ -44,6 +44,8 @@ impl DevPluginManager {
         let exported_instances =
             component_instance_exports(plugin.component.instance_pre().component());
 
+        let re = regex::Regex::new(r"^0\.2\.\d+$")?;
+
         // The component key is simply a hash of the plugin metadata
         let component_key = format!(
             "{:x}",
@@ -55,10 +57,13 @@ impl DevPluginManager {
         for (name, item) in exported_instances {
             // We don't need to expose the plugin export to the dev components
             // Additionally, this would actually error since each plugin exports this interface.
-            // TODO(#11): It's probably a good idea to skip registering wasi@0.2 interfaces
             match name.split_once('@') {
                 Some(("wasmcloud:wash/plugin", _)) => {
                     trace!(name, "skipping internal plugin export");
+                    continue;
+                }
+                Some((iface, version)) if iface.starts_with("wasi:") && re.is_match(version) => {
+                    trace!(name, "skipping wasi@0.2 export");
                     continue;
                 }
                 None => {
@@ -176,4 +181,40 @@ fn component_instance_exports(component: &Component) -> Vec<(String, ComponentIt
             }
         })
         .collect::<Vec<_>>()
+}
+
+#[cfg(test)]
+mod test {
+    use wasmcloud_runtime::Runtime;
+
+    use crate::{
+        plugin::PluginComponent,
+        runtime::{new_runtime, prepare_component_plugin},
+    };
+
+    use super::*;
+
+    #[tokio::test]
+    async fn can_register_plugin() -> anyhow::Result<()> {
+        let (runtime, _handle) = new_runtime().await?;
+        let mut manager = DevPluginManager::default();
+
+        let plugin =
+            instantiate_plugin("./tests/fixtures/blobstore_filesystem.wasm", &runtime).await?;
+        manager.register_plugin(plugin)?;
+        assert_eq!(manager.interface_map.len(), 3);
+        assert_eq!(manager.components.len(), 1);
+
+        let plugin = instantiate_plugin("./tests/fixtures/oauth.wasm", &runtime).await?;
+        manager.register_plugin(plugin)?;
+        assert_eq!(manager.interface_map.len(), 3);
+        assert_eq!(manager.components.len(), 2);
+
+        Ok(())
+    }
+
+    async fn instantiate_plugin(path: &str, runtime: &Runtime) -> anyhow::Result<PluginComponent> {
+        let wasm = tokio::fs::read(path).await?;
+        prepare_component_plugin(&runtime, &wasm, None).await
+    }
 }
