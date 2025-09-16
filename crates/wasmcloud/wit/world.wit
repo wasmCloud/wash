@@ -1,0 +1,26 @@
+package wasmcloud:runtime@0.1.0;
+
+world http-server {
+    import wasi:http/types@0.2.0;
+    export wasi:http/incoming-handler@0.2.0;
+}
+
+world config {
+    import wasi:config/runtime@0.2.0-draft;
+}
+
+world logging {
+    import wasi:logging/logging@0.1.0-draft;
+}
+
+world keyvalue {
+    import wasi:keyvalue/atomics@0.2.0-draft;
+    import wasi:keyvalue/batch@0.2.0-draft;
+    import wasi:keyvalue/store@0.2.0-draft;
+}
+
+world blobstore {
+    import wasi:blobstore/types@0.2.0-draft;
+    import wasi:blobstore/container@0.2.0-draft;
+    import wasi:blobstore/blobstore@0.2.0-draft;
+}
