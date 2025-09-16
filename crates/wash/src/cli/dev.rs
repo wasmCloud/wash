@@ -7,31 +7,24 @@ use std::{
     },
 };
 
-use anyhow::{Context as _, ensure};
+use anyhow::{Context as _, bail, ensure};
 use base64::Engine;
+use bytes::Bytes;
 use clap::Args;
-use hyper::server::conn::http1;
 use notify::{
     Event as NotifyEvent, RecursiveMode, Watcher,
     event::{EventKind, ModifyKind},
 };
-use rustls::{ServerConfig, pki_types::CertificateDer};
-use rustls_pemfile::{certs, private_key};
-use tokio::{
-    net::TcpListener,
-    select,
-    sync::{RwLock, mpsc},
-};
-use tokio_rustls::TlsAcceptor;
+use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, trace, warn};
-use wasmcloud_runtime::component::CustomCtxComponent;
-use wasmtime::{AsContextMut, StoreContextMut, component::InstancePre};
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
-use wasmtime_wasi_http::{
-    WasiHttpView as _,
-    bindings::{ProxyPre, http::types::Scheme},
-    body::HyperOutgoingBody,
-    io::TokioIo,
+use wasmcloud::{
+    host::{Host, HostApi},
+    plugin::{wasi_config::RuntimeConfig, wasi_http::HttpServer},
+    types::{
+        Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
+        WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
+    },
+    wit::WitInterface,
 };
 
 use crate::{
@@ -42,109 +35,8 @@ use crate::{
     },
     component_build::BuildConfig,
     config::{Config, load_config},
-    dev::DevPluginManager,
-    plugin::list_plugins,
-    runtime::{
-        Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::HookType, prepare_component_dev,
-    },
+    plugin::bindings::wasmcloud::wash::types::HookType,
 };
-
-/// Helper function to check if a path should be ignored during file watching
-/// to prevent artifact directories from triggering rebuilds
-///
-/// # Arguments
-/// * `path` - The file path to check
-/// * `canonical_project_root` - The canonicalized project root directory
-/// * `ignore_paths` - Set of canonicalized paths that should be ignored
-fn is_ignored(
-    path: &Path,
-    _canonical_project_root: &Path,
-    ignore_paths: &HashSet<PathBuf>,
-) -> bool {
-    let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    ignore_paths.iter().any(|p| canonical_path.starts_with(p))
-}
-
-/// Build a set of paths that should be ignored during file watching
-/// Uses project-type-specific defaults when available
-///
-/// # Arguments
-/// * `canonical_project_root` - The canonicalized project root directory
-/// * `component_path` - Optional path to the build artifact
-/// * `project_context` - Detected project type for specific ignore patterns
-///
-/// # Returns
-/// A set of canonicalized paths that should be ignored during file watching
-fn build_ignore_set(
-    canonical_project_root: &Path,
-    project_context: &ProjectContext,
-) -> HashSet<PathBuf> {
-    let mut ignore_paths = HashSet::new();
-
-    // Common directories for all project types
-    let mut dirs_to_ignore = vec![".git"];
-
-    // Add project-type-specific ignore patterns
-    match project_context {
-        ProjectContext::Rust { .. } => {
-            dirs_to_ignore.extend_from_slice(&["target"]);
-        }
-        ProjectContext::TypeScript { .. } => {
-            dirs_to_ignore.extend_from_slice(&["node_modules", "dist", "build", ".next", ".nuxt"]);
-        }
-        ProjectContext::Go { .. } => {
-            dirs_to_ignore.extend_from_slice(&["bin", "pkg", "vendor"]);
-        }
-        ProjectContext::Mixed { detected_types } => {
-            // Add ignore patterns for all detected project types
-            if detected_types.iter().any(|t| t == "Rust") {
-                dirs_to_ignore.extend_from_slice(&["target"]);
-            }
-            if detected_types
-                .iter()
-                .any(|t| t == "TypeScript" || t == "JavaScript")
-            {
-                dirs_to_ignore.extend_from_slice(&[
-                    "node_modules",
-                    "dist",
-                    "build",
-                    ".next",
-                    ".nuxt",
-                ]);
-            }
-            if detected_types.iter().any(|t| t == "Go") {
-                dirs_to_ignore.extend_from_slice(&["bin", "pkg", "vendor"]);
-            }
-        }
-        ProjectContext::General => {
-            // For general context, include common patterns from all project types
-            dirs_to_ignore.extend_from_slice(&[
-                "target",
-                "build",
-                "dist",
-                "node_modules",
-                ".next",
-                ".nuxt",
-                "bin",
-                "pkg",
-                "vendor",
-            ]);
-        }
-    }
-
-    // Build canonical paths for ignore directories relative to canonical project root
-    for dir in &dirs_to_ignore {
-        let dir_path = canonical_project_root.join(dir);
-        if let Ok(canonical) = dir_path.canonicalize() {
-            ignore_paths.insert(canonical);
-        } else {
-            // Even if the directory doesn't exist yet, include the absolute path
-            ignore_paths.insert(dir_path);
-        }
-    }
-
-    ignore_paths
-}
 
 #[derive(Debug, Clone, Args)]
 pub struct DevCommand {
@@ -164,6 +56,7 @@ pub struct DevCommand {
     #[clap(long = "runtime-config", value_delimiter = ',')]
     pub runtime_config: Vec<String>,
 
+    // TODO: filesystem root?
     /// The root directory for the blobstore to use for `wasi:blobstore/blobstore`. Defaults to a subfolder in the wash data directory.
     #[clap(long = "blobstore-root")]
     pub blobstore_root: Option<PathBuf>,
@@ -263,68 +156,83 @@ impl CliCommand for DevCommand {
             }
         };
 
-        // Deploy to local runtime
+        // Deploy to local host
         let wasm_bytes = tokio::fs::read(&component_path)
             .await
-            .context("failed to read artifact file")?;
+            .context("failed to read component file")?;
 
         // Call pre-hooks before starting dev session
-        let pre_context = HashMap::new(); // Empty context for pre-hooks
-        let pre_runtime_context = Arc::new(RwLock::new(pre_context));
-        match ctx
-            .call_pre_hooks(pre_runtime_context, HookType::BeforeDev)
-            .await
-        {
-            Ok(_) => {}
-            Err(e) => {
-                error!("pre-hook execution failed, will not start dev session");
-                error!("{e}");
-                return Err(e);
-            }
+        // Empty context for pre-hooks, consider adding more
+        ctx.call_hooks(HookType::BeforeDev, Arc::default()).await;
+        let dev_register_plugins = ctx.plugin_manager().get_hooks(HookType::DevRegister).await;
+
+        let mut dev_register_components = Vec::with_capacity(dev_register_plugins.len());
+        for plugin in dev_register_plugins {
+            dev_register_components.push(plugin.get_original_component(ctx).await?)
         }
 
-        let mut plugin_manager = DevPluginManager::default();
-        let plugins = match list_plugins(ctx.runtime(), ctx.data_dir()).await {
-            Ok(plugins) => plugins
-                .into_iter()
-                .filter(|plugin| {
-                    // Only register plugins that have the dev-hook
-                    plugin.metadata.hooks.contains(&HookType::DevRegister)
-                })
-                .collect(),
-            Err(e) => {
-                warn!(err = ?e, "failed to find plugins, continuing without plugins");
-                vec![]
+        let mut host_builder = Host::builder();
+
+        // Enable runtime config
+        host_builder = host_builder.with_plugin(Arc::new(RuntimeConfig::default()))?;
+
+        let volume_root = self
+            .blobstore_root
+            .clone()
+            .unwrap_or_else(|| ctx.data_dir().join("dev_blobstore"));
+        // Ensure the blobstore root directory exists
+        if !volume_root.exists() {
+            tokio::fs::create_dir_all(&volume_root)
+                .await
+                .context("failed to create blobstore root directory")?;
+        }
+        debug!(path = ?volume_root.display(), "using blobstore root directory");
+
+        // TODO(#19): Only spawn the server if the component exports wasi:http
+        // Configure HTTP server with optional TLS, enable HTTP Server
+        let protocol = if let (Some(cert_path), Some(key_path)) = (&self.tls_cert, &self.tls_key) {
+            ensure!(
+                cert_path.exists(),
+                "TLS certificate file does not exist: {}",
+                cert_path.display()
+            );
+            ensure!(
+                key_path.exists(),
+                "TLS private key file does not exist: {}",
+                key_path.display()
+            );
+
+            if let Some(ca_path) = &self.tls_ca {
+                ensure!(
+                    ca_path.exists(),
+                    "CA certificate file does not exist: {}",
+                    ca_path.display()
+                );
             }
+
+            host_builder = host_builder.with_plugin(Arc::new(
+                HttpServer::new_with_tls(
+                    self.address.parse()?,
+                    cert_path,
+                    key_path,
+                    self.tls_ca.as_deref(),
+                )
+                .await?,
+            ))?;
+
+            debug!("TLS configured - server will use HTTPS");
+            "https"
+        } else {
+            debug!("No TLS configuration provided - server will use HTTP");
+            host_builder =
+                host_builder.with_plugin(Arc::new(HttpServer::new(self.address.parse()?)))?;
+            "http"
         };
 
-        for plugin in plugins {
-            let name = plugin.metadata.name.clone();
-            let version = plugin.metadata.version.clone();
-            if let Err(e) = plugin_manager.register_plugin(plugin) {
-                error!(
-                    err = ?e,
-                    name,
-                    version,
-                    "failed to register plugin, continuing without plugin"
-                );
-            } else {
-                debug!(name, version, "registered plugin");
-            }
-        }
+        // Build and start the host
+        let host = host_builder.build()?.start().await?;
 
-        let plugin_manager = Arc::new(plugin_manager);
-
-        // Prepare the component for development
-        let (component_tx, mut component_rx) =
-            tokio::sync::watch::channel::<Arc<CustomCtxComponent<Ctx>>>(Arc::new(
-                prepare_component_dev(&ctx.runtime, &wasm_bytes, plugin_manager.clone())
-                    .await
-                    .context("failed to prepare component for development")?,
-            ));
-
-        // Run the HTTP server in a background task
-        let address = self.address.clone();
+        // Collect runtime configuration for the component
         let runtime_config = self
             .runtime_config
             .clone()
@@ -338,89 +246,15 @@ impl CliCommand for DevCommand {
             })
             .collect::<HashMap<String, String>>();
 
-        let blobstore_root = self
-            .blobstore_root
-            .clone()
-            .unwrap_or_else(|| ctx.data_dir().join("dev_blobstore"));
-        // Ensure the blobstore root directory exists
-        if !blobstore_root.exists() {
-            tokio::fs::create_dir_all(&blobstore_root)
-                .await
-                .context("failed to create blobstore root directory")?;
-        }
-        debug!(path = ?blobstore_root.display(), "using blobstore root directory");
-
-        // Load TLS configuration if cert and key are provided
-        let tls_acceptor =
-            if let (Some(cert_path), Some(key_path)) = (&self.tls_cert, &self.tls_key) {
-                ensure!(
-                    cert_path.exists(),
-                    "TLS certificate file does not exist: {}",
-                    cert_path.display()
-                );
-                ensure!(
-                    key_path.exists(),
-                    "TLS private key file does not exist: {}",
-                    key_path.display()
-                );
-
-                if let Some(ca_path) = &self.tls_ca {
-                    ensure!(
-                        ca_path.exists(),
-                        "CA certificate file does not exist: {}",
-                        ca_path.display()
-                    );
-                }
-
-                let tls_config = load_tls_config(cert_path, key_path, self.tls_ca.as_deref())
-                    .await
-                    .context("Failed to load TLS configuration")?;
-
-                debug!("TLS configured - server will use HTTPS");
-                Some(TlsAcceptor::from(Arc::new(tls_config)))
-            } else if self.tls_cert.is_some() || self.tls_key.is_some() {
-                // If only one of cert/key is provided, that's an error
-                ensure!(
-                    false,
-                    "Both --tls-cert and --tls-key must be provided for HTTPS support"
-                );
-                None
-            } else {
-                debug!("No TLS configuration provided - server will use HTTP");
-                None
-            };
-
-        // Determine protocol before moving tls_acceptor
-        let protocol = if tls_acceptor.is_some() {
-            "https"
-        } else {
-            "http"
-        };
-
-        // Extract component name from component path for tracing
-        let component_name = component_path
-            .file_stem()
-            .and_then(|stem| stem.to_str())
-            .unwrap_or("dev-component")
-            .to_string();
-
-        // TODO(#19): Only spawn the server if the component exports wasi:http
-        let background_processes = ctx.background_processes.clone();
-        tokio::spawn(async move {
-            if let Err(e) = server(
-                &mut component_rx,
-                address,
-                runtime_config,
-                blobstore_root,
-                background_processes,
-                tls_acceptor,
-                component_name,
-            )
-            .await
-            {
-                error!(err = ?e,"error running http server for dev");
-            }
-        });
+        // Workload structure
+        let mut workload = create_workload(
+            wasm_bytes.into(),
+            runtime_config,
+            volume_root,
+            dev_register_components,
+        );
+        // Running workload ID for reloads
+        let mut workload_id = reload_component(host.clone(), &workload, None).await?;
 
         // Canonicalize project root once to ensure consistent path comparisons
         let canonical_project_root = self.project_dir.canonicalize().with_context(|| {
@@ -442,7 +276,7 @@ impl CliCommand for DevCommand {
         let (stop_tx, mut stop_rx) = mpsc::channel::<()>(1);
         let (reload_tx, mut reload_rx) = mpsc::channel::<()>(1);
 
-        // Build initial ignore set including component path and project-specific build directories
+        // Build initial ignore set including artifact path and project-specific build directories
         let initial_ignore_set = build_ignore_set(&canonical_project_root, &project_context);
         debug!(
             ignore_count = initial_ignore_set.len(),
@@ -454,6 +288,7 @@ impl CliCommand for DevCommand {
 
         let canonical_project_root_notify = canonical_project_root.clone();
         debug!(path = ?self.project_dir.display(), "setting up watcher");
+
         // Watch for changes and rebuild/deploy as needed
         let mut watcher = notify::recommended_watcher(move |res: _| match res {
             Ok(event) => {
@@ -509,6 +344,7 @@ impl CliCommand for DevCommand {
 
         // Enable file watching
         pause_watch.store(false, Ordering::SeqCst);
+
         // Make sure the reload channel is empty before starting the loop
         let _ = reload_rx.try_recv();
 
@@ -542,11 +378,15 @@ impl CliCommand for DevCommand {
                             info!("deploying rebuilt component ...");
                             let wasm_bytes = tokio::fs::read(&component_path)
                                 .await
-                                .context("failed to read artifact file")?;
-                            let component = prepare_component_dev(&ctx.runtime, &wasm_bytes, plugin_manager.clone().clear_instances())
-                                .await
-                                .context("failed to prepare component")?;
-                            component_tx.send_replace(Arc::new(component));
+                                .context("failed to read component file")?;
+
+                            update_workload_component(&mut workload, wasm_bytes.into());
+
+                            workload_id = reload_component(
+                                host.clone(),
+                                &workload,
+                                Some(workload_id),
+                            ).await?;
 
                             // Avoid jitter with reloads by pausing the watcher for a short time
                             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -556,6 +396,7 @@ impl CliCommand for DevCommand {
                         }
                         Err(e) => {
                             info!("failed to build component, will retry on next file change");
+                            // TODO(#23): This doesn't include color output
                             // This nicely formats the error message
                             error!("{e}");
                             // If the build fails, we pause the watcher to prevent further reloads
@@ -576,17 +417,37 @@ impl CliCommand for DevCommand {
             }
         }
 
+        // Stop the workload and clean up resources
+        if let Err(e) = host
+            .workload_stop(WorkloadStopRequest {
+                workload_id: workload_id.clone(),
+            })
+            .await
+        {
+            warn!(
+                workload_id = workload_id,
+                error = ?e,
+                "failed to stop workload during shutdown, continuing cleanup"
+            );
+        } else {
+            debug!(workload_id = workload_id, "workload stopped successfully");
+        }
+
         // Call post-hooks with component bytes context
         // Base64 encode the bytes since context only supports HashMap<String, String>
-        let component_bytes_b64 = base64::engine::general_purpose::STANDARD.encode(&wasm_bytes);
-        let mut post_context = HashMap::new();
-        post_context.insert(
-            "dev.component_bytes_base64".to_string(),
-            component_bytes_b64,
-        );
-        let post_runtime_context = Arc::new(RwLock::new(post_context));
-        ctx.call_post_hooks(post_runtime_context, HookType::AfterDev)
-            .await?;
+        if let Some(component) = workload.components.first() {
+            debug!(size = component.bytes.len(), "final component size (bytes)");
+            let component_bytes_b64 =
+                base64::engine::general_purpose::STANDARD.encode(component.bytes.clone());
+            let mut post_context = HashMap::new();
+            post_context.insert(
+                "dev.component_bytes_base64".to_string(),
+                component_bytes_b64,
+            );
+        }
+
+        // Empty context for AfterDev, consider adding more
+        ctx.call_hooks(HookType::AfterDev, Arc::default()).await;
 
         Ok(CommandOutput::ok(
             "Development command executed successfully".to_string(),
@@ -595,241 +456,206 @@ impl CliCommand for DevCommand {
     }
 }
 
-/// Load TLS configuration from certificate and key files
-async fn load_tls_config(
-    cert_path: &Path,
-    key_path: &Path,
-    ca_path: Option<&Path>,
-) -> anyhow::Result<ServerConfig> {
-    // Load certificate chain
-    let cert_data = tokio::fs::read(cert_path)
-        .await
-        .with_context(|| format!("Failed to read certificate file: {}", cert_path.display()))?;
-    let mut cert_reader = std::io::Cursor::new(cert_data);
-    let cert_chain: Vec<CertificateDer<'static>> = certs(&mut cert_reader)
-        .collect::<Result<Vec<_>, _>>()
-        .with_context(|| format!("Failed to parse certificate file: {}", cert_path.display()))?;
-
-    ensure!(
-        !cert_chain.is_empty(),
-        "No certificates found in file: {}",
-        cert_path.display()
-    );
-
-    // Load private key
-    let key_data = tokio::fs::read(key_path)
-        .await
-        .with_context(|| format!("Failed to read private key file: {}", key_path.display()))?;
-    let mut key_reader = std::io::Cursor::new(key_data);
-    let key = private_key(&mut key_reader)
-        .with_context(|| format!("Failed to parse private key file: {}", key_path.display()))?
-        .ok_or_else(|| anyhow::anyhow!("No private key found in file: {}", key_path.display()))?;
-
-    // Create rustls server config
-    let config = ServerConfig::builder()
-        .with_no_client_auth()
-        .with_single_cert(cert_chain, key)
-        .with_context(|| "Failed to create TLS configuration")?;
-
-    // If CA is provided, configure client certificate verification
-    if let Some(ca_path) = ca_path {
-        let ca_data = tokio::fs::read(ca_path)
-            .await
-            .with_context(|| format!("Failed to read CA file: {}", ca_path.display()))?;
-        let mut ca_reader = std::io::Cursor::new(ca_data);
-        let ca_certs: Vec<CertificateDer<'static>> = certs(&mut ca_reader)
-            .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("Failed to parse CA file: {}", ca_path.display()))?;
-
-        ensure!(
-            !ca_certs.is_empty(),
-            "No CA certificates found in file: {}",
-            ca_path.display()
-        );
-
-        // Note: Client certificate verification configuration would go here
-        // For now, we'll keep it simple without client cert verification
-        debug!("CA certificate loaded, but client certificate verification not yet implemented");
+/// Update the bytes of the development component in the workload
+fn update_workload_component(workload: &mut Workload, bytes: Bytes) {
+    if let Some(component) = workload.components.get_mut(0) {
+        component.bytes = bytes;
     }
-
-    Ok(config)
 }
 
-/// Starts the development HTTP server, listening for incoming requests
-/// and serving them using the provided [`CustomCtxComponent`]. The component
-/// is provided via a `tokio::sync::watch::Receiver`, allowing it to be
-/// updated dynamically (e.g. on a rebuild).
-async fn server(
-    rx: &mut tokio::sync::watch::Receiver<Arc<CustomCtxComponent<Ctx>>>,
-    address: String,
+/// Create the [`Workload`] structure for the development component
+///
+/// ## Arguments
+/// - `bytes`: The bytes of the component to develop
+/// - `runtime_config`: Any runtime configuration to pass to the workload
+/// - `volume_root`: The root directory of available scratch space to pass as a [`Volume`].
+///   Must be a valid UTF-8 path.
+fn create_workload(
+    bytes: Bytes,
     runtime_config: HashMap<String, String>,
-    blobstore_root: PathBuf,
-    background_processes: Arc<RwLock<Vec<tokio::process::Child>>>,
-    tls_acceptor: Option<TlsAcceptor>,
-    component_name: String,
-) -> anyhow::Result<()> {
-    // Prepare our server state and start listening for connections.
-    let mut component = rx.borrow_and_update().to_owned();
-    let listener = TcpListener::bind(&address).await?;
-    loop {
-        let blobstore_root = blobstore_root.clone();
-        let runtime_config = runtime_config.clone();
-        let background_processes = background_processes.clone();
-        select! {
-            // If the component changed, replace the current one
-            _ = rx.changed() => {
-                // If the channel has changed, we need to update the component
-                component = rx.borrow_and_update().to_owned();
-                debug!("Component updated in main loop");
-            }
-            // Accept a TCP connection and serve all of its requests in a separate
-            // tokio task. Note that for now this only works with HTTP/1.1.
-            Ok((client, addr)) = listener.accept() => {
-                let component = component.clone();
-                let background_processes = background_processes.clone();
-                let tls_acceptor = tls_acceptor.clone();
-                let component_name = component_name.clone();
-                debug!(addr = ?addr, "serving new client");
-
-                tokio::spawn(async move {
-                    let component = component.clone();
-
-                    // Determine the scheme based on whether TLS is configured
-                    let scheme = if tls_acceptor.is_some() {
-                        Scheme::Https
-                    } else {
-                        Scheme::Http
-                    };
-
-                    // Handle TLS if configured
-                    let service = hyper::service::service_fn(move |req| {
-                        let component = component.clone();
-                        let background_processes = background_processes.clone();
-                        let scheme = scheme.clone();
-                        let wasi_ctx = match WasiCtxBuilder::new()
-                            .preopened_dir(&blobstore_root, "/dev", DirPerms::all(), FilePerms::all())
-                        {
-                            Ok(ctx) => ctx.build(),
-                            Err(e) => {
-                                error!(err = ?e, "failed to create WASI context with preopened dir");
-                                WasiCtxBuilder::new().build()
-                            }
-                        };
-                        let ctx = Ctx::builder(component_name.clone()) // Use component filename for tracing
-                            .with_wasi_ctx(wasi_ctx)
-                            .with_runtime_config(runtime_config.clone())
-                            .with_background_processes(background_processes)
-                            .build();
-                        async move { component.handle_request(Some(ctx), req, scheme).await }
-                    });
-
-                    let result = if let Some(acceptor) = tls_acceptor {
-                        // Handle HTTPS connection
-                        match acceptor.accept(client).await {
-                            Ok(tls_stream) => {
-                                http1::Builder::new()
-                                    .keep_alive(true)
-                                    .serve_connection(TokioIo::new(tls_stream), service)
-                                    .await
-                            }
-                            Err(e) => {
-                                error!(addr = ?addr, err = ?e, "TLS handshake failed");
-                                return;
-                            }
-                        }
-                    } else {
-                        // Handle HTTP connection
-                        http1::Builder::new()
-                            .keep_alive(true)
-                            .serve_connection(TokioIo::new(client), service)
-                            .await
-                    };
-
-                    if let Err(e) = result {
-                        error!(addr = ?addr, err = ?e, "error serving client");
-                    }
-                });
-            }
-        }
+    volume_root: PathBuf,
+    dev_register_components: Vec<Bytes>,
+) -> Workload {
+    let mut components = Vec::with_capacity(dev_register_components.len() + 1);
+    components.push(Component {
+        bytes,
+        local_resources: LocalResources {
+            volume_mounts: vec![VolumeMount {
+                name: "dev".to_string(),
+                mount_path: "/tmp".to_string(),
+                read_only: false,
+            }],
+            ..Default::default()
+        },
+        pool_size: -1,
+        max_invocations: -1,
+    });
+    components.extend(dev_register_components.into_iter().map(|bytes| Component {
+        bytes,
+        // TODO: Must have the root, but can't isolate rn
+        // local_resources: LocalResources {
+        //     volume_mounts: vec![VolumeMount {
+        //         name: "plugin-scratch-dir".to_string(),
+        //         // mount_path: "foo",
+        //         read_only: false,
+        //     }],
+        //     ..Default::default()
+        // },
+        ..Default::default()
+    }));
+    Workload {
+        namespace: "default".to_string(),
+        name: "dev".to_string(),
+        components,
+        host_interfaces: vec![
+            WitInterface {
+                namespace: "wasi".to_string(),
+                package: "http".to_string(),
+                interfaces: HashSet::from(["incoming-handler".to_string()]),
+                version: None,
+                config: HashMap::from([("host".to_string(), "*".to_string())]),
+            },
+            WitInterface {
+                namespace: "wasi".to_string(),
+                package: "config".to_string(),
+                interfaces: HashSet::from(["runtime".to_string()]),
+                version: None,
+                config: runtime_config,
+            },
+        ],
+        annotations: HashMap::default(),
+        service: None,
+        volumes: vec![Volume {
+            name: "dev".to_string(),
+            volume_type: VolumeType::HostPath(HostPathVolume {
+                local_path: volume_root.to_string_lossy().to_string(),
+            }),
+        }],
     }
 }
 
-/// Simple trait for handling an HTTP request, used primarily to extend the
-/// `CustomCtxComponent` with a method that can handle HTTP requests
-trait HandleRequest {
-    async fn handle_request(
-        &self,
-        ctx: Option<Ctx>,
-        req: hyper::Request<hyper::body::Incoming>,
-        scheme: Scheme,
-    ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>>;
-}
-impl HandleRequest for CustomCtxComponent<Ctx> {
-    async fn handle_request(
-        &self,
-        ctx: Option<Ctx>,
-        req: hyper::Request<hyper::body::Incoming>,
-        scheme: Scheme,
-    ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
-        // Create per-http-request state within a `Store` and prepare the
-        // initial resources passed to the `handle` function.
-        let ctx = ctx.unwrap_or_default();
-        let mut store = self.new_store(ctx);
-        let pre = self.instance_pre().clone();
-        handle_request(store.as_context_mut(), pre, req, scheme).await
+/// Reload the component in the host, stopping the previous workload if needed
+async fn reload_component(
+    host: Arc<Host>,
+    workload: &Workload,
+    workload_id: Option<String>,
+) -> anyhow::Result<String> {
+    if let Some(workload_id) = workload_id {
+        host.workload_stop(WorkloadStopRequest { workload_id })
+            .await?;
     }
-}
 
-pub async fn handle_request<'a>(
-    mut store: StoreContextMut<'a, Ctx>,
-    pre: InstancePre<Ctx>,
-    req: hyper::Request<hyper::body::Incoming>,
-    scheme: Scheme,
-) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    let req = store.data_mut().new_incoming_request(scheme, req)?;
-    let out = store.data_mut().new_response_outparam(sender)?;
-    let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
-
-    // Run the http request itself in a separate task so the task can
-    // optionally continue to execute beyond after the initial
-    // headers/response code are sent.
-    // let task: JoinHandle<anyhow::Result<()>> = tokio::spawn(async move {
-    let proxy = pre.instantiate_async(&mut store).await?;
-
-    proxy
-        .wasi_http_incoming_handler()
-        .call_handle(&mut store, req, out)
+    let response = host
+        .workload_start(WorkloadStartRequest {
+            workload: workload.to_owned(),
+        })
         .await?;
 
-    // Ok(())
-    // });
+    if response.workload_status.workload_state != WorkloadState::Running {
+        bail!(
+            "failed to reload component: {}",
+            response.workload_status.message
+        );
+    }
 
-    match receiver.await {
-        // If the client calls `response-outparam::set` then one of these
-        // methods will be called.
-        Ok(Ok(resp)) => Ok(resp),
-        Ok(Err(e)) => Err(e.into()),
+    Ok(response.workload_status.workload_id)
+}
 
-        // Otherwise the `sender` will get dropped along with the `Store`
-        // meaning that the oneshot will get disconnected and here we can
-        // inspect the `task` result to see what happened
-        Err(e) => {
-            error!(err = ?e, "error receiving http response");
-            Err(anyhow::anyhow!(
-                "oneshot channel closed but no response was sent"
-            ))
-            // Err(match task.await {
-            //     Ok(Ok(())) => {
-            //         anyhow::anyhow!("oneshot channel closed but no response was sent")
-            //     }
-            //     Ok(Err(e)) => e,
-            //     Err(e) => {
-            //         anyhow::anyhow!("failed to await task for handling HTTP request: {e}")
-            //     }
-            // })
+/// Helper function to check if a path should be ignored during file watching
+/// to prevent artifact directories from triggering rebuilds
+///
+/// # Arguments
+/// * `path` - The file path to check
+/// * `canonical_project_root` - The canonicalized project root directory
+/// * `ignore_paths` - Set of canonicalized paths that should be ignored
+fn is_ignored(
+    path: &Path,
+    _canonical_project_root: &Path,
+    ignore_paths: &HashSet<PathBuf>,
+) -> bool {
+    let canonical_path = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    ignore_paths.iter().any(|p| canonical_path.starts_with(p))
+}
+
+/// Build a set of paths that should be ignored during file watching
+/// Uses project-type-specific defaults when available
+///
+/// # Arguments
+/// * `canonical_project_root` - The canonicalized project root directory
+/// * `artifact_path` - Optional path to the build artifact
+/// * `project_context` - Detected project type for specific ignore patterns
+///
+/// # Returns
+/// A set of canonicalized paths that should be ignored during file watching
+fn build_ignore_set(
+    canonical_project_root: &Path,
+    project_context: &ProjectContext,
+) -> HashSet<PathBuf> {
+    let mut ignore_paths = HashSet::new();
+
+    // Common directories for all project types
+    let mut dirs_to_ignore = vec![".git"];
+
+    // Add project-type-specific ignore patterns
+    match project_context {
+        ProjectContext::Rust { .. } => {
+            dirs_to_ignore.extend_from_slice(&["target"]);
+        }
+        ProjectContext::TypeScript { .. } => {
+            dirs_to_ignore.extend_from_slice(&["node_modules", "dist", "build", ".next", ".nuxt"]);
+        }
+        ProjectContext::Go { .. } => {
+            dirs_to_ignore.extend_from_slice(&["bin", "pkg", "vendor"]);
+        }
+        ProjectContext::Mixed { detected_types } => {
+            // Add ignore patterns for all detected project types
+            if detected_types.iter().any(|t| t == "Rust") {
+                dirs_to_ignore.extend_from_slice(&["target"]);
+            }
+            if detected_types
+                .iter()
+                .any(|t| t == "TypeScript" || t == "JavaScript")
+            {
+                dirs_to_ignore.extend_from_slice(&[
+                    "node_modules",
+                    "dist",
+                    "build",
+                    ".next",
+                    ".nuxt",
+                ]);
+            }
+            if detected_types.iter().any(|t| t == "Go") {
+                dirs_to_ignore.extend_from_slice(&["bin", "pkg", "vendor"]);
+            }
+        }
+        ProjectContext::General => {
+            // For general context, include common patterns from all project types
+            dirs_to_ignore.extend_from_slice(&[
+                "target",
+                "build",
+                "dist",
+                "node_modules",
+                ".next",
+                ".nuxt",
+                "bin",
+                "pkg",
+                "vendor",
+            ]);
         }
     }
+
+    // Build canonical paths for ignore directories relative to canonical project root
+    for dir in &dirs_to_ignore {
+        let dir_path = canonical_project_root.join(dir);
+        if let Ok(canonical) = dir_path.canonicalize() {
+            ignore_paths.insert(canonical);
+        } else {
+            // Even if the directory doesn't exist yet, include the absolute path
+            ignore_paths.insert(dir_path);
+        }
+    }
+
+    ignore_paths
 }
 
 #[cfg(test)]
@@ -896,10 +722,10 @@ mod tests {
             .canonicalize()
             .expect("failed to canonicalize temp dir");
         let artifact_dir = project_root.join("custom");
-        let component_path = artifact_dir.join("output.wasm");
+        let artifact_path = artifact_dir.join("output.wasm");
 
         fs::create_dir_all(&artifact_dir).expect("failed to create artifact dir");
-        fs::write(&component_path, "test content").expect("failed to create artifact file");
+        fs::write(&artifact_path, "test content").expect("failed to create artifact file");
 
         let context = ProjectContext::General;
         let ignore_paths = build_ignore_set(&project_root, &context);
@@ -1056,111 +882,5 @@ mod tests {
         // Sanity: subproject source is NOT ignored
         let subproject_src = subproject_dir.join("src").join("main.rs");
         assert!(!is_ignored(&subproject_src, &project_root, &ignore_paths));
-    }
-
-    #[cfg(test)]
-    #[tokio::test]
-    async fn test_tls_config_loading() {
-        // Generate self-signed certificate for testing
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("failed to generate self-signed cert");
-
-        // Create temp directory for cert files
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let cert_path = temp_dir.path().join("cert.pem");
-        let key_path = temp_dir.path().join("key.pem");
-
-        // Write certificate and key to files
-        let cert_pem = cert.cert.pem();
-        tokio::fs::write(&cert_path, cert_pem.as_bytes())
-            .await
-            .expect("failed to write cert");
-
-        let key_pem = cert.key_pair.serialize_pem();
-        tokio::fs::write(&key_path, key_pem.as_bytes())
-            .await
-            .expect("failed to write key");
-
-        // Test loading TLS configuration
-        let tls_config = load_tls_config(&cert_path, &key_path, None).await;
-        assert!(
-            tls_config.is_ok(),
-            "Failed to load TLS config: {:?}",
-            tls_config.err()
-        );
-
-        // Verify the TLS config can be used to create an acceptor
-        let config = tls_config.unwrap();
-        let acceptor = TlsAcceptor::from(Arc::new(config));
-
-        // Basic validation that acceptor was created successfully
-        // Since TlsAcceptor doesn't implement Debug, just verify it's created
-        let _ = acceptor;
-    }
-
-    #[cfg(test)]
-    #[tokio::test]
-    async fn test_tls_server_scheme_detection() {
-        // Generate self-signed certificate
-        let cert = rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .expect("failed to generate self-signed cert");
-
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let cert_path = temp_dir.path().join("cert.pem");
-        let key_path = temp_dir.path().join("key.pem");
-
-        let cert_pem = cert.cert.pem();
-        tokio::fs::write(&cert_path, cert_pem.as_bytes())
-            .await
-            .expect("failed to write cert");
-
-        let key_pem = cert.key_pair.serialize_pem();
-        tokio::fs::write(&key_path, key_pem.as_bytes())
-            .await
-            .expect("failed to write key");
-
-        // Load TLS configuration
-        let tls_config = load_tls_config(&cert_path, &key_path, None)
-            .await
-            .expect("failed to load TLS config");
-        let tls_acceptor = Some(TlsAcceptor::from(Arc::new(tls_config)));
-
-        // Test that scheme is correctly set to HTTPS when TLS is configured
-        assert!(tls_acceptor.is_some());
-
-        // Verify the scheme would be HTTPS
-        let scheme = if tls_acceptor.is_some() {
-            Scheme::Https
-        } else {
-            Scheme::Http
-        };
-        assert_eq!(format!("{:?}", scheme), "Scheme::Https");
-
-        // Test without TLS
-        let no_tls_acceptor: Option<TlsAcceptor> = None;
-        let scheme = if no_tls_acceptor.is_some() {
-            Scheme::Https
-        } else {
-            Scheme::Http
-        };
-        assert_eq!(format!("{:?}", scheme), "Scheme::Http");
-    }
-
-    #[cfg(test)]
-    #[tokio::test]
-    async fn test_tls_config_validation() {
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let nonexistent_cert = temp_dir.path().join("nonexistent.pem");
-        let nonexistent_key = temp_dir.path().join("nonexistent_key.pem");
-
-        // Test loading with non-existent files should fail
-        let result = load_tls_config(&nonexistent_cert, &nonexistent_key, None).await;
-        assert!(result.is_err(), "Should fail with non-existent files");
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Failed to read certificate file")
-        );
     }
 }

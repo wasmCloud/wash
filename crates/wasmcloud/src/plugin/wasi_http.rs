@@ -51,7 +51,8 @@ struct HttpWorkloadConfig {
 }
 
 /// A map from host header to resolved workload handles and their associated component id
-pub type WorkloadHandles = Arc<RwLock<HashMap<String, (ResolvedWorkload, String)>>>;
+pub type WorkloadHandles =
+    Arc<RwLock<HashMap<String, (ResolvedWorkload, InstancePre<Ctx>, String)>>>;
 
 /// HTTP server plugin that handles incoming HTTP requests for WebAssembly components.
 ///
@@ -164,7 +165,7 @@ impl HostPlugin for HttpServer {
         Ok(())
     }
 
-    async fn bind_component(
+    async fn on_component_bind(
         &self,
         component: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
@@ -233,10 +234,17 @@ impl HostPlugin for HttpServer {
 
         debug!(host = %config.host_header, workload_id = resolved_handle.id(), component_id, "storing resolved workload handle");
 
+        // Get the pre-instantiated component
+        let instance_pre = resolved_handle.instantiate_pre(component_id).await?;
+
         // Store the resolved handle with the configured host header
         self.workload_handles.write().await.insert(
             config.host_header,
-            (resolved_handle.clone(), component_id.to_string()),
+            (
+                resolved_handle.clone(),
+                instance_pre,
+                component_id.to_string(),
+            ),
         );
 
         Ok(())
@@ -360,8 +368,8 @@ async fn handle_http_request(
     };
 
     let response = match workload_handle {
-        Some((handle, component_id)) => {
-            match invoke_component_handler(handle, &component_id, req).await {
+        Some((handle, instance_pre, component_id)) => {
+            match invoke_component_handler(handle, instance_pre, &component_id, req).await {
                 Ok(resp) => resp,
                 Err(e) => {
                     error!(err = ?e, host = %host_header, "failed to invoke component");
@@ -388,16 +396,13 @@ async fn handle_http_request(
 /// Invoke the component handler for the given workload
 async fn invoke_component_handler(
     workload_handle: ResolvedWorkload,
+    instance_pre: InstancePre<Ctx>,
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     // Create a new store for this request with plugin contexts
     let mut store = workload_handle.new_store(component_id).await?;
 
-    // Get the pre-instantiated component
-    let instance_pre = workload_handle.instantiate_pre(component_id).await?;
-
-    // Use the same implementation as dev.rs
     handle_component_request(store.as_context_mut(), instance_pre, req).await
 }
 
@@ -408,6 +413,7 @@ pub async fn handle_component_request<'a>(
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
+    // TODO: scheme change based on TLS
     let req = store.data_mut().new_incoming_request(Scheme::Http, req)?;
     let out = store.data_mut().new_response_outparam(sender)?;
     let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;

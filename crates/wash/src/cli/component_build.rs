@@ -7,15 +7,15 @@ use std::{
 };
 
 use anyhow::{Context as _, bail};
-use atty;
 use clap::Args;
+use std::io::IsTerminal;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use tokio::{fs, process::Command};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::component_build::ProjectType;
-use crate::runtime::bindings::plugin::wasmcloud::wash::types::HookType;
+use crate::plugin::bindings::wasmcloud::wash::types::HookType;
 use crate::wit::WitConfig;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
@@ -502,7 +502,7 @@ impl ComponentBuilder {
         }
 
         // Apply colored logs if not configured
-        if atty::is(atty::Stream::Stderr) && env::var("CARGO_TERM_COLOR").is_err() {
+        if std::io::stderr().is_terminal() && env::var("CARGO_TERM_COLOR").is_err() {
             let no_color = env::var("NO_COLOR").unwrap_or_default();
             if no_color.is_empty() || no_color == "0" {
                 cargo_args.push("--color".to_string());

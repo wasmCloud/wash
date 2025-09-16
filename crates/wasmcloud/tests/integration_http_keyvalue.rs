@@ -132,7 +132,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     let get_response = timeout(
         Duration::from_secs(5),
         client
-            .get(&format!("http://{addr}/"))
+            .get(format!("http://{addr}/"))
             .header("HOST", "keyvalue-counter-test")
             .send(),
     )
@@ -179,7 +179,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     let post_response = timeout(
         Duration::from_secs(5),
         client
-            .post(&format!("http://{addr}/"))
+            .post(format!("http://{addr}/"))
             .header("HOST", "keyvalue-counter-test")
             .body("increment")
             .send(),
@@ -211,7 +211,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     let get2_response = timeout(
         Duration::from_secs(5),
         client
-            .get(&format!("http://{addr}/"))
+            .get(format!("http://{addr}/"))
             .header("HOST", "keyvalue-counter-test")
             .send(),
     )
@@ -236,7 +236,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     println!("Test 4: Multiple increments to test keyvalue persistence");
     for i in 1..=3 {
         let increment_response = client
-            .post(&format!("http://{addr}/"))
+            .post(format!("http://{addr}/"))
             .header("HOST", "keyvalue-counter-test")
             .body("increment")
             .send()
@@ -253,7 +253,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
 
     // Final verification
     let final_response = client
-        .get(&format!("http://{addr}/"))
+        .get(format!("http://{addr}/"))
         .header("HOST", "keyvalue-counter-test")
         .send()
         .await
@@ -381,10 +381,9 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
     let mut handles = vec![];
     for i in 0..concurrent_requests {
         let client = client.clone();
-        let addr = addr;
         let handle = tokio::spawn(async move {
             let response = client
-                .post(&format!("http://{addr}/"))
+                .post(format!("http://{addr}/"))
                 .header("HOST", "concurrent-counter-test")
                 .body(format!("increment-{}", i))
                 .send()
@@ -423,7 +422,7 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
 
     // Final check to verify the counter still responds
     let final_response = client
-        .get(&format!("http://{addr}/"))
+        .get(format!("http://{addr}/"))
         .header("HOST", "concurrent-counter-test")
         .send()
         .await;
@@ -536,7 +535,7 @@ async fn test_keyvalue_error_handling() -> Result<()> {
 
     // Test PUT request
     let put_response = client
-        .put(&format!("http://{addr}/"))
+        .put(format!("http://{addr}/"))
         .header("HOST", "keyvalue-error-test")
         .body("test data")
         .send()
@@ -559,7 +558,7 @@ async fn test_keyvalue_error_handling() -> Result<()> {
 
     // Test DELETE request
     let delete_response = client
-        .delete(&format!("http://{addr}/"))
+        .delete(format!("http://{addr}/"))
         .header("HOST", "keyvalue-error-test")
         .send()
         .await;

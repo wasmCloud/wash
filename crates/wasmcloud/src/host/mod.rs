@@ -47,6 +47,7 @@ use std::sync::Arc;
 use anyhow::{Context, bail};
 use names::{Generator, Name};
 use tokio::sync::RwLock;
+use tracing::{debug, trace, warn};
 
 use crate::engine::Engine;
 use crate::engine::workload::ResolvedWorkload;
@@ -189,6 +190,11 @@ pub struct Host {
 }
 
 impl Host {
+    /// Create a new builder for the host.
+    pub fn builder() -> HostBuilder {
+        HostBuilder::default()
+    }
+
     /// Start the host and initialize all plugins.
     ///
     /// This method must be called before the host can accept workloads.
@@ -371,14 +377,17 @@ impl HostApi for Host {
             .context("failed to get CPU usage")?;
 
         // Count components and providers from workloads
-        let component_count: u64 = self
-            .workloads
-            .read()
-            .await
-            .values()
-            // TODO: Include services? actually count
-            .map(|_w| 0)
-            .sum();
+        let (workload_count, component_count) = {
+            let workloads = self.workloads.read().await;
+            let workload_count: u64 = workloads.len() as u64;
+            let mut component_count: u64 = 0;
+            for workload in workloads.values() {
+                if let HostWorkload::Running(workload) = workload {
+                    component_count += workload.component_count().await as u64;
+                }
+            }
+            (workload_count, component_count)
+        };
 
         // Collect all imports and exports from the host and plugins
         let mut imports = Vec::new();
@@ -404,7 +413,7 @@ impl HostApi for Host {
             system_memory_total,
             system_memory_free,
             component_count,
-            provider_count: 0,
+            workload_count,
             imports,
             exports,
         })
@@ -470,34 +479,57 @@ impl HostApi for Host {
         &self,
         request: WorkloadStopRequest,
     ) -> anyhow::Result<WorkloadStopResponse> {
-        let (workload_state, message) = if self
-            .workloads
-            .read()
-            .await
-            .contains_key(&request.workload_id)
-        {
-            // Update state to stopping
-            // if let Some((_, state)) = self.workloads.get_mut(&request.workload_id) {
-            //     *state = WorkloadState::Stopping;
-            // }
+        let (workload_state, message) =
+            if let Some(workload) = self.workloads.read().await.get(&request.workload_id) {
+                // Update state to stopping
+                {
+                    let mut workloads = self.workloads.write().await;
+                    if let Some(hw) = workloads.get_mut(&request.workload_id) {
+                        trace!(
+                            workload_id = request.workload_id,
+                            "updating workload state to stopping"
+                        );
+                        *hw = HostWorkload::Stopping;
+                    }
+                }
 
-            // TODO: Actually stop the workload
-            // This would involve:
-            // 1. Sending stop signal to the service
-            // 2. Cleaning up resources
-            // 3. Removing from active workloads
-            // 4. Unbind from all plugins
+                // Stop the workload:
+                // 1. Unbind from all plugins
+                // 2. Clean up resources (drop will handle wasmtime cleanup)
+                // 3. Remove from active workloads
+                if let HostWorkload::Running(resolved_workload) = workload {
+                    debug!(
+                        workload_id = request.workload_id,
+                        workload_name = resolved_workload.name(),
+                        "stopping workload"
+                    );
 
-            // For now, just remove and drop
-            self.workloads.write().await.remove(&request.workload_id);
+                    // Unbind all plugins from the workload
+                    if let Err(e) = resolved_workload.unbind_all_plugins().await {
+                        warn!(
+                            workload_id = request.workload_id,
+                            error = ?e,
+                            "error unbinding plugins during workload stop, continuing"
+                        );
+                    }
+                }
 
-            (
-                WorkloadState::Stopping,
-                "Workload stopped successfully".to_string(),
-            )
-        } else {
-            (WorkloadState::Unspecified, "Workload not found".to_string())
-        };
+                // Remove the workload from the active workloads map
+                // This will drop the workload and clean up wasmtime resources
+                self.workloads.write().await.remove(&request.workload_id);
+
+                debug!(
+                    workload_id = request.workload_id,
+                    "workload stopped successfully"
+                );
+
+                (
+                    WorkloadState::Stopping,
+                    "Workload stopped successfully".to_string(),
+                )
+            } else {
+                (WorkloadState::Unspecified, "Workload not found".to_string())
+            };
 
         Ok(WorkloadStopResponse {
             workload_status: WorkloadStatus {
@@ -506,6 +538,20 @@ impl HostApi for Host {
                 message,
             },
         })
+    }
+}
+
+impl std::fmt::Debug for Host {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Host")
+            .field("id", &self.id)
+            .field("hostname", &self.hostname)
+            .field("friendly_name", &self.friendly_name)
+            .field("version", &self.version)
+            .field("labels", &self.labels)
+            .field("started_at", &self.started_at)
+            .field("workloads", &self.workloads)
+            .finish()
     }
 }
 

@@ -59,7 +59,7 @@ impl Host for Ctx {
         };
         let config_guard = plugin.config.read().await;
         config_guard
-            .get(&self.id)
+            .get(&self.component_id)
             .and_then(|map| map.get(&key).cloned())
             .map_or(Ok(Ok(None)), |v| Ok(Ok(Some(v))))
     }
@@ -70,7 +70,7 @@ impl Host for Ctx {
         };
         let config_guard = plugin.config.read().await;
         let entries = config_guard
-            .get(&self.id)
+            .get(&self.component_id)
             .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
         Ok(Ok(entries))
@@ -89,9 +89,9 @@ impl HostPlugin for RuntimeConfig {
             exports: HashSet::new(),
         }
     }
-    async fn bind_component(
+    async fn on_component_bind(
         &self,
-        workload_handle: &mut WorkloadComponent,
+        component_handle: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         // Find the "wasi:config/runtime" interface, if present
@@ -107,13 +107,13 @@ impl HostPlugin for RuntimeConfig {
         };
 
         // Add `wasi:config/runtime` to the workload's linker
-        bindings::wasi::config::runtime::add_to_linker(workload_handle.linker(), |ctx| ctx)?;
+        bindings::wasi::config::runtime::add_to_linker(component_handle.linker(), |ctx| ctx)?;
 
         // Store the configuration for lookups later
         self.config
             .write()
             .await
-            .insert(workload_handle.id().to_string(), interface.config.clone());
+            .insert(component_handle.id().to_string(), interface.config.clone());
 
         Ok(())
     }
