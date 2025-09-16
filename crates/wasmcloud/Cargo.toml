@@ -1,0 +1,51 @@
+[package]
+name = "wasmcloud"
+version = "2.0.0-beta.1"
+description = "wasmCloud is a Cloud Native Computing Foundation (CNCF) project that enables teams to build polyglot applications composed of reusable Wasm components and run them—resiliently and efficiently—across any cloud, Kubernetes, datacenter, or edge."
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/wasmCloud/wash"
+authors = ["The wasmCloud Team"]
+categories = ["wasm"]
+
+[features]
+default = ["wasi-http", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue"]
+wasi-http = ["dep:wasmtime-wasi-http"]
+oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
+wasi-config = []
+wasi-logging = []
+wasi-blobstore = []
+wasi-keyvalue = []
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+hostname = { workspace = true }
+hyper = { workspace = true, features = ["server", "http1"] }
+names = { workspace = true }
+semver = { workspace = true }
+sysinfo = { workspace = true }
+uuid = { workspace = true, features = ["v4"] }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["sync", "net", "macros"] }
+tracing = { workspace = true }
+wasmtime = { workspace = true, features = ["component-model", "cranelift"] }
+wasmtime-wasi = { workspace = true }
+wasmtime-wasi-http = { workspace = true, optional = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+tokio-rustls = { workspace = true }
+
+# OCI dependencies (optional, behind 'oci' feature)
+docker_credential = { workspace = true, optional = true }
+oci-client = { workspace = true, optional = true, features = ["rustls-tls", "rustls-tls-native-roots"] }
+oci-wasm = { workspace = true, optional = true, features = ["rustls-tls"] }
+sha2 = { workspace = true, optional = true }
+wit-component = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
