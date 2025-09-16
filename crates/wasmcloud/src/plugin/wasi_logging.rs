@@ -79,7 +79,7 @@ impl HostPlugin for WasiLogging {
         }
     }
 
-    async fn bind_component(
+    async fn on_component_bind(
         &self,
         workload_handle: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,

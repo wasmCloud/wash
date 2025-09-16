@@ -234,7 +234,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     let first_response = timeout(
         Duration::from_secs(10),
         client
-            .get(&format!("http://{addr}/"))
+            .get(format!("http://{addr}/"))
             .header("HOST", "test")
             .send(),
     )
@@ -271,11 +271,9 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     let mut found_blob_data = false;
 
     // The blobstore-filesystem should have created directories/files
-    for entry in std::fs::read_dir(&blobstore_path)? {
-        if let Ok(entry) = entry {
-            println!("  Found in blobstore dir: {:?}", entry.path());
-            found_blob_data = true;
-        }
+    for entry in (std::fs::read_dir(&blobstore_path)?).flatten() {
+        println!("  Found in blobstore dir: {:?}", entry.path());
+        found_blob_data = true;
     }
 
     if found_blob_data {
@@ -289,7 +287,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     let second_response = timeout(
         Duration::from_secs(10),
         client
-            .get(&format!("http://{addr}/"))
+            .get(format!("http://{addr}/"))
             .header("HOST", "test")
             .send(),
     )

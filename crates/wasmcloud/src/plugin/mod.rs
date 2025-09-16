@@ -22,7 +22,7 @@
 //! - [`wasi_logging`] - Structured logging (`wasi:logging`)
 
 use crate::{
-    engine::workload::{ResolvedWorkload, WorkloadComponent},
+    engine::workload::{ResolvedWorkload, UnresolvedWorkload, WorkloadComponent},
     wit::WitWorld,
 };
 
@@ -41,7 +41,7 @@ pub mod wasi_keyvalue;
 #[cfg(feature = "wasi-logging")]
 pub mod wasi_logging;
 
-// TODO: Try to get rid of the `async-trait` usage if possible.
+// TODO: Try to get rid of the `async-trait` usage if possible, and set up the ID as an associated constant.
 /// The [`HostPlugin`] trait provides an interface for implementing built-in plugins for the host.
 /// A plugin is primarily responsible for implementing a specific [`WitWorld`] as a collection of
 /// imports and exports that will be directly linked to the workload's [`wasmtime::component::Linker`].
@@ -87,7 +87,30 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
         Ok(())
     }
 
-    /// Binds a workload component to this plugin.
+    /// Called when a workload is binding to this plugin.
+    ///
+    /// This method is invoked when a workload is in the process of being bound to the plugin,
+    /// allowing the plugin to perform any necessary setup or validation before the binding is finalized.
+    /// The default implementation does nothing.
+    ///
+    /// # Arguments
+    /// * `workload` - The unresolved workload that is being bound.
+    /// * `interfaces` - The set of WIT interfaces that the workload requires from this plugin.
+    ///
+    /// # Returns
+    /// Ok if the binding preparation succeeded.
+    ///
+    /// # Errors
+    /// Returns an error if the plugin cannot support the requested binding.
+    async fn on_workload_bind(
+        &self,
+        _workload: &UnresolvedWorkload,
+        _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Called when a [`WorkloadComponent`] is being bound to this plugin.
     ///
     /// This method is called when a workload requires interfaces that this
     /// plugin provides. The plugin should configure the component's linker
@@ -102,7 +125,7 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns an error if the plugin cannot bind to the component.
-    async fn bind_component(
+    async fn on_component_bind(
         &self,
         _component: &mut WorkloadComponent,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
@@ -147,9 +170,9 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns an error if cleanup fails.
-    async fn unbind_workload(
+    async fn on_workload_unbind(
         &self,
-        _workload: ResolvedWorkload,
+        _workload: &ResolvedWorkload,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         Ok(())

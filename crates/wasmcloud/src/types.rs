@@ -55,7 +55,7 @@ pub struct Service {
 
 /// A WebAssembly component that can be executed as part of a workload.
 /// Components can be pooled for concurrent execution and have invocation limits.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Component {
     pub bytes: Bytes,
     pub local_resources: LocalResources,
@@ -69,7 +69,12 @@ pub struct Component {
 pub struct LocalResources {
     pub memory_limit_mb: i32,
     pub cpu_limit: i32,
+    /// Opaque key-value configuration shared between operator + runtime + plugins.
+    /// Allows passing arbitrary configuration values to influence implementation behavior for all component interfaces.
+    /// Example: tracing=disable
     pub config: HashMap<String, String>,
+    // wasi:cli/env variables, copied to WasiCtxBuilder
+    pub environment: HashMap<String, String>,
     pub volume_mounts: Vec<VolumeMount>,
     pub allowed_hosts: Vec<String>,
 }
@@ -80,6 +85,7 @@ impl Default for LocalResources {
             memory_limit_mb: -1,
             cpu_limit: -1,
             config: HashMap::new(),
+            environment: HashMap::new(),
             volume_mounts: Vec::new(),
             allowed_hosts: Vec::new(),
         }
@@ -138,7 +144,7 @@ pub struct HostHeartbeat {
     /// System free memory in bytes
     pub system_memory_free: u64,
     pub component_count: u64,
-    pub provider_count: u64,
+    pub workload_count: u64,
     pub imports: Vec<WitInterface>,
     pub exports: Vec<WitInterface>,
 }

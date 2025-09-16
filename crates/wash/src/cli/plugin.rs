@@ -1,30 +1,16 @@
-use std::collections::HashMap;
 use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Context;
 use anyhow::bail;
 use clap::{Args, Subcommand};
-use hyper::server::conn::http1;
 use serde_json::json;
-use tokio::net::TcpListener;
-use tokio::sync::RwLock;
-use tracing::error;
 use tracing::{debug, instrument, trace, warn};
-use wasmtime::AsContextMut;
-use wasmtime_wasi::DirPerms;
-use wasmtime_wasi::FilePerms;
-use wasmtime_wasi::WasiCtx;
-use wasmtime_wasi_http::io::TokioIo;
 
-use crate::runtime::bindings::plugin::wasmcloud::wash::types::Metadata;
+use crate::plugin::bindings::wasmcloud::wash::types::Metadata;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput, OutputKind, component_build::build_component},
-    plugin::{
-        InstallPluginOptions, PluginComponent, install_plugin, list_plugins, uninstall_plugin,
-    },
-    runtime::{
-        Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::HookType, prepare_component_plugin,
-    },
+    plugin::bindings::exports::wasmcloud::wash::plugin::HookType,
+    plugin::{InstallPluginOptions, PluginComponent, install_plugin, uninstall_plugin},
 };
 
 #[derive(Subcommand, Debug, Clone)]
@@ -83,6 +69,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
             None => ctx
                 .plugin_manager()
                 .get_command(self.command_name)
+                .await
                 .with_context(|| format!("no plugin command found for `{}`", self.command_name))?,
         };
 
@@ -137,93 +124,12 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
             }
         }
 
-        // TODO(IMPORTANT): Only do this if the component has an HTTP export
-        // TODO(IMPORTANT): get this or let user specify this?
-        let listener = TcpListener::bind("127.0.0.1:8888").await?;
-
-        let runtime_config = Arc::new(RwLock::new(HashMap::default()));
-        let skip_confirmation = ctx.is_non_interactive();
-        tokio::spawn({
-            let plugin_component = plugin_component.clone();
-            let runtime_config = runtime_config.clone();
-            let background_processes = ctx.background_processes.clone();
-            async move {
-                loop {
-                    let runtime_config = runtime_config.clone();
-                    let plugin_component = plugin_component.clone();
-                    let background_processes = background_processes.clone();
-                    let (client, addr) = listener
-                        .accept()
-                        .await
-                        .expect("failed to accept incoming request");
-                    if let Err(e) = http1::Builder::new()
-                        .keep_alive(true)
-                        .serve_connection(
-                            TokioIo::new(client),
-                            hyper::service::service_fn(move |req| {
-                                let runtime_config = runtime_config.clone();
-                                let background_processes = background_processes.clone();
-                                let mut ctx = Ctx::builder(plugin_component.metadata.name.clone())
-                                    .with_background_processes(background_processes)
-                                    .skip_confirmation(skip_confirmation);
-
-                                if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
-                                    ctx = ctx.with_wasi_ctx(
-                                        WasiCtx::builder()
-                                            .preopened_dir(
-                                                fs_root.as_path(),
-                                                "/tmp",
-                                                DirPerms::all(),
-                                                FilePerms::all(),
-                                            )
-                                            .expect("failed to create WASI context")
-                                            .build(),
-                                    );
-                                }
-
-                                let mut store = plugin_component
-                                    .component
-                                    .new_store(ctx.with_runtime_config_arc(runtime_config).build());
-                                let pre = plugin_component.component.instance_pre().to_owned();
-                                async move {
-                                    crate::cli::dev::handle_request(
-                                        store.as_context_mut(),
-                                        pre,
-                                        req,
-                                        wasmtime_wasi_http::bindings::http::types::Scheme::Http,
-                                    )
-                                    .await
-                                }
-                            }),
-                        )
-                        .await
-                    {
-                        error!(addr = ?addr, err = ?e, "error serving client");
-                    }
-                }
-            }
-        });
-
-        let mut ctx_builder = Ctx::builder(plugin_component.metadata.name.clone())
-            .with_background_processes(ctx.background_processes.clone())
-            .skip_confirmation(ctx.is_non_interactive());
-
-        if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
-            ctx_builder = ctx_builder.with_wasi_ctx(
-                WasiCtx::builder()
-                    .preopened_dir(fs_root.as_path(), "/tmp", DirPerms::all(), FilePerms::all())
-                    .expect("failed to create WASI context")
-                    .build(),
-            )
-        }
+        // TODO: ensure http works still
+        let runtime_config = Arc::default();
 
         // Instantiate and run plugin
         match plugin_component
-            .call_run(
-                ctx_builder.with_runtime_config_arc(runtime_config).build(),
-                &run_command,
-                Arc::default(),
-            )
+            .call_run(&run_command, runtime_config)
             .await
         {
             Ok(res) => {
@@ -353,10 +259,12 @@ impl ListCommand {
     /// Handle the plugin list command
     #[instrument(level = "debug", skip_all, name = "plugin_list")]
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let plugin_metadata: Vec<Metadata> = list_plugins(ctx.runtime(), ctx.data_dir())
-            .await?
+        let plugin_metadata: Vec<Metadata> = ctx
+            .plugin_manager()
+            .get_plugins()
+            .await
             .into_iter()
-            .map(|p| p.metadata)
+            .map(|p| p.metadata.clone())
             .collect();
 
         match self.output {
@@ -434,25 +342,13 @@ impl TestCommand {
         };
 
         let mut output = String::new();
-
-        let component =
-            prepare_component_plugin(ctx.runtime(), &wasm, Some(ctx.data_dir().as_path())).await?;
-        debug!(metadata = ?component.metadata, "plugin metadata");
+        let plugin = ctx.instantiate_plugin(wasm).await?;
+        let metadata = plugin.metadata().clone();
+        debug!(metadata = ?metadata, "plugin metadata");
 
         for name in &self.hooks {
-            if let Some(hook) = component.metadata.hooks.iter().find(|h| h == &name) {
-                match component
-                    .call_hook(
-                        Ctx::builder(component.metadata.name.clone())
-                            .with_background_processes(ctx.background_processes.clone())
-                            .skip_confirmation(ctx.is_non_interactive())
-                            .build(),
-                        hook.to_owned(),
-                        Arc::default(),
-                    )
-                    .await
-                    .context("failed to run hook")
-                {
+            if let Some(hook) = metadata.hooks.iter().find(|h| h == &name) {
+                match plugin.call_hook(*hook, Arc::default()).await {
                     Ok(out) => {
                         output.push_str(&out);
                         output.push_str(&format!("Hook '{name}' executed successfully"));
@@ -468,16 +364,15 @@ impl TestCommand {
         }
 
         // Handle the command if no hooks were executed
-        let component = Arc::new(component);
         if output.is_empty() {
             // Prepend the name of the command to the args.
             // E.g. instead of wash plugin test ./foo.wasm foo bar
             //      make it    wash plugin test ./foo.wasm bar
             let mut args = Vec::with_capacity(self.args.len() + 1);
-            args.push(&component.metadata().name);
+            args.push(&metadata.name);
             args.extend(self.args.iter());
 
-            let cli_command: clap::Command = component.metadata().into();
+            let cli_command: clap::Command = (&metadata).into();
             let matches = match cli_command.try_get_matches_from(args) {
                 Ok(matches) => matches,
                 Err(e)
@@ -494,9 +389,9 @@ impl TestCommand {
             };
 
             let component_plugin_command = ComponentPluginCommand {
-                command_name: &component.metadata().name,
+                command_name: &metadata.name,
                 args: &matches,
-                plugin_component: Some(component.clone()),
+                plugin_component: Some(plugin),
             };
 
             output.push_str(component_plugin_command.handle(ctx).await?.message.as_str());
@@ -508,7 +403,7 @@ impl TestCommand {
                 "plugin_path": self.plugin.to_string_lossy(),
                 "args": self.args,
                 "hooks": self.hooks,
-                "metadata": component.metadata,
+                "metadata": metadata,
                 "success": true
             })),
         ))
