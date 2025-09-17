@@ -12,7 +12,6 @@
 //!
 //! - [`Engine`] - The main engine for WebAssembly execution
 //! - [`EngineBuilder`] - Builder for configuring engine settings
-//! - [`ResolvedWorkload`] - A fully resolved workload ready for execution
 //! - [`WorkloadComponent`] - Individual components within a workload
 //!
 //! # Example
@@ -162,7 +161,13 @@ impl Engine {
         // Initialize all components
         let mut workload_components = Vec::new();
         for component in components.into_iter() {
-            match self.initialize_workload_component(id.as_ref(), component, &validated_volumes) {
+            match self.initialize_workload_component(
+                id.as_ref(),
+                &name,
+                &namespace,
+                component,
+                &validated_volumes,
+            ) {
                 Ok(handle) => {
                     tracing::debug!("successfully initialized component");
                     workload_components.push(handle);
@@ -197,6 +202,8 @@ impl Engine {
     fn initialize_workload_component(
         &self,
         workload_id: impl AsRef<str>,
+        workload_name: impl AsRef<str>,
+        workload_namespace: impl AsRef<str>,
         component: crate::types::Component,
         validated_volumes: &std::collections::HashMap<String, PathBuf>,
     ) -> anyhow::Result<WorkloadComponent> {
@@ -232,6 +239,8 @@ impl Engine {
         // Create the WorkloadComponent with volume mounts
         Ok(WorkloadComponent::new(
             workload_id.as_ref().to_string(),
+            workload_name.as_ref().to_string(),
+            workload_namespace.as_ref().to_string(),
             wasmtime_component,
             linker,
             component_volume_mounts,

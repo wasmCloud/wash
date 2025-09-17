@@ -36,6 +36,10 @@ pub struct WorkloadComponent {
     id: String,
     /// The unique identifier for the workload this component belongs to
     workload_id: String,
+    /// The name of the workload this component belongs to
+    workload_name: String,
+    /// The namespace of the workload this component belongs to
+    workload_namespace: String,
     component: Component,
     linker: Linker<Ctx>,
     volume_mounts: Vec<(PathBuf, VolumeMount)>,
@@ -49,6 +53,8 @@ impl WorkloadComponent {
     /// wasmtime [`Component`], [`Linker`], volume mounts, and instance limits.
     pub fn new(
         workload_id: String,
+        workload_name: String,
+        workload_namespace: String,
         component: Component,
         linker: Linker<Ctx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
@@ -56,6 +62,8 @@ impl WorkloadComponent {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             workload_id,
+            workload_name,
+            workload_namespace,
             component,
             linker,
             volume_mounts,
@@ -182,6 +190,16 @@ impl WorkloadComponent {
     /// The parent workload's ID string.
     pub fn workload_id(&self) -> &str {
         &self.workload_id
+    }
+
+    /// Returns the name of the workload this component belongs to.
+    pub fn workload_name(&self) -> &str {
+        &self.workload_name
+    }
+
+    /// Returns the namespace of the workload this component belongs to.
+    pub fn workload_namespace(&self) -> &str {
+        &self.workload_namespace
     }
 
     /// Returns a reference to the plugins associated with this component.

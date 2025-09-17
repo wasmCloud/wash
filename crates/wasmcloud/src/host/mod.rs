@@ -189,6 +189,11 @@ pub struct Host {
 }
 
 impl Host {
+    /// Create a new builder for the host.
+    pub fn builder() -> HostBuilder {
+        HostBuilder::default()
+    }
+
     /// Start the host and initialize all plugins.
     ///
     /// This method must be called before the host can accept workloads.
@@ -506,6 +511,20 @@ impl HostApi for Host {
                 message,
             },
         })
+    }
+}
+
+impl std::fmt::Debug for Host {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Host")
+            .field("id", &self.id)
+            .field("hostname", &self.hostname)
+            .field("friendly_name", &self.friendly_name)
+            .field("version", &self.version)
+            .field("labels", &self.labels)
+            .field("started_at", &self.started_at)
+            .field("workloads", &self.workloads)
+            .finish()
     }
 }
 
