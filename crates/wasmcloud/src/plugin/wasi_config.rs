@@ -89,7 +89,7 @@ impl HostPlugin for RuntimeConfig {
             exports: HashSet::new(),
         }
     }
-    async fn bind_component(
+    async fn on_component_bind(
         &self,
         workload_handle: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,

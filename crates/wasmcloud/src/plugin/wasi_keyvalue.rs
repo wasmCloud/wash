@@ -430,7 +430,7 @@ impl HostPlugin for WasiKeyvalue {
         }
     }
 
-    async fn bind_component(
+    async fn on_component_bind(
         &self,
         component: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
@@ -473,9 +473,9 @@ impl HostPlugin for WasiKeyvalue {
         Ok(())
     }
 
-    async fn unbind_workload(
+    async fn on_workload_unbind(
         &self,
-        workload_handle: ResolvedWorkload,
+        workload_handle: &ResolvedWorkload,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         let id = workload_handle.id();

@@ -18,6 +18,8 @@ use crate::plugin::HostPlugin;
 pub struct Ctx {
     /// Unique identifier for this component instance. This is a [uuid::Uuid::new_v4] string.
     pub id: String,
+    /// The unique identifier for the workload this component belongs to
+    pub workload_id: String,
     /// The resource table used to manage resources in the Wasmtime store.
     pub table: wasmtime::component::ResourceTable,
     /// The WASI context used to provide WASI functionality to the component.
@@ -38,24 +40,8 @@ impl Ctx {
 }
 
 impl Ctx {
-    pub fn builder() -> CtxBuilder {
-        CtxBuilder::new()
-    }
-}
-
-impl Default for Ctx {
-    fn default() -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            table: ResourceTable::new(),
-            ctx: WasiCtxBuilder::new()
-                .args(&["main.wasm"])
-                // TODO: bring over the latest goodness from wash
-                .inherit_stderr()
-                .build(),
-            http: WasiHttpCtx::new(),
-            plugins: HashMap::new(),
-        }
+    pub fn builder(workload_id: impl AsRef<str>) -> CtxBuilder {
+        CtxBuilder::new(workload_id)
     }
 }
 
@@ -63,6 +49,7 @@ impl std::fmt::Debug for Ctx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ctx")
             .field("id", &self.id)
+            .field("workload_id", &self.workload_id)
             .field("table", &self.table)
             .finish()
     }
@@ -89,20 +76,16 @@ impl WasiHttpView for Ctx {
 /// Helper struct to build a [`Ctx`] with a builder pattern
 pub struct CtxBuilder {
     id: String,
+    workload_id: String,
     ctx: Option<WasiCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
 }
 
-impl Default for CtxBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CtxBuilder {
-    pub fn new() -> Self {
+    pub fn new(workload_id: impl AsRef<str>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
+            workload_id: workload_id.as_ref().to_string(),
             ctx: None,
             plugins: HashMap::new(),
         }
@@ -136,9 +119,10 @@ impl CtxBuilder {
                     .inherit_stderr()
                     .build()
             }),
+            workload_id: self.workload_id,
             http: WasiHttpCtx::new(),
+            table: ResourceTable::new(),
             plugins,
-            ..Default::default()
         }
     }
 }

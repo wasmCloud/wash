@@ -164,7 +164,7 @@ impl HostPlugin for HttpServer {
         Ok(())
     }
 
-    async fn bind_component(
+    async fn on_component_bind(
         &self,
         component: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
