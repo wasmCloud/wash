@@ -41,6 +41,7 @@
 
 use anyhow::{Context, bail};
 use tracing::warn;
+use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
 
 use crate::engine::ctx::Ctx;
@@ -279,6 +280,7 @@ impl Engine {
 #[derive(Default)]
 pub struct EngineBuilder {
     config: wasmtime::Config,
+    use_pooling_allocator: Option<bool>,
 }
 
 impl EngineBuilder {
@@ -288,6 +290,12 @@ impl EngineBuilder {
     /// A new builder instance with default wasmtime configuration.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Enables or disables the pooling allocator for instance allocation.
+    pub fn with_pooling_allocator(mut self, enable: bool) -> Self {
+        self.use_pooling_allocator = Some(enable);
+        self
     }
 
     /// Sets a custom wasmtime configuration for the engine.
@@ -321,8 +329,34 @@ impl EngineBuilder {
     pub fn build(mut self) -> anyhow::Result<Engine> {
         // Async support must be enabled
         self.config.async_support(true);
+        // The pooling allocator can be more efficient for workloads with many short-lived instances
+        if let Ok(true) = use_pooling_allocator_by_default(self.use_pooling_allocator) {
+            tracing::debug!("using pooling allocator by default");
+            self.config
+                .allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(
+                    PoolingAllocationConfig::default(),
+                ));
+        }
 
         let inner = wasmtime::Engine::new(&self.config)?;
         Ok(Engine { inner })
     }
+}
+
+// TL;DR this is likely best for machines that can handle the large virtual memory requirement of the pooling allocator
+// https://github.com/bytecodealliance/wasmtime/blob/b943666650696f1eb7ff8b217762b58d5ef5779d/src/commands/serve.rs#L641-L656
+fn use_pooling_allocator_by_default(enable: Option<bool>) -> anyhow::Result<bool> {
+    const BITS_TO_TEST: u32 = 42;
+    if let Some(v) = enable {
+        return Ok(v);
+    }
+    let mut config = wasmtime::Config::new();
+    config.wasm_memory64(true);
+    config.memory_reservation(1 << BITS_TO_TEST);
+    let engine = wasmtime::Engine::new(&config)?;
+    let mut store = wasmtime::Store::new(&engine, ());
+    // NB: the maximum size is in wasm pages to take out the 16-bits of wasm
+    // page size here from the maximum size.
+    let ty = wasmtime::MemoryType::new64(0, Some(1 << (BITS_TO_TEST - 16)));
+    Ok(wasmtime::Memory::new(&mut store, ty).is_ok())
 }

@@ -22,7 +22,7 @@ pub struct Ctx {
     pub workload_id: String,
     /// The resource table used to manage resources in the Wasmtime store.
     pub table: wasmtime::component::ResourceTable,
-    /// The WASI context used to provide WASI functionality to the component.
+    /// The WASI context used to provide WASI functionality to the components using this context.
     pub ctx: WasiCtx,
     /// The HTTP context used to provide HTTP functionality to the component.
     pub http: WasiHttpCtx,
@@ -60,6 +60,7 @@ impl IoView for Ctx {
         &mut self.table
     }
 }
+// TODO: Do some cleverness to pull up the _right_ WasiCtx based on what component is active, maybe
 impl WasiView for Ctx {
     fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.ctx

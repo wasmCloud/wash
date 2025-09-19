@@ -1,14 +1,16 @@
 //! Types and implementations for the wasmcloud:wash plugin host interface
+//! including the Runner impl on the [`Ctx`].
 
 use anyhow::{Context as _, Result};
 use dialoguer::{Confirm, theme::ColorfulTheme};
 use std::{collections::HashMap, env, sync::Arc};
 use tokio::{process::Command, sync::RwLock};
 use tracing::debug;
+use wasmcloud::engine::ctx::Ctx;
 use wasmtime::component::Resource;
 use wasmtime_wasi::IoView;
 
-use crate::runtime::{Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::Metadata};
+use crate::plugin::{PLUGIN_MANAGER_ID, PluginManager, bindings::wasmcloud::wash::types::Metadata};
 
 #[derive(Clone, Debug)]
 pub struct Runner {
@@ -42,11 +44,11 @@ impl Default for ProjectConfig {
 }
 
 pub type Context = Arc<RwLock<HashMap<String, String>>>;
-pub type PluginConfig = Arc<RwLock<HashMap<String, String>>>;
+pub type PluginConfig = HashMap<String, String>;
 
-impl crate::runtime::bindings::plugin::wasmcloud::wash::types::Host for Ctx {}
+impl crate::plugin::bindings::wasmcloud::wash::types::Host for Ctx {}
 /// The Context resource is a passthrough to the same map we use for runtime configuration
-impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostContext for Ctx {
+impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
     async fn get(&mut self, ctx: Resource<Context>, key: String) -> Option<String> {
         let context = match self.table().get(&ctx) {
             Ok(context) => context,
@@ -102,7 +104,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostContext for C
     }
 }
 
-impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostProjectConfig for Ctx {
+impl crate::plugin::bindings::wasmcloud::wash::types::HostProjectConfig for Ctx {
     async fn version(&mut self, ctx: Resource<ProjectConfig>) -> String {
         let c = self.table().get(&ctx).unwrap();
         c.version.clone()
@@ -116,7 +118,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostProjectConfig
     }
 }
 
-impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ctx {
+impl crate::plugin::bindings::wasmcloud::wash::types::HostRunner for Ctx {
     async fn context(&mut self, runner: Resource<Runner>) -> Result<Resource<Context>, String> {
         let runner = self.table.get(&runner).map_err(|e| e.to_string())?;
         self.table
@@ -129,9 +131,22 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
         &mut self,
         _ctx: Resource<Runner>,
     ) -> Result<Resource<PluginConfig>, String> {
-        self.table
-            .push(self.runtime_config.clone())
-            .map_err(|e| e.to_string())
+        let Some(plugin) = self.get_plugin::<PluginManager>(PLUGIN_MANAGER_ID) else {
+            return Err("failed to get plugin manager".to_string());
+        };
+
+        let runtime_config = {
+            let all_config = plugin.runtime_config.read().await;
+            match all_config.get(&self.id) {
+                Some(config) => config.clone(),
+                None => {
+                    tracing::warn!(component_id = %self.id, "no plugin config found, returning default");
+                    PluginConfig::default()
+                }
+            }
+        };
+
+        self.table.push(runtime_config).map_err(|e| e.to_string())
     }
 
     async fn host_exec(
@@ -173,6 +188,10 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
         bin: String,
         args: Vec<String>,
     ) -> Result<(), String> {
+        let Some(plugin) = self.get_plugin::<PluginManager>(PLUGIN_MANAGER_ID) else {
+            return Err("failed to get plugin manager for exec background command".to_string());
+        };
+
         let ctx = self.table.get(&ctx).map_err(|e| e.to_string())?;
         // TODO(ISSUE#3): cache this somewhere
         let confirmed = Confirm::with_theme(&ColorfulTheme::default())
@@ -192,7 +211,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
         debug!(bin = %bin, ?args, "executing host command in background");
         match Command::new(bin).args(args).kill_on_drop(true).spawn() {
             Ok(child) => {
-                self.background_processes.write().await.push(child);
+                plugin.background_processes.write().await.push(child);
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
@@ -207,7 +226,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
     }
 }
 
-impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostPluginConfig for Ctx {
+impl crate::plugin::bindings::wasmcloud::wash::types::HostPluginConfig for Ctx {
     async fn get(&mut self, ctx: Resource<PluginConfig>, key: String) -> Option<String> {
         let plugin_config = match self.table().get(&ctx) {
             Ok(plugin_config) => plugin_config,
@@ -216,7 +235,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostPluginConfig 
                 return None;
             }
         };
-        plugin_config.read().await.get(&key).cloned()
+        plugin_config.get(&key).cloned()
     }
 
     async fn set(
@@ -225,25 +244,25 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostPluginConfig 
         key: String,
         value: String,
     ) -> Option<String> {
-        let plugin_config = match self.table().get(&ctx) {
+        let plugin_config = match self.table().get_mut(&ctx) {
             Ok(plugin_config) => plugin_config,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get plugin config resource");
                 return None;
             }
         };
-        plugin_config.write().await.insert(key, value)
+        plugin_config.insert(key, value)
     }
 
     async fn delete(&mut self, ctx: Resource<PluginConfig>, key: String) -> Option<String> {
-        let plugin_config = match self.table().get(&ctx) {
+        let plugin_config = match self.table().get_mut(&ctx) {
             Ok(plugin_config) => plugin_config,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get plugin config resource");
                 return None;
             }
         };
-        plugin_config.write().await.remove(&key)
+        plugin_config.remove(&key)
     }
 
     async fn list(&mut self, ctx: Resource<PluginConfig>) -> Vec<String> {
@@ -254,7 +273,7 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostPluginConfig 
                 return vec![];
             }
         };
-        plugin_config.read().await.keys().cloned().collect()
+        plugin_config.keys().cloned().collect()
     }
 
     async fn drop(&mut self, ctx: Resource<PluginConfig>) -> wasmtime::Result<()> {

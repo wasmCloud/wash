@@ -16,18 +16,13 @@ use serde_json::json;
 use tracing::{debug, error, instrument, trace};
 
 use serde::{Deserialize, Serialize};
+use wasmcloud::host::Host;
 
 use crate::{
     CARGO_PKG_VERSION,
     cli::update::fetch_latest_release_public,
     config::{Config, generate_default_config, load_config},
-    plugin::PluginManager,
-    runtime::{
-        Ctx,
-        bindings::plugin::{WashPlugin, exports::wasmcloud::wash::plugin::HookType},
-        new_runtime,
-        plugin::Runner,
-    },
+    plugin::{PluginManager, bindings::wasmcloud::wash::types::HookType},
 };
 
 pub mod completion;
@@ -60,92 +55,92 @@ pub trait CliCommand {
     }
 }
 
-impl<T: CliCommand + ?Sized> CliCommandExt for T {}
+// impl<T: CliCommand + ?Sized> CliCommandExt for T {}
 
 /// Extension trait to provide implementations for pre_hook and post_hook.
-pub trait CliCommandExt: CliCommand {
-    /// Execute pre-hook logic before the command runs. By default, if [`CliCommand::enable_pre_hook`]
-    /// returns a hook type, it will execute all components registered with the pre-hook for that type.
-    fn pre_hook(&self, ctx: &CliContext) -> impl Future<Output = anyhow::Result<()>> {
-        async {
-            if let Some(hook_type) = self.enable_pre_hook() {
-                let hooks = ctx.plugin_manager.get_hooks(hook_type);
-                for hook in hooks {
-                    trace!(?hook, ?hook_type, "executing pre-hook for command");
-                    let mut data = Ctx::builder(hook.metadata.name.clone())
-                        .with_background_processes(ctx.background_processes.clone())
-                        .build();
-                    // TODO(IMPORTANT): context about the command and runner
-                    let runner = data
-                        .table
-                        .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
-                    let mut store = hook.component.new_store(data);
-                    let instance = hook
-                        .component
-                        .instance_pre()
-                        .instantiate_async(&mut store)
-                        .await
-                        .context("failed to instantiate pre-hook")?;
-                    let plugin_guest = WashPlugin::new(&mut store, &instance)?;
-                    if let Err(e) = plugin_guest
-                        .wasmcloud_wash_plugin()
-                        .call_hook(&mut store, runner, hook_type)
-                        .await
-                        .context("failed to call pre-hook")?
-                    {
-                        error!(
-                            err = e,
-                            name = hook.metadata.name,
-                            "pre-hook execution failed"
-                        );
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
+// pub trait CliCommandExt: CliCommand {
+//     /// Execute pre-hook logic before the command runs. By default, if [`CliCommand::enable_pre_hook`]
+//     /// returns a hook type, it will execute all components registered with the pre-hook for that type.
+//     fn pre_hook(&self, ctx: &CliContext) -> impl Future<Output = anyhow::Result<()>> {
+//         async {
+//             if let Some(hook_type) = self.enable_pre_hook() {
+//                 let hooks = ctx.plugin_manager.get_hooks(hook_type);
+//                 for hook in hooks {
+//                     trace!(?hook, ?hook_type, "executing pre-hook for command");
+//                     let mut data = Ctx::builder(hook.metadata.name.clone())
+//                         .with_background_processes(ctx.background_processes.clone())
+//                         .build();
+//                     // TODO(IMPORTANT): context about the command and runner
+//                     let runner = data
+//                         .table
+//                         .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
+//                     let mut store = hook.component.new_store(data);
+//                     let instance = hook
+//                         .component
+//                         .instance_pre()
+//                         .instantiate_async(&mut store)
+//                         .await
+//                         .context("failed to instantiate pre-hook")?;
+//                     let plugin_guest = WashPlugin::new(&mut store, &instance)?;
+//                     if let Err(e) = plugin_guest
+//                         .wasmcloud_wash_plugin()
+//                         .call_hook(&mut store, runner, hook_type)
+//                         .await
+//                         .context("failed to call pre-hook")?
+//                     {
+//                         error!(
+//                             err = e,
+//                             name = hook.metadata.name,
+//                             "pre-hook execution failed"
+//                         );
+//                     }
+//                 }
+//             }
+//             Ok(())
+//         }
+//     }
 
-    /// Execute post-hook logic after the command runs. By default, if [`CliCommand::enable_post_hook`]
-    /// returns a hook type, it will execute all components registered with the post-hook for that type.
-    fn post_hook(&self, ctx: &CliContext) -> impl Future<Output = anyhow::Result<()>> {
-        async {
-            if let Some(hook_type) = self.enable_post_hook() {
-                let hooks = ctx.plugin_manager.get_hooks(hook_type);
-                for hook in hooks {
-                    trace!(?hook, "executing post-hook for command");
-                    let mut data = Ctx::builder(hook.metadata.name.clone())
-                        .with_background_processes(ctx.background_processes.clone())
-                        .build();
-                    // TODO(IMPORTANT): context about the command and runner
-                    let runner = data
-                        .table
-                        .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
-                    let mut store = hook.component.new_store(data);
-                    let instance = hook
-                        .component
-                        .instance_pre()
-                        .instantiate_async(&mut store)
-                        .await
-                        .context("failed to instantiate post-hook")?;
-                    let plugin_guest = WashPlugin::new(&mut store, &instance)?;
-                    if let Err(e) = plugin_guest
-                        .wasmcloud_wash_plugin()
-                        .call_hook(&mut store, runner, hook_type)
-                        .await
-                        .context("failed to call post-hook")?
-                    {
-                        error!(
-                            err = e,
-                            name = hook.metadata.name,
-                            "post-hook execution failed"
-                        );
-                    }
-                }
-            }
-            Ok(())
-        }
-    }
-}
+//     /// Execute post-hook logic after the command runs. By default, if [`CliCommand::enable_post_hook`]
+//     /// returns a hook type, it will execute all components registered with the post-hook for that type.
+//     fn post_hook(&self, ctx: &CliContext) -> impl Future<Output = anyhow::Result<()>> {
+//         async {
+//             if let Some(hook_type) = self.enable_post_hook() {
+//                 let hooks = ctx.plugin_manager.get_hooks(hook_type);
+//                 for hook in hooks {
+//                     trace!(?hook, "executing post-hook for command");
+//                     let mut data = Ctx::builder(hook.metadata.name.clone())
+//                         .with_background_processes(ctx.background_processes.clone())
+//                         .build();
+//                     // TODO(IMPORTANT): context about the command and runner
+//                     let runner = data
+//                         .table
+//                         .push(Runner::new(hook.metadata.clone(), Arc::default()))?;
+//                     let mut store = hook.component.new_store(data);
+//                     let instance = hook
+//                         .component
+//                         .instance_pre()
+//                         .instantiate_async(&mut store)
+//                         .await
+//                         .context("failed to instantiate post-hook")?;
+//                     let plugin_guest = WashPlugin::new(&mut store, &instance)?;
+//                     if let Err(e) = plugin_guest
+//                         .wasmcloud_wash_plugin()
+//                         .call_hook(&mut store, runner, hook_type)
+//                         .await
+//                         .context("failed to call post-hook")?
+//                     {
+//                         error!(
+//                             err = e,
+//                             name = hook.metadata.name,
+//                             "post-hook execution failed"
+//                         );
+//                     }
+//                 }
+//             }
+//             Ok(())
+//         }
+//     }
+// }
 
 /// Used for displaying human-readable output vs JSON format
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
@@ -270,8 +265,7 @@ pub struct CliContext {
     app_strategy: Windows,
     /// The runtime used for executing Wasm components. Plugins and
     /// dev loops will use this runtime to execute Wasm code.
-    runtime: wasmcloud_runtime::Runtime,
-    runtime_thread: Arc<std::thread::JoinHandle<Result<(), ()>>>,
+    runtime: Arc<Host>,
     plugin_manager: Arc<PluginManager>,
     /// Stores the handles to background processes spawned by host_exec_background. We want to
     /// constrain the processes spawned by components to the lifetime of the CLI context.
@@ -350,19 +344,22 @@ impl CliContext {
                 .context("failed to create config directory")?;
         }
 
-        let (plugin_runtime, thread) = new_runtime()
-            .await
-            .context("failed to create wasmcloud runtime")?;
+        let plugin_manager = Arc::new(PluginManager::default());
 
-        let plugin_manager = PluginManager::initialize(&plugin_runtime, app_strategy.data_dir())
-            .await
-            .context("failed to initialize plugin manager")?;
+        let plugin_runtime = wasmcloud::host::Host::builder()
+            .with_plugin(plugin_manager.clone())?
+            .build()
+            .context("failed to create wasmcloud runtime")?
+            .start()
+            .await?;
+
+        // Should discover all plugins, create workloads, initialize them
+        // TODO: plugin_manager.initialize(plugin_runtime.clone()).await?;
 
         Ok(Self {
             app_strategy,
             runtime: plugin_runtime,
-            runtime_thread: Arc::new(thread),
-            plugin_manager: Arc::new(plugin_manager),
+            plugin_manager,
             background_processes: Arc::default(),
         })
     }
@@ -438,115 +435,109 @@ impl CliContext {
         load_config(&self.config_path(), project_dir, None::<Config>)
     }
 
-    pub fn runtime(&self) -> &wasmcloud_runtime::Runtime {
-        &self.runtime
-    }
-    pub fn runtime_thread(&self) -> &Arc<std::thread::JoinHandle<Result<(), ()>>> {
-        &self.runtime_thread
-    }
     pub fn plugin_manager(&self) -> &PluginManager {
         &self.plugin_manager
     }
 
-    /// Call pre-hooks for the specified hook type with the provided runtime context.
-    /// This will execute ALL plugins that support the given hook type.
-    pub async fn call_pre_hooks(
-        &self,
-        runtime_context: std::sync::Arc<
-            tokio::sync::RwLock<std::collections::HashMap<String, String>>,
-        >,
-        hook_type: HookType,
-    ) -> anyhow::Result<()> {
-        let hooks = self.plugin_manager.get_hooks(hook_type);
-        for hook in hooks {
-            trace!(?hook, ?hook_type, "executing pre-hook");
-            let mut data = Ctx::builder(hook.metadata.name.clone())
-                .with_background_processes(self.background_processes.clone())
-                .build();
-            let runner = data
-                .table
-                .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
-            let mut store = hook.component.new_store(data);
-            let instance = hook
-                .component
-                .instance_pre()
-                .instantiate_async(&mut store)
-                .await
-                .context("failed to instantiate pre-hook")?;
-            let plugin_guest = WashPlugin::new(&mut store, &instance)?;
-            match plugin_guest
-                .wasmcloud_wash_plugin()
-                .call_hook(&mut store, runner, hook_type)
-                .await
-                .context("failed to call pre-hook")?
-            {
-                Ok(response) => {
-                    info!(
-                        plugin = hook.metadata.name,
-                        response = response,
-                        "pre-hook executed successfully"
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        err = e,
-                        plugin = hook.metadata.name,
-                        "pre-hook execution failed"
-                    );
-                }
-            }
-        }
-        Ok(())
-    }
+    // Call pre-hooks for the specified hook type with the provided runtime context.
+    // This will execute ALL plugins that support the given hook type.
+    // pub async fn call_pre_hooks(
+    //     &self,
+    //     runtime_context: std::sync::Arc<
+    //         tokio::sync::RwLock<std::collections::HashMap<String, String>>,
+    //     >,
+    //     hook_type: HookType,
+    // ) -> anyhow::Result<()> {
+    //     let hooks = self.plugin_manager.get_hooks(hook_type);
+    //     for hook in hooks {
+    //         trace!(?hook, ?hook_type, "executing pre-hook");
+    //         let mut data = Ctx::builder(hook.metadata.name.clone())
+    //             .with_background_processes(self.background_processes.clone())
+    //             .build();
+    //         let runner = data
+    //             .table
+    //             .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
+    //         let mut store = hook.component.new_store(data);
+    //         let instance = hook
+    //             .component
+    //             .instance_pre()
+    //             .instantiate_async(&mut store)
+    //             .await
+    //             .context("failed to instantiate pre-hook")?;
+    //         let plugin_guest = WashPlugin::new(&mut store, &instance)?;
+    //         match plugin_guest
+    //             .wasmcloud_wash_plugin()
+    //             .call_hook(&mut store, runner, hook_type)
+    //             .await
+    //             .context("failed to call pre-hook")?
+    //         {
+    //             Ok(response) => {
+    //                 info!(
+    //                     plugin = hook.metadata.name,
+    //                     response = response,
+    //                     "pre-hook executed successfully"
+    //                 );
+    //             }
+    //             Err(e) => {
+    //                 error!(
+    //                     err = e,
+    //                     plugin = hook.metadata.name,
+    //                     "pre-hook execution failed"
+    //                 );
+    //             }
+    //         }
+    //     }
+    //     Ok(())
+    // }
 
-    /// Call post-hooks for the specified hook type with the provided runtime context.
-    /// This will execute ALL plugins that support the given hook type.
-    pub async fn call_post_hooks(
-        &self,
-        runtime_context: std::sync::Arc<
-            tokio::sync::RwLock<std::collections::HashMap<String, String>>,
-        >,
-        hook_type: HookType,
-    ) -> anyhow::Result<()> {
-        let hooks = self.plugin_manager.get_hooks(hook_type);
-        for hook in hooks {
-            trace!(?hook, ?hook_type, "executing post-hook");
-            let mut data = Ctx::builder(hook.metadata.name.clone())
-                .with_background_processes(self.background_processes.clone())
-                .build();
-            let runner = data
-                .table
-                .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
-            let mut store = hook.component.new_store(data);
-            let instance = hook
-                .component
-                .instance_pre()
-                .instantiate_async(&mut store)
-                .await
-                .context("failed to instantiate post-hook")?;
-            let plugin_guest = WashPlugin::new(&mut store, &instance)?;
-            match plugin_guest
-                .wasmcloud_wash_plugin()
-                .call_hook(&mut store, runner, hook_type)
-                .await
-                .context("failed to call post-hook")?
-            {
-                Ok(response) => {
-                    info!(
-                        plugin = hook.metadata.name,
-                        response = response,
-                        "post-hook executed successfully"
-                    );
-                }
-                Err(e) => {
-                    error!(
-                        err = e,
-                        plugin = hook.metadata.name,
-                        "post-hook execution failed"
-                    );
-                }
-            }
-        }
-        Ok(())
-    }
+    // Call post-hooks for the specified hook type with the provided runtime context.
+    // This will execute ALL plugins that support the given hook type.
+    // pub async fn call_post_hooks(
+    //     &self,
+    //     runtime_context: std::sync::Arc<
+    //         tokio::sync::RwLock<std::collections::HashMap<String, String>>,
+    //     >,
+    //     hook_type: HookType,
+    // ) -> anyhow::Result<()> {
+    //     let hooks = self.plugin_manager.get_hooks(hook_type);
+    //     for hook in hooks {
+    //         trace!(?hook, ?hook_type, "executing post-hook");
+    //         let mut data = Ctx::builder(hook.metadata.name.clone())
+    //             .with_background_processes(self.background_processes.clone())
+    //             .build();
+    //         let runner = data
+    //             .table
+    //             .push(Runner::new(hook.metadata.clone(), runtime_context.clone()))?;
+    //         let mut store = hook.component.new_store(data);
+    //         let instance = hook
+    //             .component
+    //             .instance_pre()
+    //             .instantiate_async(&mut store)
+    //             .await
+    //             .context("failed to instantiate post-hook")?;
+    //         let plugin_guest = WashPlugin::new(&mut store, &instance)?;
+    //         match plugin_guest
+    //             .wasmcloud_wash_plugin()
+    //             .call_hook(&mut store, runner, hook_type)
+    //             .await
+    //             .context("failed to call post-hook")?
+    //         {
+    //             Ok(response) => {
+    //                 info!(
+    //                     plugin = hook.metadata.name,
+    //                     response = response,
+    //                     "post-hook executed successfully"
+    //                 );
+    //             }
+    //             Err(e) => {
+    //                 error!(
+    //                     err = e,
+    //                     plugin = hook.metadata.name,
+    //                     "post-hook execution failed"
+    //                 );
+    //             }
+    //         }
+    //     }
+    //     Ok(())
+    // }
 }

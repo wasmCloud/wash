@@ -859,7 +859,8 @@ impl UnresolvedWorkload {
 
     // Unbind all plugins from the components in this workload
     async fn unbind_plugins(&self) -> anyhow::Result<()> {
-        todo!()
+        // TODO: call to unbind each plugin from this component
+        Ok(())
     }
 
     /// Resolves the workload by binding it to host plugins and creating the final executable workload.

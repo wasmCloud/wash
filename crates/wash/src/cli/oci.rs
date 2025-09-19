@@ -4,11 +4,13 @@ use anyhow::Context as _;
 use clap::{Args, Subcommand};
 use etcetera::AppStrategy;
 use tracing::instrument;
+use wasmcloud::oci::{OciConfig, pull_component, push_component};
+
+pub(crate) const OCI_CACHE_DIR: &str = "oci";
 
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
-    oci::{OCI_CACHE_DIR, OciConfig, pull_component, push_component},
-    runtime::bindings::plugin::wasmcloud::wash::types::HookType,
+    plugin::bindings::wasmcloud::wash::types::HookType,
 };
 
 #[derive(Subcommand, Debug, Clone)]
