@@ -100,8 +100,8 @@ impl Config {
                 NewTemplate {
                     name: "http-hello-world".to_string(),
                     description: Some("A simple HTTP hello world component".to_string()),
-                    repository: "https://github.com/wasmcloud/wasmcloud".to_string(),
-                    subfolder: Some("examples/typescript/components/http-hello-world".to_string()),
+                    repository: "https://github.com/wasmcloud/typescript".to_string(),
+                    subfolder: Some("examples/components/http-hello-world".to_string()),
                     language: crate::new::TemplateLanguage::TypeScript,
                     git_ref: None,
                 },
