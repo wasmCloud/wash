@@ -711,15 +711,18 @@ impl UnresolvedWorkload {
     /// interfaces. Returns a list of plugins and the component IDs they were bound to.
     pub async fn bind_plugins(
         &mut self,
-        plugins: &HashMap<&'static str, Arc<(dyn HostPlugin + 'static)>>,
-    ) -> anyhow::Result<Vec<(Arc<(dyn HostPlugin + 'static)>, Vec<String>)>> {
-        let mut bound_plugins: Vec<(Arc<(dyn HostPlugin + 'static)>, Vec<String>)> = Vec::new();
+        plugins: &HashMap<&'static str, Arc<dyn HostPlugin + 'static>>,
+    ) -> anyhow::Result<Vec<(Arc<dyn HostPlugin + 'static>, Vec<String>)>> {
+        let mut bound_plugins: Vec<(Arc<dyn HostPlugin + 'static>, Vec<String>)> = Vec::new();
 
         // Collect all component's required (unmatched) host interfaces
         // This tracks which interfaces each component still needs to be bound
         let mut unmatched_interfaces: HashMap<String, HashSet<WitInterface>> = HashMap::new();
+        trace!(host_interfaces = ?self.host_interfaces, "determining missing guest interfaces");
+
         for (id, workload_component) in &self.components {
             let world = workload_component.world();
+            trace!(?world, "comparing component world to host interfaces");
             let required_interfaces: HashSet<WitInterface> = self
                 .host_interfaces
                 .iter()
@@ -731,6 +734,8 @@ impl UnresolvedWorkload {
                 unmatched_interfaces.insert(id.clone(), required_interfaces);
             }
         }
+
+        trace!(?unmatched_interfaces, "resolving unmatched interfaces");
 
         // Iterate through each plugin first, then check every component for matching worlds
         for (plugin_id, p) in plugins.iter() {
@@ -858,6 +863,7 @@ impl UnresolvedWorkload {
     }
 
     // Unbind all plugins from the components in this workload
+    #[allow(unused)]
     async fn unbind_plugins(&self) -> anyhow::Result<()> {
         // TODO: call to unbind each plugin from this component
         Ok(())
@@ -943,15 +949,19 @@ mod tests {
     /// Records a single plugin method call for testing callback order and parameters.
     #[derive(Debug, Clone)]
     struct CallRecord {
+        #[allow(unused)]
         plugin_id: String,
         method: String,
         component_id: Option<String>,
+        #[allow(unused)]
         interfaces: Vec<String>,
     }
 
     /// Mock plugin implementation for testing workload binding behavior.
     /// Tracks all method calls and counts for verification of callback order and frequency.
     struct MockPlugin {
+        #[allow(unused)]
+        id: String,
         world: WitWorld,
         call_records: Arc<Mutex<Vec<CallRecord>>>,
         on_workload_bind_count: Arc<AtomicUsize>,
@@ -967,6 +977,7 @@ mod tests {
             exports: Vec<WitInterface>,
         ) -> Self {
             Self {
+                id: id.into(),
                 world: WitWorld {
                     imports: imports.into_iter().collect(),
                     exports: exports.into_iter().collect(),

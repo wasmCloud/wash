@@ -193,7 +193,7 @@ async fn test_http_counter_integration() -> Result<()> {
     let first_response = timeout(
         Duration::from_secs(10), // Longer timeout for outbound HTTP request
         client
-            .get(&format!("http://{addr}/"))
+            .get(format!("http://{addr}/"))
             .header("HOST", "foo")
             .send(),
     )
@@ -232,7 +232,7 @@ async fn test_http_counter_integration() -> Result<()> {
     let second_response = timeout(
         Duration::from_secs(10),
         client
-            .get(&format!("http://{addr}/"))
+            .get(format!("http://{addr}/"))
             .header("HOST", "foo")
             .send(),
     )
@@ -281,10 +281,9 @@ async fn test_http_counter_integration() -> Result<()> {
 
     for i in 0..5 {
         let client = client.clone();
-        let addr = addr;
         let handle = tokio::spawn(async move {
             let response = client
-                .get(&format!("http://{addr}/"))
+                .get(format!("http://{addr}/"))
                 .header("HOST", "foo")
                 .send()
                 .await;
@@ -313,10 +312,10 @@ async fn test_http_counter_integration() -> Result<()> {
     // Wait for all concurrent requests to complete
     let mut successful_requests = 0;
     for handle in handles {
-        if let Ok((success, _)) = handle.await {
-            if success {
-                successful_requests += 1;
-            }
+        if let Ok((success, _)) = handle.await
+            && success
+        {
+            successful_requests += 1;
         }
     }
 
@@ -531,7 +530,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
     // Test malformed requests
     println!("Testing malformed request handling");
     let malformed_response = client
-        .post(&format!("http://{addr}/invalid-path"))
+        .post(format!("http://{addr}/invalid-path"))
         .header("HOST", "error-test")
         .body("invalid-data")
         .send()

@@ -6,12 +6,8 @@ use tracing::{Level, error, info, instrument, trace, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 use wash::cli::{
-    CliCommand,
-    CliContext,
-    CommandOutput,
-    OutputKind,
-    //     plugin::ComponentPluginCommand,
-    // CliCommandExt
+    CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
+    plugin::ComponentPluginCommand,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -88,8 +84,8 @@ enum WashCliCommand {
     #[clap(name = "oci", alias = "docker", subcommand)]
     Oci(wash::cli::oci::OciCommand),
     /// Manage wash plugins
-    // #[clap(name = "plugin", subcommand)]
-    // Plugin(wash::cli::plugin::PluginCommand),
+    #[clap(name = "plugin", subcommand)]
+    Plugin(wash::cli::plugin::PluginCommand),
     /// Update wash to the latest version
     #[clap(name = "update", alias = "upgrade")]
     Update(wash::cli::update::UpdateCommand),
@@ -105,17 +101,17 @@ impl CliCommand for WashCliCommand {
                 // Handle completion generation directly here since we need access to the full CLI
                 let mut wash_cmd = Cli::command();
 
-                // let plugins = ctx.plugin_manager().get_commands();
-                // if !plugins.is_empty() {
-                //     wash_cmd = wash_cmd
-                //         .subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
-                // }
-                // for plugin in plugins {
-                //     wash_cmd = wash_cmd.subcommand(plugin.metadata())
-                // }
+                let plugins = ctx.plugin_manager().get_commands().await;
+                if !plugins.is_empty() {
+                    wash_cmd = wash_cmd
+                        .subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
+                }
+                for plugin in plugins {
+                    wash_cmd = wash_cmd.subcommand(plugin.metadata())
+                }
 
-                // let cli_name = wash_cmd.get_name().to_owned();
-                // generate(cmd.shell(), &mut wash_cmd, cli_name, &mut std::io::stdout());
+                let cli_name = wash_cmd.get_name().to_owned();
+                generate(cmd.shell(), &mut wash_cmd, cli_name, &mut std::io::stdout());
 
                 Ok(CommandOutput::ok("", None))
             }
@@ -125,7 +121,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Inspect(cmd) => cmd.handle(ctx).await,
             WashCliCommand::New(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Oci(cmd) => cmd.handle(ctx).await,
-            // WashCliCommand::Plugin(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Plugin(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Update(cmd) => cmd.handle(ctx).await,
         }
     }
@@ -140,7 +136,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Inspect(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::New(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
-            // WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
         }
     }
@@ -154,7 +150,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Inspect(cmd) => cmd.enable_post_hook(),
             WashCliCommand::New(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
-            // WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_post_hook(),
         }
     }
@@ -164,19 +160,21 @@ impl CliCommand for WashCliCommand {
 async fn main() {
     let mut wash_cmd = Cli::command();
 
+    // TODO: Tricky! Would be great to initialize tracing _before_ we run the CLI
+    // let (stdout, _stderr) = initialize_tracing(Level::TRACE, false);
     // Create global context with output kind and directory paths
     let ctx = match CliContext::new().await {
         Ok(ctx) => {
             // Register plugin commands
-            // let plugins = ctx.plugin_manager().get_commands();
-            // // Slight hack to display a delimiter between builtins and plugins (\x1b[4munderlined\x1b[0m)
-            // if !plugins.is_empty() {
-            //     wash_cmd =
-            //         wash_cmd.subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
-            // }
-            // for plugin in plugins {
-            //     wash_cmd = wash_cmd.subcommand(plugin.metadata())
-            // }
+            let plugins = ctx.plugin_manager().get_commands().await;
+            // Slight hack to display a delimiter between builtins and plugins (\x1b[4munderlined\x1b[0m)
+            if !plugins.is_empty() {
+                wash_cmd =
+                    wash_cmd.subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
+            }
+            for plugin in plugins {
+                wash_cmd = wash_cmd.subcommand(plugin.metadata())
+            }
 
             ctx
         }
@@ -234,9 +232,8 @@ async fn main() {
     let command_output = if let Some(command) = cli.command {
         run_command(ctx, command).await
     } else if let Some((subcommand, args)) = matches.subcommand() {
-        // let command: ComponentPluginCommand = ComponentPluginCommand::new(subcommand, args);
-        // run_command(ctx, command).await
-        todo!("plugin need work again")
+        let command: ComponentPluginCommand = ComponentPluginCommand::new(subcommand, args);
+        run_command(ctx, command).await
     } else {
         Ok(CommandOutput::error(
             "No command provided. Use `wash --help` to see available commands.",
@@ -262,19 +259,19 @@ where
     C: CliCommand + std::fmt::Debug,
 {
     trace!(command = ?command, "running command pre-hook");
-    // if let Err(e) = command.pre_hook(&ctx).await {
-    //     error!(error = ?e, "failed to run pre-hook for command");
-    //     return Ok(CommandOutput::error(e, None));
-    // }
+    if let Err(e) = command.pre_hook(&ctx).await {
+        error!(error = ?e, "failed to run pre-hook for command");
+        return Ok(CommandOutput::error(e, None));
+    }
 
     trace!(command = ?command, "handling command");
     let command_output = command.handle(&ctx).await;
 
     trace!(command = ?command, "running command post-hook");
-    // if let Err(e) = command.post_hook(&ctx).await {
-    //     error!(error = ?e, "failed to run post-hook for command");
-    //     return Ok(CommandOutput::error(e, None));
-    // }
+    if let Err(e) = command.post_hook(&ctx).await {
+        error!(error = ?e, "failed to run post-hook for command");
+        return Ok(CommandOutput::error(e, None));
+    }
 
     command_output
 }

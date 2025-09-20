@@ -128,7 +128,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
     let response = timeout(
         Duration::from_secs(5),
         client
-            .post(&format!("http://{addr}/"))
+            .post(format!("http://{addr}/"))
             .header("HOST", "foo")
             .body(test_data)
             .send(),

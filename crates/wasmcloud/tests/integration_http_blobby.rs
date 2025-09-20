@@ -135,7 +135,7 @@ async fn test_blobby_integration() -> Result<()> {
     let get_response = timeout(
         Duration::from_secs(5),
         client
-            .get(&format!("http://{addr}/"))
+            .get(format!("http://{addr}/"))
             .header("HOST", "blobby-test")
             .send(),
     )
@@ -156,7 +156,7 @@ async fn test_blobby_integration() -> Result<()> {
     let post_response = timeout(
         Duration::from_secs(5),
         client
-            .post(&format!("http://{addr}/"))
+            .post(format!("http://{addr}/"))
             .header("HOST", "blobby-test")
             .body(test_data)
             .send(),
@@ -289,7 +289,7 @@ async fn test_blobby_error_handling() -> Result<()> {
     // Test with invalid request methods
     let client = reqwest::Client::new();
     let put_response = client
-        .put(&format!("http://{addr}/"))
+        .put(format!("http://{addr}/"))
         .header("HOST", "blobby-error-test")
         .body("test data")
         .send()

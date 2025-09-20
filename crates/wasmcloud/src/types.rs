@@ -55,7 +55,7 @@ pub struct Service {
 
 /// A WebAssembly component that can be executed as part of a workload.
 /// Components can be pooled for concurrent execution and have invocation limits.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Component {
     pub bytes: Bytes,
     pub local_resources: LocalResources,

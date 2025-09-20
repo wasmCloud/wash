@@ -11,6 +11,7 @@ use anyhow::{Context as _, bail, ensure};
 use base64::Engine;
 use bytes::Bytes;
 use clap::Args;
+use etcetera::AppStrategy as _;
 use notify::{
     Event as NotifyEvent, RecursiveMode, Watcher,
     event::{EventKind, ModifyKind},
@@ -21,8 +22,8 @@ use wasmcloud::{
     host::{Host, HostApi},
     plugin::{wasi_config::RuntimeConfig, wasi_http::HttpServer},
     types::{
-        Component, LocalResources, Workload, WorkloadStartRequest, WorkloadState,
-        WorkloadStopRequest,
+        Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
+        WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
     },
     wit::WitInterface,
 };
@@ -35,6 +36,7 @@ use crate::{
     },
     component_build::BuildConfig,
     config::{Config, load_config},
+    plugin::bindings::wasmcloud::wash::types::HookType,
 };
 
 #[derive(Debug, Clone, Args)]
@@ -161,66 +163,31 @@ impl CliCommand for DevCommand {
             .context("failed to read artifact file")?;
 
         // Call pre-hooks before starting dev session
-        // let pre_context = HashMap::new(); // Empty context for pre-hooks
-        // let pre_runtime_context = Arc::new(RwLock::new(pre_context));
-        // match ctx
-        //     .call_pre_hooks(pre_runtime_context, HookType::BeforeDev)
-        //     .await
-        // {
-        //     Ok(_) => {}
-        //     Err(e) => {
-        //         error!("pre-hook execution failed, will not start dev session");
-        //         error!("{e}");
-        //         return Err(e);
-        //     }
-        // }
-        // let mut plugin_manager = DevPluginManager::default();
-        // let plugins = match list_plugins(ctx.runtime(), ctx.data_dir()).await {
-        //     Ok(plugins) => plugins
-        //         .into_iter()
-        //         .filter(|plugin| {
-        //             // Only register plugins that have the dev-hook
-        //             plugin.metadata.hooks.contains(&HookType::DevRegister)
-        //         })
-        //         .collect(),
-        //     Err(e) => {
-        //         warn!(err = ?e, "failed to find plugins, continuing without plugins");
-        //         vec![]
-        //     }
-        // };
+        // Empty context for pre-hooks, consider adding more
+        ctx.call_hooks(HookType::BeforeDev, Arc::default()).await;
+        let dev_register_plugins = ctx.plugin_manager().get_hooks(HookType::DevRegister).await;
 
-        // for plugin in plugins {
-        //     let name = plugin.metadata.name.clone();
-        //     let version = plugin.metadata.version.clone();
-        //     if let Err(e) = plugin_manager.register_plugin(plugin) {
-        //         error!(
-        //             err = ?e,
-        //             name,
-        //             version,
-        //             "failed to register plugin, continuing without plugin"
-        //         );
-        //     } else {
-        //         debug!(name, version, "registered plugin");
-        //     }
-        // }
+        let mut dev_register_components = Vec::with_capacity(dev_register_plugins.len());
+        for plugin in dev_register_plugins {
+            dev_register_components.push(plugin.get_original_component(ctx).await?)
+        }
 
-        // let plugin_manager = Arc::new(plugin_manager);
         let mut host_builder = Host::builder();
 
         // Enable runtime config
         host_builder = host_builder.with_plugin(Arc::new(RuntimeConfig::default()))?;
 
-        // let blobstore_root = self
-        //     .blobstore_root
-        //     .clone()
-        //     .unwrap_or_else(|| ctx.data_dir().join("dev_blobstore"));
-        // // Ensure the blobstore root directory exists
-        // if !blobstore_root.exists() {
-        //     tokio::fs::create_dir_all(&blobstore_root)
-        //         .await
-        //         .context("failed to create blobstore root directory")?;
-        // }
-        // debug!(path = ?blobstore_root.display(), "using blobstore root directory");
+        let volume_root = self
+            .blobstore_root
+            .clone()
+            .unwrap_or_else(|| ctx.data_dir().join("dev_blobstore"));
+        // Ensure the blobstore root directory exists
+        if !volume_root.exists() {
+            tokio::fs::create_dir_all(&volume_root)
+                .await
+                .context("failed to create blobstore root directory")?;
+        }
+        debug!(path = ?volume_root.display(), "using blobstore root directory");
 
         // TODO(#19): Only spawn the server if the component exports wasi:http
         // Configure HTTP server with optional TLS, enable HTTP Server
@@ -281,7 +248,12 @@ impl CliCommand for DevCommand {
             .collect::<HashMap<String, String>>();
 
         // Workload structure
-        let mut workload = create_workload(wasm_bytes.into(), runtime_config);
+        let mut workload = create_workload(
+            wasm_bytes.into(),
+            runtime_config,
+            volume_root,
+            dev_register_components,
+        );
         // Running workload ID for reloads
         let mut workload_id = reload_component(host.clone(), &workload, None).await?;
 
@@ -448,7 +420,7 @@ impl CliCommand for DevCommand {
 
         // Call post-hooks with component bytes context
         // Base64 encode the bytes since context only supports HashMap<String, String>
-        if let Some(component) = workload.components.get(0) {
+        if let Some(component) = workload.components.first() {
             debug!(size = component.bytes.len(), "final component size (bytes)");
             let component_bytes_b64 =
                 base64::engine::general_purpose::STANDARD.encode(component.bytes.clone());
@@ -459,9 +431,8 @@ impl CliCommand for DevCommand {
             );
         }
 
-        // let post_runtime_context = Arc::new(RwLock::new(post_context));
-        // ctx.call_post_hooks(post_runtime_context, HookType::AfterDev)
-        //     .await?;
+        // Empty context for AfterDev, consider adding more
+        ctx.call_hooks(HookType::AfterDev, Arc::default()).await;
 
         Ok(CommandOutput::ok(
             "Development command executed successfully".to_string(),
@@ -478,16 +449,49 @@ fn update_workload_component(workload: &mut Workload, bytes: Bytes) {
 }
 
 /// Create the [`Workload`] structure for the development component
-fn create_workload(bytes: Bytes, runtime_config: HashMap<String, String>) -> Workload {
+///
+/// ## Arguments
+/// - `bytes`: The bytes of the component to develop
+/// - `runtime_config`: Any runtime configuration to pass to the workload
+/// - `volume_root`: The root directory of available scratch space to pass as a [`Volume`].
+///   Must be a valid UTF-8 path.
+fn create_workload(
+    bytes: Bytes,
+    runtime_config: HashMap<String, String>,
+    volume_root: PathBuf,
+    dev_register_components: Vec<Bytes>,
+) -> Workload {
+    let mut components = Vec::with_capacity(dev_register_components.len() + 1);
+    components.push(Component {
+        bytes,
+        local_resources: LocalResources {
+            volume_mounts: vec![VolumeMount {
+                name: "dev".to_string(),
+                mount_path: "/tmp".to_string(),
+                read_only: false,
+            }],
+            ..Default::default()
+        },
+        pool_size: -1,
+        max_invocations: -1,
+    });
+    components.extend(dev_register_components.into_iter().map(|bytes| Component {
+        bytes,
+        // TODO: Must have the root, but can't isolate rn
+        // local_resources: LocalResources {
+        //     volume_mounts: vec![VolumeMount {
+        //         name: "plugin-scratch-dir".to_string(),
+        //         // mount_path: "foo",
+        //         read_only: false,
+        //     }],
+        //     ..Default::default()
+        // },
+        ..Default::default()
+    }));
     Workload {
         namespace: "default".to_string(),
         name: "dev".to_string(),
-        components: vec![Component {
-            bytes,
-            local_resources: LocalResources::default(),
-            pool_size: -1,
-            max_invocations: -1,
-        }],
+        components,
         host_interfaces: vec![
             WitInterface {
                 namespace: "wasi".to_string(),
@@ -506,7 +510,12 @@ fn create_workload(bytes: Bytes, runtime_config: HashMap<String, String>) -> Wor
         ],
         annotations: HashMap::default(),
         service: None,
-        volumes: vec![],
+        volumes: vec![Volume {
+            name: "dev".to_string(),
+            volume_type: VolumeType::HostPath(HostPathVolume {
+                local_path: volume_root.to_string_lossy().to_string(),
+            }),
+        }],
     }
 }
 
