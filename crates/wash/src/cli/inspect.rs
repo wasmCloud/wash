@@ -93,12 +93,14 @@ impl CliCommand for InspectCommand {
                 "Path does not exist locally, attempting to pull from remote"
             );
             // Pull component from remote
-            pull_component(
+            let (component_data, _) = pull_component(
                 &component_reference,
                 OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR)),
             )
             .await
-            .context("Failed to pull component from remote")?
+            .context("Failed to pull component from remote")?;
+
+            component_data
         };
 
         let component = decode_component(bytes.as_slice())

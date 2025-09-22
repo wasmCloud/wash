@@ -54,8 +54,8 @@ impl CacheManager {
         Self { cache_dir }
     }
 
-    /// Get the cache path for a given OCI reference (simplified)
-    fn get_cache_path(&self, reference: &str) -> PathBuf {
+    /// Get the cache directory for a given OCI reference
+    fn get_cache_dir(&self, reference: &str) -> PathBuf {
         // Hash for uniqueness, but keep the reference in the path for readability
         let mut hasher = Sha256::new();
         hasher.update(reference.as_bytes());
@@ -66,8 +66,12 @@ impl CacheManager {
         let sanitized = reference.replace(['/', ':', '@'], "_");
 
         // Directory: <cache_dir>/<sanitized_reference>_<short_hash>/
-        // File: <artifact_name>.wasm
-        let dir = self.cache_dir.join(format!("{sanitized}_{short_hash}"));
+        self.cache_dir.join(format!("{sanitized}_{short_hash}"))
+    }
+
+    /// Get the cache path for the component .wasm data
+    fn get_component_path(&self, reference: &str) -> PathBuf {
+        let cache_dir = self.get_cache_dir(reference);
 
         // Use the last segment as the artifact name (after last '/')
         let artifact_name = reference
@@ -76,40 +80,79 @@ impl CacheManager {
             .unwrap_or("artifact")
             .replace([':', '@'], "_");
 
-        dir.join(format!("{artifact_name}.wasm"))
+        cache_dir.join(format!("{artifact_name}.wasm"))
     }
 
-    /// Check if an artifact is cached
+    /// Get the cache path for the digest file
+    fn get_digest_path(&self, reference: &str) -> PathBuf {
+        let cache_dir = self.get_cache_dir(reference);
+        cache_dir.join("digest")
+    }
+
+    /// Check if an artifact is cached (both component and digest must exist)
     async fn is_cached(&self, reference: &str) -> bool {
-        let cache_path = self.get_cache_path(reference);
-        tokio::fs::metadata(&cache_path).await.is_ok()
+        let component_path = self.get_component_path(reference);
+        let digest_path = self.get_digest_path(reference);
+        tokio::fs::metadata(&component_path).await.is_ok()
+            && tokio::fs::metadata(&digest_path).await.is_ok()
     }
 
-    /// Read cached artifact
-    async fn read_cached(&self, reference: &str) -> Result<Vec<u8>> {
+    /// Read cached artifact, returning (component_data, digest)
+    async fn read_cached(&self, reference: &str) -> Result<(Vec<u8>, String)> {
         info!(reference = %reference, "reading cached artifact instead of pulling");
-        let cache_path = self.get_cache_path(reference);
-        debug!(path = %cache_path.display(), "reading cached artifact");
-        tokio::fs::read(&cache_path)
+        let component_path = self.get_component_path(reference);
+        let digest_path = self.get_digest_path(reference);
+
+        debug!(component_path = %component_path.display(), digest_path = %digest_path.display(), "reading cached artifact");
+
+        let component_data = tokio::fs::read(&component_path).await.with_context(|| {
+            format!(
+                "failed to read cached component at {}",
+                component_path.display()
+            )
+        })?;
+
+        let digest = tokio::fs::read_to_string(&digest_path)
             .await
-            .with_context(|| format!("failed to read cached artifact at {}", cache_path.display()))
+            .with_context(|| {
+                format!("failed to read cached digest at {}", digest_path.display())
+            })?;
+
+        Ok((component_data, digest.trim().to_string()))
     }
 
-    /// Write artifact to cache
-    async fn write_to_cache(&self, reference: &str, data: &[u8]) -> Result<()> {
-        let cache_path = self.get_cache_path(reference);
+    /// Write artifact and digest to cache
+    async fn write_to_cache(&self, reference: &str, data: &[u8], digest: &str) -> Result<()> {
+        let component_path = self.get_component_path(reference);
+        let digest_path = self.get_digest_path(reference);
 
-        debug!(path = %cache_path.display(), "writing to cache");
-        // Create parent directories
-        if let Some(parent) = cache_path.parent() {
-            tokio::fs::create_dir_all(parent).await.with_context(|| {
-                format!("failed to create cache directory {}", parent.display())
-            })?;
-        }
+        debug!(component_path = %component_path.display(), digest_path = %digest_path.display(), "writing to cache");
 
-        tokio::fs::write(&cache_path, data)
+        // Create cache directory
+        let cache_dir = self.get_cache_dir(reference);
+        tokio::fs::create_dir_all(&cache_dir)
             .await
-            .with_context(|| format!("failed to write to cache at {}", cache_path.display()))?;
+            .with_context(|| format!("failed to create cache directory {}", cache_dir.display()))?;
+
+        // Write component data
+        tokio::fs::write(&component_path, data)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to write component to cache at {}",
+                    component_path.display()
+                )
+            })?;
+
+        // Write digest
+        tokio::fs::write(&digest_path, digest)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to write digest to cache at {}",
+                    digest_path.display()
+                )
+            })?;
 
         Ok(())
     }
@@ -184,7 +227,7 @@ impl CredentialResolver {
 /// # Returns
 /// Raw bytes of the WebAssembly component
 #[instrument(skip(config), fields(reference = %reference))]
-pub async fn pull_component(reference: &str, config: OciConfig) -> Result<Vec<u8>> {
+pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u8>, String)> {
     info!(reference = %reference, "Pulling component");
 
     // Parse OCI reference
@@ -200,7 +243,8 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<Vec<u8
         // Check cache first
         if cache_manager.is_cached(reference).await {
             debug!("Found cached artifact");
-            return cache_manager.read_cached(reference).await;
+            let (component_data, digest) = cache_manager.read_cached(reference).await?;
+            return Ok((component_data, digest));
         }
     }
 
@@ -243,22 +287,25 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<Vec<u8
         .ok_or_else(|| anyhow!("no layers found in pulled artifact"))?
         .data
         .clone();
+    let digest = image_data
+        .digest
+        .ok_or_else(|| anyhow!("no digest found in pulled artifact"))?;
 
     // Validate that it's a valid WebAssembly component
     validate_component(&component_data)
         .await
         .with_context(|| "pulled artifact is not a valid WebAssembly component")?;
 
-    // Cache the component
+    // Cache the component with its digest
     if let Some(cache_manager) = &cache_manager {
         cache_manager
-            .write_to_cache(reference, &component_data)
+            .write_to_cache(reference, &component_data, &digest)
             .await
             .with_context(|| "failed to cache component")?;
     }
 
-    info!(size = component_data.len(), "Successfully pulled component");
-    Ok(component_data)
+    info!(size = component_data.len(), digest = %digest, "Successfully pulled component");
+    Ok((component_data, digest))
 }
 
 /// Push a WebAssembly component to an OCI registry
@@ -319,19 +366,27 @@ pub async fn push_component(
         .with_context(|| "failed to convert WebAssembly config")?;
 
     // Push the component
-    client
+    let push_result = client
         .push(&reference_parsed, &layers, config_obj, &auth, None)
         .await
         .with_context(|| format!("failed to push component to {reference}"))?;
 
-    // Calculate the digest for return value
-    let digest = format!("sha256:{:x}", Sha256::digest(component_data));
-
-    // Cache the pushed component
+    // Extract the digest from the manifest URL
+    // The manifest URL typically contains the digest in the format: registry/repo@sha256:digest
+    let digest = if let Some(digest_part) = push_result.manifest_url.split('@').nth(1) {
+        digest_part.to_string()
+    } else {
+        // Fetch the manifest digest from the registry
+        client
+            .fetch_manifest_digest(&reference_parsed, &auth)
+            .await
+            .with_context(|| format!("failed to fetch manifest digest for {reference}"))?
+    };
+    // Cache the pushed component with its digest
     if let Some(cache_dir) = config.cache_dir {
         let cache_manager = CacheManager::new(cache_dir);
         cache_manager
-            .write_to_cache(reference, component_data)
+            .write_to_cache(reference, component_data, &digest)
             .await
             .with_context(|| "failed to cache pushed component")?;
     }
@@ -359,10 +414,13 @@ mod tests {
         let cache_manager = CacheManager::new(temp_dir.path().to_path_buf());
 
         let reference = "localhost:5000/test:latest";
-        let cache_path = cache_manager.get_cache_path(reference);
+        let component_path = cache_manager.get_component_path(reference);
+        let digest_path = cache_manager.get_digest_path(reference);
 
-        assert!(cache_path.starts_with(temp_dir.path()));
-        assert!(cache_path.extension().unwrap() == "wasm");
+        assert!(component_path.starts_with(temp_dir.path()));
+        assert!(component_path.extension().unwrap() == "wasm");
+        assert!(digest_path.starts_with(temp_dir.path()));
+        assert!(digest_path.file_name().unwrap() == "digest");
     }
 
     #[test]
@@ -380,22 +438,24 @@ mod tests {
 
         let reference = "localhost:5000/test:v1.0.0";
         let test_data = b"test component data";
+        let test_digest = "sha256:abcd1234";
 
         // Should not be cached initially
         assert!(!cache_manager.is_cached(reference).await);
 
-        // Cache the data
+        // Cache the data with digest
         cache_manager
-            .write_to_cache(reference, test_data)
+            .write_to_cache(reference, test_data, test_digest)
             .await
             .unwrap();
 
         // Should now be cached
         assert!(cache_manager.is_cached(reference).await);
 
-        // Should be able to read the cached data
-        let cached_data = cache_manager.read_cached(reference).await.unwrap();
+        // Should be able to read the cached data and digest
+        let (cached_data, cached_digest) = cache_manager.read_cached(reference).await.unwrap();
         assert_eq!(cached_data, test_data);
+        assert_eq!(cached_digest, test_digest);
     }
 
     #[tokio::test]
@@ -417,7 +477,7 @@ mod tests {
 
         // Pull the component anonymously
         for reference in references {
-            let component_bytes = pull_component(reference, config.clone())
+            let (component_bytes, digest) = pull_component(reference, config.clone())
                 .await
                 .expect("Failed to pull component");
 
@@ -426,6 +486,12 @@ mod tests {
                 res.is_ok(),
                 "Component validation failed for {reference}: {}",
                 res.unwrap_err()
+            );
+
+            // Verify digest format
+            assert!(
+                digest.starts_with("sha256:"),
+                "Digest should start with sha256:"
             );
         }
     }
