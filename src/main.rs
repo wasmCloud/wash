@@ -101,7 +101,7 @@ impl CliCommand for WashCliCommand {
                 // Handle completion generation directly here since we need access to the full CLI
                 let mut wash_cmd = Cli::command();
 
-                let plugins = ctx.plugin_manager().get_commands();
+                let plugins = ctx.plugin_manager().get_commands().await;
                 if !plugins.is_empty() {
                     wash_cmd = wash_cmd
                         .subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
@@ -126,9 +126,7 @@ impl CliCommand for WashCliCommand {
         }
     }
 
-    fn enable_pre_hook(
-        &self,
-    ) -> Option<wash::runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType> {
+    fn enable_pre_hook(&self) -> Option<wash::plugin::bindings::wasmcloud::wash::types::HookType> {
         match self {
             WashCliCommand::Build(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Completion(cmd) => cmd.enable_pre_hook(),
@@ -142,9 +140,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
         }
     }
-    fn enable_post_hook(
-        &self,
-    ) -> Option<wash::runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType> {
+    fn enable_post_hook(&self) -> Option<wash::plugin::bindings::wasmcloud::wash::types::HookType> {
         match self {
             WashCliCommand::Build(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Completion(cmd) => cmd.enable_post_hook(),
@@ -164,11 +160,13 @@ impl CliCommand for WashCliCommand {
 async fn main() {
     let mut wash_cmd = Cli::command();
 
+    // TODO: Tricky! Would be great to initialize tracing _before_ we run the CLI
+    // let (stdout, _stderr) = initialize_tracing(Level::TRACE, false);
     // Create global context with output kind and directory paths
     let ctx = match CliContext::new().await {
         Ok(ctx) => {
             // Register plugin commands
-            let plugins = ctx.plugin_manager().get_commands();
+            let plugins = ctx.plugin_manager().get_commands().await;
             // Slight hack to display a delimiter between builtins and plugins (\x1b[4munderlined\x1b[0m)
             if !plugins.is_empty() {
                 wash_cmd =

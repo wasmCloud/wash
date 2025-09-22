@@ -14,7 +14,7 @@ use tokio::{fs, process::Command};
 use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::component_build::ProjectType;
-use crate::runtime::bindings::plugin::wasmcloud::wash::types::HookType;
+use crate::plugin::bindings::wasmcloud::wash::types::HookType;
 use crate::wit::WitConfig;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},

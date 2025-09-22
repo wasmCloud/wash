@@ -1,11 +1,13 @@
 use clap::Args;
 use etcetera::AppStrategy;
 use tracing::{info, instrument};
+use wasmcloud::oci::{OciConfig, pull_component};
 
 use crate::{
-    cli::{CliCommand, CliContext, CommandOutput, component_build::build_component},
+    cli::{
+        CliCommand, CliContext, CommandOutput, component_build::build_component, oci::OCI_CACHE_DIR,
+    },
     inspect::{decode_component, get_component_wit},
-    oci::{OCI_CACHE_DIR, OciConfig, pull_component},
 };
 use anyhow::Context;
 use std::path::Path;
