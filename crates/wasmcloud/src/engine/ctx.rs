@@ -6,7 +6,7 @@
 
 use std::{any::Any, collections::HashMap, sync::Arc};
 
-use wasmtime::component::ResourceTable;
+use wasmtime::component::{self, ResourceTable};
 use wasmtime_wasi::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
@@ -16,8 +16,10 @@ use crate::plugin::HostPlugin;
 /// - wasi@0.2 interfaces
 /// - wasi:http@0.2 interfaces
 pub struct Ctx {
-    /// Unique identifier for this component instance. This is a [uuid::Uuid::new_v4] string.
+    /// Unique identifier for this component context. This is a [uuid::Uuid::new_v4] string.
     pub id: String,
+    /// The unique identifier for the workload component this instance belongs to
+    pub component_id: String,
     /// The unique identifier for the workload this component belongs to
     pub workload_id: String,
     /// The resource table used to manage resources in the Wasmtime store.
@@ -40,8 +42,8 @@ impl Ctx {
 }
 
 impl Ctx {
-    pub fn builder(workload_id: impl AsRef<str>) -> CtxBuilder {
-        CtxBuilder::new(workload_id)
+    pub fn builder(workload_id: impl AsRef<str>, component_id: impl AsRef<str>) -> CtxBuilder {
+        CtxBuilder::new(workload_id, component_id)
     }
 }
 
@@ -78,14 +80,16 @@ impl WasiHttpView for Ctx {
 pub struct CtxBuilder {
     id: String,
     workload_id: String,
+    component_id: String,
     ctx: Option<WasiCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
 }
 
 impl CtxBuilder {
-    pub fn new(workload_id: impl AsRef<str>) -> Self {
+    pub fn new(workload_id: impl AsRef<str>, component_id: impl AsRef<str>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
+            component_id: component_id.as_ref().to_string(),
             workload_id: workload_id.as_ref().to_string(),
             ctx: None,
             plugins: HashMap::new(),
@@ -121,6 +125,7 @@ impl CtxBuilder {
                     .build()
             }),
             workload_id: self.workload_id,
+            component_id: self.component_id,
             http: WasiHttpCtx::new(),
             table: ResourceTable::new(),
             plugins,

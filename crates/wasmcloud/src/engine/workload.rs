@@ -608,8 +608,8 @@ impl ResolvedWorkload {
             wasi_ctx_builder.preopened_dir(&dir, &mount.mount_path, dir_perms, file_perms)?;
         }
 
-        let mut ctx_builder =
-            Ctx::builder(component.workload_id()).with_wasi_ctx(wasi_ctx_builder.build());
+        let mut ctx_builder = Ctx::builder(component.workload_id(), component.id())
+            .with_wasi_ctx(wasi_ctx_builder.build());
 
         if let Some(plugins) = &component.plugins {
             ctx_builder = ctx_builder.with_plugins(plugins.clone());
