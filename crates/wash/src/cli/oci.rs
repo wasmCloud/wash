@@ -55,7 +55,7 @@ impl PullCommand {
     #[instrument(level = "debug", skip_all, name = "oci")]
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
-        let c = pull_component(&self.reference, oci_config).await?;
+        let (c, digest) = pull_component(&self.reference, oci_config).await?;
 
         // Write the component to the specified output path
         tokio::fs::write(&self.component_path, &c)
@@ -71,6 +71,7 @@ impl PullCommand {
                 "message": "OCI command executed successfully.",
                 "output_path": self.component_path.to_string_lossy(),
                 "bytes": c.len(),
+                "digest": digest,
                 "success": true,
             })),
         ))
@@ -97,13 +98,14 @@ impl PushCommand {
 
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
 
-        push_component(&self.reference, &component, oci_config).await?;
+        let digest = push_component(&self.reference, &component, oci_config).await?;
 
         Ok(CommandOutput::ok(
             "OCI command executed successfully.".to_string(),
             Some(serde_json::json!({
                 "message": "OCI command executed successfully.",
                 "success": true,
+                "digest": digest,
             })),
         ))
     }

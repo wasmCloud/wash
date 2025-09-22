@@ -318,14 +318,15 @@ pub async fn install_plugin(
             // Load from OCI registry
             debug!(reference = %options.source, "loading plugin from OCI registry");
             let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
-            pull_component(&options.source, oci_config)
+            let (component_data, _) = pull_component(&options.source, oci_config)
                 .await
                 .with_context(|| {
                     format!(
                         "failed to pull plugin from OCI registry: {}",
                         options.source
                     )
-                })?
+                })?;
+            component_data
         };
 
     // Validate that it's a valid WebAssembly component and wash plugin
