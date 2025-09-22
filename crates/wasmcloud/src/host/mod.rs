@@ -533,6 +533,7 @@ impl std::fmt::Debug for Host {
 pub struct HostBuilder {
     engine: Option<Engine>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin>>,
+    hostname: Option<String>,
     friendly_name: Option<String>,
     labels: HashMap<String, String>,
 }
@@ -557,6 +558,18 @@ impl HostBuilder {
 
         self.plugins.insert(plugin_id, plugin);
         Ok(self)
+    }
+
+    /// Sets the hostname for this host.
+    ///
+    /// # Arguments
+    /// * `hostname` - The hostname to use
+    ///
+    /// # Returns
+    /// The builder instance for method chaining.
+    pub fn with_hostname(mut self, hostname: impl AsRef<str>) -> Self {
+        self.hostname = Some(hostname.as_ref().to_string());
+        self
     }
 
     /// Sets a human-readable friendly name for this host.
@@ -608,9 +621,11 @@ impl HostBuilder {
         };
 
         // Get hostname from system if not provided
-        let hostname = hostname::get()
-            .map(|h| h.to_string_lossy().to_string())
-            .unwrap_or_else(|_| "unknown".to_string());
+        let hostname = self.hostname.unwrap_or_else(|| {
+            hostname::get()
+                .map(|h| h.to_string_lossy().to_string())
+                .unwrap_or_else(|_| "unknown".to_string())
+        });
 
         // Generate a friendly name if not provided
         let friendly_name = self.friendly_name.unwrap_or_else(|| {
