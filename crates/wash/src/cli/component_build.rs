@@ -1,11 +1,13 @@
 //! CLI command for building components, including Rust, TinyGo, and TypeScript projects
 
 use std::{
+    env,
     path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 
 use anyhow::{Context as _, bail};
+use atty;
 use clap::Args;
 use etcetera::AppStrategy;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -498,6 +500,15 @@ impl ComponentBuilder {
         // Apply no-default-features if configured
         if rust_config.no_default_features {
             cargo_args.push("--no-default-features".to_string());
+        }
+
+        // Apply colored logs if not configured
+        if atty::is(atty::Stream::Stderr) && env::var("CARGO_TERM_COLOR").is_err() {
+            let no_color = env::var("NO_COLOR").unwrap_or_default();
+            if no_color.is_empty() || no_color == "0" {
+                cargo_args.push("--color".to_string());
+                cargo_args.push("always".to_string());
+            }
         }
 
         // Add any additional cargo flags if configured
