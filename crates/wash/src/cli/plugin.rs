@@ -419,7 +419,7 @@ impl TestCommand {
             let built_path = build_component(&self.plugin, ctx, &config)
                 .await
                 .context("Failed to build component from directory")?;
-            tokio::fs::read(&built_path.artifact_path)
+            tokio::fs::read(&built_path.component_path)
                 .await
                 .context("Failed to read built component file")?
         } else {

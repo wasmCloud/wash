@@ -69,10 +69,10 @@ impl CliCommand for InspectCommand {
                         .await
                         .context("Failed to build component from project directory")?;
 
-                    info!(artifact_path = ?build_result.artifact_path, "Component built successfully");
+                    info!(component_path = ?build_result.component_path, "Component built successfully");
 
                     // Read the built component
-                    tokio::fs::read(&build_result.artifact_path)
+                    tokio::fs::read(&build_result.component_path)
                         .await
                         .context("Failed to read built component file")?
                 } else {

@@ -22,7 +22,7 @@ pub struct BuildConfig {
 
     /// Expected path to the built Wasm component artifact
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub artifact_path: Option<PathBuf>,
+    pub component_path: Option<PathBuf>,
 }
 
 /// Types of projects that can be built
