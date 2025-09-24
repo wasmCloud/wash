@@ -634,40 +634,96 @@ impl ComponentBuilder {
             tinygo_args.push(wit_package);
 
             // Add WIT world - this is required for TinyGo builds when WIT is present
-            let Some(wit_world) = &tinygo_config.wit_world else {
-                // Generate project config to ensure .wash/config.json exists with placeholder
-                let mut config_with_placeholder = config.clone();
-                let artifact_path_relative = PathBuf::from("build/output.wasm");
-
-                if let Some(build_config) = &mut config_with_placeholder.build {
-                    build_config.artifact_path = Some(artifact_path_relative.clone());
-                    if let Some(tinygo_config) = &mut build_config.tinygo {
-                        tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
+            let wit_world = if let Some(wit_world) = &tinygo_config.wit_world {
+                wit_world.clone()
+            } else {
+                // Try to automatically detect the WIT world
+                debug!("wit_world not specified, attempting automatic detection");
+                let detected_worlds = self.detect_wit_worlds(&wit_dir).await?;
+                
+                match detected_worlds.len() {
+                    1 => {
+                        let detected_world = &detected_worlds[0];
+                        info!(world = %detected_world, "automatically detected WIT world");
+                        detected_world.clone()
                     }
-                } else {
-                    let mut tinygo_config = tinygo_config.clone();
-                    tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
-                    config_with_placeholder.build = Some(crate::component_build::BuildConfig {
-                        tinygo: Some(tinygo_config),
-                        artifact_path: Some(artifact_path_relative),
-                        ..Default::default()
-                    });
+                    0 => {
+                        warn!("no worlds found in WIT directory: {}", wit_dir.display());
+                        // Generate project config to ensure .wash/config.json exists with placeholder
+                        let mut config_with_placeholder = config.clone();
+                        let artifact_path_relative = PathBuf::from("build/output.wasm");
+
+                        if let Some(build_config) = &mut config_with_placeholder.build {
+                            build_config.artifact_path = Some(artifact_path_relative.clone());
+                            if let Some(tinygo_config) = &mut build_config.tinygo {
+                                tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
+                            }
+                        } else {
+                            let mut tinygo_config = tinygo_config.clone();
+                            tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
+                            config_with_placeholder.build = Some(crate::component_build::BuildConfig {
+                                tinygo: Some(tinygo_config),
+                                artifact_path: Some(artifact_path_relative),
+                                ..Default::default()
+                            });
+                        }
+
+                        // Write config with placeholder
+                        let config_dir = self.project_path.join(".wash");
+                        let config_path = config_dir.join("config.json");
+                        tokio::fs::create_dir_all(&config_dir)
+                            .await
+                            .context("failed to create .wash directory")?;
+                        save_config(&config_with_placeholder, &config_path).await?;
+
+                        bail!(
+                            "TinyGo builds require wit_world to be specified in the configuration. \
+                            A config file has been created at {} with a placeholder. \
+                            Please update the wit_world field to match your WIT world name.",
+                            config_path.display()
+                        );
+                    }
+                    _ => {
+                        warn!(
+                            worlds = ?detected_worlds, 
+                            "multiple worlds found in WIT directory, cannot auto-detect"
+                        );
+                        // Generate project config to ensure .wash/config.json exists with placeholder
+                        let mut config_with_placeholder = config.clone();
+                        let artifact_path_relative = PathBuf::from("build/output.wasm");
+
+                        if let Some(build_config) = &mut config_with_placeholder.build {
+                            build_config.artifact_path = Some(artifact_path_relative.clone());
+                            if let Some(tinygo_config) = &mut build_config.tinygo {
+                                tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
+                            }
+                        } else {
+                            let mut tinygo_config = tinygo_config.clone();
+                            tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
+                            config_with_placeholder.build = Some(crate::component_build::BuildConfig {
+                                tinygo: Some(tinygo_config),
+                                artifact_path: Some(artifact_path_relative),
+                                ..Default::default()
+                            });
+                        }
+
+                        // Write config with placeholder
+                        let config_dir = self.project_path.join(".wash");
+                        let config_path = config_dir.join("config.json");
+                        tokio::fs::create_dir_all(&config_dir)
+                            .await
+                            .context("failed to create .wash directory")?;
+                        save_config(&config_with_placeholder, &config_path).await?;
+
+                        bail!(
+                            "TinyGo builds require wit_world to be specified in the configuration. \
+                            Multiple worlds found: {}. A config file has been created at {} with a placeholder. \
+                            Please update the wit_world field to match your desired WIT world name.",
+                            detected_worlds.join(", "),
+                            config_path.display()
+                        );
+                    }
                 }
-
-                // Write config with placeholder
-                let config_dir = self.project_path.join(".wash");
-                let config_path = config_dir.join("config.json");
-                tokio::fs::create_dir_all(&config_dir)
-                    .await
-                    .context("failed to create .wash directory")?;
-                save_config(&config_with_placeholder, &config_path).await?;
-
-                bail!(
-                    "TinyGo builds require wit_world to be specified in the configuration. \
-                    A config file has been created at {} with a placeholder. \
-                    Please update the wit_world field to match your WIT world name.",
-                    config_path.display()
-                );
             };
             tinygo_args.push("-wit-world".to_string());
             tinygo_args.push(wit_world.to_string());
@@ -1035,6 +1091,186 @@ impl ComponentBuilder {
     /// Placeholder for post-build hook  
     async fn run_post_build_hook(&self) -> anyhow::Result<()> {
         trace!("running post-build hook (placeholder)");
+        Ok(())
+    }
+
+    /// Detect available WIT worlds in the WIT directory
+    /// Returns a list of world names found in the WIT files
+    async fn detect_wit_worlds(&self, wit_dir: &Path) -> anyhow::Result<Vec<String>> {
+        let mut world_names = Vec::new();
+        
+        if !wit_dir.exists() {
+            return Ok(world_names);
+        }
+
+        let mut entries = fs::read_dir(wit_dir)
+            .await
+            .context("failed to read WIT directory")?;
+
+        while let Some(entry) = entries
+            .next_entry()
+            .await
+            .context("failed to read WIT directory entry")?
+        {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("wit") {
+                debug!(file = %path.display(), "parsing WIT file for world names");
+                let content = fs::read_to_string(&path)
+                    .await
+                    .with_context(|| format!("failed to read WIT file: {}", path.display()))?;
+                
+                // Extract world names using simple text parsing
+                // Look for lines that match: "world <name> {"
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if let Some(world_decl) = trimmed.strip_prefix("world ") {
+                        if let Some(world_name) = world_decl.split_whitespace().next() {
+                            // Remove any trailing '{' from the world name
+                            let world_name = world_name.trim_end_matches('{').trim();
+                            if !world_name.is_empty() && !world_names.contains(&world_name.to_string()) {
+                                debug!(world = %world_name, "found WIT world");
+                                world_names.push(world_name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(world_names)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+    use tokio::fs;
+
+    #[tokio::test]
+    async fn test_detect_wit_worlds_single_world() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let wit_dir = temp_dir.path().join("wit");
+        fs::create_dir_all(&wit_dir).await?;
+        
+        // Create a WIT file with a single world
+        let wit_content = r#"
+package example:test@1.0.0;
+
+world my-world {
+    import wasi:logging/logging@0.1.0-draft;
+    export wasi:http/incoming-handler@0.2.0;
+}
+"#;
+        fs::write(wit_dir.join("world.wit"), wit_content).await?;
+        
+        let builder = ComponentBuilder::new(temp_dir.path().to_path_buf(), None, false);
+        let worlds = builder.detect_wit_worlds(&wit_dir).await?;
+        
+        assert_eq!(worlds.len(), 1);
+        assert_eq!(worlds[0], "my-world");
+        
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_detect_wit_worlds_multiple_worlds() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let wit_dir = temp_dir.path().join("wit");
+        fs::create_dir_all(&wit_dir).await?;
+        
+        // Create a WIT file with multiple worlds
+        let wit_content = r#"
+package example:test@1.0.0;
+
+world world-one {
+    import wasi:logging/logging@0.1.0-draft;
+}
+
+world world-two {
+    export wasi:http/incoming-handler@0.2.0;
+}
+"#;
+        fs::write(wit_dir.join("world.wit"), wit_content).await?;
+        
+        let builder = ComponentBuilder::new(temp_dir.path().to_path_buf(), None, false);
+        let worlds = builder.detect_wit_worlds(&wit_dir).await?;
+        
+        assert_eq!(worlds.len(), 2);
+        assert!(worlds.contains(&"world-one".to_string()));
+        assert!(worlds.contains(&"world-two".to_string()));
+        
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_detect_wit_worlds_no_worlds() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let wit_dir = temp_dir.path().join("wit");
+        fs::create_dir_all(&wit_dir).await?;
+        
+        // Create a WIT file with no worlds (only interfaces)
+        let wit_content = r#"
+package example:test@1.0.0;
+
+interface my-interface {
+    get-data: func() -> string;
+}
+"#;
+        fs::write(wit_dir.join("interface.wit"), wit_content).await?;
+        
+        let builder = ComponentBuilder::new(temp_dir.path().to_path_buf(), None, false);
+        let worlds = builder.detect_wit_worlds(&wit_dir).await?;
+        
+        assert_eq!(worlds.len(), 0);
+        
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_detect_wit_worlds_multiple_files() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let wit_dir = temp_dir.path().join("wit");
+        fs::create_dir_all(&wit_dir).await?;
+        
+        // Create first WIT file with one world
+        let wit1_content = r#"
+package example:test@1.0.0;
+
+world first-world {
+    import wasi:logging/logging@0.1.0-draft;
+}
+"#;
+        fs::write(wit_dir.join("first.wit"), wit1_content).await?;
+        
+        // Create second WIT file with another world
+        let wit2_content = r#"
+world second-world {
+    export wasi:http/incoming-handler@0.2.0;
+}
+"#;
+        fs::write(wit_dir.join("second.wit"), wit2_content).await?;
+        
+        let builder = ComponentBuilder::new(temp_dir.path().to_path_buf(), None, false);
+        let worlds = builder.detect_wit_worlds(&wit_dir).await?;
+        
+        assert_eq!(worlds.len(), 2);
+        assert!(worlds.contains(&"first-world".to_string()));
+        assert!(worlds.contains(&"second-world".to_string()));
+        
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_detect_wit_worlds_no_wit_dir() -> anyhow::Result<()> {
+        let temp_dir = TempDir::new()?;
+        let wit_dir = temp_dir.path().join("nonexistent");
+        
+        let builder = ComponentBuilder::new(temp_dir.path().to_path_buf(), None, false);
+        let worlds = builder.detect_wit_worlds(&wit_dir).await?;
+        
+        assert_eq!(worlds.len(), 0);
+        
         Ok(())
     }
 }
