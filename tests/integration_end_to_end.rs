@@ -57,7 +57,7 @@ async fn test_end_to_end_template_to_execution() -> Result<()> {
 
     let cfg = Config {
         build: Some(BuildConfig {
-            artifact_path: Some(
+            component_path: Some(
                 temp_dir
                     .path()
                     .join("dist")
@@ -82,12 +82,12 @@ async fn test_end_to_end_template_to_execution() -> Result<()> {
 
     eprintln!(
         "✅ Built component at: {}",
-        built_component.artifact_path.display()
+        built_component.component_path.display()
     );
 
     // Step 4: Load and execute the component using prepare_component_dev
     let response_body = execute_component_http_handler(
-        &built_component.artifact_path,
+        &built_component.component_path,
         "http://localhost:8080/",
         200,
     )

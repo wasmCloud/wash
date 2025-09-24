@@ -52,9 +52,9 @@ fn is_project_directory(path: &str) -> anyhow::Result<bool> {
     Ok(false)
 }
 
-/// Find common component artifact paths relative to a project directory
+/// Find common component component paths relative to a project directory
 fn find_component_artifact(project_path: &str) -> anyhow::Result<Option<String>> {
-    let common_artifact_paths = [
+    let common_component_paths = [
         "target/wasm32-wasip2/release/component.wasm",
         "target/wasm32-wasip2/debug/component.wasm",
         "build/component.wasm",
@@ -63,11 +63,11 @@ fn find_component_artifact(project_path: &str) -> anyhow::Result<Option<String>>
         "component.wasm",
     ];
 
-    for artifact_path in &common_artifact_paths {
+    for component_path in &common_component_paths {
         let full_path = if project_path == "." {
-            artifact_path.to_string()
+            component_path.to_string()
         } else {
-            format!("{}/{}", project_path, artifact_path)
+            format!("{}/{}", project_path, component_path)
         };
 
         if file_exists(&full_path).unwrap_or(false) {
@@ -78,7 +78,7 @@ fn find_component_artifact(project_path: &str) -> anyhow::Result<Option<String>>
     Ok(None)
 }
 
-/// Request that wash build the project and return the artifact path
+/// Request that wash build the project and return the component path
 fn request_project_build(runner: &Runner, project_path: &str) -> Result<String, String> {
     println!("Building project at: {}", project_path);
 
@@ -87,7 +87,7 @@ fn request_project_build(runner: &Runner, project_path: &str) -> Result<String, 
         Ok((stdout, stderr)) => {
             // Try to find the built artifact
             match find_component_artifact(project_path) {
-                Ok(Some(artifact_path)) => Ok(artifact_path),
+                Ok(Some(component_path)) => Ok(component_path),
                 Ok(None) => Err(format!(
                     "Build completed but no component artifact found in project: {}",
                     project_path
@@ -177,9 +177,9 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
 
                             // Try to find existing artifact first
                             match find_component_artifact(&component_path) {
-                                Ok(Some(artifact_path)) => {
-                                    println!("Found existing artifact: {}", artifact_path);
-                                    artifact_path
+                                Ok(Some(component_path)) => {
+                                    println!("Found existing artifact: {}", component_path);
+                                    component_path
                                 }
                                 Ok(None) => {
                                     // No existing artifact - build the project
@@ -265,8 +265,8 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                     "Executing AfterDev hook - inspecting component after development session"
                 );
 
-                // TODO: Get the artifact path from the context
-                // The development session should have set the artifact path in the context
+                // TODO: Get the component path from the context
+                // The development session should have set the component path in the context
                 let context = runner
                     .context()
                     .map_err(|e| format!("Failed to get runner context: {}", e))?;

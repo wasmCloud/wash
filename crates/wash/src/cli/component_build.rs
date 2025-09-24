@@ -36,8 +36,8 @@ pub struct ComponentBuildCommand {
     build_config: Option<PathBuf>,
 
     /// The expected path to the built Wasm component artifact
-    #[clap(long = "artifact-path")]
-    artifact_path: Option<PathBuf>,
+    #[clap(long = "component-path")]
+    component_path: Option<PathBuf>,
 
     /// Skip fetching WIT dependencies, useful for offline builds
     #[clap(long = "skip-fetch")]
@@ -63,10 +63,10 @@ impl CliCommand for ComponentBuildCommand {
         Ok(CommandOutput::ok(
             format!(
                 "Successfully built component at: {}",
-                result.artifact_path.display()
+                result.component_path.display()
             ),
             Some(serde_json::json!({
-                "artifact_path": result.artifact_path,
+                "component_path": result.component_path,
                 "project_type": result.project_type,
                 "project_path": self.project_path,
             })),
@@ -85,7 +85,7 @@ impl CliCommand for ComponentBuildCommand {
 #[derive(Debug, Clone)]
 pub struct ComponentBuildResult {
     /// Path to the built component artifact
-    pub artifact_path: PathBuf,
+    pub component_path: PathBuf,
     /// Type of project that was built
     pub project_type: ProjectType,
     /// Original project path
@@ -228,7 +228,7 @@ impl ComponentBuilder {
 
         info!(path = ?self.project_path.display(), "building component");
         // Build the component using the language toolchain
-        let artifact_path = match project_type {
+        let component_path = match project_type {
             ProjectType::Rust => self.build_rust_component(config).await?,
             ProjectType::Go => self.build_tinygo_component(config).await?,
             ProjectType::TypeScript => self.build_typescript_component(config).await?,
@@ -243,16 +243,16 @@ impl ComponentBuilder {
         // Write project configuration
         generate_project_config(&self.project_path, &project_type, config).await?;
 
-        // Attempt to canonicalize the artifact path
-        let artifact_path = artifact_path.canonicalize().unwrap_or(artifact_path);
+        // Attempt to canonicalize the component path
+        let component_path = component_path.canonicalize().unwrap_or(component_path);
 
         debug!(
-            artifact_path = ?artifact_path.display(),
+            component_path = ?component_path.display(),
             "component build completed successfully",
         );
 
         Ok(ComponentBuildResult {
-            artifact_path,
+            component_path,
             project_type,
             project_path: self.project_path.clone(),
         })
@@ -538,18 +538,22 @@ impl ComponentBuilder {
         let stdout = String::from_utf8_lossy(&output.stdout);
         debug!(stdout = %stdout, "cargo build output");
 
-        if let Some(artifact_path) = config.build.as_ref().and_then(|b| b.artifact_path.as_ref()) {
-            if artifact_path.exists() {
-                debug!(artifact_path = %artifact_path.display(), "found component artifact at specified path");
-                return Ok(artifact_path.to_owned());
-            } else if self.project_path.join(artifact_path).exists() {
-                let abs_path = self.project_path.join(artifact_path);
-                debug!(artifact_path = %abs_path.display(), "found component artifact at specified path relative to project root");
+        if let Some(component_path) = config
+            .build
+            .as_ref()
+            .and_then(|b| b.component_path.as_ref())
+        {
+            if component_path.exists() {
+                debug!(component_path = %component_path.display(), "found component artifact at specified path");
+                return Ok(component_path.to_owned());
+            } else if self.project_path.join(component_path).exists() {
+                let abs_path = self.project_path.join(component_path);
+                debug!(component_path = %abs_path.display(), "found component artifact at specified path relative to project root");
                 return Ok(abs_path);
             } else {
                 bail!(
-                    "specified artifact path does not exist: {}",
-                    artifact_path.display()
+                    "specified component path does not exist: {}",
+                    component_path.display()
                 )
             }
         }
@@ -574,7 +578,7 @@ impl ComponentBuilder {
         {
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-                debug!(artifact_path = %path.display(), "found component artifact");
+                debug!(component_path = %path.display(), "found component artifact");
                 return Ok(path);
             }
         }
@@ -648,10 +652,10 @@ impl ComponentBuilder {
             let Some(wit_world) = &tinygo_config.wit_world else {
                 // Generate project config to ensure .wash/config.json exists with placeholder
                 let mut config_with_placeholder = config.clone();
-                let artifact_path_relative = PathBuf::from("build/output.wasm");
+                let component_path_relative = PathBuf::from("build/output.wasm");
 
                 if let Some(build_config) = &mut config_with_placeholder.build {
-                    build_config.artifact_path = Some(artifact_path_relative.clone());
+                    build_config.component_path = Some(component_path_relative.clone());
                     if let Some(tinygo_config) = &mut build_config.tinygo {
                         tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
                     }
@@ -660,7 +664,7 @@ impl ComponentBuilder {
                     tinygo_config.wit_world = Some("PLACEHOLDER_WIT_WORLD".to_string());
                     config_with_placeholder.build = Some(crate::component_build::BuildConfig {
                         tinygo: Some(tinygo_config),
-                        artifact_path: Some(artifact_path_relative),
+                        component_path: Some(component_path_relative),
                         ..Default::default()
                     });
                 }
@@ -791,7 +795,7 @@ impl ComponentBuilder {
             );
         }
 
-        debug!(artifact_path = %output_file.display(), "found component artifact");
+        debug!(component_path = %output_file.display(), "found component artifact");
         Ok(output_file)
     }
 
@@ -912,21 +916,25 @@ impl ComponentBuilder {
             );
         }
 
-        // If an artifact path is specified, find the Wasm artifact there
-        if let Some(artifact_path) = config.build.as_ref().and_then(|b| b.artifact_path.as_ref()) {
-            if artifact_path.exists() {
-                debug!(artifact_path = %artifact_path.display(), "found component artifact at specified path");
-                Ok(artifact_path.to_owned())
-            } else if self.project_path.join(artifact_path).exists() {
+        // If an component path is specified, find the Wasm artifact there
+        if let Some(component_path) = config
+            .build
+            .as_ref()
+            .and_then(|b| b.component_path.as_ref())
+        {
+            if component_path.exists() {
+                debug!(component_path = %component_path.display(), "found component artifact at specified path");
+                Ok(component_path.to_owned())
+            } else if self.project_path.join(component_path).exists() {
                 debug!(
-                    artifact_path = %artifact_path.display(),
+                    component_path = %component_path.display(),
                     "found component artifact at specified path relative to project root"
                 );
-                Ok(self.project_path.join(artifact_path))
+                Ok(self.project_path.join(component_path))
             } else {
                 bail!(
-                    "specified artifact path does not exist: {}",
-                    artifact_path.display()
+                    "specified component path does not exist: {}",
+                    component_path.display()
                 )
             }
         } else {
@@ -951,7 +959,7 @@ impl ComponentBuilder {
                     {
                         let path = entry.path();
                         if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-                            debug!(artifact_path = %path.display(), "found component artifact");
+                            debug!(component_path = %path.display(), "found component artifact");
                             return Ok(path);
                         }
                     }
@@ -959,7 +967,7 @@ impl ComponentBuilder {
             }
 
             bail!(
-                "No .wasm file found in common locations: dist/, build/, out/, or project root. Specify --artifact-path to override this behavior.",
+                "No .wasm file found in common locations: dist/, build/, out/, or project root. Specify --component-path to override this behavior.",
             )
         }
     }

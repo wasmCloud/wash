@@ -7,7 +7,7 @@
       "scheduler": "asyncify",
       "wit_world": "oauth"
     },
-    "artifact_path": "build/output.wasm"
+    "component_path": "build/output.wasm"
   },
   "wit": {
     "sources": {
