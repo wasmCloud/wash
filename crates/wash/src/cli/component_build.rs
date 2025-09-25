@@ -984,45 +984,46 @@ impl ComponentBuilder {
 
         // TODO(#26): we need to handle this better.
         // After running custom command, look for common build artifact locations
-        let possible_paths = [
-            self.project_path.join("build").join("component.wasm"),
-            self.project_path.join("dist").join("component.wasm"),
-            self.project_path.join("out").join("component.wasm"),
+        let search_dirs = [
+            self.project_path.join("build"),
+            self.project_path.join("dist"),
+            self.project_path.join("out"),
             self.project_path
                 .join("target")
                 .join("wasm32-wasip2")
-                .join("release")
-                .join("component.wasm"),
+                .join("release"),
             self.project_path
                 .join("target")
                 .join("wasm32-wasip2")
-                .join("debug")
-                .join("component.wasm"),
+                .join("debug"),
             self.project_path
                 .join("target")
                 .join("wasm32-wasi")
-                .join("release")
-                .join("component.wasm"),
+                .join("release"),
             self.project_path
                 .join("target")
                 .join("wasm32-wasi")
-                .join("debug")
-                .join("component.wasm"),
-            self.project_path.join("component.wasm"),
+                .join("debug"),
+            self.project_path.clone(),
         ];
 
-        for path in &possible_paths {
-            if path.exists() {
-                debug!(
-                    "found component artifact from custom command: {}",
-                    path.display()
-                );
-                return Ok(path.clone());
+        for search_dir in &search_dirs {
+            if let Ok(entries) = std::fs::read_dir(search_dir) {
+                for entry in entries.filter_map(Result::ok) {
+                    let path = entry.path();
+                    if path.extension().and_then(|ext| ext.to_str()) == Some("wasm") {
+                        debug!(
+                            "found component artifact from custom command: {}",
+                            path.display()
+                        );
+                        return Ok(path);
+                    }
+                }
             }
         }
 
         Err(anyhow::anyhow!(
-            "custom build command completed successfully but no component.wasm artifact found in common locations"
+            "custom build command completed successfully but no .wasm artifact found in common locations"
         ))
     }
 
