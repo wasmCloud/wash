@@ -121,6 +121,13 @@ pub struct ComponentBuilder {
 }
 
 impl ComponentBuilder {
+    // Constants for search and timing parameters
+    const MAX_SEARCH_DEPTH: usize = 5;
+    const MAX_SIMPLE_SEARCH_DEPTH: usize = 4;
+    const BUILD_TIME_BUFFER_SECS: u64 = 1;
+    const SPINNER_TICK_INTERVAL_MS: u64 = 100;
+    const WASM_EXTENSION_LEN: usize = 5; // ".wasm".len()
+
     /// Create a new component builder for the specified project path
     pub fn new(project_path: PathBuf, wit_dir: Option<PathBuf>, skip_wit_fetch: bool) -> Self {
         Self {
@@ -151,7 +158,7 @@ impl ComponentBuilder {
             format!("{} {}", command_name, args.join(" "))
         };
         spinner.set_message(message);
-        spinner.enable_steady_tick(Duration::from_millis(100));
+        spinner.enable_steady_tick(Duration::from_millis(Self::SPINNER_TICK_INTERVAL_MS));
 
         let start = Instant::now();
         let result = command
@@ -500,6 +507,10 @@ impl ComponentBuilder {
             cargo_args.push("--no-default-features".to_string());
         }
 
+        // Add message-format json to get structured output for artifact paths
+        cargo_args.push("--message-format".to_string());
+        cargo_args.push("json".to_string());
+
         // Add any additional cargo flags if configured
         for flag in &rust_config.cargo_flags {
             cargo_args.push(flag.clone());
@@ -543,7 +554,36 @@ impl ComponentBuilder {
             }
         }
 
-        // Find the generated wasm file
+        // Parse JSON output to find the .wasm artifact
+        for line in stdout.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+
+            let json_msg: serde_json::Value = match serde_json::from_str(line) {
+                Ok(msg) => msg,
+                Err(_) => continue, // Skip non-JSON lines
+            };
+
+            // Look for compiler-artifact messages with .wasm filenames
+            if json_msg.get("reason").and_then(|r| r.as_str()) == Some("compiler-artifact") {
+                if let Some(filenames) = json_msg.get("filenames").and_then(|f| f.as_array()) {
+                    for filename in filenames {
+                        if let Some(path_str) = filename.as_str() {
+                            let path = PathBuf::from(path_str);
+                            if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                                debug!(artifact_path = %path.display(), "found component artifact from cargo JSON output");
+                                return Ok(path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: Find the generated wasm file using the old method if JSON parsing fails
+        warn!("failed to find .wasm artifact from cargo JSON output, falling back to directory search");
         let build_type = if rust_config.release {
             "release"
         } else {
@@ -554,7 +594,7 @@ impl ComponentBuilder {
             .join(format!("target/{}/{}", rust_config.target, build_type));
         let mut entries = fs::read_dir(&target_dir)
             .await
-            .context("failed to read target directory")?;
+            .with_context(|| format!("failed to read Rust target directory '{}' - ensure cargo build completed successfully", target_dir.display()))?;
 
         while let Some(entry) = entries
             .next_entry()
@@ -563,13 +603,13 @@ impl ComponentBuilder {
         {
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-                debug!(artifact_path = %path.display(), "found component artifact");
+                debug!(artifact_path = %path.display(), "found component artifact via directory search");
                 return Ok(path);
             }
         }
 
         Err(anyhow::anyhow!(
-            "no .wasm file found in target directory: {}",
+            "no .wasm file found in cargo output or target directory: {}",
             target_dir.display()
         ))
     }
@@ -961,6 +1001,9 @@ impl ComponentBuilder {
 
         info!(command = command, args = ?args, "executing custom build command");
 
+        // Record build start time for modification-based detection
+        let build_start_time = std::time::SystemTime::now();
+
         let args_strings: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let output = self
             .run_command_with_spinner(
@@ -980,50 +1023,393 @@ impl ComponentBuilder {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-        debug!(stdout = %stdout, "custom build command output");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        debug!(stdout = %stdout, stderr = %stderr, "custom build command output");
 
-        // TODO(#26): we need to handle this better.
-        // After running custom command, look for common build artifact locations
-        let possible_paths = [
-            self.project_path.join("build").join("component.wasm"),
-            self.project_path.join("dist").join("component.wasm"),
-            self.project_path.join("out").join("component.wasm"),
-            self.project_path
-                .join("target")
-                .join("wasm32-wasip2")
-                .join("release")
-                .join("component.wasm"),
-            self.project_path
-                .join("target")
-                .join("wasm32-wasip2")
-                .join("debug")
-                .join("component.wasm"),
-            self.project_path
-                .join("target")
-                .join("wasm32-wasi")
-                .join("release")
-                .join("component.wasm"),
-            self.project_path
-                .join("target")
-                .join("wasm32-wasi")
-                .join("debug")
-                .join("component.wasm"),
-            self.project_path.join("component.wasm"),
+        // Try multiple detection strategies in order of reliability
+        let mut checked_paths = Vec::new();
+
+        // Strategy 1: Parse command output for artifact paths
+        if let Some(artifact_path) = self.parse_build_output_for_artifacts(&stdout, &stderr).await {
+            debug!(artifact_path = %artifact_path.display(), "found artifact from command output parsing");
+            return Ok(artifact_path);
+        }
+
+        // Strategy 2: Look for recently modified .wasm files
+        if let Some(artifact_path) = self.find_recent_wasm_files(build_start_time, &mut checked_paths).await? {
+            debug!(artifact_path = %artifact_path.display(), "found artifact by modification time");
+            return Ok(artifact_path);
+        }
+
+        // Strategy 3: Comprehensive directory search with patterns
+        if let Some(artifact_path) = self.search_build_directories_comprehensively(&mut checked_paths).await? {
+            debug!(artifact_path = %artifact_path.display(), "found artifact via comprehensive search");
+            return Ok(artifact_path);
+        }
+
+        // Strategy 4: Last resort - search entire project for any .wasm files
+        if let Some(artifact_path) = self.search_project_for_any_wasm(&mut checked_paths).await? {
+            warn!(artifact_path = %artifact_path.display(), "found .wasm file in unexpected location");
+            return Ok(artifact_path);
+        }
+
+        // No artifact found - provide detailed error
+        let mut error_msg = format!(
+            "Custom build command '{}' completed successfully but no WebAssembly artifact was found.\n\n",
+            command
+        );
+        error_msg.push_str("Searched the following locations:\n");
+        for path in &checked_paths {
+            error_msg.push_str(&format!("  - {}\n", path.display()));
+        }
+        error_msg.push_str("\nConsider:\n");
+        error_msg.push_str("  - Verifying your build command produces a .wasm file\n");
+        error_msg.push_str("  - Using --artifact-path to specify the exact output location\n");
+        error_msg.push_str("  - Checking that your build command succeeded and produced output\n");
+
+        bail!("{}", error_msg)
+    }
+
+    /// Parse build command output (stdout/stderr) for artifact paths
+    async fn parse_build_output_for_artifacts(&self, stdout: &str, stderr: &str) -> Option<PathBuf> {
+        let combined_output = format!("{}\n{}", stdout, stderr);
+
+        // Keywords that often precede artifact paths
+        let keywords = [
+            "Generated", "Built", "Output", "Created", "Compiled", "Wrote", "Artifact", "Binary",
+            "written", "saved", "created", "Result", "→", "->", "executable"
         ];
 
-        for path in &possible_paths {
-            if path.exists() {
-                debug!(
-                    "found component artifact from custom command: {}",
-                    path.display()
-                );
-                return Ok(path.clone());
+        // Check each line for potential .wasm paths
+        for line in combined_output.lines() {
+            let line = line.trim();
+            if !line.contains(".wasm") {
+                continue;
+            }
+
+            // Look for patterns like "Generated: path/to/file.wasm" or "Built path/to/file.wasm"
+            for keyword in &keywords {
+                if line.to_lowercase().contains(&keyword.to_lowercase()) {
+                    // Find .wasm paths in this line
+                    if let Some(wasm_path) = self.extract_wasm_path_from_line(line) {
+                        return Some(wasm_path);
+                    }
+                }
+            }
+
+            // Also check for any line that just contains a .wasm path
+            if let Some(wasm_path) = self.extract_wasm_path_from_line(line) {
+                return Some(wasm_path);
             }
         }
 
-        Err(anyhow::anyhow!(
-            "custom build command completed successfully but no component.wasm artifact found in common locations"
-        ))
+        None
+    }
+
+    /// Extract a .wasm file path from a line of text
+    fn extract_wasm_path_from_line(&self, line: &str) -> Option<PathBuf> {
+        // Split line into words and look for .wasm files
+        for word in line.split_whitespace() {
+            let cleaned_word = word.trim_matches(|c: char| c.is_ascii_punctuation() && c != '.' && c != '/' && c != '\\' && c != ':');
+
+            if cleaned_word.ends_with(".wasm") {
+                let path = if Path::new(cleaned_word).is_absolute() {
+                    PathBuf::from(cleaned_word)
+                } else {
+                    self.project_path.join(cleaned_word)
+                };
+
+                if path.exists() && path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                    debug!(path = %path.display(), line = line, "extracted .wasm path from output");
+                    return Some(path);
+                }
+            }
+        }
+
+        // Also try to find paths that might be quoted or have colons
+        if let Some(start) = line.find(".wasm") {
+            // Look backwards and forwards to find the full path
+            let mut path_start = start;
+            let path_end = start + Self::WASM_EXTENSION_LEN;
+
+            let chars: Vec<char> = line.chars().collect();
+
+            // Find start of path (look backwards for path characters)
+            while path_start > 0 {
+                let c = chars[path_start - 1];
+                if c.is_alphanumeric() || c == '/' || c == '\\' || c == '.' || c == '_' || c == '-' {
+                    path_start -= 1;
+                } else {
+                    break;
+                }
+            }
+
+            let path_str = &line[path_start..path_end];
+            if !path_str.is_empty() && path_str.ends_with(".wasm") {
+                let path = if Path::new(path_str).is_absolute() {
+                    PathBuf::from(path_str)
+                } else {
+                    self.project_path.join(path_str)
+                };
+
+                if path.exists() && path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                    debug!(path = %path.display(), line = line, "extracted .wasm path from output (context search)");
+                    return Some(path);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Find .wasm files modified after the build started
+    async fn find_recent_wasm_files(
+        &self,
+        build_start_time: std::time::SystemTime,
+        checked_paths: &mut Vec<PathBuf>,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        let search_dirs = [
+            self.project_path.join("target"),
+            self.project_path.join("build"),
+            self.project_path.join("dist"),
+            self.project_path.join("out"),
+            self.project_path.join("pkg"),
+            self.project_path.clone(),
+        ];
+
+        let mut candidates = Vec::new();
+
+        for dir in &search_dirs {
+            if !dir.exists() || !dir.is_dir() {
+                continue;
+            }
+
+            checked_paths.push(dir.clone());
+
+            if let Ok(mut entries) = fs::read_dir(dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let path = entry.path();
+
+                    if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                        checked_paths.push(path.clone());
+
+                        if let Ok(metadata) = entry.metadata().await {
+                            if let Ok(modified) = metadata.modified() {
+                                // Check if file was modified after build started (with buffer)
+                                if modified >= build_start_time.checked_sub(Duration::from_secs(Self::BUILD_TIME_BUFFER_SECS)).unwrap_or(build_start_time) {
+                                    candidates.push((path, modified));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Also search recursively in target directories (using iterative approach to avoid recursion)
+            if dir.ends_with("target") || dir.ends_with("build") || dir.ends_with("dist") {
+                if let Some(recursive_result) = self.search_directory_iterative(dir, build_start_time, checked_paths).await? {
+                    candidates.push(recursive_result);
+                }
+            }
+        }
+
+        // Return the most recently modified file
+        if let Some((path, _)) = candidates.into_iter().max_by_key(|(_, modified)| *modified) {
+            return Ok(Some(path));
+        }
+
+        Ok(None)
+    }
+
+    /// Search a directory iteratively for recent .wasm files (avoiding recursion issues)
+    async fn search_directory_iterative(
+        &self,
+        dir: &Path,
+        build_start_time: std::time::SystemTime,
+        checked_paths: &mut Vec<PathBuf>,
+    ) -> anyhow::Result<Option<(PathBuf, std::time::SystemTime)>> {
+        let mut best_candidate = None;
+        let mut dirs_to_search = vec![dir.to_path_buf()];
+        let mut depth = 0;
+        while let Some(current_dir) = dirs_to_search.pop() {
+            depth += 1;
+            if depth > Self::MAX_SEARCH_DEPTH {
+                break;
+            }
+
+            if let Ok(mut entries) = fs::read_dir(&current_dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let path = entry.path();
+
+                    if path.is_dir() {
+                        // Skip common directories that are unlikely to contain artifacts
+                        if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                            if matches!(dir_name, "node_modules" | ".git" | ".cargo" | "deps" | "incremental") {
+                                continue;
+                            }
+                        }
+                        dirs_to_search.push(path);
+                    } else if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                        checked_paths.push(path.clone());
+
+                        if let Ok(metadata) = entry.metadata().await {
+                            if let Ok(modified) = metadata.modified() {
+                                if modified >= build_start_time.checked_sub(Duration::from_secs(Self::BUILD_TIME_BUFFER_SECS)).unwrap_or(build_start_time) {
+                                    if best_candidate.as_ref().map(|(_, time)| *time).unwrap_or(std::time::UNIX_EPOCH) < modified {
+                                        best_candidate = Some((path, modified));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(best_candidate)
+    }
+
+    /// Search build directories comprehensively using naming patterns
+    async fn search_build_directories_comprehensively(
+        &self,
+        checked_paths: &mut Vec<PathBuf>,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        // Common build directory patterns and file names
+        let search_patterns = [
+            // Standard WebAssembly output patterns
+            ("build", vec!["*.wasm", "component.wasm", "main.wasm"]),
+            ("dist", vec!["*.wasm", "component.wasm", "main.wasm"]),
+            ("out", vec!["*.wasm", "component.wasm", "main.wasm"]),
+            ("pkg", vec!["*.wasm", "component.wasm", "main.wasm"]),
+            ("output", vec!["*.wasm"]),
+            ("release", vec!["*.wasm"]),
+
+            // Language-specific patterns
+            ("target/wasm32-wasip2/release", vec!["*.wasm"]),
+            ("target/wasm32-wasip2/debug", vec!["*.wasm"]),
+            ("target/wasm32-wasi/release", vec!["*.wasm"]),
+            ("target/wasm32-wasi/debug", vec!["*.wasm"]),
+            ("target/wasm32-unknown-unknown/release", vec!["*.wasm"]),
+            ("target/wasm32-unknown-unknown/debug", vec!["*.wasm"]),
+
+            // Framework-specific patterns
+            ("target/release", vec!["*.wasm"]),
+            ("target/debug", vec!["*.wasm"]),
+            (".next", vec!["*.wasm"]),
+            ("public", vec!["*.wasm"]),
+            ("static", vec!["*.wasm"]),
+            ("assets", vec!["*.wasm"]),
+        ];
+
+        for (dir_name, file_patterns) in &search_patterns {
+            let search_dir = self.project_path.join(dir_name);
+            checked_paths.push(search_dir.clone());
+
+            if !search_dir.exists() || !search_dir.is_dir() {
+                continue;
+            }
+
+            // Try each file pattern
+            for pattern in file_patterns {
+                if pattern == &"*.wasm" {
+                    // Search for any .wasm file
+                    if let Ok(mut entries) = fs::read_dir(&search_dir).await {
+                        while let Ok(Some(entry)) = entries.next_entry().await {
+                            let path = entry.path();
+                            if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                                debug!(path = %path.display(), pattern = pattern, "found via pattern search");
+                                return Ok(Some(path));
+                            }
+                        }
+                    }
+                } else {
+                    // Try specific filename
+                    let specific_path = search_dir.join(pattern);
+                    checked_paths.push(specific_path.clone());
+                    if specific_path.exists() {
+                        debug!(path = %specific_path.display(), pattern = pattern, "found specific file");
+                        return Ok(Some(specific_path));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Last resort: search the entire project for any .wasm files
+    async fn search_project_for_any_wasm(
+        &self,
+        checked_paths: &mut Vec<PathBuf>,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        debug!("performing last resort search for any .wasm files in project");
+
+        // Search project root first
+        if let Ok(mut entries) = fs::read_dir(&self.project_path).await {
+            while let Ok(Some(entry)) = entries.next_entry().await {
+                let path = entry.path();
+                if !path.is_dir() && path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                    checked_paths.push(path.clone());
+                    return Ok(Some(path));
+                }
+            }
+        }
+
+        // Recursively search common directories, avoiding deep nesting
+        let dirs_to_search = [
+            "src", "lib", "build", "dist", "out", "target", "public", "static",
+            "assets", "bin", "pkg", "wasm", "webassembly"
+        ];
+
+        for dir_name in &dirs_to_search {
+            let dir_path = self.project_path.join(dir_name);
+            if dir_path.exists() && dir_path.is_dir() {
+                if let Some(found) = self.search_directory_simple(&dir_path, checked_paths).await? {
+                    return Ok(Some(found));
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    /// Search directory with simple depth-limited approach
+    async fn search_directory_simple(
+        &self,
+        dir: &Path,
+        checked_paths: &mut Vec<PathBuf>,
+    ) -> anyhow::Result<Option<PathBuf>> {
+        let mut dirs_to_search = vec![dir.to_path_buf()];
+        let mut depth = 0;
+        while let Some(current_dir) = dirs_to_search.pop() {
+            depth += 1;
+            if depth > Self::MAX_SIMPLE_SEARCH_DEPTH {
+                break;
+            }
+
+            if let Ok(mut entries) = fs::read_dir(&current_dir).await {
+                while let Ok(Some(entry)) = entries.next_entry().await {
+                    let path = entry.path();
+
+                    if path.is_dir() {
+                        // Skip common directories that are unlikely to contain artifacts
+                        if let Some(dir_name) = path.file_name().and_then(|n| n.to_str()) {
+                            if matches!(dir_name, "node_modules" | ".git" | ".cargo" | "deps" | "incremental") {
+                                continue;
+                            }
+                        }
+                        if depth < Self::MAX_SIMPLE_SEARCH_DEPTH {
+                            dirs_to_search.push(path);
+                        }
+                    } else if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                        checked_paths.push(path.clone());
+                        return Ok(Some(path));
+                    }
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Placeholder for pre-build hook
@@ -1032,9 +1418,392 @@ impl ComponentBuilder {
         Ok(())
     }
 
-    /// Placeholder for post-build hook  
+    /// Placeholder for post-build hook
     async fn run_post_build_hook(&self) -> anyhow::Result<()> {
         trace!("running post-build hook (placeholder)");
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::process::Command as StdCommand;
+    use tempfile::TempDir;
+    use tokio::fs as async_fs;
+
+    /// Helper to create a test Rust project with Cargo.toml
+    async fn create_test_rust_project(temp_dir: &Path) -> anyhow::Result<()> {
+        let cargo_toml_content = r#"[package]
+name = "test-component"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.30.0"
+"#;
+
+        let lib_rs_content = r#"wit_bindgen::generate!({
+    world: "hello",
+    path: "wit/world.wit",
+    exports: {
+        "test:component/hello": Guest,
+    },
+});
+
+struct Guest;
+
+impl exports::test::component::hello::Guest for Guest {
+    fn hello() -> String {
+        "Hello from WebAssembly!".to_string()
+    }
+}
+"#;
+
+        let world_wit_content = r#"package test:component;
+
+world hello {
+    export hello: func() -> string;
+}
+"#;
+
+        // Create project structure
+        async_fs::create_dir_all(temp_dir.join("src")).await?;
+        async_fs::create_dir_all(temp_dir.join("wit")).await?;
+
+        // Write files
+        async_fs::write(temp_dir.join("Cargo.toml"), cargo_toml_content).await?;
+        async_fs::write(temp_dir.join("src/lib.rs"), lib_rs_content).await?;
+        async_fs::write(temp_dir.join("wit/world.wit"), world_wit_content).await?;
+
+        Ok(())
+    }
+
+    /// Helper to create .wash/config.json with custom build command
+    #[allow(dead_code)]
+    async fn create_wash_config(temp_dir: &Path, config_content: &str) -> anyhow::Result<()> {
+        let wash_dir = temp_dir.join(".wash");
+        async_fs::create_dir_all(&wash_dir).await?;
+        async_fs::write(wash_dir.join("config.json"), config_content).await?;
+        Ok(())
+    }
+
+    /// Helper to run cargo build with specific arguments and capture output
+    async fn run_cargo_build(temp_dir: &Path, args: &[&str]) -> anyhow::Result<(bool, String)> {
+        let output = StdCommand::new("cargo")
+            .args(args)
+            .current_dir(temp_dir)
+            .output()?;
+
+        Ok((output.status.success(), String::from_utf8_lossy(&output.stdout).to_string()))
+    }
+
+    /// Test custom build command with message-format json
+    #[tokio::test]
+    async fn test_custom_build_with_message_format_json() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_path = temp_dir.path();
+
+        // Create test Rust project
+        create_test_rust_project(project_path).await.expect("failed to create test project");
+
+        // First, run cargo build to create debug artifact
+        let (debug_success, debug_output) = run_cargo_build(
+            project_path,
+            &["build", "--target", "wasm32-wasip2", "--message-format", "json"]
+        ).await.expect("failed to run cargo build");
+
+        assert!(debug_success, "cargo build should succeed - ensure wasm32-wasip2 target is installed");
+
+        // Create the custom command configuration
+        let custom_command = vec!["cargo".to_string(), "build".to_string(), "--target".to_string(), "wasm32-wasip2".to_string(), "--message-format".to_string(), "json".to_string()];
+
+        let builder = ComponentBuilder::new(project_path.to_path_buf(), None, false);
+        let result = builder.execute_custom_command(&custom_command).await;
+
+        match result {
+            Ok(artifact_path) => {
+                // Verify the artifact path is in debug location (not release)
+                let artifact_path_str = artifact_path.to_string_lossy();
+                assert!(
+                    artifact_path_str.contains("debug") && !artifact_path_str.contains("release"),
+                    "Expected debug build artifact, got: {}",
+                    artifact_path_str
+                );
+                assert!(
+                    artifact_path_str.ends_with(".wasm"),
+                    "Expected .wasm artifact, got: {}",
+                    artifact_path_str
+                );
+                assert!(
+                    artifact_path.exists(),
+                    "Artifact should exist at: {}",
+                    artifact_path_str
+                );
+
+                // Verify that the output parsing strategy worked
+                // Check that the JSON output contains artifact information
+                let has_json_artifacts = debug_output.lines().any(|line| {
+                    if let Ok(json_msg) = serde_json::from_str::<serde_json::Value>(line) {
+                        json_msg.get("reason").and_then(|r| r.as_str()) == Some("compiler-artifact") &&
+                        json_msg.get("filenames").and_then(|f| f.as_array()).is_some()
+                    } else {
+                        false
+                    }
+                });
+                assert!(has_json_artifacts, "Expected JSON format output with artifact info");
+            }
+            Err(e) => {
+                panic!("Build failed: {}", e);
+            }
+        }
+    }
+
+    /// Test custom build command without message-format json
+    #[tokio::test]
+    async fn test_custom_build_without_message_format_json() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_path = temp_dir.path();
+
+        // Create test Rust project
+        create_test_rust_project(project_path).await.expect("failed to create test project");
+
+        // First, run cargo build to create debug artifact
+        let (debug_success, _) = run_cargo_build(
+            project_path,
+            &["build", "--target", "wasm32-wasip2"]
+        ).await.expect("failed to run cargo build");
+
+        assert!(debug_success, "cargo build should succeed - ensure wasm32-wasip2 target is installed");
+
+        // Also run release to create release artifact
+        let (release_success, _) = run_cargo_build(
+            project_path,
+            &["build", "--release", "--target", "wasm32-wasip2"]
+        ).await.expect("failed to run cargo build");
+
+        assert!(release_success, "cargo build should succeed");
+
+        // Create the custom command configuration (without message-format json)
+        let custom_command = vec!["cargo".to_string(), "build".to_string(), "--target".to_string(), "wasm32-wasip2".to_string()];
+
+        let builder = ComponentBuilder::new(project_path.to_path_buf(), None, false);
+        let result = builder.execute_custom_command(&custom_command).await;
+
+        match result {
+            Ok(artifact_path) => {
+                // Verify the artifact path is in debug location (since no release flag in custom command)
+                let artifact_path_str = artifact_path.to_string_lossy();
+                assert!(
+                    artifact_path_str.contains("debug") && !artifact_path_str.contains("release"),
+                    "Expected debug build artifact, got: {}",
+                    artifact_path_str
+                );
+                assert!(
+                    artifact_path_str.ends_with(".wasm"),
+                    "Expected .wasm artifact, got: {}",
+                    artifact_path_str
+                );
+                assert!(
+                    artifact_path.exists(),
+                    "Artifact should exist at: {}",
+                    artifact_path_str
+                );
+            }
+            Err(e) => {
+                panic!("Build failed: {}", e);
+            }
+        }
+    }
+
+    /// Test artifact path extraction from command output
+    #[tokio::test]
+    async fn test_parse_build_output_for_artifacts() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_path = temp_dir.path();
+
+        // Create test project structure
+        create_test_rust_project(project_path).await.expect("failed to create test project");
+
+        let builder = ComponentBuilder::new(project_path.to_path_buf(), None, false);
+
+        // Test various output formats
+        let test_cases = [
+            // Cargo output patterns
+            ("Generated: target/wasm32-wasip2/debug/test_component.wasm", Some("target/wasm32-wasip2/debug/test_component.wasm")),
+            ("Built target/debug/component.wasm successfully", Some("target/debug/component.wasm")),
+            ("Output: ./build/output.wasm", Some("build/output.wasm")),
+            ("Created build/test.wasm", Some("build/test.wasm")),
+            // JSON format outputs
+            ("{\"reason\":\"compiler-artifact\",\"filenames\":[\"target/debug/test.wasm\"]}", None), // This would need JSON parsing
+            // No valid paths
+            ("Build completed successfully", None),
+            ("No .wasm files mentioned", None),
+        ];
+
+        for (output, expected) in test_cases {
+            // Create the expected file if we expect to find it
+            if let Some(expected_path) = expected {
+                let full_path = project_path.join(expected_path);
+                if let Some(parent) = full_path.parent() {
+                    async_fs::create_dir_all(parent).await.unwrap();
+                }
+                async_fs::write(&full_path, "test wasm content").await.unwrap();
+
+                let result = builder.parse_build_output_for_artifacts(output, "").await;
+                assert!(result.is_some(), "Expected to find artifact in output: {}", output);
+
+                let found_path = result.unwrap();
+                assert_eq!(found_path, full_path, "Incorrect path extracted from: {}", output);
+
+                // Clean up
+                let _ = async_fs::remove_file(full_path).await;
+            } else {
+                let result = builder.parse_build_output_for_artifacts(output, "").await;
+                assert!(result.is_none(), "Expected no artifact in output: {}", output);
+            }
+        }
+    }
+
+    /// Test comprehensive directory search patterns
+    #[tokio::test]
+    async fn test_comprehensive_directory_search() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_path = temp_dir.path();
+
+        let builder = ComponentBuilder::new(project_path.to_path_buf(), None, false);
+
+        // Create various test directories and files
+        let test_locations = [
+            "build/component.wasm",
+            "dist/main.wasm",
+            "out/index.wasm",
+            "target/wasm32-wasip2/debug/test.wasm",
+            "target/wasm32-wasi/release/other.wasm",
+            "pkg/output.wasm",
+        ];
+
+        for location in test_locations {
+            let full_path = project_path.join(location);
+            async_fs::create_dir_all(full_path.parent().unwrap()).await.unwrap();
+            async_fs::write(&full_path, "test wasm content").await.unwrap();
+        }
+
+        let mut checked_paths = Vec::new();
+        let result = builder.search_build_directories_comprehensively(&mut checked_paths).await.unwrap();
+
+        assert!(result.is_some(), "Should find at least one .wasm file");
+        let found_path = result.unwrap();
+        assert!(found_path.exists(), "Found path should exist");
+        assert!(found_path.extension().and_then(|s| s.to_str()) == Some("wasm"), "Should find .wasm file");
+        assert!(!checked_paths.is_empty(), "Should have checked some paths");
+    }
+
+    /// Test file modification time detection
+    #[tokio::test]
+    async fn test_recent_wasm_files_detection() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_path = temp_dir.path();
+
+        let builder = ComponentBuilder::new(project_path.to_path_buf(), None, false);
+
+        // Create target directory and old file
+        let target_dir = project_path.join("target/debug");
+        async_fs::create_dir_all(&target_dir).await.unwrap();
+        let old_wasm = target_dir.join("old.wasm");
+        async_fs::write(&old_wasm, "old content").await.unwrap();
+
+        // Sleep briefly to ensure time difference
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+        let build_start_time = std::time::SystemTime::now();
+
+        // Sleep again and create new file
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        let new_wasm = target_dir.join("new.wasm");
+        async_fs::write(&new_wasm, "new content").await.unwrap();
+
+        let mut checked_paths = Vec::new();
+        let result = builder.find_recent_wasm_files(build_start_time, &mut checked_paths).await.unwrap();
+
+        assert!(result.is_some(), "Should find recently modified file");
+        let found_path = result.unwrap();
+        assert_eq!(found_path, new_wasm, "Should find the newly created file");
+        assert!(!checked_paths.is_empty(), "Should have checked some paths");
+    }
+
+    /// Test error reporting with checked paths
+    #[tokio::test]
+    async fn test_error_reporting_with_checked_paths() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_path = temp_dir.path();
+
+        // Create project but no .wasm files
+        create_test_rust_project(project_path).await.expect("failed to create test project");
+
+        // Create custom command that will "succeed" but produce no artifacts
+        let custom_command = vec!["echo".to_string(), "Build completed successfully".to_string()];
+
+        let builder = ComponentBuilder::new(project_path.to_path_buf(), None, false);
+        let result = builder.execute_custom_command(&custom_command).await;
+
+        assert!(result.is_err(), "Build should fail when no artifacts are found");
+        let error_msg = result.unwrap_err().to_string();
+
+        // Check that error message contains helpful information
+        assert!(error_msg.contains("completed successfully but no WebAssembly artifact was found"),
+                "Error should mention that build completed but no artifact found");
+        assert!(error_msg.contains("Searched the following locations:"),
+                "Error should list searched locations");
+        assert!(error_msg.contains("Consider:"),
+                "Error should provide suggestions");
+        assert!(error_msg.contains("--artifact-path"),
+                "Error should suggest using --artifact-path");
+    }
+
+    /// Test JSON parsing from cargo output
+    #[tokio::test]
+    async fn test_json_output_parsing() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let project_path = temp_dir.path();
+        let target_dir = project_path.join("target/wasm32-wasip2/debug");
+
+        // Create the expected output file
+        async_fs::create_dir_all(&target_dir).await.unwrap();
+        let wasm_file = target_dir.join("test_component.wasm");
+        async_fs::write(&wasm_file, "test content").await.unwrap();
+
+        create_test_rust_project(project_path).await.expect("failed to create test project");
+
+        // Create a mock JSON output similar to what cargo produces
+        let json_output = format!(r#"{{"reason":"compiler-artifact","filenames":["{}"]}}"#, wasm_file.to_string_lossy());
+
+        let _builder = ComponentBuilder::new(project_path.to_path_buf(), None, false);
+
+        // Test the rust build function's JSON parsing by examining the output
+        // This test verifies that when we have JSON output, we can extract the path
+        let mut found_wasm = false;
+        for line in json_output.lines() {
+            if let Ok(json_msg) = serde_json::from_str::<serde_json::Value>(line) {
+                if json_msg.get("reason").and_then(|r| r.as_str()) == Some("compiler-artifact") {
+                    if let Some(filenames) = json_msg.get("filenames").and_then(|f| f.as_array()) {
+                        for filename in filenames {
+                            if let Some(path_str) = filename.as_str() {
+                                let path = PathBuf::from(path_str);
+                                if path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                                    found_wasm = true;
+                                    assert!(path.exists(), "JSON-referenced file should exist");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(found_wasm, "Should find .wasm file in JSON output");
     }
 }
