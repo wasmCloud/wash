@@ -105,27 +105,27 @@ jobs:
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
-            buildCommand: cargo auditable zigbuild
+            buildCommand: cargo zigbuild
             artifact: wash-x86_64-unknown-linux-musl
             runner: ubuntu-latest
             bin: wash
           - target: aarch64-unknown-linux-musl
-            buildCommand: cargo auditable zigbuild
+            buildCommand: cargo zigbuild
             artifact: wash-aarch64-unknown-linux-musl
             runner: ubuntu-latest
             bin: wash
           - target: x86_64-apple-darwin
-            buildCommand: cargo auditable build
+            buildCommand: cargo build
             artifact: wash-x86_64-apple-darwin
             runner: macos-latest
             bin: wash
           - target: aarch64-apple-darwin
-            buildCommand: cargo auditable build
+            buildCommand: cargo build
             artifact: wash-aarch64-apple-darwin
             runner: macos-latest
             bin: wash
           - target: x86_64-pc-windows-msvc
-            buildCommand: cargo auditable build
+            buildCommand: cargo build
             artifact: wash-x86_64-pc-windows-msvc
             runner: windows-latest
             bin: wash.exe
@@ -143,14 +143,8 @@ jobs:
           install-zigbuild: ${{ matrix.runner == 'ubuntu-latest' }}
           rust-targets: "${{ matrix.target }}"
 
-      - name: Install cargo-auditable
-        uses: taiki-e/install-action@71d339ebf191fcbc3d49cd04b9484a4261f29975 # v2.62.9
-        with:
-          tool: cargo-auditable
-
       - name: Build binary (${{ matrix.target }})
         run: |
-          # Build with embedded dependency information for SBOM generation
           ${{ matrix.buildCommand }} --release --target ${{ matrix.target }}
           cp target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact }}
 
@@ -177,29 +171,10 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Generate SBOMs
-        run: |
-          # Generate SBOMs from auditable binaries
-          mkdir -p ./sboms
-          for binary in $(find ./artifacts -name 'wash*' -type f); do
-            binary_name=$(basename "$binary")
-            cargo auditable --version > /dev/null 2>&1 || cargo install cargo-auditable
-            # Extract SBOM from the auditable binary
-            if command -v cargo-auditable &> /dev/null; then
-              cargo auditable extract-audit "$binary" --format json > "./sboms/${binary_name}.sbom.cdx.json" || echo "SBOM extraction failed for $binary"
-            fi
-          done
-
       - name: Generate build provenance attestations
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: "./artifacts/*/wash*"
-
-      - name: Generate SBOM attestations
-        uses: actions/attest-sbom@v1
-        with:
-          subject-path: "./artifacts/*/wash*"
-          sbom-path: "./sboms/*.sbom.cdx.json"
 
       - name: Create GitHub Release and upload binaries
         uses: softprops/action-gh-release@v2
@@ -208,7 +183,6 @@ jobs:
           tag_name: ${{ github.ref_name }}
           files: |
             ./artifacts/*/*
-            sboms/*.sbom.cdx.json
           token: ${{ github.token }}
           prerelease: false
           generate_release_notes: true

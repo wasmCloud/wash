@@ -328,14 +328,6 @@ verify_artifact_signature() {
         return 1
     fi
 
-    # Verify SBOM attestation
-    if ! gh attestation verify "$artifact_path" \
-        --repo "$REPO" \
-        --predicate-type https://spdx.dev/Document; then
-        log_error "SBOM attestation verification failed!"
-        return 1
-    fi
-
     log_success "Artifact attestations verified successfully!"
 }
 
