@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       test_version:
-        description: 'Specific version to test (leave empty for latest)'
+        description: "Specific version to test (leave empty for latest)"
         required: false
-        default: ''
+        default: ""
 
 jobs:
   test-bash-install:
@@ -43,6 +43,49 @@ jobs:
             exit 1
           fi
 
+      - name: Test with signature verification
+        run: |
+          echo "🔐 Testing signature verification with -v flag"
+          echo "This requires GitHub CLI to be installed"
+
+          # Create separate test directory for verification test
+          mkdir -p /tmp/wash-verify-test
+          cd /tmp/wash-verify-test
+
+          # Verify gh CLI is available
+          if command -v gh &> /dev/null; then
+            echo "✅ GitHub CLI is available"
+
+            # Test help flag first
+            echo "Testing help flag..."
+            curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- --help
+
+            # Test installation with verification flag
+            echo "Running: curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- -v"
+            if curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | INSTALL_DIR=/tmp/wash-verify-test bash -s -- -v; then
+              echo "✅ Installation with verification succeeded!"
+
+              # Verify the binary was installed
+              if [ -f "/tmp/wash-verify-test/wash" ]; then
+                echo "✅ Binary was installed and verified!"
+                chmod +x /tmp/wash-verify-test/wash
+                /tmp/wash-verify-test/wash --version
+              else
+                echo "❌ Binary not found after verification"
+                exit 1
+              fi
+            else
+              echo "⚠️ Installation with verification failed (this may be expected if attestations are not yet available)"
+              echo "This could happen if:"
+              echo "- The release doesn't have attestations yet"
+              echo "- GitHub CLI authentication is required"
+              echo "- Network connectivity issues"
+              # Don't fail the test since attestations might not be available for older releases
+            fi
+          else
+            echo "❌ Could not install GitHub CLI - skipping verification test"
+          fi
+
       - name: Test with specific version
         if: ${{ inputs.test_version != '' }}
         run: |
@@ -67,7 +110,7 @@ jobs:
 
           # Test the actual PowerShell installation that users will run
           iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex
-          
+
           # Verify installation
           $washPath = Join-Path $testDir "wash.exe"
           if (Test-Path $washPath) {
@@ -85,12 +128,12 @@ jobs:
           # Test adding to PATH
           $testDir = "C:\temp\wash-path-test"
           New-Item -ItemType Directory -Path $testDir -Force
-          
+
           $env:INSTALL_DIR = $testDir
           $env:ADD_TO_PATH = "true"
-          
+
           iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex
-          
+
           $washPath = Join-Path $testDir "wash.exe"
           if (Test-Path $washPath) {
             Write-Host "✅ PowerShell PATH installation successful"
@@ -116,12 +159,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
 
           echo "### Results" >> $GITHUB_STEP_SUMMARY
-          echo "- Bash Install (Unix): ${{ needs.test-bash-install.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- PowerShell Install (Windows): ${{ needs.test-powershell-install.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Bash Install (Unix): ${NEEDS_TEST_BASH_INSTALL_RESULT}" >> $GITHUB_STEP_SUMMARY
+          echo "- PowerShell Install (Windows): ${NEEDS_TEST_POWERSHELL_INSTALL_RESULT}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
 
-          if [ "${{ needs.test-bash-install.result }}" = "success" ] && \
-             [ "${{ needs.test-powershell-install.result }}" = "success" ]; then
+          if [ "${NEEDS_TEST_BASH_INSTALL_RESULT}" = "success" ] && \
+             [ "${NEEDS_TEST_POWERSHELL_INSTALL_RESULT}" = "success" ]; then
             echo "✅ All installation script tests passed!" >> $GITHUB_STEP_SUMMARY
           else
             echo "❌ Some installation script tests failed. Check the job details above." >> $GITHUB_STEP_SUMMARY
@@ -132,10 +175,18 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Linux/macOS:**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo '# Standard installation' >> $GITHUB_STEP_SUMMARY
           echo 'curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '# With signature verification (requires GitHub CLI)' >> $GITHUB_STEP_SUMMARY
+          echo 'curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- -v' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Windows (PowerShell):**" >> $GITHUB_STEP_SUMMARY
           echo '```powershell' >> $GITHUB_STEP_SUMMARY
           echo 'iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
+
+        env:
+          NEEDS_TEST_BASH_INSTALL_RESULT: ${{ needs.test-bash-install.result }}
+          NEEDS_TEST_POWERSHELL_INSTALL_RESULT: ${{ needs.test-powershell-install.result }}

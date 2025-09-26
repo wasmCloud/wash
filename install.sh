@@ -2,7 +2,8 @@
 
 # Install script for wash - The Wasm Shell
 # Usage: curl -fsSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash
-# 
+# Options: -v to enable signature verification (requires GitHub CLI)
+#
 # Environment variables:
 # - GITHUB_TOKEN: GitHub personal access token (optional, for higher API rate limits)
 # - INSTALL_DIR: Directory to install wash binary (default: current directory)
@@ -20,6 +21,7 @@ NC='\033[0m' # No Color
 REPO="wasmcloud/wash"
 INSTALL_DIR="${INSTALL_DIR:-$(pwd)}"
 TMP_DIR="/tmp/wash-install-$$"
+VERIFY_SIGNATURE=false
 
 # Helper functions
 log_info() {
@@ -200,17 +202,27 @@ install_wash() {
     
     # Make binary executable
     chmod +x "${TMP_DIR}/wash"
-    
+
+    # Verify signature if requested
+    if ! verify_artifact_signature "${TMP_DIR}/wash" "$version"; then
+        log_error "Signature verification failed! Aborting installation."
+        exit 1
+    fi
+
     # Create install directory if it doesn't exist
     mkdir -p "$INSTALL_DIR"
-    
+
     # Move binary to install directory
     if ! mv "${TMP_DIR}/wash" "${INSTALL_DIR}/wash"; then
         log_error "Failed to install wash to ${INSTALL_DIR}"
         exit 1
     fi
     
-    log_success "wash ${version} installed successfully to ${INSTALL_DIR}/wash"
+    if [ "$VERIFY_SIGNATURE" = "true" ]; then
+        log_success "wash ${version} installed and verified successfully to ${INSTALL_DIR}/wash"
+    else
+        log_success "wash ${version} installed successfully to ${INSTALL_DIR}/wash"
+    fi
     
     # Test installation
     if "${INSTALL_DIR}/wash" --help >/dev/null 2>&1; then
@@ -228,17 +240,122 @@ install_wash() {
     echo "  4. Run 'wash new' to create your first WebAssembly component" >&2
 }
 
+# Parse command line arguments
+parse_args() {
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            -v|--verify)
+                VERIFY_SIGNATURE=true
+                shift
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                log_error "Unknown argument: $1"
+                show_help
+                exit 1
+                ;;
+        esac
+    done
+}
+
+# Show help
+show_help() {
+    cat << EOF
+Install script for wash - The Wasm Shell
+
+Usage: $0 [OPTIONS]
+
+Options:
+  -v, --verify    Enable signature verification (requires GitHub CLI)
+  -h, --help      Show this help message
+
+Environment variables:
+  GITHUB_TOKEN    GitHub personal access token (optional, for higher API rate limits)
+  INSTALL_DIR     Directory to install wash binary (default: current directory)
+
+Examples:
+  # Standard installation
+  curl -fsSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash
+
+  # Install with signature verification
+  curl -fsSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- -v
+EOF
+}
+
+# Check if signature verification is supported and dependencies are available
+check_verification_support() {
+    if [ "$VERIFY_SIGNATURE" != "true" ]; then
+        return 0
+    fi
+
+    log_info "Signature verification requested"
+
+    # Check if gh CLI is installed
+    if ! command -v gh >/dev/null 2>&1; then
+        log_error "Signature verification requires GitHub CLI (gh) but it's not installed"
+        log_error "Install it from: https://cli.github.com/"
+        exit 1
+    fi
+
+    # Check if gh CLI is authenticated
+    if ! gh auth status >/dev/null 2>&1; then
+        log_warn "GitHub CLI is not authenticated, which may limit verification capabilities"
+        log_warn "Consider running: gh auth login"
+    fi
+
+    log_info "GitHub CLI dependency check passed"
+}
+
+# Verify artifact signature using GitHub attestations
+verify_artifact_signature() {
+    local artifact_path="$1"
+    local version="$2"
+
+    if [ "$VERIFY_SIGNATURE" != "true" ]; then
+        return 0
+    fi
+
+    log_info "Verifying artifact attestations..."
+
+    # Verify build provenance attestation
+    if ! gh attestation verify "$artifact_path" \
+        --repo "$REPO" \
+        --predicate-type https://slsa.dev/provenance/v1; then
+        log_error "Build provenance attestation verification failed!"
+        return 1
+    fi
+
+    # Verify SBOM attestation
+    if ! gh attestation verify "$artifact_path" \
+        --repo "$REPO" \
+        --predicate-type https://spdx.dev/Document; then
+        log_error "SBOM attestation verification failed!"
+        return 1
+    fi
+
+    log_success "Artifact attestations verified successfully!"
+}
+
 # Main execution
 main() {
+    # Parse command line arguments
+    parse_args "$@"
+
     log_info "Installing wash - The Wasm Shell"
     echo >&2
-    
+
     # Check dependencies
     if ! command -v curl >/dev/null 2>&1; then
         log_error "curl is required but not installed"
         exit 1
     fi
     log_info "curl dependency check passed"
+
+    # Check verification support if requested
+    check_verification_support
     
     # Optional: Check for GitHub token (helps with API rate limits)
     if [ -n "${GITHUB_TOKEN:-}" ]; then

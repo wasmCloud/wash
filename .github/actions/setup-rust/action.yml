@@ -1,25 +1,25 @@
-name: 'Rust: Setup'
+name: "Rust: Setup"
 description: This action installs Rust tools
 inputs:
   rust-toolchain:
-    description: 'Rust toolchain'
+    description: "Rust toolchain"
     required: false
-    default: 'stable'
+    default: "stable"
   rust-targets:
-    description: 'Comma separated list of additional targets'
+    description: "Comma separated list of additional targets"
     required: false
-    default: 'wasm32-wasip2'
+    default: "wasm32-wasip2"
   rust-components:
-    description: 'Comma separated list of additional components'
+    description: "Comma separated list of additional components"
     required: false
-    default: 'clippy, rustfmt'
+    default: "clippy, rustfmt"
   install-zigbuild:
-    description: 'Install Zig compiler'
+    description: "Install Zig compiler"
     required: false
-    default: 'false'
+    default: "false"
 
 runs:
-  using: 'composite'
+  using: "composite"
   steps:
     # Rust Setup
     - name: Install Rust
