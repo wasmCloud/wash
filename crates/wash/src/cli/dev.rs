@@ -71,7 +71,7 @@ fn is_ignored(
 ///
 /// # Arguments
 /// * `canonical_project_root` - The canonicalized project root directory
-/// * `artifact_path` - Optional path to the build artifact
+/// * `component_path` - Optional path to the build artifact
 /// * `project_context` - Detected project type for specific ignore patterns
 ///
 /// # Returns
@@ -154,8 +154,8 @@ pub struct DevCommand {
     pub project_dir: PathBuf,
 
     /// The path to the built Wasm file to be used in development
-    #[clap(long = "artifact-path")]
-    pub artifact_path: Option<PathBuf>,
+    #[clap(long = "component-path")]
+    pub component_path: Option<PathBuf>,
 
     /// The address on which the HTTP server will listen
     #[clap(long = "address", default_value = "0.0.0.0:8000")]
@@ -189,10 +189,10 @@ impl CliCommand for DevCommand {
         let config = load_config(
             &ctx.config_path(),
             Some(self.project_dir.as_path()),
-            // Override the artifact path with the one provided in the command line
+            // Override the component path with the one provided in the command line
             Some(Config {
                 build: Some(BuildConfig {
-                    artifact_path: self.artifact_path.clone(),
+                    component_path: self.component_path.clone(),
                     ..Default::default()
                 }),
                 ..Default::default()
@@ -237,24 +237,24 @@ impl CliCommand for DevCommand {
             debug!("no recommendations found for project tools");
         }
 
-        let artifact_path = match build_component(&self.project_dir, ctx, &config).await {
-            // Edge case where the build was successful, but the artifact path in the config is different
+        let component_path = match build_component(&self.project_dir, ctx, &config).await {
+            // Edge case where the build was successful, but the component path in the config is different
             // than the one returned by the build process.
             Ok(build_result)
                 if config
                     .build
                     .as_ref()
-                    .and_then(|b| b.artifact_path.as_ref())
-                    .is_some_and(|p| p != &build_result.artifact_path) =>
+                    .and_then(|b| b.component_path.as_ref())
+                    .is_some_and(|p| p != &build_result.component_path) =>
             {
-                warn!(path = ?build_result.artifact_path, "component built successfully, but artifact path in config is different");
-                // Ensure the artifact path is set in the config
-                build_result.artifact_path
+                warn!(path = ?build_result.component_path, "component built successfully, but component path in config is different");
+                // Ensure the component path is set in the config
+                build_result.component_path
             }
-            // Use the build result artifact path if the config does not specify one
+            // Use the build result component path if the config does not specify one
             Ok(build_result) => {
-                debug!(path = ?build_result.artifact_path, "component built successfully, using as artifact path");
-                build_result.artifact_path
+                debug!(path = ?build_result.component_path, "component built successfully, using as component path");
+                build_result.component_path
             }
             Err(e) => {
                 // TODO(#18): Support continuing, npm start works like that.
@@ -265,7 +265,7 @@ impl CliCommand for DevCommand {
         };
 
         // Deploy to local runtime
-        let wasm_bytes = tokio::fs::read(&artifact_path)
+        let wasm_bytes = tokio::fs::read(&component_path)
             .await
             .context("failed to read artifact file")?;
 
@@ -398,8 +398,8 @@ impl CliCommand for DevCommand {
             "http"
         };
 
-        // Extract component name from artifact path for tracing
-        let component_name = artifact_path
+        // Extract component name from component path for tracing
+        let component_name = component_path
             .file_stem()
             .and_then(|stem| stem.to_str())
             .unwrap_or("dev-component")
@@ -443,7 +443,7 @@ impl CliCommand for DevCommand {
         let (stop_tx, mut stop_rx) = mpsc::channel::<()>(1);
         let (reload_tx, mut reload_rx) = mpsc::channel::<()>(1);
 
-        // Build initial ignore set including artifact path and project-specific build directories
+        // Build initial ignore set including component path and project-specific build directories
         let initial_ignore_set = build_ignore_set(&canonical_project_root, &project_context);
         debug!(
             ignore_count = initial_ignore_set.len(),
@@ -536,12 +536,12 @@ impl CliCommand for DevCommand {
 
                     match rebuild_result {
                         Ok(build_result) => {
-                            // Use the new artifact path from the build result
-                            let artifact_path = build_result.artifact_path;
-                            info!(path = %artifact_path.display(), "component rebuilt successfully");
+                            // Use the new component path from the build result
+                            let component_path = build_result.component_path;
+                            info!(path = %component_path.display(), "component rebuilt successfully");
 
                             info!("deploying rebuilt component ...");
-                            let wasm_bytes = tokio::fs::read(&artifact_path)
+                            let wasm_bytes = tokio::fs::read(&component_path)
                                 .await
                                 .context("failed to read artifact file")?;
                             let component = prepare_component_dev(&ctx.runtime, &wasm_bytes, plugin_manager.clone().clear_instances())
@@ -898,10 +898,10 @@ mod tests {
             .canonicalize()
             .expect("failed to canonicalize temp dir");
         let artifact_dir = project_root.join("custom");
-        let artifact_path = artifact_dir.join("output.wasm");
+        let component_path = artifact_dir.join("output.wasm");
 
         fs::create_dir_all(&artifact_dir).expect("failed to create artifact dir");
-        fs::write(&artifact_path, "test content").expect("failed to create artifact file");
+        fs::write(&component_path, "test content").expect("failed to create artifact file");
 
         let context = ProjectContext::General;
         let ignore_paths = build_ignore_set(&project_root, &context);

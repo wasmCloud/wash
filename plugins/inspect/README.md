@@ -50,7 +50,7 @@ wash plugin-inspect /path/to/component.wasm
 
 The plugin automatically registers an `after-dev` hook that will run when `wash dev` sessions end. It will:
 
-1. Look for the component artifact path in the development context
+1. Look for the component component path in the development context
 2. Inspect the component and display its interface information
 3. Provide a summary of the component's exports, imports, and capabilities
 
