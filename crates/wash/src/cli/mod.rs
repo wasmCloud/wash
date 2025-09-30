@@ -74,6 +74,7 @@ pub trait CliCommandExt: CliCommand {
                     trace!(?hook, ?hook_type, "executing pre-hook for command");
                     let mut data = Ctx::builder(hook.metadata.name.clone())
                         .with_background_processes(ctx.background_processes.clone())
+                        .skip_confirmation(ctx.is_non_interactive())
                         .build();
                     // TODO(IMPORTANT): context about the command and runner
                     let runner = data
@@ -115,6 +116,7 @@ pub trait CliCommandExt: CliCommand {
                     trace!(?hook, "executing post-hook for command");
                     let mut data = Ctx::builder(hook.metadata.name.clone())
                         .with_background_processes(ctx.background_processes.clone())
+                        .skip_confirmation(ctx.is_non_interactive())
                         .build();
                     // TODO(IMPORTANT): context about the command and runner
                     let runner = data
@@ -276,6 +278,8 @@ pub struct CliContext {
     /// Stores the handles to background processes spawned by host_exec_background. We want to
     /// constrain the processes spawned by components to the lifetime of the CLI context.
     background_processes: Arc<RwLock<Vec<Child>>>,
+    /// Whether to run in non-interactive mode (skip terminal checks for host exec)
+    non_interactive: bool,
 }
 
 #[cfg(unix)]
@@ -295,9 +299,21 @@ impl Deref for CliContext {
     }
 }
 
-impl CliContext {
-    /// Creates a new [CliContext] with the specified output kind and directory paths.
-    pub async fn new() -> anyhow::Result<Self> {
+/// Builder for constructing a CliContext
+#[derive(Default)]
+pub struct CliContextBuilder {
+    non_interactive: bool,
+}
+
+impl CliContextBuilder {
+    /// Set whether to run in non-interactive mode
+    pub fn non_interactive(mut self, non_interactive: bool) -> Self {
+        self.non_interactive = non_interactive;
+        self
+    }
+
+    /// Build the CliContext
+    pub async fn build(self) -> anyhow::Result<CliContext> {
         let app_strategy = choose_app_strategy(AppStrategyArgs {
             top_level_domain: "com.wasmcloud".to_string(),
             author: "wasmCloud Team".to_string(),
@@ -358,13 +374,26 @@ impl CliContext {
             .await
             .context("failed to initialize plugin manager")?;
 
-        Ok(Self {
+        Ok(CliContext {
             app_strategy,
             runtime: plugin_runtime,
             runtime_thread: Arc::new(thread),
             plugin_manager: Arc::new(plugin_manager),
             background_processes: Arc::default(),
+            non_interactive: self.non_interactive,
         })
+    }
+}
+
+impl CliContext {
+    /// Creates a new CliContext builder with default settings
+    pub fn builder() -> CliContextBuilder {
+        CliContextBuilder::default()
+    }
+
+    /// Returns whether wash is running in non-interactive mode
+    pub fn is_non_interactive(&self) -> bool {
+        self.non_interactive
     }
 
     #[instrument(level = "debug", skip(self))]
@@ -462,6 +491,7 @@ impl CliContext {
             trace!(?hook, ?hook_type, "executing pre-hook");
             let mut data = Ctx::builder(hook.metadata.name.clone())
                 .with_background_processes(self.background_processes.clone())
+                .skip_confirmation(self.is_non_interactive())
                 .build();
             let runner = data
                 .table
@@ -513,6 +543,7 @@ impl CliContext {
             trace!(?hook, ?hook_type, "executing post-hook");
             let mut data = Ctx::builder(hook.metadata.name.clone())
                 .with_background_processes(self.background_processes.clone())
+                .skip_confirmation(self.is_non_interactive())
                 .build();
             let runner = data
                 .table

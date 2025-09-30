@@ -45,6 +45,8 @@ pub struct Ctx {
     /// Stores the handles to background processes spawned by host_exec_background. Once this
     /// context struct is dropped the processes will be removed
     pub background_processes: Arc<RwLock<Vec<Child>>>,
+    /// Whether to skip confirmation prompts for host exec operations
+    pub skip_confirmation: bool,
 }
 
 /// Helper struct to build a [`Ctx`] with a builder pattern
@@ -52,6 +54,7 @@ pub struct CtxBuilder {
     ctx: WasiCtx,
     runtime_config: Option<Arc<RwLock<HashMap<String, String>>>>,
     background_processes: Option<Arc<RwLock<Vec<Child>>>>,
+    skip_confirmation: bool,
 }
 
 impl CtxBuilder {
@@ -68,6 +71,7 @@ impl CtxBuilder {
                 .build(),
             runtime_config: None,
             background_processes: None,
+            skip_confirmation: false,
         }
     }
 
@@ -101,6 +105,12 @@ impl CtxBuilder {
         self
     }
 
+    /// Sets whether to skip confirmation prompts for host exec operations
+    pub fn skip_confirmation(mut self, skip: bool) -> Self {
+        self.skip_confirmation = skip;
+        self
+    }
+
     pub fn build(self) -> Ctx {
         // Use the configured context (which may include preopened directories and tracing streams)
         // If no context was explicitly set via with_wasi_ctx(), use a default one with tracing streams
@@ -110,6 +120,7 @@ impl CtxBuilder {
             ctx,
             runtime_config: self.runtime_config.unwrap_or_default(),
             background_processes: self.background_processes.unwrap_or_default(),
+            skip_confirmation: self.skip_confirmation,
             ..Default::default()
         }
     }
@@ -138,6 +149,7 @@ impl Default for Ctx {
             http: WasiHttpCtx::new(),
             runtime_config: Arc::default(),
             background_processes: Arc::default(),
+            skip_confirmation: false,
         }
     }
 }

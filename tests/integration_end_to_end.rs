@@ -36,7 +36,9 @@ async fn test_end_to_end_template_to_execution() -> Result<()> {
     let temp_dir = TempDir::new().context("Failed to create temporary directory")?;
 
     // Step 2: Create project from cosmonic-control-welcome-tour template
-    let ctx = CliContext::new()
+    let ctx = CliContext::builder()
+        .non_interactive(false)
+        .build()
         .await
         .context("Failed to create CLI context")?;
 
@@ -68,7 +70,9 @@ async fn test_end_to_end_template_to_execution() -> Result<()> {
     // Step 3: Build the component
     let built_component = build_component(
         temp_dir.path(),
-        &CliContext::new()
+        &CliContext::builder()
+            .non_interactive(false)
+            .build()
             .await
             .expect("failed to create CLI context"),
         &cfg,
