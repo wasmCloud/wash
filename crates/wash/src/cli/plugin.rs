@@ -12,21 +12,64 @@ use tokio::sync::RwLock;
 use tracing::error;
 use tracing::{debug, instrument, trace, warn};
 use wasmtime::AsContextMut;
-use wasmtime_wasi::DirPerms;
-use wasmtime_wasi::FilePerms;
-use wasmtime_wasi::WasiCtx;
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 use wasmtime_wasi_http::io::TokioIo;
 
-use crate::runtime::bindings::plugin::wasmcloud::wash::types::Metadata;
+use crate::runtime::bindings::plugin::wasmcloud::wash::types::{Metadata, VolumeMountPerms};
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput, OutputKind, component_build::build_component},
     plugin::{
-        InstallPluginOptions, PluginComponent, install_plugin, list_plugins, uninstall_plugin,
+        InstallPluginOptions, PluginComponent, ResolvedVolumeMount, install_plugin, list_plugins,
+        uninstall_plugin,
     },
     runtime::{
         Ctx, bindings::plugin::exports::wasmcloud::wash::plugin::HookType, prepare_component_plugin,
     },
 };
+
+/// Helper function to apply volume mounts to a WasiCtxBuilder
+fn apply_volume_mounts(
+    mut builder: WasiCtxBuilder,
+    mounts: &[ResolvedVolumeMount],
+    plugin_data_dir: Option<&PathBuf>,
+) -> anyhow::Result<WasiCtxBuilder> {
+    // Apply plugin-specific volume mounts
+    for mount in mounts {
+        let (dir_perms, file_perms) = match mount.perms {
+            VolumeMountPerms::ReadOnly => (DirPerms::READ, FilePerms::READ),
+            VolumeMountPerms::ReadWrite => (DirPerms::all(), FilePerms::all()),
+        };
+
+        builder
+            .preopened_dir(
+                mount.source.as_path(),
+                mount.destination.as_str(),
+                dir_perms,
+                file_perms,
+            )
+            .with_context(|| {
+                format!(
+                    "failed to mount '{}' to '{}'",
+                    mount.source.display(),
+                    mount.destination
+                )
+            })?;
+    }
+
+    // Also mount the plugin-specific data directory if provided (for backward compatibility)
+    if let Some(data_dir) = plugin_data_dir {
+        builder
+            .preopened_dir(
+                data_dir.as_path(),
+                "/tmp",
+                DirPerms::all(),
+                FilePerms::all(),
+            )
+            .context("failed to mount plugin data directory")?;
+    }
+
+    Ok(builder)
+}
 
 #[derive(Subcommand, Debug, Clone)]
 pub enum PluginCommand {
@@ -164,6 +207,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                                 let runtime_config = runtime_config.clone();
                                 let background_processes = background_processes.clone();
                                 let mut ctx = Ctx::builder(plugin_component.metadata.name.clone())
+<<<<<<< Updated upstream
                                     .with_background_processes(background_processes);
                                 if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
                                     ctx = ctx.with_wasi_ctx(
@@ -177,6 +221,18 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                                             .expect("failed to create WASI context")
                                             .build(),
                                     )
+=======
+                                    .with_background_processes(background_processes)
+                                    .with_non_interactive(non_interactive);
+                                // Apply volume mounts and plugin data directory
+                                let wasi_ctx_builder = WasiCtxBuilder::new();
+                                if let Ok(mut builder) = apply_volume_mounts(
+                                    wasi_ctx_builder,
+                                    &plugin_component.volume_mounts,
+                                    plugin_component.wasi_fs_root.as_ref(),
+                                ) {
+                                    ctx = ctx.with_wasi_ctx(builder.build());
+>>>>>>> Stashed changes
                                 }
 
                                 let mut store = plugin_component
@@ -203,6 +259,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
         });
 
         let mut ctx_builder = Ctx::builder(plugin_component.metadata.name.clone())
+<<<<<<< Updated upstream
             .with_background_processes(ctx.background_processes.clone());
         if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
             ctx_builder = ctx_builder.with_wasi_ctx(
@@ -212,6 +269,18 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                     .build(),
             )
         }
+=======
+            .with_background_processes(ctx.background_processes.clone())
+            .with_non_interactive(ctx.is_non_interactive());
+        // Apply volume mounts and plugin data directory
+        let mut wasi_ctx_builder = WasiCtxBuilder::new();
+        wasi_ctx_builder = apply_volume_mounts(
+            wasi_ctx_builder,
+            &plugin_component.volume_mounts,
+            plugin_component.wasi_fs_root.as_ref(),
+        )?;
+        ctx_builder = ctx_builder.with_wasi_ctx(wasi_ctx_builder.build());
+>>>>>>> Stashed changes
 
         // Instantiate and run plugin
         match plugin_component

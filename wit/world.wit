@@ -64,6 +64,29 @@ interface types {
         usage: list<string>,
     }
 
+    /// Specifies permissions for a volume mount
+    enum volume-mount-perms {
+        /// Read-only access
+        read-only,
+        /// Read-write access
+        read-write,
+    }
+
+    /// Specifies a volume mount configuration for a plugin
+    /// This allows plugins to request access to specific directories on the host filesystem
+    record volume-mount {
+        /// The source path on the host. Special values:
+        /// - "cwd" or "." - current working directory
+        /// - absolute paths - mounted as-is
+        /// - relative paths - resolved relative to cwd
+        source: string,
+        /// The destination path in the guest filesystem where the source will be mounted
+        /// Ex: "/workspace", "/data", "/config"
+        destination: string,
+        /// Permissions for this mount
+        perms: volume-mount-perms,
+    }
+
     /// Metadata for a plugin, used to register the plugin with wash.
     /// This metadata is used to display information about the plugin in the CLI and to register this plugins
     /// place in the wash command lifecycle, including commands and hooks.
@@ -98,6 +121,9 @@ interface types {
         sub-commands: list<command>,
         /// Hooks to register for this plugin. This list opts a plugin into the wash command lifecycle
         hooks: list<hook-type>,
+        /// Volume mounts requested by this plugin. These mounts will be applied when the plugin is instantiated.
+        /// If not specified, the plugin will only have access to its plugin-specific data directory.
+        volume-mounts: list<volume-mount>,
     }
 
     /// Plugin config is a key/value store that can be used to share information between instances of the plugin.

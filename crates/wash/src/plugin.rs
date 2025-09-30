@@ -7,6 +7,7 @@ use anyhow::{Context as _, bail};
 use etcetera::AppStrategy;
 use std::{
     collections::HashMap,
+    env,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -24,6 +25,7 @@ use crate::{
             plugin::{
                 WashPlugin,
                 exports::wasmcloud::wash::plugin::{HookType, Metadata},
+                wasmcloud::wash::types::{VolumeMount, VolumeMountPerms},
             },
         },
         plugin::Runner,
@@ -31,13 +33,27 @@ use crate::{
     },
 };
 
+/// Represents a resolved volume mount with actual host paths
+#[derive(Debug, Clone)]
+pub struct ResolvedVolumeMount {
+    /// The resolved source path on the host filesystem
+    pub source: PathBuf,
+    /// The destination path in the guest filesystem
+    pub destination: String,
+    /// The permissions for this mount
+    pub perms: VolumeMountPerms,
+}
+
 /// A [PluginComponent] represents a precompiled and linked WebAssembly component that
 /// implements the wash plugin interface. It contains the component itself, its metadata,
-/// and the filesystem root where the plugin can read and write files using wasi:filesystem
+/// and the resolved volume mounts for filesystem access using wasi:filesystem
 pub struct PluginComponent {
     pub component: CustomCtxComponent<Ctx>,
     pub metadata: Metadata,
-    /// A read/write allowed directory for the component to use as its filesystem root
+    /// Resolved volume mounts for this component. These are the actual host paths that will be
+    /// mounted into the guest filesystem at the specified destinations.
+    pub volume_mounts: Vec<ResolvedVolumeMount>,
+    /// A read/write allowed directory for the component to use as its plugin-specific data directory
     pub wasi_fs_root: Option<PathBuf>,
 }
 
@@ -45,6 +61,7 @@ impl std::fmt::Debug for PluginComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PluginComponent")
             .field("metadata", &self.metadata)
+            .field("volume_mounts", &self.volume_mounts)
             .field("wasi_fs_root", &self.wasi_fs_root)
             .finish()
     }
@@ -68,6 +85,9 @@ impl PluginComponent {
             .context("failed to create plugin host bindings")?;
         let metadata = plugin.wasmcloud_wash_plugin().call_info(&mut store).await?;
 
+        // Resolve volume mounts from the metadata
+        let volume_mounts = resolve_volume_mounts(&metadata.volume_mounts).await?;
+
         // Determine the filesystem root based on the plugin name
         let wasi_fs_root = data_dir.map(|dir| {
             dir.as_ref()
@@ -86,6 +106,7 @@ impl PluginComponent {
         Ok(Self {
             component,
             metadata,
+            volume_mounts,
             wasi_fs_root,
         })
     }
@@ -263,6 +284,66 @@ impl PluginManager {
 }
 
 const PLUGINS_DIR: &str = "plugins";
+
+/// Resolve volume mounts from plugin metadata into actual host paths
+async fn resolve_volume_mounts(mounts: &[VolumeMount]) -> anyhow::Result<Vec<ResolvedVolumeMount>> {
+    let mut resolved = Vec::new();
+
+    for mount in mounts {
+        let source = resolve_source_path(&mount.source).await?;
+
+        // Validate that the source path exists
+        if !source.exists() {
+            bail!(
+                "Volume mount source path '{}' does not exist (resolved from '{}')",
+                source.display(),
+                mount.source
+            );
+        }
+
+        // Validate that the source is a directory
+        if !source.is_dir() {
+            bail!(
+                "Volume mount source path '{}' is not a directory",
+                source.display()
+            );
+        }
+
+        resolved.push(ResolvedVolumeMount {
+            source,
+            destination: mount.destination.clone(),
+            perms: mount.perms,
+        });
+    }
+
+    Ok(resolved)
+}
+
+/// Resolve a source path string to an actual filesystem path
+/// Handles special cases like "cwd", ".", and relative paths
+async fn resolve_source_path(source: &str) -> anyhow::Result<PathBuf> {
+    let path = match source {
+        "cwd" | "." => env::current_dir().context("failed to get current working directory")?,
+        _ if Path::new(source).is_absolute() => PathBuf::from(source),
+        _ => {
+            // Relative path - resolve relative to cwd
+            let cwd = env::current_dir().context("failed to get current working directory")?;
+            cwd.join(source)
+        }
+    };
+
+    // Canonicalize the path to resolve any symlinks and get the absolute path
+    match tokio::fs::canonicalize(&path).await {
+        Ok(canonical) => Ok(canonical),
+        Err(e) => {
+            bail!(
+                "Failed to resolve volume mount source path '{}': {}",
+                source,
+                e
+            )
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct InstallPluginOptions {
