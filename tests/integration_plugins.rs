@@ -21,7 +21,9 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let ctx = CliContext::new()
+    let ctx = CliContext::builder()
+        .non_interactive(false)
+        .build()
         .await
         .context("Failed to create CLI context")?;
 

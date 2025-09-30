@@ -1,4 +1,4 @@
-use std::io::BufWriter;
+use std::io::{BufWriter, IsTerminal};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::generate;
@@ -50,6 +50,13 @@ struct Cli {
 
     #[clap(long = "verbose", help = "Enable verbose output", global = true)]
     verbose: bool,
+
+    #[clap(
+        long = "non-interactive",
+        help = "Run in non-interactive mode (skip terminal checks for host exec). Automatically enabled when stdin is not a TTY",
+        global = true
+    )]
+    non_interactive: bool,
 
     #[clap(subcommand)]
     command: Option<WashCliCommand>,
@@ -164,8 +171,18 @@ impl CliCommand for WashCliCommand {
 async fn main() {
     let mut wash_cmd = Cli::command();
 
+    // Check for --non-interactive flag before parsing (to avoid requiring plugin commands to be registered)
+    let non_interactive_flag = std::env::args().any(|arg| arg == "--non-interactive");
+
+    // Auto-detect non-interactive mode if stdin is not a TTY or flag is set
+    let non_interactive = non_interactive_flag || !std::io::stdin().is_terminal();
+
     // Create global context with output kind and directory paths
-    let ctx = match CliContext::new().await {
+    let ctx = match CliContext::builder()
+        .non_interactive(non_interactive)
+        .build()
+        .await
+    {
         Ok(ctx) => {
             // Register plugin commands
             let plugins = ctx.plugin_manager().get_commands();

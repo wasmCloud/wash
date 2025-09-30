@@ -143,6 +143,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
         let listener = TcpListener::bind("127.0.0.1:8888").await?;
 
         let runtime_config = Arc::new(RwLock::new(HashMap::default()));
+        let skip_confirmation = ctx.is_non_interactive();
         tokio::spawn({
             let plugin_component = plugin_component.clone();
             let runtime_config = runtime_config.clone();
@@ -164,7 +165,9 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                                 let runtime_config = runtime_config.clone();
                                 let background_processes = background_processes.clone();
                                 let mut ctx = Ctx::builder(plugin_component.metadata.name.clone())
-                                    .with_background_processes(background_processes);
+                                    .with_background_processes(background_processes)
+                                    .skip_confirmation(skip_confirmation);
+
                                 if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
                                     ctx = ctx.with_wasi_ctx(
                                         WasiCtx::builder()
@@ -176,7 +179,7 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
                                             )
                                             .expect("failed to create WASI context")
                                             .build(),
-                                    )
+                                    );
                                 }
 
                                 let mut store = plugin_component
@@ -203,7 +206,9 @@ impl<'a> CliCommand for ComponentPluginCommand<'a> {
         });
 
         let mut ctx_builder = Ctx::builder(plugin_component.metadata.name.clone())
-            .with_background_processes(ctx.background_processes.clone());
+            .with_background_processes(ctx.background_processes.clone())
+            .skip_confirmation(ctx.is_non_interactive());
+
         if let Some(fs_root) = plugin_component.wasi_fs_root.as_ref() {
             ctx_builder = ctx_builder.with_wasi_ctx(
                 WasiCtx::builder()
@@ -441,6 +446,7 @@ impl TestCommand {
                     .call_hook(
                         Ctx::builder(component.metadata.name.clone())
                             .with_background_processes(ctx.background_processes.clone())
+                            .skip_confirmation(ctx.is_non_interactive())
                             .build(),
                         hook.to_owned(),
                         Arc::default(),

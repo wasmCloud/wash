@@ -141,19 +141,23 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
         args: Vec<String>,
     ) -> Result<(String, String), String> {
         let ctx = self.table.get(&ctx).map_err(|e| e.to_string())?;
-        // TODO(ISSUE#3): cache this somewhere
-        let confirmed = Confirm::with_theme(&ColorfulTheme::default())
-            .with_prompt(format!(
-                "{} wants to run `{bin}` with arguments: {args:?}.\nContinue?",
-                ctx.metadata.name
-            ))
-            .default(true)
-            .interact()
-            .map_err(|e| e.to_string())?;
 
-        if !confirmed {
-            debug!(bin = %bin, ?args, "host command execution denied by user");
-            return Ok((String::new(), String::new()));
+        // Prompt for confirmation unless explicitly skipped
+        if !self.skip_confirmation {
+            // TODO(ISSUE#3): cache this somewhere
+            let confirmed = Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt(format!(
+                    "{} wants to run `{bin}` with arguments: {args:?}.\nContinue?",
+                    ctx.metadata.name
+                ))
+                .default(true)
+                .interact()
+                .map_err(|e| e.to_string())?;
+
+            if !confirmed {
+                debug!(bin = %bin, ?args, "host command execution denied by user");
+                return Ok((String::new(), String::new()));
+            }
         }
 
         debug!(bin = %bin, ?args, "executing host command");
@@ -174,19 +178,23 @@ impl crate::runtime::bindings::plugin::wasmcloud::wash::types::HostRunner for Ct
         args: Vec<String>,
     ) -> Result<(), String> {
         let ctx = self.table.get(&ctx).map_err(|e| e.to_string())?;
-        // TODO(ISSUE#3): cache this somewhere
-        let confirmed = Confirm::with_theme(&ColorfulTheme::default())
-            .with_prompt(format!(
-                "{} wants to run `{bin}` with arguments in the background: {args:?}.\nContinue?",
-                ctx.metadata.name
-            ))
-            .default(true)
-            .interact()
-            .map_err(|e| e.to_string())?;
 
-        if !confirmed {
-            debug!(bin = %bin, ?args, "background host command execution denied by user");
-            return Ok(());
+        // Prompt for confirmation unless explicitly skipped
+        if !self.skip_confirmation {
+            // TODO(ISSUE#3): cache this somewhere
+            let confirmed = Confirm::with_theme(&ColorfulTheme::default())
+                .with_prompt(format!(
+                    "{} wants to run `{bin}` with arguments in the background: {args:?}.\nContinue?",
+                    ctx.metadata.name
+                ))
+                .default(true)
+                .interact()
+                .map_err(|e| e.to_string())?;
+
+            if !confirmed {
+                debug!(bin = %bin, ?args, "background host command execution denied by user");
+                return Ok(());
+            }
         }
 
         debug!(bin = %bin, ?args, "executing host command in background");

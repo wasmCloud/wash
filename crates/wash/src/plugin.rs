@@ -122,6 +122,7 @@ impl PluginComponent {
             .with_wasi_ctx(ctx.ctx)
             .with_runtime_config_arc(ctx.runtime_config)
             .with_background_processes(ctx.background_processes)
+            .skip_confirmation(ctx.skip_confirmation)
             .build();
         let mut store = self.component.new_store(ctx_with_streams);
         let instance = self
@@ -164,6 +165,7 @@ impl PluginComponent {
             .with_wasi_ctx(ctx.ctx)
             .with_runtime_config_arc(ctx.runtime_config)
             .with_background_processes(ctx.background_processes)
+            .skip_confirmation(ctx.skip_confirmation)
             .build();
         let mut store = self.component.new_store(ctx_with_streams);
         let instance = self
