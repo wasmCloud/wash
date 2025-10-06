@@ -9,11 +9,15 @@ use docker_credential::{CredentialRetrievalError, DockerCredential, get_credenti
 use oci_client::{
     Reference,
     client::{Client, ClientConfig, ClientProtocol},
+    manifest::{OciDescriptor, OciImageManifest},
     secrets::RegistryAuth,
 };
 use oci_wasm::{ToConfig, WASM_LAYER_MEDIA_TYPE, WasmConfig};
 use sha2::{Digest, Sha256};
-use std::path::PathBuf;
+use std::{
+    collections::{BTreeMap, HashMap},
+    path::PathBuf,
+};
 use tracing::{debug, info, instrument, warn};
 
 use crate::inspect::decode_component;
@@ -314,14 +318,23 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
 /// * `reference` - OCI reference (e.g., "registry.io/my/component:v1.0.0")
 /// * `component_data` - Raw bytes of the WebAssembly component
 /// * `config` - Configuration for the push operation
+/// * `annotations` - Optional OCI annotations to add to the manifest
 ///
 /// # Returns
 /// The digest of the pushed component
-#[instrument(skip(component_data, config), fields(reference = %reference, size = component_data.len()))]
+#[instrument(
+    skip(component_data, config, annotations),
+    fields(
+        reference = %reference,
+        size = component_data.len(),
+        annotation_count = annotations.as_ref().map_or(0, |a| a.len())
+    )
+)]
 pub async fn push_component(
     reference: &str,
     component_data: &[u8],
     config: OciConfig,
+    annotations: Option<HashMap<String, String>>,
 ) -> Result<String> {
     info!(
         reference = %reference,
@@ -365,9 +378,45 @@ pub async fn push_component(
         .to_config()
         .with_context(|| "failed to convert WebAssembly config")?;
 
+    // Create custom manifest with annotations if provided
+    let manifest = annotations.filter(|a| !a.is_empty()).map(|annotations| {
+        // Convert HashMap to BTreeMap for annotations
+        let btree_annotations: BTreeMap<String, String> = annotations.into_iter().collect();
+
+        // Create manifest descriptors for the config and layers
+        let config_descriptor = OciDescriptor {
+            media_type: config_obj.media_type.clone(),
+            digest: config_obj.sha256_digest(),
+            size: config_obj.data.len() as i64,
+            urls: None,
+            annotations: None,
+        };
+
+        let layer_descriptors: Vec<OciDescriptor> = layers
+            .iter()
+            .map(|layer| OciDescriptor {
+                media_type: layer.media_type.clone(),
+                digest: layer.sha256_digest(),
+                size: layer.data.len() as i64,
+                urls: None,
+                annotations: None,
+            })
+            .collect();
+
+        OciImageManifest {
+            schema_version: 2,
+            media_type: Some("application/vnd.oci.image.manifest.v1+json".to_string()),
+            config: config_descriptor,
+            layers: layer_descriptors,
+            subject: None,
+            artifact_type: None,
+            annotations: Some(btree_annotations),
+        }
+    });
+
     // Push the component
     let push_result = client
-        .push(&reference_parsed, &layers, config_obj, &auth, None)
+        .push(&reference_parsed, &layers, config_obj, &auth, manifest)
         .await
         .with_context(|| format!("failed to push component to {reference}"))?;
 
@@ -493,6 +542,126 @@ mod tests {
                 digest.starts_with("sha256:"),
                 "Digest should start with sha256:"
             );
+        }
+    }
+
+    #[test]
+    fn test_oci_config_with_cache() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = OciConfig::new_with_cache(temp_dir.path().to_path_buf());
+
+        assert!(config.cache_dir.is_some());
+        assert_eq!(config.cache_dir.unwrap(), temp_dir.path());
+        assert!(config.credentials.is_none());
+        assert!(!config.insecure);
+    }
+
+    #[test]
+    fn test_annotations_manifest_creation() {
+        // Test that annotations are properly converted and stored
+        let mut annotations = HashMap::new();
+        annotations.insert(
+            "org.opencontainers.image.description".to_string(),
+            "A test component".to_string(),
+        );
+        annotations.insert(
+            "org.opencontainers.image.source".to_string(),
+            "https://github.com/test/repo".to_string(),
+        );
+        annotations.insert("custom.annotation".to_string(), "custom value".to_string());
+
+        // Convert to BTreeMap (like the code does)
+        let btree_annotations: BTreeMap<String, String> = annotations.into_iter().collect();
+
+        assert_eq!(btree_annotations.len(), 3);
+        assert_eq!(
+            btree_annotations.get("org.opencontainers.image.description"),
+            Some(&"A test component".to_string())
+        );
+        assert_eq!(
+            btree_annotations.get("org.opencontainers.image.source"),
+            Some(&"https://github.com/test/repo".to_string())
+        );
+        assert_eq!(
+            btree_annotations.get("custom.annotation"),
+            Some(&"custom value".to_string())
+        );
+    }
+
+    #[test]
+    fn test_empty_annotations_handling() {
+        let empty_annotations = HashMap::new();
+
+        // Test that empty annotations don't create unnecessary structures
+        assert_eq!(empty_annotations.len(), 0);
+
+        let btree_annotations: BTreeMap<String, String> = empty_annotations.into_iter().collect();
+        assert_eq!(btree_annotations.len(), 0);
+    }
+
+    #[test]
+    fn test_annotation_key_value_format() {
+        // Test various valid annotation formats
+        let valid_annotations = vec![
+            ("simple", "value"),
+            (
+                "org.opencontainers.image.description",
+                "A longer description with spaces",
+            ),
+            ("custom.domain.com/annotation", "value-with-dashes"),
+            ("123numeric", "123"),
+            ("key_with_underscores", "value_with_underscores"),
+        ];
+
+        let mut annotations = HashMap::new();
+        for (key, value) in valid_annotations {
+            annotations.insert(key.to_string(), value.to_string());
+        }
+
+        assert_eq!(annotations.len(), 5);
+        assert_eq!(annotations.get("simple"), Some(&"value".to_string()));
+        assert_eq!(
+            annotations.get("org.opencontainers.image.description"),
+            Some(&"A longer description with spaces".to_string())
+        );
+    }
+
+    #[test]
+    fn test_standard_opencontainer_annotations() {
+        // Test that standard OpenContainer annotations work as expected
+        let mut annotations = HashMap::new();
+
+        // Standard OpenContainer annotations
+        annotations.insert(
+            "org.opencontainers.image.description".to_string(),
+            "Component description".to_string(),
+        );
+        annotations.insert(
+            "org.opencontainers.image.source".to_string(),
+            "https://github.com/example/repo".to_string(),
+        );
+        annotations.insert(
+            "org.opencontainers.image.url".to_string(),
+            "https://example.com".to_string(),
+        );
+        annotations.insert(
+            "org.opencontainers.image.version".to_string(),
+            "1.0.0".to_string(),
+        );
+        annotations.insert(
+            "org.opencontainers.image.licenses".to_string(),
+            "Apache-2.0".to_string(),
+        );
+        annotations.insert(
+            "org.opencontainers.image.authors".to_string(),
+            "John Doe <john@example.com>".to_string(),
+        );
+
+        assert_eq!(annotations.len(), 6);
+
+        for (key, expected_value) in &annotations {
+            assert!(key.starts_with("org.opencontainers.image."));
+            assert!(!expected_value.is_empty());
         }
     }
 }

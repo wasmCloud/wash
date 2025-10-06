@@ -1,8 +1,11 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
+use chrono::Local;
 use clap::{Args, Subcommand};
 use tracing::instrument;
+use wasm_metadata::Payload;
 
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
@@ -95,9 +98,64 @@ impl PushCommand {
             .await
             .context("failed to read component file")?;
 
+        let payload = Payload::from_binary(&component)?;
+        let metadata = payload.metadata();
+
+        let mut all_annotations = HashMap::new();
+        if let Some(name) = &metadata.name {
+            all_annotations.insert("org.opencontainers.image.title".into(), name.to_string());
+        }
+        if let Some(description) = &metadata.description {
+            all_annotations.insert(
+                "org.opencontainers.image.description".into(),
+                description.to_string(),
+            );
+        }
+        if let Some(authors) = &metadata.authors {
+            all_annotations.insert(
+                "org.opencontainers.image.authors".into(),
+                authors.to_string(),
+            );
+        }
+        if let Some(source) = &metadata.source {
+            all_annotations.insert("org.opencontainers.image.source".into(), source.to_string());
+        }
+        if let Some(homepage) = &metadata.homepage {
+            all_annotations.insert("org.opencontainers.image.url".into(), homepage.to_string());
+        }
+        if let Some(version) = &metadata.version {
+            all_annotations.insert(
+                "org.opencontainers.image.version".into(),
+                version.to_string(),
+            );
+        }
+        if let Some(revision) = &metadata.revision {
+            all_annotations.insert(
+                "org.opencontainers.image.revision".into(),
+                revision.to_string(),
+            );
+        }
+        if let Some(licenses) = &metadata.licenses {
+            all_annotations.insert(
+                "org.opencontainers.image.licenses".into(),
+                licenses.to_string(),
+            );
+        }
+
+        all_annotations.insert(
+            "org.opencontainers.image.created".into(),
+            Local::now().to_rfc3339(),
+        );
+
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
 
-        let digest = push_component(&self.reference, &component, oci_config).await?;
+        let digest = push_component(
+            &self.reference,
+            &component,
+            oci_config,
+            Some(all_annotations),
+        )
+        .await?;
 
         Ok(CommandOutput::ok(
             "OCI command executed successfully.".to_string(),
