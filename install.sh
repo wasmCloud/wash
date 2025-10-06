@@ -22,6 +22,7 @@ REPO="wasmcloud/wash"
 INSTALL_DIR="${INSTALL_DIR:-$(pwd)}"
 TMP_DIR="/tmp/wash-install-$$"
 VERIFY_SIGNATURE=false
+VERSION=""
 
 # Helper functions
 log_info() {
@@ -71,28 +72,28 @@ detect_platform() {
 get_latest_release() {
     local api_url="https://api.github.com/repos/${REPO}/releases/latest"
     local curl_args=("-s")
-    
+
     if [ -n "${GITHUB_TOKEN:-}" ]; then
         curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN:-}")
         log_info "Using GitHub token for API access"
     fi
-    
+
     log_info "Fetching latest release information..."
-    
+
     local response
     if ! response=$(curl "${curl_args[@]}" "$api_url" 2>/dev/null); then
         log_error "Failed to fetch release information from GitHub API"
         log_error "Please check your internet connection and try again"
         exit 1
     fi
-    
+
     # Check for API errors (404, etc.)
     if echo "$response" | grep -q '"message".*"Not Found"'; then
         log_error "Repository ${REPO} not found or has no releases"
         log_error "Please verify the repository exists and has published releases"
         exit 1
     fi
-    
+
     # Extract tag name using basic JSON parsing
     local tag_name
     if ! tag_name=$(echo "$response" | grep '"tag_name"' | head -n 1 | cut -d '"' -f 4); then
@@ -100,28 +101,86 @@ get_latest_release() {
         log_error "API response: ${response}"
         exit 1
     fi
-    
+
     if [ -z "$tag_name" ]; then
         log_error "No releases found for repository ${REPO}"
         log_error "Please verify the repository has published releases"
         exit 1
     fi
-    
+
+    echo "$tag_name"
+}
+
+# Get release information for a specific version
+get_release_by_version() {
+    local version="$1"
+
+    # Normalize version format - wash releases use 'wash-v' prefix
+    if [[ ! "$version" =~ ^wash-v ]]; then
+        # Remove any leading 'v' if present
+        version="${version#v}"
+        # Add 'wash-v' prefix
+        version="wash-v${version}"
+    fi
+
+    local api_url="https://api.github.com/repos/${REPO}/releases/tags/${version}"
+    local curl_args=("-s")
+
+    if [ -n "${GITHUB_TOKEN:-}" ]; then
+        curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN:-}")
+    fi
+
+    log_info "Fetching release information for version ${version}..."
+
+    local response
+    if ! response=$(curl "${curl_args[@]}" "$api_url" 2>/dev/null); then
+        log_error "Failed to fetch release information from GitHub API"
+        log_error "Please check your internet connection and try again"
+        exit 1
+    fi
+
+    # Check for API errors (404, etc.)
+    if echo "$response" | grep -q '"message".*"Not Found"'; then
+        log_error "Version ${version} not found"
+        log_error "Please verify the version exists. You can check available versions at:"
+        log_error "https://github.com/${REPO}/releases"
+        exit 1
+    fi
+
+    # Extract tag name using basic JSON parsing
+    local tag_name
+    if ! tag_name=$(echo "$response" | grep '"tag_name"' | head -n 1 | cut -d '"' -f 4); then
+        log_error "Failed to parse release information from API response"
+        exit 1
+    fi
+
+    if [ -z "$tag_name" ]; then
+        log_error "Version ${version} not found"
+        exit 1
+    fi
+
     echo "$tag_name"
 }
 
 # Get asset ID for the specified platform
 get_asset_id_for_platform() {
     local platform="$1"
+    local version="$2"
     local expected_name="wash-${platform}"
-    
-    local api_url="https://api.github.com/repos/${REPO}/releases/latest"
+
+    local api_url
+    if [ -n "$version" ]; then
+        api_url="https://api.github.com/repos/${REPO}/releases/tags/${version}"
+    else
+        api_url="https://api.github.com/repos/${REPO}/releases/latest"
+    fi
+
     local curl_args=("-s")
-    
+
     if [ -n "${GITHUB_TOKEN:-}" ]; then
         curl_args+=("-H" "Authorization: token ${GITHUB_TOKEN:-}")
     fi
-    
+
     local response
     if ! response=$(curl "${curl_args[@]}" "$api_url" 2>/dev/null); then
         log_error "Failed to fetch release information for asset lookup" >&2
@@ -163,7 +222,7 @@ install_wash() {
     # Get the asset ID for our platform
     log_info "Finding asset for platform..."
     local asset_id
-    asset_id=$(get_asset_id_for_platform "$platform")
+    asset_id=$(get_asset_id_for_platform "$platform" "$version")
     
     if [ -z "$asset_id" ]; then
         log_error "No matching binary found for platform ${platform}"
@@ -248,6 +307,15 @@ parse_args() {
                 VERIFY_SIGNATURE=true
                 shift
                 ;;
+            --version)
+                if [ -z "$2" ] || [[ "$2" == -* ]]; then
+                    log_error "--version requires a version argument"
+                    show_help
+                    exit 1
+                fi
+                VERSION="$2"
+                shift 2
+                ;;
             -h|--help)
                 show_help
                 exit 0
@@ -269,19 +337,23 @@ Install script for wash - The Wasm Shell
 Usage: $0 [OPTIONS]
 
 Options:
-  -v, --verify    Enable signature verification (requires GitHub CLI)
-  -h, --help      Show this help message
+  -v, --verify       Enable signature verification (requires GitHub CLI)
+  --version VERSION  Install a specific version (e.g., 1.0.0-beta.9, v1.0.0-beta.9, or wash-v1.0.0-beta.10)
+  -h, --help         Show this help message
 
 Environment variables:
   GITHUB_TOKEN    GitHub personal access token (optional, for higher API rate limits)
   INSTALL_DIR     Directory to install wash binary (default: current directory)
 
 Examples:
-  # Standard installation
+  # Standard installation (latest version)
   curl -fsSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash
 
   # Install with signature verification
   curl -fsSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- -v
+
+  # Install a specific version
+  curl -fsSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- --version 1.0.0-beta.10
 EOF
 }
 
@@ -362,11 +434,16 @@ main() {
     platform=$(detect_platform)
     log_info "Platform detected: ${platform}"
     
-    # Get latest release
+    # Get release version
     local version
-    log_info "Fetching latest release information..."
-    version=$(get_latest_release)
-    log_info "Latest version: ${version}"
+    if [ -n "$VERSION" ]; then
+        log_info "Fetching release information for version ${VERSION}..."
+        version=$(get_release_by_version "$VERSION")
+    else
+        log_info "Fetching latest release information..."
+        version=$(get_latest_release)
+    fi
+    log_info "Version: ${version}"
     
     # Install wash
     install_wash "$platform" "$version"
