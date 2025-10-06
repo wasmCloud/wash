@@ -5466,7 +5466,7 @@ dependencies = [
 
 [[package]]
 name = "wash"
-version = "1.0.0-beta.8"
+version = "1.0.0-beta.10"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
