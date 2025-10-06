@@ -7,6 +7,18 @@ on:
         description: "Specific version to test (leave empty for latest)"
         required: false
         default: ""
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/test-install-scripts.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - '.github/workflows/test-install-scripts.yml'
 
 jobs:
   test-bash-install:
@@ -19,6 +31,8 @@ jobs:
 
     steps:
       - name: Test curl installation method (Real User Experience)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🌐 Testing real user experience - no repository checkout"
           echo "This tests the exact command users will run"
@@ -44,6 +58,8 @@ jobs:
           fi
 
       - name: Test with signature verification
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🔐 Testing signature verification with -v flag"
           echo "This requires GitHub CLI to be installed"
@@ -75,12 +91,12 @@ jobs:
                 exit 1
               fi
             else
-              echo "⚠️ Installation with verification failed (this may be expected if attestations are not yet available)"
-              echo "This could happen if:"
-              echo "- The release doesn't have attestations yet"
+              echo "❌ Installation with verification failed!"
+              echo "Possible causes:"
+              echo "- The release does not have attestations (all releases must have attestations)"
               echo "- GitHub CLI authentication is required"
               echo "- Network connectivity issues"
-              # Don't fail the test since attestations might not be available for older releases
+              exit 1
             fi
           else
             echo "❌ Could not install GitHub CLI - skipping verification test"
@@ -88,42 +104,44 @@ jobs:
 
       - name: Test with specific version
         if: ${{ inputs.test_version != '' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Testing with specific version: ${{ inputs.test_version }}"
-          # For version-specific testing, you would modify the script to accept a version parameter
-          # This is a placeholder for future enhancement
+          echo "📦 Testing with specific version: ${{ inputs.test_version }}"
+
+          # Create test directory for version-specific test
+          mkdir -p /tmp/wash-version-test
+          cd /tmp/wash-version-test
+
+          # Test installation with specific version
+          echo "Running: curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- --version ${{ inputs.test_version }}"
+          if curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | INSTALL_DIR=/tmp/wash-version-test bash -s -- --version "${{ inputs.test_version }}"; then
+            echo "✅ Version-specific installation succeeded!"
+
+            # Verify the binary was installed
+            if [ -f "/tmp/wash-version-test/wash" ]; then
+              echo "✅ Binary was installed!"
+              chmod +x /tmp/wash-version-test/wash
+              /tmp/wash-version-test/wash --version
+            else
+              echo "❌ Binary not found after installation"
+              exit 1
+            fi
+          else
+            echo "❌ Version-specific installation failed"
+            exit 1
+          fi
 
   test-powershell-install:
     name: Test PowerShell Install Script
     runs-on: windows-latest
 
     steps:
-      - name: Test PowerShell web installation
-        shell: powershell
-        run: |
-          # Create test directory
-          $testDir = "C:\temp\wash-test"
-          New-Item -ItemType Directory -Path $testDir -Force
-
-          # Set install directory via environment variable
-          $env:INSTALL_DIR = $testDir
-
-          # Test the actual PowerShell installation that users will run
-          iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex
-
-          # Verify installation
-          $washPath = Join-Path $testDir "wash.exe"
-          if (Test-Path $washPath) {
-            Write-Host "✅ PowerShell installation successful"
-            & $washPath --help
-          } else {
-            Write-Host "❌ PowerShell installation failed"
-            Get-ChildItem $testDir -Force
-            exit 1
-          }
 
       - name: Test PowerShell with PATH addition
         shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Test adding to PATH
           $testDir = "C:\temp\wash-path-test"
@@ -136,9 +154,89 @@ jobs:
 
           $washPath = Join-Path $testDir "wash.exe"
           if (Test-Path $washPath) {
-            Write-Host "✅ PowerShell PATH installation successful"
+            Write-Host "PowerShell PATH installation successful"
           } else {
-            Write-Host "❌ PowerShell PATH installation failed"
+            Write-Host "PowerShell PATH installation failed"
+            exit 1
+          }
+
+      - name: Test PowerShell with signature verification
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Host "Testing signature verification with -Verify flag"
+          Write-Host "This requires GitHub CLI to be installed"
+
+          # Create separate test directory for verification test
+          $testDir = "C:\temp\wash-verify-test"
+          New-Item -ItemType Directory -Path $testDir -Force
+
+          # Check if gh CLI is available
+          $ghPath = Get-Command gh -ErrorAction SilentlyContinue
+          if ($ghPath) {
+            Write-Host "GitHub CLI is available"
+
+            # Download script to a file
+            try {
+              $scriptPath = Join-Path $env:TEMP "install-verify.ps1"
+              Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1" -OutFile $scriptPath
+
+              # Execute script with verification
+              & $scriptPath -InstallDir $testDir -Verify -Force
+
+              $washPath = Join-Path $testDir "wash.exe"
+              if (Test-Path $washPath) {
+                Write-Host "Binary was installed and verified!"
+                & $washPath --version
+              } else {
+                Write-Host "Binary not found after verification"
+                exit 1
+              }
+            } catch {
+              Write-Host "Installation with verification failed!"
+              Write-Host "Error: $($_.Exception.Message)"
+              Write-Host "Possible causes:"
+              Write-Host "- The release does not have attestations (all releases must have attestations)"
+              Write-Host "- GitHub CLI authentication is required"
+              Write-Host "- Network connectivity issues"
+              exit 1
+            }
+          } else {
+            Write-Host "GitHub CLI not available - skipping verification test"
+          }
+
+      - name: Test PowerShell with specific version
+        if: ${{ inputs.test_version != '' }}
+        shell: powershell
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          Write-Host "Testing with specific version: ${{ inputs.test_version }}"
+
+          # Create test directory for version-specific test
+          $testDir = "C:\temp\wash-version-test"
+          New-Item -ItemType Directory -Path $testDir -Force
+
+          # Download script to a file
+          try {
+            $scriptPath = Join-Path $env:TEMP "install-version.ps1"
+            Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1" -OutFile $scriptPath
+
+            # Execute script with specific version
+            & $scriptPath -InstallDir $testDir -Version "${{ inputs.test_version }}" -Force
+
+            $washPath = Join-Path $testDir "wash.exe"
+            if (Test-Path $washPath) {
+              Write-Host "Version-specific installation succeeded!"
+              & $washPath --version
+            } else {
+              Write-Host "Binary not found after installation"
+              exit 1
+            }
+          } catch {
+            Write-Host "Version-specific installation failed"
+            Write-Host "Error: $($_.Exception.Message)"
             exit 1
           }
 
@@ -175,16 +273,32 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Linux/macOS:**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo '# Standard installation' >> $GITHUB_STEP_SUMMARY
+          echo '# Standard installation (latest version)' >> $GITHUB_STEP_SUMMARY
           echo 'curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash' >> $GITHUB_STEP_SUMMARY
           echo '' >> $GITHUB_STEP_SUMMARY
           echo '# With signature verification (requires GitHub CLI)' >> $GITHUB_STEP_SUMMARY
           echo 'curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- -v' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '# Install a specific version' >> $GITHUB_STEP_SUMMARY
+          echo 'curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- --version 1.0.0-beta.10' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '# Install a specific version with verification' >> $GITHUB_STEP_SUMMARY
+          echo 'curl -sSL https://raw.githubusercontent.com/wasmcloud/wash/main/install.sh | bash -s -- --version 1.0.0-beta.10 -v' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Windows (PowerShell):**" >> $GITHUB_STEP_SUMMARY
           echo '```powershell' >> $GITHUB_STEP_SUMMARY
+          echo '# Standard installation (latest version)' >> $GITHUB_STEP_SUMMARY
           echo 'iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '# With signature verification (requires GitHub CLI)' >> $GITHUB_STEP_SUMMARY
+          echo 'Invoke-WebRequest -Uri "https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1" -UseBasicParsing | Invoke-Expression; Install-Wash -Verify' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '# Install a specific version' >> $GITHUB_STEP_SUMMARY
+          echo './install.ps1 -Version "1.0.0-beta.10"' >> $GITHUB_STEP_SUMMARY
+          echo '' >> $GITHUB_STEP_SUMMARY
+          echo '# Install a specific version with verification' >> $GITHUB_STEP_SUMMARY
+          echo './install.ps1 -Version "1.0.0-beta.10" -Verify' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
 
         env:
