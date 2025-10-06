@@ -1,12 +1,13 @@
 # Install script for wash - The Wasm Shell (Windows PowerShell)
 # Usage: iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex
 # Usage with options: ./install.ps1 -InstallDir "C:\tools" -AddToPath -Force
-# 
+#
 # Parameters:
 # - InstallDir: Directory to install wash binary (default: current directory)
+# - Version: Install a specific version (e.g., "1.0.0-beta.9", "v1.0.0-beta.9", or "wash-v1.0.0-beta.10")
 # - AddToPath: Automatically add install directory to user PATH
 # - Force: Overwrite existing installation without prompting
-# 
+#
 # Environment variables:
 # - $env:GITHUB_TOKEN: GitHub personal access token (optional, for higher API rate limits)
 # - $env:INSTALL_DIR: Directory to install wash binary (overrides -InstallDir)
@@ -14,6 +15,7 @@
 param(
     [string]$InstallDir = $(if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { $PWD }),
     [string]$GitHubToken = $env:GITHUB_TOKEN,
+    [string]$Version = "",
     [switch]$AddToPath,
     [switch]$Force
 )
@@ -105,14 +107,14 @@ function Get-LatestRelease {
     $headers = @{
         'User-Agent' = 'wash-installer'
     }
-    
+
     if ($GitHubToken) {
         $headers['Authorization'] = "token $GitHubToken"
         Write-Info "Using GitHub token for API access"
     }
-    
+
     Write-Info "Fetching latest release information..."
-    
+
     try {
         $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
     }
@@ -128,30 +130,89 @@ function Get-LatestRelease {
         }
         exit 1
     }
-    
+
     if (-not $response.tag_name) {
         Write-Error "No releases found for repository $REPO"
         Write-Error "Please verify the repository has published releases"
         exit 1
     }
-    
+
+    return $response.tag_name
+}
+
+# Get release information for a specific version
+function Get-ReleaseByVersion {
+    param([string]$RequestedVersion)
+
+    # Normalize version format - wash releases use 'wash-v' prefix
+    if (-not $RequestedVersion.StartsWith('wash-v')) {
+        # Remove any leading 'v' if present
+        if ($RequestedVersion.StartsWith('v')) {
+            $RequestedVersion = $RequestedVersion.Substring(1)
+        }
+        # Add 'wash-v' prefix
+        $RequestedVersion = "wash-v$RequestedVersion"
+    }
+
+    $apiUrl = "https://api.github.com/repos/$REPO/releases/tags/$RequestedVersion"
+    $headers = @{
+        'User-Agent' = 'wash-installer'
+    }
+
+    if ($GitHubToken) {
+        $headers['Authorization'] = "token $GitHubToken"
+    }
+
+    Write-Info "Fetching release information for version $RequestedVersion..."
+
+    try {
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+    }
+    catch {
+        if ($_.Exception.Response.StatusCode -eq 404) {
+            Write-Error "Version $RequestedVersion not found"
+            Write-Error "Please verify the version exists. You can check available versions at:"
+            Write-Error "https://github.com/$REPO/releases"
+        }
+        else {
+            Write-Error "Failed to fetch release information from GitHub API"
+            Write-Error "Please check your internet connection and try again"
+            Write-Error "Error: $($_.Exception.Message)"
+        }
+        exit 1
+    }
+
+    if (-not $response.tag_name) {
+        Write-Error "Version $RequestedVersion not found"
+        exit 1
+    }
+
     return $response.tag_name
 }
 
 # Get asset ID for the specified platform
 function Get-AssetIdForPlatform {
-    param([string]$Platform)
-    
+    param(
+        [string]$Platform,
+        [string]$TargetVersion
+    )
+
     $expectedName = "wash-$Platform"
-    $apiUrl = "https://api.github.com/repos/$REPO/releases/latest"
+
+    if ($TargetVersion) {
+        $apiUrl = "https://api.github.com/repos/$REPO/releases/tags/$TargetVersion"
+    } else {
+        $apiUrl = "https://api.github.com/repos/$REPO/releases/latest"
+    }
+
     $headers = @{
         'User-Agent' = 'wash-installer'
     }
-    
+
     if ($GitHubToken) {
         $headers['Authorization'] = "token $GitHubToken"
     }
-    
+
     try {
         $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
     }
@@ -174,17 +235,17 @@ function Get-AssetIdForPlatform {
 function Install-Wash {
     param(
         [string]$Platform,
-        [string]$Version
+        [string]$TargetVersion
     )
-    
+
     $binaryName = "wash-$Platform"
-    
+
     Write-Info "Detected platform: $Platform"
-    Write-Info "Latest version: $Version"
-    
+    Write-Info "Version: $TargetVersion"
+
     # Get the asset ID for our platform
     Write-Info "Finding asset for platform..."
-    $assetId = Get-AssetIdForPlatform $Platform
+    $assetId = Get-AssetIdForPlatform $Platform $TargetVersion
     
     if (-not $assetId) {
         Write-Error "No matching binary found for platform $Platform"
@@ -268,7 +329,7 @@ function Install-Wash {
         exit 1
     }
     
-    Write-Success "wash $Version installed successfully to $installPath"
+    Write-Success "wash $TargetVersion installed successfully to $installPath"
     
     # Test installation
     try {
@@ -339,13 +400,18 @@ function Main {
     $platform = Get-Platform
     Write-Info "Platform detected: $platform"
     
-    # Get latest release
-    Write-Info "Fetching latest release information..."
-    $version = Get-LatestRelease
-    Write-Info "Latest version: $version"
-    
+    # Get release version
+    if ($Version) {
+        Write-Info "Fetching release information for version $Version..."
+        $targetVersion = Get-ReleaseByVersion $Version
+    } else {
+        Write-Info "Fetching latest release information..."
+        $targetVersion = Get-LatestRelease
+    }
+    Write-Info "Version: $targetVersion"
+
     # Install wash
-    Install-Wash -Platform $platform -Version $version
+    Install-Wash -Platform $platform -TargetVersion $targetVersion
 }
 
 # Run main function
