@@ -1,10 +1,11 @@
 # Install script for wash - The Wasm Shell (Windows PowerShell)
 # Usage: iwr -useb https://raw.githubusercontent.com/wasmcloud/wash/main/install.ps1 | iex
-# Usage with options: ./install.ps1 -InstallDir "C:\tools" -AddToPath -Force
+# Usage with options: ./install.ps1 -InstallDir "C:\tools" -Version "1.0.0-beta.10" -Verify -AddToPath -Force
 #
 # Parameters:
 # - InstallDir: Directory to install wash binary (default: current directory)
 # - Version: Install a specific version (e.g., "1.0.0-beta.9", "v1.0.0-beta.9", or "wash-v1.0.0-beta.10")
+# - Verify: Enable signature verification (requires GitHub CLI)
 # - AddToPath: Automatically add install directory to user PATH
 # - Force: Overwrite existing installation without prompting
 #
@@ -16,6 +17,7 @@ param(
     [string]$InstallDir = $(if ($env:INSTALL_DIR) { $env:INSTALL_DIR } else { $PWD }),
     [string]$GitHubToken = $env:GITHUB_TOKEN,
     [string]$Version = "",
+    [switch]$Verify,
     [switch]$AddToPath,
     [switch]$Force
 )
@@ -83,6 +85,71 @@ function Add-ToPath {
 # Test if running in Windows Terminal, PowerShell ISE, or regular console
 function Test-InteractiveSession {
     return $Host.Name -match "ConsoleHost|ISE"
+}
+
+# Check if signature verification is supported and dependencies are available
+function Test-VerificationSupport {
+    if (-not $Verify) {
+        return
+    }
+
+    Write-Info "Signature verification requested"
+
+    # Check if gh CLI is installed
+    $ghPath = Get-Command gh -ErrorAction SilentlyContinue
+    if (-not $ghPath) {
+        Write-Error "Signature verification requires GitHub CLI (gh) but it's not installed"
+        Write-Error "Install it from: https://cli.github.com/"
+        exit 1
+    }
+
+    # Check if gh CLI is authenticated
+    try {
+        $null = gh auth status 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warn "GitHub CLI is not authenticated, which may limit verification capabilities"
+            Write-Warn "Consider running: gh auth login"
+        }
+    }
+    catch {
+        Write-Warn "Could not verify GitHub CLI authentication status"
+    }
+
+    Write-Info "GitHub CLI dependency check passed"
+}
+
+# Verify artifact signature using GitHub attestations
+function Test-ArtifactSignature {
+    param(
+        [string]$ArtifactPath,
+        [string]$TargetVersion
+    )
+
+    if (-not $Verify) {
+        return $true
+    }
+
+    Write-Info "Verifying artifact attestations..."
+
+    # Verify build provenance attestation
+    try {
+        $ghOutput = gh attestation verify $ArtifactPath `
+            --repo $REPO `
+            --predicate-type "https://slsa.dev/provenance/v1" 2>&1
+
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Build provenance attestation verification failed!"
+            return $false
+        }
+
+        Write-Success "Artifact attestations verified successfully!"
+        return $true
+    }
+    catch {
+        Write-Error "Build provenance attestation verification failed!"
+        Write-Error "Error: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 # Cleanup on exit
@@ -296,7 +363,13 @@ function Install-Wash {
         Write-Error "Error: $($_.Exception.Message)"
         exit 1
     }
-    
+
+    # Verify signature if requested
+    if (-not (Test-ArtifactSignature -ArtifactPath $downloadPath -TargetVersion $TargetVersion)) {
+        Write-Error "Signature verification failed! Aborting installation."
+        exit 1
+    }
+
     # Create install directory if it doesn't exist
     if (-not (Test-Path $InstallDir)) {
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -328,14 +401,14 @@ function Install-Wash {
         Write-Error "Error: $($_.Exception.Message)"
         exit 1
     }
-    
+
     Write-Success "wash $TargetVersion installed successfully to $installPath"
-    
+
     # Test installation
     try {
         $testOutput = & $installPath --help 2>$null
         if ($LASTEXITCODE -eq 0) {
-            Write-Success "Verified installation: wash --help works correctly"
+            Write-Success "Verified installation"
         }
         else {
             Write-Warn "Could not verify installation. Try running: $installPath --help"
@@ -388,7 +461,10 @@ function Main {
         exit 1
     }
     Write-Info "PowerShell version check passed"
-    
+
+    # Check verification support if requested
+    Test-VerificationSupport
+
     # Check if running as administrator (optional warning)
     $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
     if ($isAdmin) {
