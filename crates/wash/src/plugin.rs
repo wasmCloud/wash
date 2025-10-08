@@ -345,11 +345,16 @@ pub async fn install_plugin(
     let plugin_path = plugins_dir.join(format!("{sanitized_name}.wasm"));
 
     // Check if plugin already exists
-    if plugin_path.exists() && !options.force {
-        bail!(
-            "Plugin '{}' already exists. Use --force option to overwrite",
-            metadata.name
-        );
+    if plugin_path.exists() {
+        if options.force {
+            // uninstall first, to really force clean re-install
+            uninstall_plugin(ctx, &metadata.name).await?;
+        } else {
+            bail!(
+                "Plugin '{}' already exists. Use --force option to overwrite",
+                metadata.name
+            );
+        }
     }
     // Write plugin to storage
     tokio::fs::write(&plugin_path, &component_data)
