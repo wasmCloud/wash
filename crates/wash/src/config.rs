@@ -29,7 +29,7 @@ pub const PROJECT_CONFIG_DIR: &str = ".wash";
 /// (typically `~/.config/wash/config.json`), while the "local" project configuration
 /// is stored in the project's `.wash/config.json` file. This allows for both reasonable
 /// global defaults and project-specific overrides.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct Config {
     /// Build configuration for different project types (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -283,13 +283,53 @@ mod test {
     use super::*;
     use crate::cli::test::create_test_cli_context;
 
+    use tempfile::tempdir;
+
     #[tokio::test]
     async fn test_load_config_only_defaults() -> anyhow::Result<()> {
         let ctx = create_test_cli_context().await?;
         let config = load_config(&ctx.config_path(), None, None::<Config>)?;
-        assert!(config.build.is_none());
-        assert!(config.templates.is_empty());
-        assert!(config.wit.is_none());
+        assert_eq!(config, Config::default());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_global_config() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+
+        let global_config = Config::default_with_templates();
+        save_config(&global_config, &ctx.config_path()).await?;
+
+        let config = load_config(&ctx.config_path(), None, None::<Config>)?;
+        assert_eq!(config, global_config);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_local_config() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+
+        let global_config = Config::default_with_templates();
+        save_config(&global_config, &ctx.config_path()).await?;
+
+        let project = tempdir()?;
+        let project_dir = project.path();
+        let local_config_file = project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME);
+        let mut local_config = Config::default_with_templates();
+        local_config.build = Some(BuildConfig {
+            rust: Some(RustBuildConfig {
+                release: true,
+                ..RustBuildConfig::default()
+            }),
+            ..BuildConfig::default()
+        });                                    // should override global
+        local_config.templates = Vec::new();   // should take templates from global
+        save_config(&local_config, &local_config_file).await?;
+
+        let config = load_config(&ctx.config_path(), Some(&project_dir), None::<Config>)?;
+        assert_eq!(config.wit, Config::default().wit);
+        assert_eq!(config.templates, global_config.templates);
+        assert_eq!(config.build, local_config.build);
         Ok(())
     }
 }

@@ -24,7 +24,7 @@ pub const LOCK_FILE_NAME: &str = "wasmcloud.lock";
 pub const WKG_LOCK_FILE_NAME: &str = "wkg.lock";
 
 /// Configuration for WIT dependency management
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct WitConfig {
     /// Registries for WIT package fetching (default: wasm.pkg registry)
     #[serde(default = "default_wit_registries")]
@@ -50,7 +50,7 @@ fn default_wit_registries() -> Vec<WitRegistry> {
 }
 
 /// WIT registry configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct WitRegistry {
     /// Registry URL
     pub url: String,

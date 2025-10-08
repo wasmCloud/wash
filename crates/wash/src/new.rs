@@ -18,7 +18,7 @@ pub enum TemplateLanguage {
     Other(String),
 }
 
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NewTemplate {
     pub name: String,
     #[serde(default)]

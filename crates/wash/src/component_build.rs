@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use std::str::FromStr;
 
 /// Build configuration for different language toolchains
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct BuildConfig {
     /// Rust-specific build configuration
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -26,7 +26,7 @@ pub struct BuildConfig {
 }
 
 /// Types of projects that can be built
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ProjectType {
     /// Rust project (Cargo.toml found)
@@ -40,7 +40,7 @@ pub enum ProjectType {
 }
 
 /// Rust-specific build configuration with explicit defaults
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RustBuildConfig {
     /// Custom build command that overrides all other Rust build settings
     /// When specified, all other Rust build flags are ignored
@@ -155,8 +155,8 @@ impl FromStr for TinyGoGarbageCollector {
     }
 }
 
-/// TinyGo-specific build configuration with explicit defaults  
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// TinyGo-specific build configuration with explicit defaults
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TinyGoBuildConfig {
     /// Custom build command that overrides all other TinyGo build settings
     /// When specified, all other TinyGo build flags are ignored
@@ -259,7 +259,7 @@ fn default_tinygo_no_debug() -> bool {
 }
 
 /// TypeScript-specific build configuration with explicit defaults
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TypeScriptBuildConfig {
     /// Custom build command that overrides all other TypeScript build settings
     /// When specified, all other TypeScript build flags are ignored
