@@ -16,6 +16,7 @@ use tracing::{debug, error, info, instrument, trace};
 use serde::{Deserialize, Serialize};
 use wasmcloud::{
     host::{Host, HostApi as _},
+    plugin::wasi_config::RuntimeConfig,
     types::{Component, Workload, WorkloadStartRequest, WorkloadState},
     wit::WitInterface,
 };
@@ -377,6 +378,7 @@ impl CliContextBuilder {
         let plugin_manager = Arc::new(PluginManager::default());
 
         let host = wasmcloud::host::Host::builder()
+            .with_plugin(Arc::new(RuntimeConfig::default()))?
             .with_plugin(plugin_manager.clone())?
             .build()
             .context("failed to create wasmcloud runtime")?
