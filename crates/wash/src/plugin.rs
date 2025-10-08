@@ -4,7 +4,6 @@
 //! Plugins are WebAssembly components that extend wash functionality.
 
 use anyhow::{Context as _, bail};
-use etcetera::AppStrategy;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},

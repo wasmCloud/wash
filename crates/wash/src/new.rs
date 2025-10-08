@@ -3,7 +3,6 @@
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
-use etcetera::AppStrategy as _;
 use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tracing::{debug, error, info, instrument};

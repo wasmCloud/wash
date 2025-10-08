@@ -2,7 +2,6 @@
 
 use anyhow::Context as _;
 use clap::Args;
-use etcetera::AppStrategy as _;
 use reqwest::{
     Client,
     header::{AUTHORIZATION, HeaderMap, HeaderValue, USER_AGENT},
@@ -215,7 +214,7 @@ impl CliCommand for UpdateCommand {
             warn!(
                 "Cannot find installed wash binary, assuming installation in a non-standard location."
             );
-            let install_path = ctx.in_data_dir(format!("{BINARY_NAME}_{os}_{arch}"));
+            let install_path = ctx.in_data_dir(&format!("{BINARY_NAME}_{os}_{arch}"));
             tokio::fs::create_dir_all(ctx.data_dir())
                 .await
                 .context("failed to create data directory")?;

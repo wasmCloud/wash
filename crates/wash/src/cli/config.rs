@@ -1,6 +1,5 @@
 use anyhow::Context as _;
 use clap::Subcommand;
-use etcetera::AppStrategy as _;
 use tracing::instrument;
 
 use crate::{

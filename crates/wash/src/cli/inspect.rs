@@ -1,5 +1,4 @@
 use clap::Args;
-use etcetera::AppStrategy;
 use tracing::{info, instrument};
 
 use crate::{

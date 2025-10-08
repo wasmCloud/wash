@@ -3,7 +3,6 @@
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 use anyhow::{Context as _, bail};
 use clap::Args;
-use etcetera::AppStrategy as _;
 use std::path::{Path, PathBuf};
 use tokio::process::Command;
 use tracing::{debug, instrument, trace};
