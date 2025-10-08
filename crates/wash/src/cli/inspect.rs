@@ -66,7 +66,7 @@ impl CliCommand for InspectCommand {
                         .await
                         .context("Failed to load project configuration")?;
 
-                    let build_result = build_component(path, ctx, &config)
+                    let build_result = build_component(path, ctx, &config, None)
                         .await
                         .context("Failed to build component from project directory")?;
 

@@ -41,6 +41,14 @@ pub struct ComponentBuildCommand {
     /// Skip fetching WIT dependencies, useful for offline builds
     #[clap(long = "skip-fetch")]
     skip_fetch: bool,
+
+    /// The arguments to pass to the build command
+    #[clap(
+        name = "arg",
+        trailing_var_arg = true,
+        // TODO: --help won't get collected into this args
+    )]
+    pub args: Vec<String>,
 }
 
 impl CliCommand for ComponentBuildCommand {
@@ -57,7 +65,7 @@ impl CliCommand for ComponentBuildCommand {
                 ..Default::default()
             })
         }
-        let result = build_component(&self.project_path, ctx, &config).await?;
+        let result = build_component(&self.project_path, ctx, &config, Some(&self.args)).await?;
 
         Ok(CommandOutput::ok(
             format!(
@@ -101,6 +109,7 @@ pub async fn build_component(
     project_path: &Path,
     ctx: &CliContext,
     config: &Config,
+    args: Option<&[String]>,
 ) -> anyhow::Result<ComponentBuildResult> {
     let skip_fetch = config.wit.as_ref().map(|w| w.skip_fetch).unwrap_or(false);
     let wit_dir = config.wit.as_ref().and_then(|w| w.wit_dir.clone());
@@ -116,7 +125,7 @@ pub async fn build_component(
         .await;
 
     let builder = ComponentBuilder::new(project_path.to_path_buf(), wit_dir, skip_fetch);
-    let result = builder.build(ctx, config).await;
+    let result = builder.build(ctx, config, args).await
 
     // Execute post-build hooks (even if build failed, plugins may want to know)
     trace!("executing after-build hooks");
@@ -251,6 +260,7 @@ impl ComponentBuilder {
         &self,
         ctx: &CliContext,
         config: &Config,
+        args: Option<&[String]>,
     ) -> anyhow::Result<ComponentBuildResult> {
         debug!(
             path = ?self.project_path.display(),
@@ -289,9 +299,9 @@ impl ComponentBuilder {
         info!(path = ?self.project_path.display(), "building component");
         // Build the component using the language toolchain
         let component_path = match project_type {
-            ProjectType::Rust => self.build_rust_component(config).await?,
-            ProjectType::Go => self.build_tinygo_component(config).await?,
-            ProjectType::TypeScript => self.build_typescript_component(config).await?,
+            ProjectType::Rust => self.build_rust_component(config, args).await?,
+            ProjectType::Go => self.build_tinygo_component(config, args).await?,
+            ProjectType::TypeScript => self.build_typescript_component(config, args).await?,
             ProjectType::Unknown => {
                 bail!("unknown project type. Expected to find Cargo.toml, go.mod, or package.json");
             }
@@ -523,7 +533,11 @@ impl ComponentBuilder {
     }
 
     /// Build a Rust component using cargo
-    async fn build_rust_component(&self, config: &Config) -> anyhow::Result<PathBuf> {
+    async fn build_rust_component(
+        &self,
+        config: &Config,
+        args: Option<&[String]>,
+    ) -> anyhow::Result<PathBuf> {
         debug!("building rust component");
 
         // Get Rust build configuration, use defaults if not specified
@@ -575,6 +589,9 @@ impl ComponentBuilder {
         for flag in &rust_config.cargo_flags {
             cargo_args.push(flag.clone());
         }
+
+        // Add any additional cargo flags provided via CLI
+        cargo_args.extend_from_slice(args.unwrap_or_default());
 
         debug!(cargo_args = ?cargo_args, "running cargo with args");
 
@@ -650,7 +667,11 @@ impl ComponentBuilder {
     }
 
     /// Build a TinyGo component using tinygo
-    async fn build_tinygo_component(&self, config: &Config) -> anyhow::Result<PathBuf> {
+    async fn build_tinygo_component(
+        &self,
+        config: &Config,
+        args: Option<&[String]>,
+    ) -> anyhow::Result<PathBuf> {
         debug!("building tinygo component with tinygo");
 
         // Get TinyGo build configuration, use defaults if not specified
@@ -791,6 +812,9 @@ impl ComponentBuilder {
             tinygo_args.push(flag.to_string());
         }
 
+        // Add any additional build flags provided via CLI
+        tinygo_args.extend_from_slice(args.unwrap_or_default());
+
         // Add source directory
         tinygo_args.push(".".to_string());
 
@@ -860,7 +884,11 @@ impl ComponentBuilder {
     }
 
     /// Build a TypeScript component using npm/node
-    async fn build_typescript_component(&self, config: &Config) -> anyhow::Result<PathBuf> {
+    async fn build_typescript_component(
+        &self,
+        config: &Config,
+        args: Option<&[String]>,
+    ) -> anyhow::Result<PathBuf> {
         debug!("building typescript component with npm");
 
         // Get TypeScript build configuration, use defaults if not specified
@@ -957,6 +985,9 @@ impl ComponentBuilder {
             for flag in &ts_config.build_flags {
                 build_args.push(flag.clone());
             }
+
+            // Add any additional cargo flags provided via CLI
+            build_args.extend_from_slice(args.unwrap_or_default());
 
             debug!(package_manager = %package_manager, build_args = ?build_args, "running build command");
 

@@ -328,7 +328,7 @@ impl TestCommand {
                 .ensure_config(Some(self.plugin.as_path()))
                 .await
                 .context("failed to load config")?;
-            let built_path = build_component(&self.plugin, ctx, &config)
+            let built_path = build_component(&self.plugin, ctx, &config, None)
                 .await
                 .context("Failed to build component from directory")?;
             tokio::fs::read(&built_path.component_path)
