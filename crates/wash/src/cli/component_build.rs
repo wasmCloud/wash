@@ -9,7 +9,6 @@ use std::{
 use anyhow::{Context as _, bail};
 use atty;
 use clap::Args;
-use etcetera::AppStrategy;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
 use tokio::{fs, process::Command};

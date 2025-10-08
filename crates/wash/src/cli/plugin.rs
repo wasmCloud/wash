@@ -4,7 +4,6 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::Context;
 use anyhow::bail;
 use clap::{Args, Subcommand};
-use etcetera::AppStrategy;
 use hyper::server::conn::http1;
 use serde_json::json;
 use tokio::net::TcpListener;

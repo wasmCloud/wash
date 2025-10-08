@@ -10,7 +10,6 @@ use std::{
 use anyhow::{Context as _, ensure};
 use base64::Engine;
 use clap::Args;
-use etcetera::AppStrategy as _;
 use hyper::server::conn::http1;
 use notify::{
     Event as NotifyEvent, RecursiveMode, Watcher,

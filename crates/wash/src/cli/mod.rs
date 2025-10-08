@@ -1,16 +1,15 @@
 //! The main module for the wash CLI, providing command line interface functionality
 
+use std::path::PathBuf;
 use std::{ops::Deref, path::Path, sync::Arc};
 
 use anyhow::Context as _;
-use etcetera::{AppStrategy as _, AppStrategyArgs, choose_app_strategy};
 use tokio::{process::Child, sync::RwLock};
 use tracing::info;
 
-#[cfg(windows)]
 use etcetera::app_strategy::Windows;
-#[cfg(unix)]
 use etcetera::app_strategy::Xdg;
+use etcetera::{AppStrategy, AppStrategyArgs, choose_app_strategy};
 
 use serde_json::json;
 use tracing::{debug, error, instrument, trace};
@@ -259,17 +258,91 @@ impl CommandOutput {
     }
 }
 
+/// Non-generic copy of etcetera::AppStrategy trait to make it dyn-compatible
+pub trait DirectoryStrategy: std::fmt::Debug + Send + Sync {
+    fn home_dir(&self) -> &Path;
+    fn config_dir(&self) -> PathBuf;
+    fn data_dir(&self) -> PathBuf;
+    fn cache_dir(&self) -> PathBuf;
+    fn state_dir(&self) -> Option<PathBuf>;
+    fn runtime_dir(&self) -> Option<PathBuf>;
+    fn in_config_dir(&self, path: &str) -> PathBuf {
+        let mut p = self.config_dir();
+        p.push(Path::new(&path));
+        p
+    }
+    fn in_data_dir(&self, path: &str) -> PathBuf {
+        let mut p = self.data_dir();
+        p.push(Path::new(&path));
+        p
+    }
+    fn in_cache_dir(&self, path: &str) -> PathBuf {
+        let mut p = self.cache_dir();
+        p.push(Path::new(&path));
+        p
+    }
+    fn in_state_dir(&self, path: &str) -> Option<PathBuf> {
+        let mut p = self.state_dir()?;
+        p.push(Path::new(&path));
+        Some(p)
+    }
+    fn in_runtime_dir(&self, path: &str) -> Option<PathBuf> {
+        let mut p = self.runtime_dir()?;
+        p.push(Path::new(&path));
+        Some(p)
+    }
+}
+
+impl DirectoryStrategy for Xdg {
+    fn home_dir(&self) -> &Path {
+        <Xdg as AppStrategy>::home_dir(self)
+    }
+    fn config_dir(&self) -> PathBuf {
+        <Xdg as AppStrategy>::config_dir(self)
+    }
+    fn data_dir(&self) -> PathBuf {
+        <Xdg as AppStrategy>::data_dir(self)
+    }
+    fn cache_dir(&self) -> PathBuf {
+        <Xdg as AppStrategy>::cache_dir(self)
+    }
+    fn state_dir(&self) -> Option<PathBuf> {
+        <Xdg as AppStrategy>::state_dir(self)
+    }
+    fn runtime_dir(&self) -> Option<PathBuf> {
+        <Xdg as AppStrategy>::runtime_dir(self)
+    }
+}
+
+impl DirectoryStrategy for Windows {
+    fn home_dir(&self) -> &Path {
+        <Windows as AppStrategy>::home_dir(self)
+    }
+    fn config_dir(&self) -> PathBuf {
+        <Windows as AppStrategy>::config_dir(self)
+    }
+    fn data_dir(&self) -> PathBuf {
+        <Windows as AppStrategy>::data_dir(self)
+    }
+    fn cache_dir(&self) -> PathBuf {
+        <Windows as AppStrategy>::cache_dir(self)
+    }
+    fn state_dir(&self) -> Option<PathBuf> {
+        <Windows as AppStrategy>::state_dir(self)
+    }
+    fn runtime_dir(&self) -> Option<PathBuf> {
+        <Windows as AppStrategy>::runtime_dir(self)
+    }
+}
+
 /// CliContext holds the global context for the wash CLI, including output kind and directories
 ///
 /// It is used to manage configuration, data, and cache directories based on the XDG Base Directory Specification,
 /// or a custom configuration if needed.
 #[derive(Debug, Clone)]
 pub struct CliContext {
-    // TODO(#25): Just store an Arc-ed trait object
-    #[cfg(unix)]
-    app_strategy: Xdg,
-    #[cfg(windows)]
-    app_strategy: Windows,
+    /// Application strategy to access configuration directories.
+    app_strategy: Arc<dyn DirectoryStrategy>,
     /// The runtime used for executing Wasm components. Plugins and
     /// dev loops will use this runtime to execute Wasm code.
     runtime: wasmcloud_runtime::Runtime,
@@ -282,19 +355,10 @@ pub struct CliContext {
     non_interactive: bool,
 }
 
-#[cfg(unix)]
 impl Deref for CliContext {
-    type Target = Xdg;
+    type Target = Arc<dyn DirectoryStrategy>;
 
-    fn deref(&self) -> &Xdg {
-        &self.app_strategy
-    }
-}
-#[cfg(windows)]
-impl Deref for CliContext {
-    type Target = Windows;
-
-    fn deref(&self) -> &Windows {
+    fn deref(&self) -> &Arc<dyn DirectoryStrategy> {
         &self.app_strategy
     }
 }
@@ -314,12 +378,14 @@ impl CliContextBuilder {
 
     /// Build the CliContext
     pub async fn build(self) -> anyhow::Result<CliContext> {
-        let app_strategy = choose_app_strategy(AppStrategyArgs {
-            top_level_domain: "com.wasmcloud".to_string(),
-            author: "wasmCloud Team".to_string(),
-            app_name: "wash".to_string(),
-        })
-        .context("failed to to determine file system strategy")?;
+        let app_strategy: Arc<dyn DirectoryStrategy> = Arc::new(
+            choose_app_strategy(AppStrategyArgs {
+                top_level_domain: "com.wasmcloud".to_string(),
+                author: "wasmCloud Team".to_string(),
+                app_name: "wash".to_string(),
+            })
+            .context("failed to to determine file system strategy")?,
+        );
 
         if app_strategy.data_dir().exists() {
             trace!(
