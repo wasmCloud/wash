@@ -148,7 +148,7 @@ where
     }
 
     // Environment variables with WASH_ prefix
-    figment = figment.merge(Env::prefixed("WASH_"));
+    figment = figment.merge(Env::prefixed("WASH_").split("_"));
 
     // TODO(#16): There's more testing to be done here to ensure that CLI args can override existing
     // config without replacing present values with empty values.
@@ -283,6 +283,7 @@ mod test {
     use super::*;
     use crate::cli::test::create_test_cli_context;
 
+    use figment::Jail;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -322,14 +323,53 @@ mod test {
                 ..RustBuildConfig::default()
             }),
             ..BuildConfig::default()
-        });                                    // should override global
-        local_config.templates = Vec::new();   // should take templates from global
+        }); // should override global
+        local_config.templates = Vec::new(); // should take templates from global
         save_config(&local_config, &local_config_file).await?;
 
         let config = load_config(&ctx.config_path(), Some(&project_dir), None::<Config>)?;
         assert_eq!(config.wit, Config::default().wit);
         assert_eq!(config.templates, global_config.templates);
         assert_eq!(config.build, local_config.build);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_env_vars() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+
+        let project = tempdir()?;
+        let project_dir = project.path();
+        let local_config_file = project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME);
+        let mut local_config = Config::default_with_templates();
+        local_config.build = Some(BuildConfig {
+            rust: Some(RustBuildConfig {
+                release: true,
+                ..RustBuildConfig::default()
+            }),
+            ..BuildConfig::default()
+        });
+        save_config(&local_config, &local_config_file).await?;
+
+        Jail::expect_with(|jail| {
+            // should override whatever was set in local configuration
+            jail.set_env("WASH_BUILD_RUST_RELEASE", "false");
+
+            let config = load_config(&ctx.config_path(), Some(&project_dir), None::<Config>)
+                .expect("configuration should be loadable");
+
+            assert_eq!(
+                config
+                    .build
+                    .ok_or("build config should contain information")?
+                    .rust
+                    .ok_or("rust build config should contain information")?
+                    .release,
+                false
+            );
+
+            Ok(())
+        });
         Ok(())
     }
 }
