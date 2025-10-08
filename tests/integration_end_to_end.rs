@@ -73,6 +73,7 @@
 //             .await
 //             .expect("failed to create CLI context"),
 //         &cfg,
+//         Some(&vec!["--release".into()]),
 //     )
 //     .await
 //     .context("failed to build component")?;
