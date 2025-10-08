@@ -5503,6 +5503,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "walkdir",
  "wasm-pkg-client",
  "wasm-pkg-core",
  "wasmcloud-runtime",
