@@ -538,8 +538,10 @@ mod tests {
     #[test]
     fn test_batch_operations_data_structures() {
         // Test that we can create the data structures for batch operations
-        let key_values = [("key1".to_string(), b"value1".to_vec()),
-            ("key2".to_string(), b"value2".to_vec())];
+        let key_values = [
+            ("key1".to_string(), b"value1".to_vec()),
+            ("key2".to_string(), b"value2".to_vec()),
+        ];
         assert_eq!(key_values.len(), 2);
 
         let keys = ["key1".to_string(), "key2".to_string()];

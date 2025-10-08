@@ -479,25 +479,33 @@ impl HostApi for Host {
         &self,
         request: WorkloadStopRequest,
     ) -> anyhow::Result<WorkloadStopResponse> {
-        let (workload_state, message) =
-            if let Some(workload) = self.workloads.read().await.get(&request.workload_id) {
-                // Update state to stopping
-                {
-                    let mut workloads = self.workloads.write().await;
-                    if let Some(hw) = workloads.get_mut(&request.workload_id) {
-                        trace!(
-                            workload_id = request.workload_id,
-                            "updating workload state to stopping"
-                        );
-                        *hw = HostWorkload::Stopping;
-                    }
-                }
+        let has_workload = self
+            .workloads
+            .read()
+            .await
+            .contains_key(&request.workload_id);
 
-                // Stop the workload:
-                // 1. Unbind from all plugins
-                // 2. Clean up resources (drop will handle wasmtime cleanup)
-                // 3. Remove from active workloads
-                if let HostWorkload::Running(resolved_workload) = workload {
+        let (workload_state, message) = if has_workload {
+            // Update state to stopping
+            {
+                let mut workloads = self.workloads.write().await;
+                if let Some(hw) = workloads.get_mut(&request.workload_id) {
+                    trace!(
+                        workload_id = request.workload_id,
+                        "updating workload state to stopping"
+                    );
+                    *hw = HostWorkload::Stopping;
+                }
+            }
+
+            // Stop the workload:
+            // 1. Unbind from all plugins
+            // 2. Clean up resources (drop will handle wasmtime cleanup)
+            // 3. Remove from active workloads
+            {
+                if let Some(HostWorkload::Running(resolved_workload)) =
+                    self.workloads.read().await.get(&request.workload_id)
+                {
                     debug!(
                         workload_id = request.workload_id,
                         workload_name = resolved_workload.name(),
@@ -513,23 +521,24 @@ impl HostApi for Host {
                         );
                     }
                 }
+            }
 
-                // Remove the workload from the active workloads map
-                // This will drop the workload and clean up wasmtime resources
-                self.workloads.write().await.remove(&request.workload_id);
+            // Remove the workload from the active workloads map
+            // This will drop the workload and clean up wasmtime resources
+            self.workloads.write().await.remove(&request.workload_id);
 
-                debug!(
-                    workload_id = request.workload_id,
-                    "workload stopped successfully"
-                );
+            debug!(
+                workload_id = request.workload_id,
+                "workload stopped successfully"
+            );
 
-                (
-                    WorkloadState::Stopping,
-                    "Workload stopped successfully".to_string(),
-                )
-            } else {
-                (WorkloadState::Unspecified, "Workload not found".to_string())
-            };
+            (
+                WorkloadState::Stopping,
+                "Workload stopped successfully".to_string(),
+            )
+        } else {
+            (WorkloadState::Unspecified, "Workload not found".to_string())
+        };
 
         Ok(WorkloadStopResponse {
             workload_status: WorkloadStatus {
