@@ -277,3 +277,19 @@ pub async fn generate_default_config(
     info!(config_path = %path.display(), "Generated default configuration");
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::cli::test::create_test_cli_context;
+
+    #[tokio::test]
+    async fn test_load_config_only_defaults() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+        let config = load_config(&ctx.config_path(), None, None::<Config>)?;
+        assert!(config.build.is_none());
+        assert!(config.templates.is_empty());
+        assert!(config.wit.is_none());
+        Ok(())
+    }
+}
