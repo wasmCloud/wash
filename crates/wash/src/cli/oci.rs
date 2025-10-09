@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use anyhow::Context as _;
-use chrono::Local;
+use chrono::Utc;
 use clap::{Args, Subcommand};
 use tracing::instrument;
 use wasm_metadata::Payload;
@@ -144,7 +144,7 @@ impl PushCommand {
 
         all_annotations.insert(
             "org.opencontainers.image.created".into(),
-            Local::now().to_rfc3339(),
+            Utc::now().to_rfc3339(),
         );
 
         let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
