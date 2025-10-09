@@ -648,7 +648,6 @@ impl CliContext {
     }
 }
 
-
 #[cfg(test)]
 pub mod test {
     use super::*;
@@ -656,14 +655,12 @@ pub mod test {
 
     #[derive(Debug)]
     struct TestAppStrategy {
-        home: TempDir
+        home: TempDir,
     }
 
     impl TestAppStrategy {
         fn new() -> anyhow::Result<TestAppStrategy> {
-            Ok(TestAppStrategy {
-                home: tempdir()?
-            })
+            Ok(TestAppStrategy { home: tempdir()? })
         }
     }
 
