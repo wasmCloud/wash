@@ -1,12 +1,18 @@
 //! The main module for the wash CLI, providing command line interface functionality
 
-use std::{collections::HashMap, ops::Deref, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    ops::Deref,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use anyhow::{Context as _, bail, ensure};
 use bytes::Bytes;
 use etcetera::{
-    AppStrategy, AppStrategyArgs, choose_app_strategy,
+    AppStrategy, AppStrategyArgs,
     app_strategy::{Windows, Xdg},
+    choose_app_strategy,
 };
 use tokio::{process::Child, sync::RwLock};
 
@@ -283,11 +289,8 @@ impl DirectoryStrategy for Windows {
 /// or a custom configuration if needed.
 #[derive(Debug, Clone)]
 pub struct CliContext {
-    // TODO(#25): Just store an Arc-ed trait object
-    #[cfg(unix)]
-    app_strategy: Xdg,
-    #[cfg(windows)]
-    app_strategy: Windows,
+    /// Application strategy to access configuration directories.
+    app_strategy: Arc<dyn DirectoryStrategy>,
     /// A wasmCloud host instance used for executing plugins
     host: Arc<Host>,
     plugin_manager: Arc<PluginManager>,

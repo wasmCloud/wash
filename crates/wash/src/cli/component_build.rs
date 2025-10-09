@@ -8,9 +8,9 @@ use std::{
 
 use anyhow::{Context as _, bail};
 use clap::Args;
-use std::io::IsTerminal;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::Serialize;
+use std::io::IsTerminal;
 use tokio::{fs, process::Command};
 use tracing::{debug, error, info, instrument, trace, warn};
 

@@ -34,6 +34,7 @@ anyhow = { workspace = true }
 async-trait = { workspace = true }
 base64 = { workspace = true, features = ["std"] }
 bytes = { workspace = true }
+chrono = { workspace = true }
 clap = { workspace = true, features = ["derive", "env", "help", "color", "suggestions", "wrap_help", "cargo", "string"] }
 clap_complete = { workspace = true }
 clap-markdown = { workspace = true }
@@ -42,31 +43,24 @@ dialoguer = { workspace = true, features = ["editor", "password", "zeroize", "fu
 etcetera = { workspace = true }
 figment = { workspace = true, features = ["json", "env"] }
 flate2 = { workspace = true, features = ["rust_backend"] }
-git2 = { workspace = true }
-hyper = { workspace = true }
 indicatif = { workspace = true }
 notify = { workspace = true, features = ["macos_fsevent"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
-sha2 = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi", "time", "json"] }
 url = { workspace = true }
-uuid = { workspace = true, features = ["std"] }
-rustls = { workspace = true }
-rustls-pemfile = { workspace = true }
-tokio-rustls = { workspace = true }
+wasm-metadata = { workspace = true }
 wasm-pkg-client = { workspace = true }
 wasm-pkg-core = { workspace = true }
 wasmcloud = { path = "crates/wasmcloud", features = ["oci", "wasi-http", "wasi-config", "wasi-logging"] }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
-wasmtime-wasi-http = { workspace = true }
 which = { workspace = true }
 wit-component = { workspace = true }
 
