@@ -15,7 +15,6 @@ use crate::{
 };
 use anyhow::{Context as _, bail};
 use bytes::Bytes;
-use etcetera::AppStrategy;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
