@@ -29,7 +29,7 @@ pub const PROJECT_CONFIG_DIR: &str = ".wash";
 /// (typically `~/.config/wash/config.json`), while the "local" project configuration
 /// is stored in the project's `.wash/config.json` file. This allows for both reasonable
 /// global defaults and project-specific overrides.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct Config {
     /// Build configuration for different project types (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -148,7 +148,7 @@ where
     }
 
     // Environment variables with WASH_ prefix
-    figment = figment.merge(Env::prefixed("WASH_"));
+    figment = figment.merge(Env::prefixed("WASH_").split("__"));
 
     // TODO(#16): There's more testing to be done here to ensure that CLI args can override existing
     // config without replacing present values with empty values.
@@ -276,4 +276,160 @@ pub async fn generate_default_config(
 
     info!(config_path = %path.display(), "Generated default configuration");
     Ok(())
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::cli::test::create_test_cli_context;
+
+    use figment::Jail;
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn test_load_config_only_defaults() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+        let config = load_config(&ctx.config_path(), None, None::<Config>)?;
+        assert_eq!(config, Config::default());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_global_config() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+
+        let global_config = Config::default_with_templates();
+        save_config(&global_config, &ctx.config_path()).await?;
+
+        let config = load_config(&ctx.config_path(), None, None::<Config>)?;
+        assert_eq!(config, global_config);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_local_config() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+
+        let global_config = Config::default_with_templates();
+        save_config(&global_config, &ctx.config_path()).await?;
+
+        let project = tempdir()?;
+        let project_dir = project.path();
+        let local_config_file = project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME);
+        let mut local_config = Config::default_with_templates();
+        local_config.build = Some(BuildConfig {
+            rust: Some(RustBuildConfig {
+                release: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        }); // Should override global
+        local_config.templates = Vec::new(); // should take templates from global
+        save_config(&local_config, &local_config_file).await?;
+
+        let config = load_config(&ctx.config_path(), Some(&project_dir), None::<Config>)?;
+        assert_eq!(config.wit, Config::default().wit);
+        assert_eq!(config.templates, global_config.templates);
+        assert_eq!(config.build, local_config.build);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_env_vars() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+
+        let project = tempdir()?;
+        let project_dir = project.path();
+        let local_config_file = project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME);
+        let mut local_config = Config::default_with_templates();
+        local_config.build = Some(BuildConfig {
+            rust: Some(RustBuildConfig {
+                release: true,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        save_config(&local_config, &local_config_file).await?;
+
+        Jail::expect_with(|jail| {
+            // Should override whatever was set in local configuration
+            jail.set_env("WASH_BUILD__RUST__RELEASE", "false");
+            // Using double underscore as delimiter allows to use multi-words for configuration via
+            // env variables
+            jail.set_env("WASH_BUILD__RUST__CUSTOM_COMMAND", "[cargo,build]");
+
+            let config = load_config(&ctx.config_path(), Some(&project_dir), None::<Config>)
+                .expect("configuration should be loadable");
+
+            let rust_build_config = config
+                .clone()
+                .build
+                .ok_or("build config should contain information")?
+                .rust
+                .ok_or("rust build config should contain information")?;
+
+            assert_eq!(rust_build_config.release, false);
+
+            assert_eq!(
+                rust_build_config.custom_command,
+                Some(vec!["cargo".into(), "build".into()])
+            );
+
+            Ok(())
+        });
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_load_config_with_cli_args() -> anyhow::Result<()> {
+        let ctx = create_test_cli_context().await?;
+
+        let some_path = "/this/is/some/path";
+        let custom_command = vec!["cargo".into(), "component".into(), "bindings".into()];
+        let mut cli_config = Config::default_with_templates();
+        cli_config.build = Some(BuildConfig {
+            component_path: Some(some_path.into()),
+            rust: Some(RustBuildConfig {
+                custom_command: Some(custom_command.clone()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        Jail::expect_with(|jail| {
+            // Should be irrelevant, as is overwritten by CLI configuration.
+            jail.set_env("WASH_BUILD__RUST__CUSTOM_COMMAND", "[cargo,build]");
+
+            let config = load_config(&ctx.config_path(), None, Some(cli_config))
+                .expect("configuration should be loadable");
+
+            let build_config = config
+                .clone()
+                .build
+                .ok_or("build config should contain information")?;
+
+            assert_eq!(
+                build_config
+                    .clone()
+                    .rust
+                    .ok_or("rust build config should contain information")?
+                    .custom_command,
+                Some(custom_command)
+            );
+
+            assert_eq!(build_config.clone().component_path, Some(some_path.into()));
+
+            assert_eq!(
+                build_config
+                    .clone()
+                    .rust
+                    .ok_or("rust build config should contain information")?
+                    .release,
+                RustBuildConfig::default().release
+            );
+
+            Ok(())
+        });
+        Ok(())
+    }
 }
