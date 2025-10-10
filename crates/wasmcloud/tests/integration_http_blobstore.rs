@@ -24,9 +24,7 @@ use wasmcloud::{
     wit::WitInterface,
 };
 
-const HTTP_BLOBSTORE_WASM: &[u8] = include_bytes!(
-    "../../../examples/http-blobstore/target/wasm32-wasip2/release/http_blobstore.wasm"
-);
+const HTTP_BLOBSTORE_WASM: &[u8] = include_bytes!("fixtures/http_blobstore.wasm");
 
 #[tokio::test]
 async fn test_http_blobstore_integration() -> Result<()> {

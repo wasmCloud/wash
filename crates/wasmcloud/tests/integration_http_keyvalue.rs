@@ -17,7 +17,10 @@ use common::find_available_port;
 use wasmcloud::{
     engine::Engine,
     host::{HostApi, HostBuilder},
-    plugin::{wasi_http::HttpServer, wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging},
+    plugin::{
+        wasi_blobstore::WasiBlobstore, wasi_config::RuntimeConfig, wasi_http::HttpServer,
+        wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
+    },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
 };
@@ -43,6 +46,12 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Create keyvalue plugin
     let keyvalue_plugin = WasiKeyvalue::new();
 
+    // Create blobstore plugin
+    let blobstore_plugin = WasiBlobstore::new(None);
+
+    // Create config plugin
+    let config_plugin = RuntimeConfig::default();
+
     // Create logging plugin
     let logging_plugin = WasiLogging {};
 
@@ -51,6 +60,8 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
         .with_engine(engine.clone())
         .with_plugin(Arc::new(http_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
+        .with_plugin(Arc::new(blobstore_plugin))?
+        .with_plugin(Arc::new(config_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
         .build()?;
 
@@ -98,6 +109,20 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
                     interfaces: ["store".to_string(), "atomics".to_string()]
                         .into_iter()
                         .collect(),
+                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    config: HashMap::new(),
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "blobstore".to_string(),
+                    interfaces: ["blobstore".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    config: HashMap::new(),
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "config".to_string(),
+                    interfaces: ["runtime".to_string()].into_iter().collect(),
                     version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
                     config: HashMap::new(),
                 },
@@ -296,12 +321,16 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_plugin = HttpServer::new(addr);
     let keyvalue_plugin = WasiKeyvalue::new();
+    let blobstore_plugin = WasiBlobstore::new(None);
+    let config_plugin = RuntimeConfig::default();
     let logging_plugin = WasiLogging {};
 
     let host = HostBuilder::new()
         .with_engine(engine)
         .with_plugin(Arc::new(http_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
+        .with_plugin(Arc::new(blobstore_plugin))?
+        .with_plugin(Arc::new(config_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
         .build()?;
 
@@ -348,6 +377,20 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
                     interfaces: ["store".to_string(), "atomics".to_string()]
                         .into_iter()
                         .collect(),
+                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    config: HashMap::new(),
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "blobstore".to_string(),
+                    interfaces: ["blobstore".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    config: HashMap::new(),
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "config".to_string(),
+                    interfaces: ["runtime".to_string()].into_iter().collect(),
                     version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
                     config: HashMap::new(),
                 },
@@ -458,12 +501,16 @@ async fn test_keyvalue_error_handling() -> Result<()> {
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_plugin = HttpServer::new(addr);
     let keyvalue_plugin = WasiKeyvalue::new();
+    let blobstore_plugin = WasiBlobstore::new(None);
+    let config_plugin = RuntimeConfig::default();
     let logging_plugin = WasiLogging {};
 
     let host = HostBuilder::new()
         .with_engine(engine)
         .with_plugin(Arc::new(http_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
+        .with_plugin(Arc::new(blobstore_plugin))?
+        .with_plugin(Arc::new(config_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
         .build()?;
 
@@ -509,6 +556,20 @@ async fn test_keyvalue_error_handling() -> Result<()> {
                     interfaces: ["store".to_string(), "atomics".to_string()]
                         .into_iter()
                         .collect(),
+                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    config: HashMap::new(),
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "blobstore".to_string(),
+                    interfaces: ["blobstore".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    config: HashMap::new(),
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "config".to_string(),
+                    interfaces: ["runtime".to_string()].into_iter().collect(),
                     version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
                     config: HashMap::new(),
                 },

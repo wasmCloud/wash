@@ -30,10 +30,7 @@ use wasmcloud::{
 use wash::plugin::PluginManager;
 
 const HTTP_COUNTER_WASM: &[u8] = include_bytes!("fixtures/http_counter.wasm");
-// The blobstore-filesystem plugin compiled as a component
-const BLOBSTORE_FS_WASM: &[u8] = include_bytes!(
-    "../plugins/blobstore-filesystem/target/wasm32-wasip2/release/blobstore_filesystem.wasm"
-);
+const BLOBSTORE_FS_WASM: &[u8] = include_bytes!("fixtures/blobstore_filesystem.wasm");
 
 #[tokio::test]
 async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
