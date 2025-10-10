@@ -11,7 +11,7 @@ use wash::{
         CliCommand, CliContext,
         plugin::{PluginCommand, TestCommand},
     },
-    runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType,
+    plugin::bindings::wasmcloud::wash::types::HookType,
 };
 
 /// Test the plugin test command with the inspect plugin
