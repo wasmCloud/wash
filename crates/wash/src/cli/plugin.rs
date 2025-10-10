@@ -290,7 +290,7 @@ pub struct TestCommand {
         name = "arg",
         conflicts_with = "type",
         trailing_var_arg = true,
-        // TODO: --help won't get collected into this args
+        allow_hyphen_values = true
     )]
     pub args: Vec<String>,
 }
@@ -488,7 +488,7 @@ impl TestCommand {
                     ) =>
                 {
                     let _ = e.print();
-                    return Ok(CommandOutput::error(e.to_string(), None));
+                    return Ok(CommandOutput::error("", None));
                 }
                 Err(e) => anyhow::bail!("Failed to parse command arguments: {}", e),
             };
@@ -499,7 +499,7 @@ impl TestCommand {
                 plugin_component: Some(component.clone()),
             };
 
-            output.push_str(component_plugin_command.handle(ctx).await?.message.as_str());
+            output = component_plugin_command.handle(ctx).await?.message;
         }
 
         Ok(CommandOutput::ok(
