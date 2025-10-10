@@ -12,7 +12,7 @@
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     let config = OciConfig::default();
-//!     let component_bytes = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
+//!     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
 //!     println!("Pulled component of {} bytes", component_bytes.len());
 //!     Ok(())
 //! }
@@ -277,7 +277,7 @@ impl CredentialResolver {
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
 ///     let config = OciConfig::default();
-///     let component_bytes = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
+///     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
 ///     println!("Successfully pulled {} bytes", component_bytes.len());
 ///     Ok(())
 /// }
