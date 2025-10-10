@@ -74,6 +74,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
                     memory_limit_mb: 256,
                     cpu_limit: 1,
                     config: HashMap::new(),
+                    environment: HashMap::new(),
                     volume_mounts: vec![],
                     allowed_hosts: vec![],
                 },
@@ -256,6 +257,7 @@ async fn test_plugin_lifecycle() -> Result<()> {
 //                     memory_limit_mb: 2048, // 2GB memory limit for large payloads
 //                     cpu_limit: 4,
 //                     config: HashMap::new(),
+//                     environment: HashMap::new(),
 //                     volume_mounts: vec![],
 //                     allowed_hosts: vec![],
 //                 },
