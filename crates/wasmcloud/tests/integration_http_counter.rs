@@ -90,6 +90,7 @@ async fn test_http_counter_integration() -> Result<()> {
                         config.insert("counter_enabled".to_string(), "true".to_string());
                         config
                     },
+                    environment: HashMap::new(),
                     volume_mounts: vec![],
                     allowed_hosts: vec![],
                 },
@@ -421,6 +422,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
                     memory_limit_mb: 128,
                     cpu_limit: 1,
                     config: HashMap::new(),
+                    environment: HashMap::new(),
                     volume_mounts: vec![],
                     allowed_hosts: vec![],
                 },

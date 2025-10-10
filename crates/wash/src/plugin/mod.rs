@@ -21,7 +21,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
-use tracing::{debug, error, field::debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 use wasmcloud::{
     engine::workload::{ResolvedWorkload, WorkloadComponent},
     host::HostApi,
@@ -206,9 +206,9 @@ impl HostPlugin for PluginManager {
 
     fn world(&self) -> WitWorld {
         WitWorld {
-            // TODO: The world parsing doesn't do well with sub/supersets with tho host interfaces
-            imports: HashSet::from([WitInterface::from("wasmcloud:wash/plugin,types@0.0.2")]),
-            exports: HashSet::from([WitInterface::from("wasmcloud:wash/plugin,types@0.0.2")]),
+            // The plugin manager provides (imports from components' perspective) the types interface
+            imports: HashSet::from([WitInterface::from("wasmcloud:wash/types@0.0.2")]),
+            exports: HashSet::new(),
         }
     }
 
@@ -217,22 +217,24 @@ impl HostPlugin for PluginManager {
         component: &mut WorkloadComponent,
         interfaces: HashSet<WitInterface>,
     ) -> anyhow::Result<()> {
-        // Should only be asking for `wasmcloud:wash/plugin,types`
+        // Should only be asking for `wasmcloud:wash/types`
         if interfaces.len() != 1 {
             bail!("component tried to bind to plugin host with unsupported interfaces");
         }
         if let Some(interface) = interfaces.iter().next()
             && (interface.namespace != "wasmcloud"
                 || interface.package != "wash"
-                // Could be asking for either types or plugin
-                || !(interface.interfaces.contains("types")
-                    || interface.interfaces.contains("plugin")))
+                || !interface.interfaces.contains("types"))
         {
             bail!("component tried to bind to plugin host with unsupported interface: {interface}");
         }
+        info!(
+            "PluginManager binding to component with interfaces {}",
+            component.local_resources().cpu_limit
+        );
 
-        // wasmcloud:wash/plugin,types@0.0.2
-        bindings::WashPlugin::add_to_linker(component.linker(), |ctx| ctx)?;
+        // Add the types interface (provides runner, context, etc. to components that import wasmcloud:wash/types)
+        bindings::wasmcloud::wash::types::add_to_linker(component.linker(), |ctx| ctx)?;
 
         Ok(())
     }
@@ -242,7 +244,7 @@ impl HostPlugin for PluginManager {
         workload: &ResolvedWorkload,
         component_id: &str,
     ) -> anyhow::Result<()> {
-        debug("installing plugin");
+        debug!("installing plugin");
         let plugin = PluginComponent::new(workload, component_id, self.data_dir.as_ref()).await?;
 
         self.plugins.write().await.push(Arc::new(plugin));

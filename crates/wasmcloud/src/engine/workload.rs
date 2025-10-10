@@ -10,7 +10,7 @@ use anyhow::{Context as _, bail, ensure};
 use tokio::sync::RwLock;
 use tracing::{debug, trace, warn};
 use wasmtime::component::{
-    Component, Instance, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
+    Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 
@@ -235,6 +235,12 @@ impl WorkloadComponent {
     pub fn local_resources(&self) -> &LocalResources {
         &self.local_resources
     }
+
+    /// TODO
+    pub fn pre_instantiate(&mut self) -> anyhow::Result<InstancePre<Ctx>> {
+        let component = self.component.clone();
+        self.linker.instantiate_pre(&component)
+    }
 }
 
 impl std::fmt::Debug for WorkloadComponent {
@@ -319,9 +325,17 @@ impl ResolvedWorkload {
         &self,
         interface_map: &HashMap<String, String>,
     ) -> anyhow::Result<()> {
-        // TODO: no clone? just need a read copy basically
-        let all_components = self.components.read().await.clone();
-        for workload_component in self.components.write().await.values_mut() {
+        let component_ids: Vec<String> = self.components.read().await.keys().cloned().collect();
+        for component_id in component_ids {
+            // In order to have mutable access to both the workload component and components that need
+            // to be instantiated as "plugins" during linking, we remove and re-add the component to the list.
+            let mut workload_component = {
+                self.components
+                    .write()
+                    .await
+                    .remove(&component_id)
+                    .context("component not found during import resolution")?
+            };
             let component = workload_component.component.clone();
             let ty = component.component_type();
             let linker = workload_component.linker();
@@ -334,6 +348,7 @@ impl ResolvedWorkload {
                 match import_item {
                     ComponentItem::ComponentInstance(import_instance_ty) => {
                         trace!(name = import_name, "processing component instance import");
+                        let mut all_components = self.components.write().await;
                         let (plugin_component, instance_idx) = {
                             let Some(exporter_component) = interface_map.get(import_name) else {
                                 // TODO: error because unsatisfied import, if there's no available
@@ -344,7 +359,7 @@ impl ResolvedWorkload {
                                 );
                                 continue;
                             };
-                            let Some(plugin_component) = all_components.get(exporter_component)
+                            let Some(plugin_component) = all_components.get_mut(exporter_component)
                             else {
                                 trace!(
                                     name = import_name,
@@ -362,8 +377,10 @@ impl ResolvedWorkload {
                         };
                         trace!(name = import_name, index = ?instance_idx, "found import at index");
 
-                        // Preinstantiate the instance so we can use it later
-                        let pre = linker.instantiate_pre(&plugin_component.component)?;
+                        // Preinstantiate the plugin instance so we can use it later
+                        let pre = plugin_component
+                            .pre_instantiate()
+                            .context("failed to pre-instantiate during component linking")?;
 
                         let mut linker_instance = match linker.instance(import_name) {
                             Ok(i) => i,
@@ -573,6 +590,10 @@ impl ResolvedWorkload {
                     _ => continue,
                 }
             }
+            self.components
+                .write()
+                .await
+                .insert(workload_component.id.clone(), workload_component);
         }
         Ok(())
     }
@@ -982,6 +1003,17 @@ impl UnresolvedWorkload {
             components: Arc::new(RwLock::new(self.components)),
         };
 
+        // Link components before plugin resolution
+        if let Err(e) = resolved_workload.link_components().await {
+            // If linking fails, unbind all plugins before returning the error
+            warn!(
+                error = ?e,
+                "failed to link components, unbinding all plugins"
+            );
+            let _ = resolved_workload.unbind_all_plugins().await;
+            bail!(e);
+        }
+
         // Notify plugins of the resolved workload
         for (plugin, component_ids) in bound_plugins.iter() {
             trace!(
@@ -1006,17 +1038,6 @@ impl UnresolvedWorkload {
                     bail!(e);
                 }
             }
-        }
-
-        // Link components after plugin resolution
-        if let Err(e) = resolved_workload.link_components().await {
-            // If linking fails, unbind all plugins before returning the error
-            warn!(
-                error = ?e,
-                "failed to link components, unbinding all plugins"
-            );
-            let _ = resolved_workload.unbind_all_plugins().await;
-            bail!(e);
         }
 
         Ok(resolved_workload)

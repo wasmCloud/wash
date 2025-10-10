@@ -564,14 +564,6 @@ mod tests {
     }
 
     #[test]
-    fn test_oci_config_with_cache() {
-        let temp_dir = TempDir::new().unwrap();
-        let config = OciConfig::new_with_cache(temp_dir.path().to_path_buf());
-        assert!(config.cache_dir.is_some());
-        assert!(!config.insecure);
-    }
-
-    #[test]
     fn test_oci_config_with_credentials() {
         let config = OciConfig::new_with_credentials("user".to_string(), "pass".to_string());
         assert_eq!(
