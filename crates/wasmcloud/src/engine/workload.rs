@@ -1042,6 +1042,21 @@ impl UnresolvedWorkload {
 
         Ok(resolved_workload)
     }
+
+    /// Gets the unique identifier of the workload
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Gets the name of the workload
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// Gets the namespace of the workload
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
 }
 
 #[cfg(test)]
