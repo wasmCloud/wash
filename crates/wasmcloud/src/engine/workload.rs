@@ -849,16 +849,7 @@ impl UnresolvedWorkload {
                 let mut matching_interfaces = HashSet::new();
                 for wit_interface in required_interfaces.iter() {
                     // Check if plugin supports this interface
-                    let interface_match = plugin_interfaces
-                        .imports
-                        .iter()
-                        .any(|pi| pi.contains(wit_interface))
-                        || plugin_interfaces
-                            .exports
-                            .iter()
-                            .any(|pi| pi.contains(wit_interface));
-
-                    if interface_match {
+                    if plugin_interfaces.includes(wit_interface) {
                         matching_interfaces.insert(wit_interface.clone());
                     }
                 }
