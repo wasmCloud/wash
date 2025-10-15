@@ -42,6 +42,47 @@ impl WitWorld {
         self.imports.iter().any(|i| i.contains(interface))
             || self.exports.iter().any(|e| e.contains(interface))
     }
+
+    /// Checks if a guest world (imports) can be satisfied by a host world (exports).
+    ///
+    /// A host world satisfies a guest world if all interfaces required by the guest
+    /// are provided by the host, considering interface containment (subset/superset)
+    /// and ignoring any additional interfaces or versions in the host.
+    ///
+    /// # Arguments
+    /// * `guest` - The guest world to check
+    ///
+    /// # Returns
+    /// `true` if the host world (self) provides all interfaces required by the guest world
+    /// through direct exports or through superset relationships.
+    pub fn satisfies(&self, guest: &WitWorld) -> bool {
+        // For each interface that the guest imports, find a matching export in the host
+        for required in &guest.imports {
+            // Check if there's a direct match or a superset match
+            let matched: Vec<_> = self
+                .exports
+                .iter()
+                .filter(|provided| provided.contains(required))
+                .collect();
+
+            // If no matches found, guest cannot be satisfied
+            if matched.is_empty() {
+                return false;
+            }
+
+            // If there's more than one match, we need to ensure it's not a version conflict
+            if matched.len() > 1 {
+                // All matched exports must have the same version (if versioned)
+                let versions: HashSet<_> =
+                    matched.iter().filter_map(|m| m.version.as_ref()).collect();
+                if versions.len() > 1 {
+                    return false; // Conflicting versions
+                }
+            }
+        }
+
+        true
+    }
 }
 
 /// Represents a WIT interface specification with namespace, package, and optional version.
@@ -201,297 +242,147 @@ impl From<String> for WitInterface {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
-    // Tests for From<&str> parsing
-    #[test]
-    fn test_parse_basic_namespace_package() {
-        let wit = WitInterface::from("wasi:blobstore");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "blobstore");
-        assert!(wit.interfaces.is_empty());
-        assert!(wit.version.is_none());
+    fn create_interface(namespace: &str, package: &str, interfaces: &[&str]) -> WitInterface {
+        WitInterface {
+            namespace: namespace.to_string(),
+            package: package.to_string(),
+            interfaces: interfaces.iter().map(|s| s.to_string()).collect(),
+            version: None,
+            config: HashMap::new(),
+        }
+    }
+
+    fn create_interface_with_version(
+        namespace: &str,
+        package: &str,
+        interfaces: &[&str],
+        version: &str,
+    ) -> WitInterface {
+        WitInterface {
+            namespace: namespace.to_string(),
+            package: package.to_string(),
+            interfaces: interfaces.iter().map(|s| s.to_string()).collect(),
+            version: Some(semver::Version::parse(version).unwrap()),
+            config: HashMap::new(),
+        }
     }
 
     #[test]
-    fn test_parse_single_interface() {
-        let wit = WitInterface::from("wasi:http/incoming-handler");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "http");
-        assert_eq!(wit.interfaces.len(), 1);
-        assert!(wit.interfaces.contains("incoming-handler"));
-        assert!(wit.version.is_none());
+    fn test_contains_basic() {
+        let interface_a = create_interface("wasi", "logging", &["log", "error", "debug"]);
+        let interface_b = create_interface("wasi", "logging", &["log", "error"]);
+        let interface_c = create_interface("wasi", "logging", &["log", "trace"]);
+
+        // interface_a contains interface_b (superset)
+        assert!(interface_a.contains(&interface_b));
+        // interface_b does not contain interface_a (not a superset)
+        assert!(!interface_b.contains(&interface_a));
+        // interface_a does not contain interface_c (not a superset - missing "trace")
+        assert!(!interface_a.contains(&interface_c));
+        // An interface contains itself
+        assert!(interface_a.contains(&interface_a));
     }
 
     #[test]
-    fn test_parse_multiple_interfaces() {
-        let wit = WitInterface::from("wasi:http/incoming-handler,outgoing-handler,types");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "http");
-        assert_eq!(wit.interfaces.len(), 3);
-        assert!(wit.interfaces.contains("incoming-handler"));
-        assert!(wit.interfaces.contains("outgoing-handler"));
-        assert!(wit.interfaces.contains("types"));
-        assert!(wit.version.is_none());
-    }
-
-    #[test]
-    fn test_parse_with_version() {
-        let wit = WitInterface::from("wasi:blobstore/types@0.2.0");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "blobstore");
-        assert_eq!(wit.interfaces.len(), 1);
-        assert!(wit.interfaces.contains("types"));
-        assert_eq!(wit.version, Some(semver::Version::parse("0.2.0").unwrap()));
-    }
-
-    #[test]
-    fn test_parse_multiple_interfaces_with_version() {
-        let wit = WitInterface::from("wasi:keyvalue/store,atomics,batch@0.2.0-draft");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "keyvalue");
-        assert_eq!(wit.interfaces.len(), 3);
-        assert!(wit.interfaces.contains("store"));
-        assert!(wit.interfaces.contains("atomics"));
-        assert!(wit.interfaces.contains("batch"));
-        assert_eq!(
-            wit.version,
-            Some(semver::Version::parse("0.2.0-draft").unwrap())
-        );
-    }
-
-    #[test]
-    fn test_parse_no_namespace() {
-        let wit = WitInterface::from("blobstore/types");
-        assert_eq!(wit.namespace, "");
-        assert_eq!(wit.package, "blobstore");
-        assert_eq!(wit.interfaces.len(), 1);
-        assert!(wit.interfaces.contains("types"));
-    }
-
-    #[test]
-    fn test_parse_no_namespace_with_version() {
-        let wit = WitInterface::from("mypackage/interface1,interface2@1.0.0");
-        assert_eq!(wit.namespace, "");
-        assert_eq!(wit.package, "mypackage");
-        assert_eq!(wit.interfaces.len(), 2);
-        assert!(wit.interfaces.contains("interface1"));
-        assert!(wit.interfaces.contains("interface2"));
-        assert_eq!(wit.version, Some(semver::Version::parse("1.0.0").unwrap()));
-    }
-
-    #[test]
-    fn test_parse_spaces_in_interfaces() {
-        let wit = WitInterface::from("wasi:http/incoming-handler, outgoing-handler , types");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "http");
-        assert_eq!(wit.interfaces.len(), 3);
-        assert!(wit.interfaces.contains("incoming-handler"));
-        assert!(wit.interfaces.contains("outgoing-handler"));
-        assert!(wit.interfaces.contains("types"));
-    }
-
-    #[test]
-    fn test_parse_empty_interface_segments() {
-        // Test with trailing comma
-        let wit = WitInterface::from("wasi:http/incoming-handler,");
-        assert_eq!(wit.interfaces.len(), 1);
-        assert!(wit.interfaces.contains("incoming-handler"));
-
-        // Test with leading comma
-        let wit2 = WitInterface::from("wasi:http/,incoming-handler");
-        assert_eq!(wit2.interfaces.len(), 1);
-        assert!(wit2.interfaces.contains("incoming-handler"));
-
-        // Test with double comma
-        let wit3 = WitInterface::from("wasi:http/incoming-handler,,outgoing-handler");
-        assert_eq!(wit3.interfaces.len(), 2);
-        assert!(wit3.interfaces.contains("incoming-handler"));
-        assert!(wit3.interfaces.contains("outgoing-handler"));
-    }
-
-    #[test]
-    fn test_parse_invalid_version() {
-        let wit = WitInterface::from("wasi:blobstore/types@invalid-version");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "blobstore");
-        assert!(wit.interfaces.contains("types"));
-        assert!(wit.version.is_none()); // Invalid version is ignored
-    }
-
-    #[test]
-    fn test_parse_prerelease_version() {
-        let wit = WitInterface::from("wasi:logging/logging@0.1.0-draft");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "logging");
-        assert!(wit.interfaces.contains("logging"));
-        assert_eq!(
-            wit.version,
-            Some(semver::Version::parse("0.1.0-draft").unwrap())
-        );
-    }
-
-    #[test]
-    fn test_parse_complex_version() {
-        let wit = WitInterface::from("wasi:cli/environment@0.2.0-rc.2024-12-05");
-        assert_eq!(wit.namespace, "wasi");
-        assert_eq!(wit.package, "cli");
-        assert!(wit.interfaces.contains("environment"));
-        assert_eq!(
-            wit.version,
-            Some(semver::Version::parse("0.2.0-rc.2024-12-05").unwrap())
-        );
-    }
-
-    #[test]
-    fn test_parse_colon_in_package_name() {
-        // Edge case: what if package name itself contains a colon (shouldn't happen but let's test)
-        let wit = WitInterface::from("foo:bar:baz/interface");
-        assert_eq!(wit.namespace, "foo");
-        assert_eq!(wit.package, "bar:baz"); // Everything after first colon becomes package
-        assert!(wit.interfaces.contains("interface"));
-    }
-
-    #[test]
-    fn test_parse_just_package() {
-        let wit = WitInterface::from("mypackage");
-        assert_eq!(wit.namespace, "");
-        assert_eq!(wit.package, "mypackage");
-        assert!(wit.interfaces.is_empty());
-        assert!(wit.version.is_none());
-    }
-
-    #[test]
-    fn test_parse_just_package_with_version() {
-        let wit = WitInterface::from("mypackage@1.0.0");
-        assert_eq!(wit.namespace, "");
-        assert_eq!(wit.package, "mypackage");
-        assert!(wit.interfaces.is_empty());
-        assert_eq!(wit.version, Some(semver::Version::parse("1.0.0").unwrap()));
-    }
-
-    // Tests for contains function
-    #[test]
-    fn test_contains_matching_namespace_and_package() {
-        // TRUE: Same namespace and package, no interfaces, no version
-        let wit1 = WitInterface::from("wasi:blobstore");
-        let wit2 = WitInterface::from("wasi:blobstore");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_different_namespace() {
-        // FALSE: Different namespace
+    fn test_contains_namespace_and_package_matching() {
+        // Different namespaces should not match
         let wit1 = WitInterface::from("wasi:blobstore");
         let wit2 = WitInterface::from("custom:blobstore");
         assert!(!wit1.contains(&wit2));
+
+        // Different packages should not match
+        let wit3 = WitInterface::from("wasi:blobstore");
+        let wit4 = WitInterface::from("wasi:keyvalue");
+        assert!(!wit3.contains(&wit4));
+
+        // Same namespace and package should match
+        let wit5 = WitInterface::from("wasi:blobstore");
+        let wit6 = WitInterface::from("wasi:blobstore");
+        assert!(wit5.contains(&wit6));
+
+        // Empty namespace cases
+        let wit7 = WitInterface::from("blobstore/types");
+        let wit8 = WitInterface::from("blobstore/types");
+        assert!(wit7.contains(&wit8));
+
+        // Mixed empty namespace should not match
+        let wit9 = WitInterface::from("wasi:blobstore/types");
+        let wit10 = WitInterface::from("blobstore/types");
+        assert!(!wit9.contains(&wit10));
     }
 
     #[test]
-    fn test_contains_different_package() {
-        // FALSE: Different package
-        let wit1 = WitInterface::from("wasi:blobstore");
-        let wit2 = WitInterface::from("wasi:keyvalue");
-        assert!(!wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_interface_subset() {
-        // TRUE: wit2's interfaces are a subset of wit1's interfaces
+    fn test_contains_interface_subsets() {
+        // Subset relationship
         let wit1 = WitInterface::from("wasi:blobstore/types,container,blobstore");
         let wit2 = WitInterface::from("wasi:blobstore/types,container");
         assert!(wit1.contains(&wit2));
+
+        // Not a subset - wit2 has interfaces wit1 doesn't have
+        let wit3 = WitInterface::from("wasi:blobstore/types");
+        let wit4 = WitInterface::from("wasi:blobstore/types,container");
+        assert!(!wit3.contains(&wit4));
+
+        // Empty set is a subset of any set
+        let wit5 = WitInterface::from("wasi:blobstore/types,container");
+        let wit6 = WitInterface::from("wasi:blobstore");
+        assert!(wit5.contains(&wit6));
+
+        // Overlapping but not subset
+        let wit7 = WitInterface::from("wasi:cli/stdin,stdout");
+        let wit8 = WitInterface::from("wasi:cli/stdout,stderr");
+        assert!(!wit7.contains(&wit8));
+
+        // Single interface vs multiple
+        let wit9 = WitInterface::from("wasi:cli/environment,exit,stdin,stdout");
+        let wit10 = WitInterface::from("wasi:cli/environment");
+        assert!(wit9.contains(&wit10));
     }
 
     #[test]
-    fn test_contains_interface_exact_match() {
-        // TRUE: Exact same interfaces
-        let wit1 = WitInterface::from("wasi:blobstore/types,container");
-        let wit2 = WitInterface::from("wasi:blobstore/types,container");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_interface_not_subset() {
-        // FALSE: wit2 has interfaces that wit1 doesn't have
-        let wit1 = WitInterface::from("wasi:blobstore/types");
-        let wit2 = WitInterface::from("wasi:blobstore/types,container");
-        assert!(!wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_empty_interfaces() {
-        // TRUE: Both have no interfaces specified
-        let wit1 = WitInterface::from("wasi:blobstore");
-        let wit2 = WitInterface::from("wasi:blobstore");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_empty_subset_of_non_empty() {
-        // TRUE: Empty set is a subset of any set
-        let wit1 = WitInterface::from("wasi:blobstore/types,container");
-        let wit2 = WitInterface::from("wasi:blobstore");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_version_matching() {
-        // TRUE: Same version
+    fn test_contains_version_handling() {
+        // Same versions should match
         let wit1 = WitInterface::from("wasi:blobstore/types@0.2.0");
         let wit2 = WitInterface::from("wasi:blobstore/types@0.2.0");
         assert!(wit1.contains(&wit2));
+
+        // Different versions should not match
+        let wit3 = WitInterface::from("wasi:blobstore/types@0.2.0");
+        let wit4 = WitInterface::from("wasi:blobstore/types@0.3.0");
+        assert!(!wit3.contains(&wit4));
+
+        // wit1 has version, wit2 doesn't - still matches (wit2 is less restrictive)
+        let wit5 = WitInterface::from("wasi:blobstore/types@0.2.0");
+        let wit6 = WitInterface::from("wasi:blobstore/types");
+        assert!(wit5.contains(&wit6));
+
+        // wit1 has no version requirement, wit2 can have any version
+        let wit7 = WitInterface::from("wasi:blobstore/types");
+        let wit8 = WitInterface::from("wasi:blobstore/types@0.2.0");
+        assert!(wit7.contains(&wit8));
+
+        // Complex scenario with version
+        let wit9 = WitInterface::from("wasi:http/types,incoming-handler,outgoing-handler@0.2.0");
+        let wit10 = WitInterface::from("wasi:http/types,incoming-handler@0.2.0");
+        assert!(wit9.contains(&wit10));
     }
 
     #[test]
-    fn test_contains_version_mismatch() {
-        // FALSE: Different versions
-        let wit1 = WitInterface::from("wasi:blobstore/types@0.2.0");
-        let wit2 = WitInterface::from("wasi:blobstore/types@0.3.0");
-        assert!(!wit1.contains(&wit2));
+    fn test_contains_with_version() {
+        let interface_a = create_interface_with_version("wasi", "http", &["handler"], "0.2.0");
+        let interface_b = create_interface_with_version("wasi", "http", &["handler"], "0.2.0");
+        let interface_c = create_interface_with_version("wasi", "http", &["handler"], "0.3.0");
+
+        // Same versions should match
+        assert!(interface_a.contains(&interface_b));
+        // Different versions should not match
+        assert!(!interface_a.contains(&interface_c));
     }
 
     #[test]
-    fn test_contains_version_missing() {
-        // TRUE: wit1 has version, wit2 doesn't, wit2 is less restrictive
-        let wit1 = WitInterface::from("wasi:blobstore/types@0.2.0");
-        let wit2 = WitInterface::from("wasi:blobstore/types");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_version_not_required() {
-        // TRUE: wit1 has no version requirement, wit2 can have any version
-        let wit1 = WitInterface::from("wasi:blobstore/types");
-        let wit2 = WitInterface::from("wasi:blobstore/types@0.2.0");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_complex_scenario() {
-        // TRUE: Same namespace, package, version, and wit2's interfaces are subset
-        let wit1 = WitInterface::from("wasi:http/types,incoming-handler,outgoing-handler@0.2.0");
-        let wit2 = WitInterface::from("wasi:http/types,incoming-handler@0.2.0");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_single_interface_vs_multiple() {
-        // TRUE: Single interface is subset of multiple
-        let wit1 = WitInterface::from("wasi:cli/environment,exit,stdin,stdout");
-        let wit2 = WitInterface::from("wasi:cli/environment");
-        assert!(wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_overlapping_but_not_subset() {
-        // FALSE: wit2 has 'stderr' which wit1 doesn't have
-        let wit1 = WitInterface::from("wasi:cli/stdin,stdout");
-        let wit2 = WitInterface::from("wasi:cli/stdout,stderr");
-        assert!(!wit1.contains(&wit2));
-    }
-
-    #[test]
-    fn test_contains_with_config() {
+    fn test_contains_config_ignored() {
         // Config doesn't affect contains logic, only namespace, package, interfaces, and version matter
         let mut wit1 = WitInterface::from("wasi:blobstore/types");
         wit1.config.insert("key".to_string(), "value1".to_string());
@@ -499,23 +390,258 @@ mod tests {
         let mut wit2 = WitInterface::from("wasi:blobstore/types");
         wit2.config.insert("key".to_string(), "value2".to_string());
 
-        // TRUE: Config differences are ignored
+        // Config differences are ignored
         assert!(wit1.contains(&wit2));
     }
 
     #[test]
-    fn test_contains_no_namespace() {
-        // TRUE: Both have empty namespace (just package)
-        let wit1 = WitInterface::from("blobstore/types");
-        let wit2 = WitInterface::from("blobstore/types");
-        assert!(wit1.contains(&wit2));
+    fn test_world_includes() {
+        let required_interface = create_interface("wasi", "keyvalue", &["get"]);
+        let broader_interface = create_interface("wasi", "keyvalue", &["get", "set"]);
+        let different_interface = create_interface("wasi", "logging", &["log"]);
+
+        // World that imports the exact interface
+        let world1 = WitWorld {
+            imports: [required_interface.clone()].iter().cloned().collect(),
+            exports: HashSet::new(),
+        };
+        assert!(world1.includes(&required_interface));
+
+        // World that imports a broader interface
+        let world2 = WitWorld {
+            imports: [broader_interface.clone()].iter().cloned().collect(),
+            exports: HashSet::new(),
+        };
+        assert!(world2.includes(&required_interface));
+        assert!(!world1.includes(&broader_interface));
+
+        // World that exports the interface
+        let world3 = WitWorld {
+            imports: HashSet::new(),
+            exports: [broader_interface.clone()].iter().cloned().collect(),
+        };
+        assert!(world3.includes(&required_interface));
+
+        // World with a non-matching interface
+        let world4 = WitWorld {
+            imports: [different_interface].iter().cloned().collect(),
+            exports: HashSet::new(),
+        };
+        assert!(!world4.includes(&required_interface));
     }
 
     #[test]
-    fn test_contains_mixed_empty_namespace() {
-        // FALSE: One has namespace, other doesn't
-        let wit1 = WitInterface::from("wasi:blobstore/types");
-        let wit2 = WitInterface::from("blobstore/types");
-        assert!(!wit1.contains(&wit2));
+    fn test_world_satisfies() {
+        // Guest requires 'logging' and 'keyvalue-read'
+        let guest_world = WitWorld {
+            imports: [
+                create_interface("wasi", "logging", &["log"]),
+                create_interface("wasi", "keyvalue", &["get", "exists"]),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+            exports: HashSet::new(),
+        };
+
+        // Host that provides exactly what's needed
+        let host_world_exact = WitWorld {
+            imports: HashSet::new(),
+            exports: [
+                create_interface("wasi", "logging", &["log"]),
+                create_interface("wasi", "keyvalue", &["get", "exists"]),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        };
+        assert!(host_world_exact.satisfies(&guest_world));
+
+        // Host that provides superset interfaces
+        let host_world_superset = WitWorld {
+            imports: HashSet::new(),
+            exports: [
+                create_interface("wasi", "logging", &["log", "error"]),
+                create_interface("wasi", "keyvalue", &["get", "exists", "set", "delete"]),
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        };
+        assert!(host_world_superset.satisfies(&guest_world));
+
+        // Host that is missing one of the required interfaces
+        let host_world_missing = WitWorld {
+            imports: HashSet::new(),
+            exports: [create_interface("wasi", "logging", &["log"])]
+                .iter()
+                .cloned()
+                .collect(),
+        };
+        assert!(!host_world_missing.satisfies(&guest_world));
+
+        // Host that provides a subset of a required interface (not enough)
+        let host_world_subset = WitWorld {
+            imports: HashSet::new(),
+            exports: [
+                create_interface("wasi", "logging", &["log"]),
+                create_interface("wasi", "keyvalue", &["get"]), // Missing "exists"
+            ]
+            .iter()
+            .cloned()
+            .collect(),
+        };
+        assert!(!host_world_subset.satisfies(&guest_world));
+    }
+
+    #[test]
+    fn test_parse_basic_formats() {
+        // Basic namespace:package
+        let wit1 = WitInterface::from("wasi:blobstore");
+        assert_eq!(wit1.namespace, "wasi");
+        assert_eq!(wit1.package, "blobstore");
+        assert!(wit1.interfaces.is_empty());
+        assert!(wit1.version.is_none());
+
+        // Single interface
+        let wit2 = WitInterface::from("wasi:http/incoming-handler");
+        assert_eq!(wit2.namespace, "wasi");
+        assert_eq!(wit2.package, "http");
+        assert_eq!(wit2.interfaces.len(), 1);
+        assert!(wit2.interfaces.contains("incoming-handler"));
+
+        // Multiple interfaces
+        let wit3 = WitInterface::from("wasi:http/incoming-handler,outgoing-handler,types");
+        assert_eq!(wit3.interfaces.len(), 3);
+        assert!(wit3.interfaces.contains("incoming-handler"));
+        assert!(wit3.interfaces.contains("outgoing-handler"));
+        assert!(wit3.interfaces.contains("types"));
+
+        // Just package (no namespace)
+        let wit4 = WitInterface::from("mypackage");
+        assert_eq!(wit4.namespace, "");
+        assert_eq!(wit4.package, "mypackage");
+        assert!(wit4.interfaces.is_empty());
+
+        // No namespace with interface
+        let wit5 = WitInterface::from("blobstore/types");
+        assert_eq!(wit5.namespace, "");
+        assert_eq!(wit5.package, "blobstore");
+        assert!(wit5.interfaces.contains("types"));
+    }
+
+    #[test]
+    fn test_parse_with_versions() {
+        // Basic version
+        let wit1 = WitInterface::from("wasi:blobstore/types@0.2.0");
+        assert_eq!(wit1.version, Some(semver::Version::parse("0.2.0").unwrap()));
+
+        // Multiple interfaces with version
+        let wit2 = WitInterface::from("wasi:keyvalue/store,atomics,batch@0.2.0-draft");
+        assert_eq!(wit2.interfaces.len(), 3);
+        assert_eq!(
+            wit2.version,
+            Some(semver::Version::parse("0.2.0-draft").unwrap())
+        );
+
+        // No namespace with version
+        let wit3 = WitInterface::from("mypackage/interface1,interface2@1.0.0");
+        assert_eq!(wit3.namespace, "");
+        assert_eq!(wit3.version, Some(semver::Version::parse("1.0.0").unwrap()));
+
+        // Just package with version
+        let wit4 = WitInterface::from("mypackage@1.0.0");
+        assert!(wit4.interfaces.is_empty());
+        assert_eq!(wit4.version, Some(semver::Version::parse("1.0.0").unwrap()));
+
+        // Prerelease version
+        let wit5 = WitInterface::from("wasi:logging/logging@0.1.0-draft");
+        assert_eq!(
+            wit5.version,
+            Some(semver::Version::parse("0.1.0-draft").unwrap())
+        );
+
+        // Complex version
+        let wit6 = WitInterface::from("wasi:cli/environment@0.2.0-rc.2024-12-05");
+        assert_eq!(
+            wit6.version,
+            Some(semver::Version::parse("0.2.0-rc.2024-12-05").unwrap())
+        );
+
+        // Invalid version is ignored
+        let wit7 = WitInterface::from("wasi:blobstore/types@invalid-version");
+        assert!(wit7.version.is_none());
+    }
+
+    #[test]
+    fn test_parse_edge_cases() {
+        // Spaces in interfaces
+        let wit1 = WitInterface::from("wasi:http/incoming-handler, outgoing-handler , types");
+        assert_eq!(wit1.interfaces.len(), 3);
+        assert!(wit1.interfaces.contains("incoming-handler"));
+        assert!(wit1.interfaces.contains("outgoing-handler"));
+        assert!(wit1.interfaces.contains("types"));
+
+        // Empty interface segments (trailing comma)
+        let wit2 = WitInterface::from("wasi:http/incoming-handler,");
+        assert_eq!(wit2.interfaces.len(), 1);
+        assert!(wit2.interfaces.contains("incoming-handler"));
+
+        // Leading comma
+        let wit3 = WitInterface::from("wasi:http/,incoming-handler");
+        assert_eq!(wit3.interfaces.len(), 1);
+        assert!(wit3.interfaces.contains("incoming-handler"));
+
+        // Double comma
+        let wit4 = WitInterface::from("wasi:http/incoming-handler,,outgoing-handler");
+        assert_eq!(wit4.interfaces.len(), 2);
+
+        // Colon in package name (edge case)
+        let wit5 = WitInterface::from("foo:bar:baz/interface");
+        assert_eq!(wit5.namespace, "foo");
+        assert_eq!(wit5.package, "bar:baz");
+        assert!(wit5.interfaces.contains("interface"));
+    }
+
+    #[test]
+    fn test_parse_from_string() {
+        let iface: WitInterface = "wasi:http/incoming-handler@0.2.0".into();
+        assert_eq!(iface.namespace, "wasi");
+        assert_eq!(iface.package, "http");
+        assert_eq!(iface.interfaces.len(), 1);
+        assert!(iface.interfaces.contains("incoming-handler"));
+        assert_eq!(
+            iface.version,
+            Some(semver::Version::parse("0.2.0").unwrap())
+        );
+
+        let iface2: WitInterface = "wasmcloud:messaging".into();
+        assert_eq!(iface2.namespace, "wasmcloud");
+        assert_eq!(iface2.package, "messaging");
+        assert!(iface2.interfaces.is_empty());
+        assert_eq!(iface2.version, None);
+
+        let iface3: WitInterface = "wasi:keyvalue/store,atomic@0.1.0".into();
+        assert_eq!(iface3.namespace, "wasi");
+        assert_eq!(iface3.package, "keyvalue");
+        assert_eq!(iface3.interfaces.len(), 2);
+        assert!(iface3.interfaces.contains("store"));
+        assert!(iface3.interfaces.contains("atomic"));
+    }
+
+    #[test]
+    fn test_display() {
+        let iface = create_interface("wasi", "http", &["incoming-handler"]);
+        assert_eq!(format!("{}", iface), "wasi:http/incoming-handler");
+
+        let iface_with_version =
+            create_interface_with_version("wasi", "http", &["incoming-handler"], "0.2.0");
+        assert_eq!(
+            format!("{}", iface_with_version),
+            "wasi:http/incoming-handler@0.2.0"
+        );
+
+        let iface_no_interfaces = create_interface("wasi", "logging", &[]);
+        assert_eq!(format!("{}", iface_no_interfaces), "wasi:logging");
     }
 }
