@@ -76,6 +76,7 @@ async fn test_end_to_end_template_to_execution() -> Result<()> {
             .await
             .expect("failed to create CLI context"),
         &cfg,
+        Some(&vec!["--release".into()]),
     )
     .await
     .context("failed to build component")?;

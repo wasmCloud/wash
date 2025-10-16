@@ -236,7 +236,7 @@ impl CliCommand for DevCommand {
             debug!("no recommendations found for project tools");
         }
 
-        let component_path = match build_component(&self.project_dir, ctx, &config).await {
+        let component_path = match build_component(&self.project_dir, ctx, &config, None).await {
             // Edge case where the build was successful, but the component path in the config is different
             // than the one returned by the build process.
             Ok(build_result)
@@ -531,6 +531,7 @@ impl CliCommand for DevCommand {
                         &self.project_dir,
                         ctx,
                         &config,
+                        None,
                     ).await;
 
                     match rebuild_result {
