@@ -32,8 +32,6 @@ pub struct Ctx {
     /// These all implement the [`HostPlugin`] trait, but they are cast as `Arc<dyn Any + Send + Sync>`
     /// to support downcasting to the specific plugin type in [`Ctx::get_plugin`]
     plugins: HashMap<&'static str, Arc<dyn Any + Send + Sync>>,
-    /// Whether to skip confirmation prompts for host exec operations
-    pub skip_confirmation: bool,
 }
 
 impl Ctx {
@@ -41,9 +39,8 @@ impl Ctx {
     pub fn get_plugin<T: HostPlugin + 'static>(&self, plugin_id: &str) -> Option<Arc<T>> {
         self.plugins.get(plugin_id)?.clone().downcast().ok()
     }
-}
 
-impl Ctx {
+    /// Create a new [`CtxBuilder`] to construct a [`Ctx`]
     pub fn builder(workload_id: impl AsRef<str>, component_id: impl AsRef<str>) -> CtxBuilder {
         CtxBuilder::new(workload_id, component_id)
     }
@@ -85,7 +82,6 @@ pub struct CtxBuilder {
     component_id: String,
     ctx: Option<WasiCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
-    skip_confirmation: bool,
 }
 
 impl CtxBuilder {
@@ -96,7 +92,6 @@ impl CtxBuilder {
             workload_id: workload_id.as_ref().to_string(),
             ctx: None,
             plugins: HashMap::new(),
-            skip_confirmation: false, // Default to prompting
         }
     }
 
@@ -110,11 +105,6 @@ impl CtxBuilder {
         plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
     ) -> Self {
         self.plugins.extend(plugins);
-        self
-    }
-
-    pub fn skip_confirmation(mut self, skip: bool) -> Self {
-        self.skip_confirmation = skip;
         self
     }
 
@@ -138,7 +128,6 @@ impl CtxBuilder {
             http: WasiHttpCtx::new(),
             table: ResourceTable::new(),
             plugins,
-            skip_confirmation: self.skip_confirmation,
         }
     }
 }

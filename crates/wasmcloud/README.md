@@ -31,7 +31,50 @@ This crate is embeddable in Rust projects and can be extended with your own host
 ### Usage
 
 ```rust
-// TODO
+use std::sync::Arc;
+use std::collections::HashMap;
+
+use wasmcloud::{
+    engine::Engine,
+    host::{HostBuilder, HostApi},
+    plugin::{
+        wasi_config::RuntimeConfig,
+        wasi_http::HttpServer,
+    },
+    types::{WorkloadStartRequest, Workload},
+};
+
+#[tokio::main]
+async fn main()  -> anyhow::Result<()> {
+    let engine = Engine::builder().build()?;
+    let http_plugin = HttpServer::new("127.0.0.1:8080".parse()?);
+    let runtime_config_plugin = RuntimeConfig::default();
+
+    let host = HostBuilder::new()
+        .with_engine(engine)
+        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(runtime_config_plugin))?
+        .build()?;
+
+    let host = host.start().await?;
+
+    let req = WorkloadStartRequest {
+        workload: Workload {
+            namespace: "test".to_string(),
+            name: "test-workload".to_string(),
+            annotations: HashMap::new(),
+            service: None,
+            components: vec![],
+            host_interfaces: vec![],
+            volumes: vec![],
+        },
+    };
+    let res = host.workload_start(req).await;
+
+    assert!(res.is_ok());
+
+    Ok(())
+}
 ```
 
 _We are a Cloud Native Computing Foundation [Incubating project](https://www.cncf.io/projects/)._

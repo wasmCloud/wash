@@ -5,7 +5,7 @@ use anyhow::{Context as _, Result};
 use dialoguer::{Confirm, theme::ColorfulTheme};
 use std::{collections::HashMap, env, sync::Arc};
 use tokio::{process::Command, sync::RwLock};
-use tracing::debug;
+use tracing::{debug, warn};
 use wasmcloud::engine::ctx::Ctx;
 use wasmtime::component::Resource;
 use wasmtime_wasi::IoView;
@@ -19,14 +19,20 @@ pub struct Runner {
     /// The metadata of the plugin
     pub metadata: Metadata,
     pub context: Arc<RwLock<HashMap<String, String>>>,
+    pub(crate) skip_confirmation: bool,
 }
 
 impl Runner {
-    pub fn new(metadata: Metadata, context: Arc<RwLock<HashMap<String, String>>>) -> Self {
+    pub fn new(
+        metadata: Metadata,
+        context: Arc<RwLock<HashMap<String, String>>>,
+        skip_confirmation: bool,
+    ) -> Self {
         Self {
             version: env!("CARGO_PKG_VERSION").to_string(),
             metadata,
             context,
+            skip_confirmation,
         }
     }
 }
@@ -158,7 +164,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostRunner for Ctx {
         let ctx_data = self.table.get(&ctx).map_err(|e| e.to_string())?;
 
         // Prompt for confirmation unless explicitly skipped
-        if !self.skip_confirmation {
+        if !ctx_data.skip_confirmation {
             // TODO(ISSUE#3): cache this somewhere
             let confirmed = Confirm::with_theme(&ColorfulTheme::default())
                 .with_prompt(format!(
@@ -192,14 +198,10 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostRunner for Ctx {
         bin: String,
         args: Vec<String>,
     ) -> Result<(), String> {
-        let Some(plugin) = self.get_plugin::<PluginManager>(PLUGIN_MANAGER_ID) else {
-            return Err("failed to get plugin manager for exec background command".to_string());
-        };
-
         let ctx_data = self.table.get(&ctx).map_err(|e| e.to_string())?;
 
         // Prompt for confirmation unless explicitly skipped
-        if !self.skip_confirmation {
+        if !ctx_data.skip_confirmation {
             // TODO(ISSUE#3): cache this somewhere
             let confirmed = Confirm::with_theme(&ColorfulTheme::default())
                 .with_prompt(format!(
@@ -218,8 +220,12 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostRunner for Ctx {
 
         debug!(bin = %bin, ?args, "executing host command in background");
         match Command::new(bin).args(args).kill_on_drop(true).spawn() {
-            Ok(child) => {
-                plugin.background_processes.write().await.push(child);
+            Ok(mut child) => {
+                tokio::spawn(async move {
+                    if let Err(e) = child.wait().await {
+                        warn!(error = %e, "background process exited with error");
+                    }
+                });
                 Ok(())
             }
             Err(e) => Err(e.to_string()),
