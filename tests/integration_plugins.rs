@@ -11,7 +11,7 @@ use wash::{
         CliCommand, CliContext,
         plugin::{PluginCommand, TestCommand},
     },
-    runtime::bindings::plugin::exports::wasmcloud::wash::plugin::HookType,
+    plugin::bindings::wasmcloud::wash::types::HookType,
 };
 
 /// Test the plugin test command with the inspect plugin
@@ -22,7 +22,6 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
         .init();
 
     let ctx = CliContext::builder()
-        .non_interactive(false)
         .build()
         .await
         .context("Failed to create CLI context")?;
