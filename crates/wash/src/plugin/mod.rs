@@ -41,14 +41,27 @@ const PLUGINS_FS_DIR: &str = "fs";
 
 #[derive(Debug, Default)]
 pub struct PluginManager {
+    /// All registered plugins
     plugins: Arc<RwLock<Vec<Arc<PluginComponent>>>>,
     /// Optional directory where plugins can store data
     data_dir: Option<PathBuf>,
+    /// A map of configuration from workload id to key-value pairs
     runtime_config: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
-    background_processes: Arc<RwLock<Vec<tokio::process::Child>>>,
+    /// Whether to skip confirmation prompts for host exec operations
+    skip_confirmation: bool,
 }
 
 impl PluginManager {
+    /// Create a new PluginManager
+    pub fn new(skip_confirmation: bool) -> Self {
+        Self {
+            plugins: Arc::default(),
+            data_dir: None,
+            runtime_config: Arc::default(),
+            skip_confirmation,
+        }
+    }
+
     /// Load existing plugins from the plugins directory and start their workloads
     pub async fn load_plugins(
         &self,
@@ -102,8 +115,6 @@ impl PluginManager {
                     WitInterface::from("wasmcloud:wash/types@0.0.2"),
                     WitInterface::from("wasi:config/runtime@0.2.0-draft"),
                 ],
-                // TODO: Messes with host interface parsing
-                // host_interfaces: vec![WitInterface::from("wasmcloud:wash/plugin,types@0.0.2")],
                 volumes: vec![],
             };
 
@@ -196,6 +207,10 @@ impl PluginManager {
             .find(|p| p.workload.id() == workload_id)
             .cloned()
     }
+
+    pub fn skip_confirmation(&self) -> bool {
+        self.skip_confirmation
+    }
 }
 
 #[async_trait::async_trait]
@@ -245,7 +260,15 @@ impl HostPlugin for PluginManager {
         component_id: &str,
     ) -> anyhow::Result<()> {
         debug!("installing plugin");
-        let plugin = PluginComponent::new(workload, component_id, self.data_dir.as_ref()).await?;
+        // TODO: what's the best way to do this? maybe a label
+        let skip_confirmation = false;
+        let plugin = PluginComponent::new(
+            workload,
+            component_id,
+            self.data_dir.as_ref(),
+            skip_confirmation,
+        )
+        .await?;
 
         self.plugins.write().await.push(Arc::new(plugin));
 
@@ -263,6 +286,8 @@ pub struct PluginComponent {
     pub metadata: Metadata,
     /// A read/write allowed directory for the component to use as its filesystem root
     pub wasi_fs_root: Option<PathBuf>,
+    /// Whether or not to skip confirmation prompts for host exec operations
+    pub(crate) skip_confirmation: bool,
 }
 
 impl std::fmt::Debug for PluginComponent {
@@ -279,6 +304,7 @@ impl PluginComponent {
         workload: &ResolvedWorkload,
         component_id: &str,
         data_dir: Option<impl AsRef<Path>>,
+        skip_confirmation: bool,
     ) -> anyhow::Result<Self> {
         let pre = workload.instantiate_pre(component_id).await?;
         let mut store = workload.new_store(component_id).await?;
@@ -314,6 +340,7 @@ impl PluginComponent {
             workload: workload.to_owned(),
             metadata,
             wasi_fs_root,
+            skip_confirmation,
         })
     }
 
@@ -352,7 +379,11 @@ impl PluginComponent {
             .context("failed to create plugin host bindings")?;
 
         // We'll use the same runner for initialization and the hook
-        let runner = Runner::new(self.metadata.clone(), runner_context);
+        let runner = Runner::new(
+            self.metadata.clone(),
+            runner_context,
+            self.skip_confirmation,
+        );
 
         let initialize_runner = store.data_mut().table.push(runner.clone())?;
         plugin
@@ -384,7 +415,11 @@ impl PluginComponent {
             .context("failed to instantiate plugin")?;
         let plugin = WashPlugin::new(&mut store, &instance)
             .context("failed to create plugin host bindings")?;
-        let runner = Runner::new(self.metadata.clone(), runner_context);
+        let runner = Runner::new(
+            self.metadata.clone(),
+            runner_context,
+            self.skip_confirmation,
+        );
 
         let initialize_runner = store.data_mut().table.push(runner.clone())?;
         plugin

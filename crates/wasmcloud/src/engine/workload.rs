@@ -40,12 +40,19 @@ pub struct WorkloadComponent {
     workload_name: String,
     /// The namespace of the workload this component belongs to
     workload_namespace: String,
+    /// The actual wasmtime [`Component`] that can be instantiated
     component: Component,
+    /// The wasmtime [`Linker`] used to instantiate the component
     linker: Linker<Ctx>,
+    /// The volume mounts requested by this component
     volume_mounts: Vec<(PathBuf, VolumeMount)>,
+    /// The local resources requested by this component
     local_resources: LocalResources,
+    /// The number of warm instances to keep for this component
     pool_size: usize,
+    /// The maximum number of concurrent invocations allowed for this component
     max_invocations: usize,
+    /// The plugins available to this component
     plugins: Option<HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>>,
 }
 
@@ -236,7 +243,7 @@ impl WorkloadComponent {
         &self.local_resources
     }
 
-    /// TODO
+    /// Pre-instantiate the component to prepare for instantiation.
     pub fn pre_instantiate(&mut self) -> anyhow::Result<InstancePre<Ctx>> {
         let component = self.component.clone();
         self.linker.instantiate_pre(&component)

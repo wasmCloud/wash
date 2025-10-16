@@ -190,14 +190,6 @@ impl Engine {
         ))
     }
 
-    /// Stops a running workload and cleans up its resources.
-    ///
-    /// TODO: This function is not yet implemented. It will iterate through
-    /// all components and unbind them from plugins.
-    pub fn stop_workload(&self) {
-        // iterate and unbind workload from all plugins
-    }
-
     /// Initialize a component that is a part of a workload, add wasi@0.2 interfaces (and
     /// wasi:http if the `http` feature is enabled) to the linker.
     fn initialize_workload_component(

@@ -22,7 +22,6 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
         .init();
 
     let ctx = CliContext::builder()
-        .non_interactive(false)
         .build()
         .await
         .context("Failed to create CLI context")?;

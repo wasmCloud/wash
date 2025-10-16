@@ -14,7 +14,7 @@ use etcetera::{
     app_strategy::{Windows, Xdg},
     choose_app_strategy,
 };
-use tokio::{process::Child, sync::RwLock};
+use tokio::sync::RwLock;
 
 use serde_json::json;
 use tracing::{debug, error, info, instrument, trace};
@@ -294,11 +294,6 @@ pub struct CliContext {
     /// A wasmCloud host instance used for executing plugins
     host: Arc<Host>,
     plugin_manager: Arc<PluginManager>,
-    /// Stores the handles to background processes spawned by host_exec_background. We want to
-    /// constrain the processes spawned by components to the lifetime of the CLI context.
-    background_processes: Arc<RwLock<Vec<Child>>>,
-    /// Whether to run in non-interactive mode (skip terminal checks for host exec)
-    non_interactive: bool,
 }
 
 impl Deref for CliContext {
@@ -316,7 +311,6 @@ pub struct CliContextBuilder {
 }
 
 impl CliContextBuilder {
-    /// Set whether to run in non-interactive mode
     pub fn non_interactive(mut self, non_interactive: bool) -> Self {
         self.non_interactive = non_interactive;
         self
@@ -378,7 +372,7 @@ impl CliContextBuilder {
                 .context("failed to create config directory")?;
         }
 
-        let plugin_manager = Arc::new(PluginManager::default());
+        let plugin_manager = Arc::new(PluginManager::new(self.non_interactive));
 
         let host = wasmcloud::host::Host::builder()
             .with_plugin(Arc::new(RuntimeConfig::default()))?
@@ -392,8 +386,6 @@ impl CliContextBuilder {
             app_strategy,
             host,
             plugin_manager: plugin_manager.clone(),
-            background_processes: Arc::default(),
-            non_interactive: self.non_interactive,
         };
 
         // Once the CliContext is initialized, load all plugins
@@ -411,7 +403,7 @@ impl CliContext {
 
     /// Returns whether wash is running in non-interactive mode
     pub fn is_non_interactive(&self) -> bool {
-        self.non_interactive
+        self.plugin_manager().skip_confirmation()
     }
 
     #[instrument(level = "debug", skip(self))]
@@ -537,10 +529,6 @@ impl CliContext {
 
     pub fn host(&self) -> &Arc<Host> {
         &self.host
-    }
-
-    pub fn background_processes(&self) -> Arc<RwLock<Vec<Child>>> {
-        self.background_processes.clone()
     }
 
     /// Call hooks for the specified hook type with the provided runtime context.
