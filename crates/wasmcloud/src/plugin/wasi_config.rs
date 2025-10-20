@@ -23,8 +23,6 @@ use std::{
 };
 use tokio::sync::RwLock;
 
-const RUNTIME_CONFIG_ID: &str = "runtime-config";
-
 use crate::{
     engine::{ctx::Ctx, workload::WorkloadComponent},
     plugin::HostPlugin,
@@ -41,6 +39,10 @@ mod bindings {
 
 use bindings::wasi::config::runtime::{ConfigError, Host};
 
+const RUNTIME_CONFIG_ID: &str = "runtime-config";
+
+type ConfigMap = HashMap<Arc<str>, HashMap<String, String>>;
+
 /// Runtime configuration plugin that provides access to configuration data.
 ///
 /// This plugin implements the WASI config interface, allowing components to
@@ -48,8 +50,8 @@ use bindings::wasi::config::runtime::{ConfigError, Host};
 /// component gets isolated access to its own configuration scope.
 #[derive(Clone, Default)]
 pub struct RuntimeConfig {
-    /// A map of configuration from workload id to key-value pairs
-    config: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
+    /// A map of configuration from component id to key-value pairs
+    config: Arc<RwLock<ConfigMap>>,
 }
 
 impl Host for Ctx {
@@ -59,7 +61,7 @@ impl Host for Ctx {
         };
         let config_guard = plugin.config.read().await;
         config_guard
-            .get(&self.component_id)
+            .get(&*self.component_id)
             .and_then(|map| map.get(&key).cloned())
             .map_or(Ok(Ok(None)), |v| Ok(Ok(Some(v))))
     }
@@ -70,7 +72,7 @@ impl Host for Ctx {
         };
         let config_guard = plugin.config.read().await;
         let entries = config_guard
-            .get(&self.component_id)
+            .get(&*self.component_id)
             .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
         Ok(Ok(entries))
@@ -113,7 +115,7 @@ impl HostPlugin for RuntimeConfig {
         self.config
             .write()
             .await
-            .insert(component_handle.id().to_string(), interface.config.clone());
+            .insert(Arc::from(component_handle.id()), interface.config.clone());
 
         Ok(())
     }

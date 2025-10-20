@@ -19,9 +19,9 @@ pub struct Ctx {
     /// Unique identifier for this component context. This is a [uuid::Uuid::new_v4] string.
     pub id: String,
     /// The unique identifier for the workload component this instance belongs to
-    pub component_id: String,
+    pub component_id: Arc<str>,
     /// The unique identifier for the workload this component belongs to
-    pub workload_id: String,
+    pub workload_id: Arc<str>,
     /// The resource table used to manage resources in the Wasmtime store.
     pub table: wasmtime::component::ResourceTable,
     /// The WASI context used to provide WASI functionality to the components using this context.
@@ -41,7 +41,10 @@ impl Ctx {
     }
 
     /// Create a new [`CtxBuilder`] to construct a [`Ctx`]
-    pub fn builder(workload_id: impl AsRef<str>, component_id: impl AsRef<str>) -> CtxBuilder {
+    pub fn builder(
+        workload_id: impl Into<Arc<str>>,
+        component_id: impl Into<Arc<str>>,
+    ) -> CtxBuilder {
         CtxBuilder::new(workload_id, component_id)
     }
 }
@@ -50,7 +53,7 @@ impl std::fmt::Debug for Ctx {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Ctx")
             .field("id", &self.id)
-            .field("workload_id", &self.workload_id)
+            .field("workload_id", &self.workload_id.as_ref())
             .field("table", &self.table)
             .finish()
     }
@@ -78,18 +81,18 @@ impl WasiHttpView for Ctx {
 /// Helper struct to build a [`Ctx`] with a builder pattern
 pub struct CtxBuilder {
     id: String,
-    workload_id: String,
-    component_id: String,
+    workload_id: Arc<str>,
+    component_id: Arc<str>,
     ctx: Option<WasiCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
 }
 
 impl CtxBuilder {
-    pub fn new(workload_id: impl AsRef<str>, component_id: impl AsRef<str>) -> Self {
+    pub fn new(workload_id: impl Into<Arc<str>>, component_id: impl Into<Arc<str>>) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
-            component_id: component_id.as_ref().to_string(),
-            workload_id: workload_id.as_ref().to_string(),
+            component_id: component_id.into(),
+            workload_id: workload_id.into(),
             ctx: None,
             plugins: HashMap::new(),
         }

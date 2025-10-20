@@ -148,7 +148,8 @@ impl<T: HostApi> HostApi for Arc<T> {
 #[derive(Debug, Clone)]
 pub enum HostWorkload {
     Starting,
-    Running(ResolvedWorkload),
+    // Boxed to reduce size of the enum
+    Running(Box<ResolvedWorkload>),
     Stopping,
     Error,
 }
@@ -432,12 +433,22 @@ impl HostApi for Host {
             .await
             .insert(workload_id.clone(), HostWorkload::Starting);
 
+        let service_present = request.workload.service.is_some();
+
         // Initialize the workload using the engine, receiving the unresolved workload
         let unresolved_workload = self
             .engine
             .initialize_workload(&workload_id, request.workload)?;
 
-        let resolved_workload = unresolved_workload.resolve(Some(&self.plugins)).await?;
+        let mut resolved_workload = unresolved_workload.resolve(Some(&self.plugins)).await?;
+
+        // If the service didn't run and we had one, warn
+        if resolved_workload.execute_service().await? != service_present {
+            warn!(
+                workload_id = workload_id,
+                "service did not properly execute"
+            );
+        }
 
         // Update the workload state to `Running`
         self.workloads
@@ -445,7 +456,7 @@ impl HostApi for Host {
             .await
             .entry(workload_id.clone())
             .and_modify(|workload| {
-                *workload = HostWorkload::Running(resolved_workload);
+                *workload = HostWorkload::Running(Box::new(resolved_workload));
             });
 
         Ok(WorkloadStartResponse {
@@ -511,6 +522,9 @@ impl HostApi for Host {
                         workload_name = resolved_workload.name(),
                         "stopping workload"
                     );
+
+                    // Stop the service if running
+                    resolved_workload.stop_service();
 
                     // Unbind all plugins from the workload
                     if let Err(e) = resolved_workload.unbind_all_plugins().await {

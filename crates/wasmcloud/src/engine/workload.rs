@@ -2,17 +2,18 @@
 //! resolving all components and their dependencies.
 use std::{
     collections::{HashMap, HashSet},
+    ops::{Deref, DerefMut},
     path::PathBuf,
     sync::Arc,
 };
 
 use anyhow::{Context as _, bail, ensure};
-use tokio::sync::RwLock;
-use tracing::{debug, trace, warn};
+use tokio::{sync::RwLock, task::JoinHandle};
+use tracing::{debug, info, trace, warn};
 use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, bindings::CommandPre};
 
 use crate::{
     engine::{
@@ -20,26 +21,21 @@ use crate::{
         value::{lift, lower},
     },
     plugin::HostPlugin,
-    types::{LocalResources, Service, VolumeMount},
+    types::{LocalResources, VolumeMount},
     wit::{WitInterface, WitWorld},
 };
 
-/// A [`WorkloadComponent`] is a component that is part of a workload.
-///
-/// It contains the actual [`Component`] that can be instantiated,
-/// the [`Linker`] for creating stores and instances, the available
-/// [`VolumeMount`]s to be passed as filesystem preopens, and the
-/// full list of [`HostPlugin`]s that the component depends on.
+/// Metadata associated with components and services within a workload.
 #[derive(Clone)]
-pub struct WorkloadComponent {
+pub struct WorkloadMetadata {
     /// The unique identifier for this component
-    id: String,
+    id: Arc<str>,
     /// The unique identifier for the workload this component belongs to
-    workload_id: String,
+    workload_id: Arc<str>,
     /// The name of the workload this component belongs to
-    workload_name: String,
+    workload_name: Arc<str>,
     /// The namespace of the workload this component belongs to
-    workload_namespace: String,
+    workload_namespace: Arc<str>,
     /// The actual wasmtime [`Component`] that can be instantiated
     component: Component,
     /// The wasmtime [`Linker`] used to instantiate the component
@@ -48,54 +44,77 @@ pub struct WorkloadComponent {
     volume_mounts: Vec<(PathBuf, VolumeMount)>,
     /// The local resources requested by this component
     local_resources: LocalResources,
-    /// The number of warm instances to keep for this component
-    pool_size: usize,
-    /// The maximum number of concurrent invocations allowed for this component
-    max_invocations: usize,
     /// The plugins available to this component
     plugins: Option<HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>>,
 }
 
-impl WorkloadComponent {
-    /// Create a new [`WorkloadComponent`] with the given workload ID,
-    /// wasmtime [`Component`], [`Linker`], volume mounts, and instance limits.
-    pub fn new(
-        workload_id: String,
-        workload_name: String,
-        workload_namespace: String,
-        component: Component,
-        linker: Linker<Ctx>,
-        volume_mounts: Vec<(PathBuf, VolumeMount)>,
-        local_resources: LocalResources,
-    ) -> Self {
-        Self {
-            id: uuid::Uuid::new_v4().to_string(),
-            workload_id,
-            workload_name,
-            workload_namespace,
-            component,
-            linker,
-            volume_mounts,
-            local_resources,
-            plugins: None,
-            // TODO: Implement pooling and instance limits
-            pool_size: 0,
-            max_invocations: 0,
+impl WorkloadMetadata {
+    /// Returns the unique identifier for this component.
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// Returns the ID of the workload this component belongs to.
+    pub fn workload_id(&self) -> &str {
+        &self.workload_id
+    }
+
+    /// Returns the name of the workload this component belongs to.
+    pub fn workload_name(&self) -> &str {
+        &self.workload_name
+    }
+
+    /// Returns the namespace of the workload this component belongs to.
+    pub fn workload_namespace(&self) -> &str {
+        &self.workload_namespace
+    }
+
+    /// Returns a reference to the wasmtime engine used to compile this component.
+    pub fn engine(&self) -> &wasmtime::Engine {
+        self.component.engine()
+    }
+
+    /// Returns a mutable reference to the component's linker.
+    pub fn linker(&mut self) -> &mut Linker<Ctx> {
+        &mut self.linker
+    }
+
+    /// Returns a reference to component local resources.
+    pub fn local_resources(&self) -> &LocalResources {
+        &self.local_resources
+    }
+
+    /// Returns a reference to the plugins associated with this component.
+    pub fn plugins(&self) -> &Option<HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>> {
+        &self.plugins
+    }
+
+    /// Adds a [`HostPlugin`] to the component.
+    pub fn add_plugin(&mut self, id: &'static str, plugin: Arc<dyn HostPlugin + Send + Sync>) {
+        if let Some(ref mut plugins) = self.plugins {
+            plugins.insert(id, plugin);
+        } else {
+            let mut plugins = HashMap::new();
+            plugins.insert(id, plugin);
+            self.plugins = Some(plugins);
         }
     }
 
-    /// Extracts the [`ComponentItem::ComponentInstance`]s that the given [`Component`] exports.
-    ///
-    /// Primarily used when resolving component dependencies and linking since the [`ComponentItem`]
-    /// contains valuable type information.
+    /// Replaces all plugins for this component with the provided set.
+    pub fn with_plugins(
+        &mut self,
+        plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
+    ) {
+        self.plugins = Some(plugins);
+    }
+
+    /// Extracts the [`ComponentItem::ComponentInstance`]s that the component exports.
     pub fn component_exports(&self) -> anyhow::Result<Vec<(String, ComponentItem)>> {
         Ok(self
             .component
             .component_type()
             .exports(self.component.engine())
             .filter_map(|(name, item)| {
-                // An instance in this case is something like `wasi:blobstore/blobstore@0.2.0-draft`, or an
-                // entire interface that's exported.
                 if matches!(item, ComponentItem::ComponentInstance(_)) {
                     Some((name.to_string(), item))
                 } else {
@@ -105,8 +124,7 @@ impl WorkloadComponent {
             .collect::<Vec<_>>())
     }
 
-    /// Computes and returns the [`WitWorld`] of this component for convenient
-    /// comparison when resolving component dependencies.
+    /// Computes and returns the [`WitWorld`] of this component.
     pub fn world(&self) -> WitWorld {
         let mut imports = HashMap::new();
         let mut exports = HashMap::new();
@@ -141,7 +159,6 @@ impl WorkloadComponent {
             .exports(self.component.engine())
         {
             if let ComponentItem::ComponentInstance(_) = export_item {
-                // Register the interface name to the component key
                 let interface = WitInterface::from(export_name);
                 let k = interface.instance();
                 exports
@@ -163,102 +180,171 @@ impl WorkloadComponent {
             exports: exports.into_values().collect(),
         }
     }
+}
 
-    /// Adds a [`HostPlugin`] to the component
-    pub fn add_plugin(&mut self, id: &'static str, plugin: Arc<dyn HostPlugin + Send + Sync>) {
-        if let Some(ref mut plugins) = self.plugins {
-            plugins.insert(id, plugin);
-        } else {
-            let mut plugins = HashMap::new();
-            plugins.insert(id, plugin);
-            self.plugins = Some(plugins);
+/// A [`WorkloadService`] is a component that is part of a workload that
+/// runs once, either to completion or for the duration of the workload lifecycle.
+#[derive(Clone)]
+pub struct WorkloadService {
+    /// The [`WorkloadMetadata`] for this service
+    metadata: WorkloadMetadata,
+    /// The maximum number of restarts for this service
+    max_restarts: u64,
+    /// The [`JoinHandle`] for the running service
+    handle: Option<Arc<JoinHandle<()>>>,
+}
+
+impl WorkloadService {
+    /// Create a new [`WorkloadService`] with the given workload ID,
+    /// wasmtime [`Component`], [`Linker`], volume mounts, and instance limits.
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        workload_id: impl Into<Arc<str>>,
+        workload_name: impl Into<Arc<str>>,
+        workload_namespace: impl Into<Arc<str>>,
+        component: Component,
+        linker: Linker<Ctx>,
+        volume_mounts: Vec<(PathBuf, VolumeMount)>,
+        local_resources: LocalResources,
+        max_restarts: u64,
+    ) -> Self {
+        Self {
+            metadata: WorkloadMetadata {
+                id: uuid::Uuid::new_v4().to_string().into(),
+                workload_id: workload_id.into(),
+                workload_name: workload_name.into(),
+                workload_namespace: workload_namespace.into(),
+                component,
+                linker,
+                volume_mounts,
+                local_resources,
+                plugins: None,
+            },
+            handle: None,
+            max_restarts,
         }
     }
 
-    /// Replaces all plugins for this component with the provided set.
-    ///
-    /// # Arguments
-    /// * `plugins` - A HashMap of plugin IDs to plugin instances
-    pub fn with_plugins(
-        &mut self,
-        plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
-    ) {
-        self.plugins = Some(plugins);
+    /// Pre-instantiate the component to prepare for execution.
+    pub fn pre_instantiate(&mut self) -> anyhow::Result<CommandPre<Ctx>> {
+        let component = self.metadata.component.clone();
+        let pre = self.metadata.linker.instantiate_pre(&component)?;
+        let command = CommandPre::new(pre)?;
+        Ok(command)
     }
 
-    /// Returns the unique identifier for this component.
-    ///
-    /// # Returns
-    /// The component's UUID string.
-    pub fn id(&self) -> &str {
-        &self.id
+    /// Whether or not the service is currently running.
+    pub fn is_running(&self) -> bool {
+        self.handle.is_some()
     }
+}
 
-    /// Returns the ID of the workload this component belongs to.
-    ///
-    /// # Returns
-    /// The parent workload's ID string.
-    pub fn workload_id(&self) -> &str {
-        &self.workload_id
-    }
+/// A [`WorkloadComponent`] is a component that is part of a workload.
+///
+/// It contains the actual [`Component`] that can be instantiated,
+/// the [`Linker`] for creating stores and instances, the available
+/// [`VolumeMount`]s to be passed as filesystem preopens, and the
+/// full list of [`HostPlugin`]s that the component depends on.
+#[derive(Clone)]
+pub struct WorkloadComponent {
+    /// The [`WorkloadMetadata`] for this component
+    metadata: WorkloadMetadata,
+    /// The number of warm instances to keep for this component
+    pool_size: usize,
+    /// The maximum number of concurrent invocations allowed for this component
+    max_invocations: usize,
+}
 
-    /// Returns the name of the workload this component belongs to.
-    pub fn workload_name(&self) -> &str {
-        &self.workload_name
-    }
-
-    /// Returns the namespace of the workload this component belongs to.
-    pub fn workload_namespace(&self) -> &str {
-        &self.workload_namespace
-    }
-
-    /// Returns a reference to the plugins associated with this component.
-    ///
-    /// # Returns
-    /// An optional reference to the plugin HashMap, None if no plugins are configured.
-    pub fn plugins(&self) -> &Option<HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>> {
-        &self.plugins
-    }
-
-    /// Returns a reference to the wasmtime engine used to compile this component
-    pub fn engine(&self) -> &wasmtime::Engine {
-        self.component.engine()
-    }
-
-    /// Returns a mutable reference to the component's linker.
-    ///
-    /// The linker is used to wire up imports and exports for the component.
-    ///
-    /// # Returns
-    /// A mutable reference to the wasmtime `Linker`.
-    pub fn linker(&mut self) -> &mut Linker<Ctx> {
-        &mut self.linker
-    }
-
-    /// Returns a reference to component local resources such as environment variables, cpu limits, and requested volume mounts.
-    /// These resources are configured per-component in the workload manifest.
-    /// # Returns
-    /// A reference to the component's `LocalResources`.
-    pub fn local_resources(&self) -> &LocalResources {
-        &self.local_resources
+impl WorkloadComponent {
+    /// Create a new [`WorkloadComponent`] with the given workload ID,
+    /// wasmtime [`Component`], [`Linker`], volume mounts, and instance limits.
+    pub fn new(
+        workload_id: impl Into<Arc<str>>,
+        workload_name: impl Into<Arc<str>>,
+        workload_namespace: impl Into<Arc<str>>,
+        component: Component,
+        linker: Linker<Ctx>,
+        volume_mounts: Vec<(PathBuf, VolumeMount)>,
+        local_resources: LocalResources,
+    ) -> Self {
+        Self {
+            metadata: WorkloadMetadata {
+                id: uuid::Uuid::new_v4().to_string().into(),
+                workload_id: workload_id.into(),
+                workload_name: workload_name.into(),
+                workload_namespace: workload_namespace.into(),
+                component,
+                linker,
+                volume_mounts,
+                local_resources,
+                plugins: None,
+            },
+            // TODO: Implement pooling and instance limits
+            pool_size: 0,
+            max_invocations: 0,
+        }
     }
 
     /// Pre-instantiate the component to prepare for instantiation.
     pub fn pre_instantiate(&mut self) -> anyhow::Result<InstancePre<Ctx>> {
-        let component = self.component.clone();
-        self.linker.instantiate_pre(&component)
+        let component = self.metadata.component.clone();
+        self.metadata.linker.instantiate_pre(&component)
     }
 }
 
 impl std::fmt::Debug for WorkloadComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkloadComponent")
-            .field("id", &self.id)
-            .field("workload_id", &self.workload_id)
-            .field("volume_mounts", &self.volume_mounts)
+            .field("id", &self.metadata.id.as_ref())
+            .field("workload_id", &self.metadata.workload_id.as_ref())
+            .field("volume_mounts", &self.metadata.volume_mounts)
             .field("pool_size", &self.pool_size)
             .field("max_invocations", &self.max_invocations)
             .finish()
+    }
+}
+
+impl std::fmt::Debug for WorkloadService {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorkloadService")
+            .field("id", &self.metadata.id.as_ref())
+            .field("workload_name", &self.metadata.workload_name.as_ref())
+            .field(
+                "workload_namespace",
+                &self.metadata.workload_namespace.as_ref(),
+            )
+            .field("workload_id", &self.metadata.workload_id.as_ref())
+            .field("volume_mounts", &self.metadata.volume_mounts)
+            .field("is_running", &self.is_running())
+            .finish()
+    }
+}
+
+impl Deref for WorkloadComponent {
+    type Target = WorkloadMetadata;
+
+    fn deref(&self) -> &Self::Target {
+        &self.metadata
+    }
+}
+
+impl DerefMut for WorkloadComponent {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.metadata
+    }
+}
+
+impl Deref for WorkloadService {
+    type Target = WorkloadMetadata;
+
+    fn deref(&self) -> &Self::Target {
+        &self.metadata
+    }
+}
+
+impl DerefMut for WorkloadService {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.metadata
     }
 }
 
@@ -270,21 +356,71 @@ impl std::fmt::Debug for WorkloadComponent {
 #[derive(Debug, Clone)]
 pub struct ResolvedWorkload {
     /// The unique identifier of the workload, created with [uuid::Uuid::new_v4]
-    id: String,
+    id: Arc<str>,
     /// The name of the workload
-    name: String,
+    name: Arc<str>,
     /// The namespace of the workload
-    namespace: String,
+    namespace: Arc<str>,
     /// All components in the workload. This is behind a `RwLock` to support mutable
     /// access to the component linkers.
-    components: Arc<RwLock<HashMap<String, WorkloadComponent>>>,
-    // TODO: implement service
+    components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
+    /// An optional service component that runs once to completion or for the duration of the workload
+    service: Option<WorkloadService>,
 }
 
 impl ResolvedWorkload {
-    async fn link_components(&self) -> anyhow::Result<()> {
+    /// Executes the service, if present, and returns whether it was run.
+    pub(crate) async fn execute_service(&mut self) -> anyhow::Result<bool> {
+        let service = self
+            .service
+            .as_mut()
+            .map(|s| (s.pre_instantiate(), s.max_restarts));
+
+        if let Some((Ok(pre), mut max_restarts)) = service {
+            let mut store = self.new_service_store().await?;
+            let instance = pre.instantiate_async(&mut store).await?;
+            let handle = tokio::spawn(async move {
+                loop {
+                    if let Err(e) = instance.wasi_cli_run().call_run(&mut store).await {
+                        warn!(err = %e, retries = max_restarts, "service execution failed");
+                        if max_restarts == 0 {
+                            info!("max restarts reached, service will not be restarted");
+                            break;
+                        }
+                    } else {
+                        info!("service executed successfully");
+                        break;
+                    }
+                    max_restarts = max_restarts.saturating_sub(1);
+                }
+            });
+
+            // Store the handle to ensure the service can be cleaned up during workload shutdown
+            if let Some(s) = self.service.as_mut() {
+                s.handle = Some(Arc::new(handle));
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Aborts the running service [`JoinHandle`] if it exists.
+    pub(crate) fn stop_service(&self) {
+        if let Some(service) = &self.service
+            && let Some(handle) = &service.handle
+        {
+            handle.abort();
+            debug!(
+                workload_id = self.id.as_ref(),
+                "service for workload aborted"
+            );
+        }
+    }
+
+    async fn link_components(&mut self) -> anyhow::Result<()> {
         // A map from component ID to its exported interfaces
-        let mut interface_map = HashMap::new();
+        let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
 
         // Determine available component exports to link to the rest of the workload
         for c in self.components.read().await.values() {
@@ -311,14 +447,13 @@ impl ResolvedWorkload {
                             "another component already implements the interface '{name}'"
                         );
                     }
-                    interface_map.insert(name.clone(), c.id().to_string());
+                    trace!(name, "registering component export for linking");
+                    interface_map.insert(name.clone(), Arc::from(c.id()));
                 } else {
                     warn!(name, "exported item is not a component instance, skipping");
                 }
             }
         }
-
-        // TODO: Link exports to service
 
         self.resolve_workload_imports(&interface_map).await?;
 
@@ -329,10 +464,10 @@ impl ResolvedWorkload {
     /// This function plugs a components imports with the exports of other components
     /// that are already loaded in the plugin system.
     async fn resolve_workload_imports(
-        &self,
-        interface_map: &HashMap<String, String>,
+        &mut self,
+        interface_map: &HashMap<String, Arc<str>>,
     ) -> anyhow::Result<()> {
-        let component_ids: Vec<String> = self.components.read().await.keys().cloned().collect();
+        let component_ids: Vec<Arc<str>> = self.components.read().await.keys().cloned().collect();
         for component_id in component_ids {
             // In order to have mutable access to both the workload component and components that need
             // to be instantiated as "plugins" during linking, we remove and re-add the component to the list.
@@ -343,229 +478,266 @@ impl ResolvedWorkload {
                     .remove(&component_id)
                     .context("component not found during import resolution")?
             };
-            let component = workload_component.component.clone();
-            let ty = component.component_type();
-            let linker = workload_component.linker();
-            let imports: Vec<_> = ty.imports(component.engine()).collect();
 
-            // TODO: some kind of shared import_name -> component registry. need to remove when new store
-            // store id, instance, import_name. That will keep the instance properly unique
-            let instance: Arc<RwLock<Option<(String, Instance)>>> = Arc::default();
-            for (import_name, import_item) in imports.into_iter() {
-                match import_item {
-                    ComponentItem::ComponentInstance(import_instance_ty) => {
-                        trace!(name = import_name, "processing component instance import");
-                        let mut all_components = self.components.write().await;
-                        let (plugin_component, instance_idx) = {
-                            let Some(exporter_component) = interface_map.get(import_name) else {
-                                // TODO: error because unsatisfied import, if there's no available
-                                // export then it's an unresolvable workload
-                                trace!(
-                                    name = import_name,
-                                    "import not found in component exports, skipping"
-                                );
-                                continue;
-                            };
-                            let Some(plugin_component) = all_components.get_mut(exporter_component)
-                            else {
-                                trace!(
-                                    name = import_name,
-                                    "exporting component not found in all components, skipping"
-                                );
-                                continue;
-                            };
-                            let Some((ComponentItem::ComponentInstance(_), idx)) =
-                                plugin_component.component.export_index(None, import_name)
-                            else {
-                                trace!(name = import_name, "skipping non-instance import");
-                                continue;
-                            };
-                            (plugin_component, idx)
+            let component = workload_component.metadata.component.clone();
+            let linker = &mut workload_component.metadata.linker;
+            let res = self
+                .resolve_component_imports(&component, linker, interface_map)
+                .await;
+            self.components
+                .write()
+                .await
+                .insert(workload_component.metadata.id.clone(), workload_component);
+            // Propagate any errors encountered during import resolution
+            res?;
+        }
+
+        if let Some(mut service) = self.service.take() {
+            let component = service.metadata.component.clone();
+            let linker = &mut service.metadata.linker;
+
+            let res = self
+                .resolve_component_imports(&component, linker, interface_map)
+                .await;
+
+            self.service = Some(service);
+
+            // Propagate any errors encountered during import resolution
+            res?;
+        }
+
+        Ok(())
+    }
+
+    async fn resolve_component_imports(
+        &self,
+        component: &wasmtime::component::Component,
+        linker: &mut Linker<Ctx>,
+        interface_map: &HashMap<String, Arc<str>>,
+    ) -> anyhow::Result<()> {
+        // let component = workload_component.component.clone();
+        let ty = component.component_type();
+        // let linker = workload_component.linker();
+        let imports: Vec<_> = ty.imports(component.engine()).collect();
+
+        // TODO: some kind of shared import_name -> component registry. need to remove when new store
+        // store id, instance, import_name. That will keep the instance properly unique
+        let instance: Arc<RwLock<Option<(String, Instance)>>> = Arc::default();
+        for (import_name, import_item) in imports.into_iter() {
+            match import_item {
+                ComponentItem::ComponentInstance(import_instance_ty) => {
+                    trace!(name = import_name, "processing component instance import");
+                    let mut all_components = self.components.write().await;
+                    let (plugin_component, instance_idx) = {
+                        let Some(exporter_component) = interface_map.get(import_name) else {
+                            // TODO: error because unsatisfied import, if there's no available
+                            // export then it's an unresolvable workload
+                            trace!(
+                                name = import_name,
+                                "import not found in component exports, skipping"
+                            );
+                            continue;
                         };
-                        trace!(name = import_name, index = ?instance_idx, "found import at index");
-
-                        // Preinstantiate the plugin instance so we can use it later
-                        let pre = plugin_component
-                            .pre_instantiate()
-                            .context("failed to pre-instantiate during component linking")?;
-
-                        let mut linker_instance = match linker.instance(import_name) {
-                            Ok(i) => i,
-                            Err(e) => {
-                                trace!(name = import_name, error = %e, "error finding instance in linker, skipping");
-                                continue;
-                            }
+                        let Some(plugin_component) = all_components.get_mut(exporter_component)
+                        else {
+                            trace!(
+                                name = import_name,
+                                "exporting component not found in all components, skipping"
+                            );
+                            continue;
                         };
+                        let Some((ComponentItem::ComponentInstance(_), idx)) = plugin_component
+                            .metadata
+                            .component
+                            .export_index(None, import_name)
+                        else {
+                            trace!(name = import_name, "skipping non-instance import");
+                            continue;
+                        };
+                        (plugin_component, idx)
+                    };
+                    trace!(name = import_name, index = ?instance_idx, "found import at index");
 
-                        for (export_name, export_ty) in
-                            import_instance_ty.exports(plugin_component.component.engine())
-                        {
-                            match export_ty {
-                                ComponentItem::ComponentFunc(_func_ty) => {
-                                    let (item, func_idx) = match plugin_component
-                                        .component
-                                        .export_index(Some(&instance_idx), export_name)
-                                    {
-                                        Some(res) => res,
-                                        None => {
-                                            trace!(
-                                                name = import_name,
-                                                fn_name = export_name,
-                                                "failed to get export index, skipping"
-                                            );
-                                            continue;
-                                        }
-                                    };
-                                    ensure!(
-                                        matches!(item, ComponentItem::ComponentFunc(..)),
-                                        "expected function export, found other"
-                                    );
-                                    trace!(
-                                        name = import_name,
-                                        fn_name = export_name,
-                                        "linking function import"
-                                    );
-                                    let import_name: Arc<str> = import_name.into();
-                                    let export_name: Arc<str> = export_name.into();
-                                    let pre = pre.clone();
-                                    let instance = instance.clone();
-                                    linker_instance
-                                        .func_new_async(
-                                            &export_name.clone(),
-                                            move |mut store, params, results| {
-                                                // TODO: some kind of store data hashing mechanism
-                                                // to detect a diff store to drop the old one
-                                                let import_name = import_name.clone();
-                                                let export_name = export_name.clone();
-                                                let pre = pre.clone();
-                                                let instance = instance.clone();
-                                                Box::new(async move {
-                                                    let existing_instance = instance.read().await;
-                                                    let store_id = store.data().id.clone();
-                                                    let instance = if let Some((id, instance)) =
-                                                        existing_instance.clone()
-                                                        && id == store_id
-                                                    {
-                                                        drop(existing_instance);
-                                                        instance
-                                                    } else {
-                                                        // Likely unnecessary, but explicit drop of the read lock
-                                                        let new_instance = pre
-                                                            .instantiate_async(&mut store)
-                                                            .await?;
-                                                        drop(existing_instance);
-                                                        *instance.write().await =
-                                                            Some((store_id, new_instance));
-                                                        new_instance
-                                                    };
+                    // Preinstantiate the plugin instance so we can use it later
+                    let pre = plugin_component
+                        .pre_instantiate()
+                        .context("failed to pre-instantiate during component linking")?;
 
-                                                    let func = instance
-                                                        .get_func(&mut store, func_idx)
-                                                        .context("function not found")?;
-                                                    trace!(
-                                                        name = %import_name,
-                                                        fn_name = %export_name,
-                                                        ?params,
-                                                        "lowering params"
-                                                    );
-                                                    let mut params_buf =
-                                                        Vec::with_capacity(params.len());
-                                                    for v in params {
-                                                        params_buf.push(
-                                                            lower(&mut store, v).context(
-                                                                "failed to lower parameter",
-                                                            )?,
-                                                        );
-                                                    }
-                                                    trace!(
-                                                        name = %import_name,
-                                                        fn_name = %export_name,
-                                                        ?params_buf,
-                                                        "invoking dynamic export"
-                                                    );
+                    let mut linker_instance = match linker.instance(import_name) {
+                        Ok(i) => i,
+                        Err(e) => {
+                            trace!(name = import_name, error = %e, "error finding instance in linker, skipping");
+                            continue;
+                        }
+                    };
 
-                                                    let mut results_buf =
-                                                        vec![Val::Bool(false); results.len()];
-                                                    // TODO(IMPORTANT): Enforce a timeout on this call
-                                                    // to prevent hanging indefinitely.
-                                                    func.call_async(
-                                                        &mut store,
-                                                        &params_buf,
-                                                        &mut results_buf,
-                                                    )
-                                                    .await
-                                                    .context("failed to call function")?;
-
-                                                    trace!(
-                                                        name = %import_name,
-                                                        fn_name = %export_name,
-                                                        ?results_buf,
-                                                        "lifting results"
-                                                    );
-                                                    for (i, v) in
-                                                        results_buf.into_iter().enumerate()
-                                                    {
-                                                        results[i] = lift(&mut store, v)
-                                                            .context("failed to lift result")?;
-                                                    }
-                                                    trace!(
-                                                        name = %import_name,
-                                                        fn_name = %export_name,
-                                                        ?results,
-                                                        "invoked dynamic export"
-                                                    );
-
-                                                    func.post_return_async(&mut store)
-                                                        .await
-                                                        .context("failed to execute post-return")?;
-                                                    Ok(())
-                                                })
-                                            },
-                                        )
-                                        .expect("failed to create async func");
-                                }
-                                ComponentItem::Resource(resource_ty) => {
-                                    let (item, _idx) = match plugin_component
-                                        .component
-                                        .export_index(Some(&instance_idx), export_name)
-                                    {
-                                        Some(res) => res,
-                                        None => {
-                                            trace!(
-                                                name = import_name,
-                                                resource = export_name,
-                                                "failed to get resource index, skipping"
-                                            );
-                                            continue;
-                                        }
-                                    };
-                                    let ComponentItem::Resource(_) = item else {
+                    for (export_name, export_ty) in
+                        import_instance_ty.exports(plugin_component.metadata.component.engine())
+                    {
+                        match export_ty {
+                            ComponentItem::ComponentFunc(_func_ty) => {
+                                let (item, func_idx) = match plugin_component
+                                    .metadata
+                                    .component
+                                    .export_index(Some(&instance_idx), export_name)
+                                {
+                                    Some(res) => res,
+                                    None => {
                                         trace!(
                                             name = import_name,
-                                            resource = export_name,
-                                            "expected resource export, found non-resource, skipping"
-                                        );
-                                        continue;
-                                    };
-
-                                    // TODO(#4): This should get caught by the host resource check, but it isn't
-                                    if export_name == "output-stream"
-                                        || export_name == "input-stream"
-                                        || export_name == "pollable"
-                                        || export_name == "tcp-socket"
-                                        || export_name == "incoming-value-async-body"
-                                    {
-                                        trace!(
-                                            name = import_name,
-                                            resource = export_name,
-                                            "skipping stream link as it is a host resource type"
+                                            fn_name = export_name,
+                                            "failed to get export index, skipping"
                                         );
                                         continue;
                                     }
+                                };
+                                ensure!(
+                                    matches!(item, ComponentItem::ComponentFunc(..)),
+                                    "expected function export, found other"
+                                );
+                                trace!(
+                                    name = import_name,
+                                    fn_name = export_name,
+                                    "linking function import"
+                                );
+                                let import_name: Arc<str> = import_name.into();
+                                let export_name: Arc<str> = export_name.into();
+                                let pre = pre.clone();
+                                let instance = instance.clone();
+                                linker_instance
+                                    .func_new_async(
+                                        &export_name.clone(),
+                                        move |mut store, params, results| {
+                                            // TODO: some kind of store data hashing mechanism
+                                            // to detect a diff store to drop the old one
+                                            let import_name = import_name.clone();
+                                            let export_name = export_name.clone();
+                                            let pre = pre.clone();
+                                            let instance = instance.clone();
+                                            Box::new(async move {
+                                                let existing_instance = instance.read().await;
+                                                let store_id = store.data().id.clone();
+                                                let instance = if let Some((id, instance)) =
+                                                    existing_instance.clone()
+                                                    && id == store_id
+                                                {
+                                                    drop(existing_instance);
+                                                    instance
+                                                } else {
+                                                    // Likely unnecessary, but explicit drop of the read lock
+                                                    let new_instance =
+                                                        pre.instantiate_async(&mut store).await?;
+                                                    drop(existing_instance);
+                                                    *instance.write().await =
+                                                        Some((store_id, new_instance));
+                                                    new_instance
+                                                };
 
-                                    trace!(name = import_name, resource = export_name, ty = ?resource_ty, "linking resource import");
+                                                let func = instance
+                                                    .get_func(&mut store, func_idx)
+                                                    .context("function not found")?;
+                                                trace!(
+                                                    name = %import_name,
+                                                    fn_name = %export_name,
+                                                    ?params,
+                                                    "lowering params"
+                                                );
+                                                let mut params_buf =
+                                                    Vec::with_capacity(params.len());
+                                                for v in params {
+                                                    params_buf
+                                                        .push(lower(&mut store, v).context(
+                                                            "failed to lower parameter",
+                                                        )?);
+                                                }
+                                                trace!(
+                                                    name = %import_name,
+                                                    fn_name = %export_name,
+                                                    ?params_buf,
+                                                    "invoking dynamic export"
+                                                );
 
-                                    linker_instance
+                                                let mut results_buf =
+                                                    vec![Val::Bool(false); results.len()];
+                                                // TODO(IMPORTANT): Enforce a timeout on this call
+                                                // to prevent hanging indefinitely.
+                                                func.call_async(
+                                                    &mut store,
+                                                    &params_buf,
+                                                    &mut results_buf,
+                                                )
+                                                .await
+                                                .context("failed to call function")?;
+
+                                                trace!(
+                                                    name = %import_name,
+                                                    fn_name = %export_name,
+                                                    ?results_buf,
+                                                    "lifting results"
+                                                );
+                                                for (i, v) in results_buf.into_iter().enumerate() {
+                                                    results[i] = lift(&mut store, v)
+                                                        .context("failed to lift result")?;
+                                                }
+                                                trace!(
+                                                    name = %import_name,
+                                                    fn_name = %export_name,
+                                                    ?results,
+                                                    "invoked dynamic export"
+                                                );
+
+                                                func.post_return_async(&mut store)
+                                                    .await
+                                                    .context("failed to execute post-return")?;
+                                                Ok(())
+                                            })
+                                        },
+                                    )
+                                    .expect("failed to create async func");
+                            }
+                            ComponentItem::Resource(resource_ty) => {
+                                let (item, _idx) = match plugin_component
+                                    .metadata
+                                    .component
+                                    .export_index(Some(&instance_idx), export_name)
+                                {
+                                    Some(res) => res,
+                                    None => {
+                                        trace!(
+                                            name = import_name,
+                                            resource = export_name,
+                                            "failed to get resource index, skipping"
+                                        );
+                                        continue;
+                                    }
+                                };
+                                let ComponentItem::Resource(_) = item else {
+                                    trace!(
+                                        name = import_name,
+                                        resource = export_name,
+                                        "expected resource export, found non-resource, skipping"
+                                    );
+                                    continue;
+                                };
+
+                                // TODO(#4): This should get caught by the host resource check, but it isn't
+                                if export_name == "output-stream"
+                                    || export_name == "input-stream"
+                                    || export_name == "pollable"
+                                    || export_name == "tcp-socket"
+                                    || export_name == "incoming-value-async-body"
+                                {
+                                    trace!(
+                                        name = import_name,
+                                        resource = export_name,
+                                        "skipping stream link as it is a host resource type"
+                                    );
+                                    continue;
+                                }
+
+                                trace!(name = import_name, resource = export_name, ty = ?resource_ty, "linking resource import");
+
+                                linker_instance
                                         .resource(export_name, ResourceType::host::<ResourceAny>(), |_, _| Ok(()))
                                         .with_context(|| {
                                             format!(
@@ -575,33 +747,29 @@ impl ResolvedWorkload {
                                         .unwrap_or_else(|e| {
                                             trace!(name = import_name, resource = export_name, error = %e, "error defining resource import, skipping");
                                         });
-                                }
-                                _ => {
-                                    trace!(
-                                        name = import_name,
-                                        fn_name = export_name,
-                                        "skipping non-function non-resource import"
-                                    );
-                                    continue;
-                                }
+                            }
+                            _ => {
+                                trace!(
+                                    name = import_name,
+                                    fn_name = export_name,
+                                    "skipping non-function non-resource import"
+                                );
+                                continue;
                             }
                         }
                     }
-                    ComponentItem::Resource(resource_ty) => {
-                        trace!(
-                            name = import_name,
-                            ty = ?resource_ty,
-                            "component import is a resource, which is not supported in this context. skipping."
-                        );
-                    }
-                    _ => continue,
                 }
+                ComponentItem::Resource(resource_ty) => {
+                    trace!(
+                        name = import_name,
+                        ty = ?resource_ty,
+                        "component import is a resource, which is not supported in this context. skipping."
+                    );
+                }
+                _ => continue,
             }
-            self.components
-                .write()
-                .await
-                .insert(workload_component.id.clone(), workload_component);
         }
+
         Ok(())
     }
 
@@ -637,6 +805,7 @@ impl ResolvedWorkload {
         wasi_ctx_builder
             .envs(
                 component
+                    .metadata
                     .local_resources
                     .environment
                     .iter()
@@ -650,11 +819,10 @@ impl ResolvedWorkload {
         // TODO: We're going to need to mount all possible volume mounts in the workload
         for (host_path, mount) in &components
             .iter()
-            .flat_map(|(_id, workload_component)| workload_component.volume_mounts.clone())
+            .flat_map(|(_id, workload_component)| workload_component.metadata.volume_mounts.clone())
             .collect::<Vec<_>>()
         {
             // TODO: consider if bad to mount all volumes for a workload
-            // for (host_path, mount) in &component.volume_mounts {
             let dir = tokio::fs::canonicalize(host_path).await?;
             debug!(host_path = %dir.display(), container_path = %mount.mount_path, "preopening volume mount");
             let (dir_perms, file_perms) = match mount.read_only {
@@ -664,14 +832,68 @@ impl ResolvedWorkload {
             wasi_ctx_builder.preopened_dir(&dir, &mount.mount_path, dir_perms, file_perms)?;
         }
 
-        let mut ctx_builder = Ctx::builder(component.workload_id(), component.id())
-            .with_wasi_ctx(wasi_ctx_builder.build());
+        let mut ctx_builder =
+            Ctx::builder(component.metadata.workload_id(), component.metadata.id())
+                .with_wasi_ctx(wasi_ctx_builder.build());
 
-        if let Some(plugins) = &component.plugins {
+        if let Some(plugins) = &component.metadata.plugins {
             ctx_builder = ctx_builder.with_plugins(plugins.clone());
         }
 
-        let store = wasmtime::Store::new(component.engine(), ctx_builder.build());
+        let store = wasmtime::Store::new(component.metadata.engine(), ctx_builder.build());
+
+        Ok(store)
+    }
+
+    // TODO: Deduplicate with new_store
+    pub async fn new_service_store(&self) -> anyhow::Result<wasmtime::Store<Ctx>> {
+        let service = self
+            .service
+            .as_ref()
+            .context("no service defined for this workload")?;
+
+        let components = self.components.read().await;
+
+        // TODO: Consider stderr/stdout buffering + logging
+        let mut wasi_ctx_builder = WasiCtxBuilder::new();
+        wasi_ctx_builder
+            .envs(
+                service
+                    .metadata
+                    .local_resources
+                    .environment
+                    .iter()
+                    .map(|kv| (kv.0.as_str(), kv.1.as_str()))
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            )
+            .inherit_stdout()
+            .inherit_stderr();
+
+        // TODO: We're going to need to mount all possible volume mounts in the workload
+        for (host_path, mount) in &components
+            .iter()
+            .flat_map(|(_id, workload_component)| workload_component.metadata.volume_mounts.clone())
+            .collect::<Vec<_>>()
+        {
+            // TODO: consider if bad to mount all volumes for a workload
+            let dir = tokio::fs::canonicalize(host_path).await?;
+            debug!(host_path = %dir.display(), container_path = %mount.mount_path, "preopening volume mount");
+            let (dir_perms, file_perms) = match mount.read_only {
+                true => (DirPerms::READ, FilePerms::READ),
+                false => (DirPerms::all(), FilePerms::all()),
+            };
+            wasi_ctx_builder.preopened_dir(&dir, &mount.mount_path, dir_perms, file_perms)?;
+        }
+
+        let mut ctx_builder = Ctx::builder(service.metadata.workload_id(), service.metadata.id())
+            .with_wasi_ctx(wasi_ctx_builder.build());
+
+        if let Some(plugins) = &service.metadata.plugins {
+            ctx_builder = ctx_builder.with_plugins(plugins.clone());
+        }
+
+        let store = wasmtime::Store::new(service.metadata.engine(), ctx_builder.build());
 
         Ok(store)
     }
@@ -684,8 +906,8 @@ impl ResolvedWorkload {
         let component = components
             .get_mut(component_id)
             .context("component ID not found in workload")?;
-        let wasmtime_component = component.component.clone();
-        let linker = component.linker();
+        let wasmtime_component = component.metadata.component.clone();
+        let linker = component.metadata.linker();
         let pre = linker.instantiate_pre(&wasmtime_component)?;
 
         Ok(pre)
@@ -698,18 +920,18 @@ impl ResolvedWorkload {
     /// logged but do not prevent the overall unbind from completing.
     pub async fn unbind_all_plugins(&self) -> anyhow::Result<()> {
         trace!(
-            workload_id = self.id,
-            workload_name = self.name,
+            workload_id = self.id.as_ref(),
+            workload_name = self.name.as_ref(),
             "unbinding all plugins from workload"
         );
 
         for component in self.components.read().await.values() {
-            if let Some(plugins) = &component.plugins {
+            if let Some(plugins) = component.plugins() {
                 for (plugin_id, plugin) in plugins.iter() {
                     trace!(
                         plugin_id,
                         component_id = component.id(),
-                        workload_id = self.id,
+                        workload_id = self.id.as_ref(),
                         "unbinding plugin from component"
                     );
 
@@ -729,7 +951,7 @@ impl ResolvedWorkload {
                         warn!(
                             plugin_id,
                             component_id = component.id(),
-                            workload_id = self.id,
+                            workload_id = self.id.as_ref(),
                             error = ?e,
                             "failed to unbind plugin from workload, continuing cleanup"
                         );
@@ -764,17 +986,17 @@ impl ResolvedWorkload {
 /// - Create the final executable workload representation
 pub struct UnresolvedWorkload {
     /// The unique identifier of the workload, created with [uuid::Uuid::new_v4]
-    id: String,
+    id: Arc<str>,
     /// The name of the workload
-    name: String,
+    name: Arc<str>,
     /// The namespace of the workload
-    namespace: String,
+    namespace: Arc<str>,
     /// The requested host [`WitInterface`]s to resolve this workload
     host_interfaces: Vec<WitInterface>,
-    /// The [`Service`] associated with this workload, if any
-    _service: Option<Service>,
+    /// The [`WorkloadService`] associated with this workload, if any
+    service: Option<WorkloadService>,
     /// All [`WorkloadComponent`]s in the workload
-    components: HashMap<String, WorkloadComponent>,
+    components: HashMap<Arc<str>, WorkloadComponent>,
 }
 
 impl UnresolvedWorkload {
@@ -792,21 +1014,24 @@ impl UnresolvedWorkload {
     /// # Returns
     /// A new `UnresolvedWorkload` ready for plugin binding and resolution.
     pub fn new(
-        id: String,
-        name: String,
-        namespace: String,
-        service: Option<Service>,
+        id: impl Into<Arc<str>>,
+        name: impl Into<Arc<str>>,
+        namespace: impl Into<Arc<str>>,
+        service: Option<WorkloadService>,
         components: impl IntoIterator<Item = WorkloadComponent>,
         host_interfaces: Vec<WitInterface>,
     ) -> Self {
         Self {
-            id,
-            name,
-            namespace,
-            _service: service,
+            id: id.into(),
+            name: name.into(),
+            namespace: namespace.into(),
+            service,
             components: components
                 .into_iter()
-                .map(|c| (c.id().to_string(), c))
+                .map(|c| {
+                    let id = Arc::from(c.id());
+                    (id, c)
+                })
                 .collect(),
             host_interfaces,
         }
@@ -822,8 +1047,23 @@ impl UnresolvedWorkload {
 
         // Collect all component's required (unmatched) host interfaces
         // This tracks which interfaces each component still needs to be bound
-        let mut unmatched_interfaces: HashMap<String, HashSet<WitInterface>> = HashMap::new();
+        let mut unmatched_interfaces: HashMap<Arc<str>, HashSet<WitInterface>> = HashMap::new();
         trace!(host_interfaces = ?self.host_interfaces, "determining missing guest interfaces");
+
+        if let Some(service) = self.service.as_ref() {
+            let world = service.world();
+            trace!(?world, "comparing service world to host interfaces");
+            let required_interfaces: HashSet<WitInterface> = self
+                .host_interfaces
+                .iter()
+                .filter(|wit_interface| world.includes(wit_interface))
+                .cloned()
+                .collect();
+
+            if !required_interfaces.is_empty() {
+                unmatched_interfaces.insert(Arc::from(service.id()), required_interfaces);
+            }
+        }
 
         for (id, workload_component) in &self.components {
             let world = workload_component.world();
@@ -945,7 +1185,7 @@ impl UnresolvedWorkload {
         for (component_id, unmatched) in unmatched_interfaces.iter() {
             if !unmatched.is_empty() {
                 tracing::error!(
-                    component_id = component_id,
+                    component_id = component_id.as_ref(),
                     interfaces = ?unmatched,
                     "no plugins found for requested interfaces"
                 );
@@ -994,11 +1234,12 @@ impl UnresolvedWorkload {
         };
 
         // Resolve the workload
-        let resolved_workload = ResolvedWorkload {
-            id: self.id,
-            name: self.name,
-            namespace: self.namespace,
+        let mut resolved_workload = ResolvedWorkload {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            namespace: self.namespace.clone(),
             components: Arc::new(RwLock::new(self.components)),
+            service: self.service,
         };
 
         // Link components before plugin resolution
