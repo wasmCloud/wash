@@ -86,7 +86,7 @@ pub struct StreamObjectNamesHandle {
 /// Memory-based blobstore plugin
 #[derive(Clone, Default)]
 pub struct WasiBlobstore {
-    /// Storage for all containers, keyed by workload ID
+    /// Storage for all containers, keyed by store context ID
     storage: Arc<RwLock<HashMap<String, HashMap<String, ContainerData>>>>,
     /// The maximum size for objects stored in the blobstore
     max_object_size: usize,
@@ -938,7 +938,7 @@ impl HostPlugin for WasiBlobstore {
             "Successfully added blobstore interfaces to linker for workload"
         );
 
-        // Initialize storage for this workload
+        // Initialize storage for this component (note: actual storage is per-store-context, this is just a placeholder)
         let mut storage = self.storage.write().await;
         storage.insert(id.to_string(), HashMap::new());
 

@@ -1,0 +1,14 @@
+package wasmcloud:example@0.0.1;
+
+interface cron {
+    /// Invoke a component
+    invoke: func() -> result<_, string>;
+}
+
+world service {
+    import cron;
+}
+
+world component {
+    export cron;
+}
