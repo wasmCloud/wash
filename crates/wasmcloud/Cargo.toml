@@ -49,3 +49,4 @@ wit-component = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber = { workspace = true }
 reqwest = { workspace = true }
+gag = "1.0"

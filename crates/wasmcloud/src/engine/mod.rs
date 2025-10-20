@@ -40,12 +40,11 @@
 //! ```
 
 use anyhow::{Context, bail};
-use tracing::warn;
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
 
 use crate::engine::ctx::Ctx;
-use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent};
+use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent, WorkloadService};
 use crate::types::{EmptyDirVolume, HostPathVolume, VolumeType, Workload};
 use std::path::PathBuf;
 
@@ -118,20 +117,6 @@ impl Engine {
             ..
         } = workload;
 
-        // Handle optional service - just validate for now, don't create handle yet
-        let service = if let Some(svc) = service {
-            warn!(
-                "services not supported yet, validating that it's a proper component but not starting it"
-            );
-            // TODO: Don't clone, return the service as a resolved service handle
-            let _component = Component::new(&self.inner, svc.bytes.clone())
-                .context("failed to validate service component")?;
-
-            Some(svc)
-        } else {
-            None
-        };
-
         // Process and validate volumes - create a lookup map from volume name to validated host path
         let mut validated_volumes = std::collections::HashMap::new();
 
@@ -159,6 +144,22 @@ impl Engine {
             validated_volumes.insert(v.name.clone(), host_path);
         }
 
+        // Iniitalize service
+        let service = if let Some(svc) = service {
+            match self.initialize_service(id.as_ref(), &name, &namespace, svc, &validated_volumes) {
+                Ok(handle) => {
+                    tracing::debug!("successfully initialized service component");
+                    Some(handle)
+                }
+                Err(e) => {
+                    tracing::error!(err = ?e, "failed to initialize service component");
+                    bail!(e);
+                }
+            }
+        } else {
+            None
+        };
+
         // Initialize all components
         let mut workload_components = Vec::new();
         for component in components.into_iter() {
@@ -170,7 +171,7 @@ impl Engine {
                 &validated_volumes,
             ) {
                 Ok(handle) => {
-                    tracing::debug!("successfully initialized component");
+                    tracing::debug!("successfully initialized workload component");
                     workload_components.push(handle);
                 }
                 Err(e) => {
@@ -181,12 +182,62 @@ impl Engine {
         }
 
         Ok(UnresolvedWorkload::new(
-            id.as_ref().to_string(),
+            id.as_ref(),
             name,
             namespace,
             service,
             workload_components,
             host_interfaces,
+        ))
+    }
+
+    fn initialize_service(
+        &self,
+        workload_id: impl AsRef<str>,
+        workload_name: impl AsRef<str>,
+        workload_namespace: impl AsRef<str>,
+        service: crate::types::Service,
+        validated_volumes: &std::collections::HashMap<String, PathBuf>,
+    ) -> anyhow::Result<WorkloadService> {
+        // Create a wasmtime component from the bytes
+        let wasmtime_component = Component::new(&self.inner, service.bytes)
+            .context("failed to create component from bytes")?;
+
+        // Create a linker for this component
+        let mut linker: Linker<Ctx> = Linker::new(&self.inner);
+
+        // Add WASI@0.2 interfaces to the linker
+        wasmtime_wasi::add_to_linker_async(&mut linker).context("failed to add WASI to linker")?;
+
+        // TODO: only if workload declares incoming-handler or outgoing-handler & the component export/imports the interfaces
+        // Add HTTP interfaces to the linker
+        #[cfg(feature = "wasi-http")]
+        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)
+            .context("failed to add wasi:http/types to linker")?;
+
+        // Build volume mounts for this component by looking up validated volumes
+        let mut component_volume_mounts = Vec::new();
+        for vm in &service.local_resources.volume_mounts {
+            if let Some(host_path) = validated_volumes.get(&vm.name) {
+                component_volume_mounts.push((host_path.clone(), vm.clone()));
+            } else {
+                tracing::warn!(
+                    volume = %vm.name,
+                    "component references volume that was not found in workload volumes",
+                );
+            }
+        }
+
+        // Create the WorkloadService with volume mounts
+        Ok(WorkloadService::new(
+            workload_id.as_ref(),
+            workload_name.as_ref(),
+            workload_namespace.as_ref(),
+            wasmtime_component,
+            linker,
+            component_volume_mounts,
+            service.local_resources,
+            service.max_restarts,
         ))
     }
 
@@ -231,9 +282,9 @@ impl Engine {
 
         // Create the WorkloadComponent with volume mounts
         Ok(WorkloadComponent::new(
-            workload_id.as_ref().to_string(),
-            workload_name.as_ref().to_string(),
-            workload_namespace.as_ref().to_string(),
+            workload_id.as_ref(),
+            workload_name.as_ref(),
+            workload_namespace.as_ref(),
             wasmtime_component,
             linker,
             component_volume_mounts,
@@ -242,26 +293,6 @@ impl Engine {
             // component.pool_size,
             // component.max_invocations,
         ))
-    }
-
-    /// Initializes a service component and returns a service handle.
-    ///
-    /// Services are long-running components that can handle requests and
-    /// be restarted if they fail.
-    ///
-    /// # Arguments
-    /// * `_component` - The compiled WebAssembly component to run as a service
-    ///
-    /// # Returns
-    /// Currently returns unit, will return a service handle when implemented.
-    ///
-    /// # Errors
-    /// Will return errors related to service initialization when implemented.
-    ///
-    /// TODO: Implement service handle creation
-    pub fn initialize_service(&self, _component: Component) -> anyhow::Result<()> {
-        // TODO: Implement service handle creation
-        todo!("Service handle implementation pending")
     }
 }
 
