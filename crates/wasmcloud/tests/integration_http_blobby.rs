@@ -17,7 +17,7 @@ use wasmcloud::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     plugin::{wasi_blobstore::WasiBlobstore, wasi_http::HttpServer, wasi_logging::WasiLogging},
-    types::{Component, LocalResources, Workload, WorkloadStartRequest},
+    types::{Component, LocalResources, Workload, WorkloadStartRequest, WorkloadStopRequest},
     wit::WitInterface,
 };
 
@@ -190,6 +190,42 @@ async fn test_blobby_integration() -> Result<()> {
         !get_response_text.trim().is_empty() || !post_response_text.trim().is_empty(),
         "Expected at least one response to have content"
     );
+
+    let res = host
+        .workload_stop(WorkloadStopRequest {
+            workload_id: workload_response.workload_status.workload_id,
+        })
+        .await;
+
+    res.context("Failed to stop blobby workload")?;
+
+    // After stopping the workload, verify that HTTP requests to blobby now fail
+    let failed_response = client
+        .get(format!("http://{addr}/"))
+        .header("HOST", "blobby-test")
+        .send()
+        .await;
+
+    match failed_response {
+        Ok(resp) => {
+            let status = resp.status();
+            assert!(
+                status.is_client_error() || status.is_server_error(),
+                "Expected HTTP error after workload stopped, got status {}",
+                status
+            );
+            println!(
+                "Confirmed HTTP request fails after blobby workload stopped (status: {})",
+                status
+            );
+        }
+        Err(e) => {
+            println!(
+                "HTTP request failed as expected after workload stopped: {}",
+                e
+            );
+        }
+    }
 
     println!("blobby.wasm component responded successfully to HTTP requests");
     println!("HTTP and blobstore plugins are working with blobby component");
