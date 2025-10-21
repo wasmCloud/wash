@@ -43,6 +43,52 @@ impl WitWorld {
             || self.exports.iter().any(|e| e.contains(interface))
     }
 
+    /// This function checks if the world includes a specific interface. This is
+    /// different than [`WitWorld::includes`] because it considers that in one
+    /// [`WitInterface`] there may be both imports and exports.
+    pub fn includes_bidirectional(&self, interface: &WitInterface) -> bool {
+        let import_match = self.imports.iter().find(|i| {
+            if let Some(v) = &interface.version
+                && let Some(ov) = &i.version
+                && v != ov
+            {
+                return false;
+            }
+            i.namespace == interface.namespace && i.package == interface.package
+        });
+
+        let export_match = self.exports.iter().find(|e| {
+            // If both interfaces specify a version, they must match
+            if let Some(v) = &interface.version
+                && let Some(ov) = &e.version
+                && v != ov
+            {
+                return false;
+            }
+            e.namespace == interface.namespace && e.package == interface.package
+        });
+
+        // Ensure the interfaces are covered by either the import or export match
+        for i in &interface.interfaces {
+            // Interface satisfied by import
+            if let Some(im) = &import_match
+                && im.interfaces.contains(i)
+            {
+                continue;
+            }
+            // Interface satisfied by export
+            if let Some(em) = &export_match
+                && em.interfaces.contains(i)
+            {
+                continue;
+            }
+
+            return false;
+        }
+
+        true
+    }
+
     /// Checks if a guest world (imports) can be satisfied by a host world (exports).
     ///
     /// A host world satisfies a guest world if all interfaces required by the guest

@@ -250,6 +250,23 @@ impl HostPlugin for HttpServer {
         Ok(())
     }
 
+    async fn on_workload_unbind(
+        &self,
+        workload: &ResolvedWorkload,
+        _interfaces: HashSet<WitInterface>,
+    ) -> anyhow::Result<()> {
+        debug!(workload_id = workload.id(), "removing HTTP workload handle");
+
+        // Remove from workload handles
+        let mut handles_guard = self.workload_handles.write().await;
+        handles_guard.retain(|_, (handle, _, _)| handle.id() != workload.id());
+
+        // Remove from workload configs
+        self.workload_configs.write().await.remove(workload.id());
+
+        Ok(())
+    }
+
     async fn stop(&self) -> anyhow::Result<()> {
         info!(addr = ?self.addr, "HTTP server stopping");
         // Stop the HTTP server

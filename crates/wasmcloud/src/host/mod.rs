@@ -498,42 +498,42 @@ impl HostApi for Host {
 
         let (workload_state, message) = if has_workload {
             // Update state to stopping
-            {
+            let resolved_workload = {
                 let mut workloads = self.workloads.write().await;
-                if let Some(hw) = workloads.get_mut(&request.workload_id) {
-                    trace!(
-                        workload_id = request.workload_id,
-                        "updating workload state to stopping"
-                    );
-                    *hw = HostWorkload::Stopping;
-                }
-            }
+                trace!(
+                    workload_id = request.workload_id,
+                    "updating workload state to stopping"
+                );
+                // Insert Stopping state, extract the running workload if it was running
+                workloads
+                    .insert(request.workload_id.clone(), HostWorkload::Stopping)
+                    .and_then(|hw| match hw {
+                        HostWorkload::Running(rw) => Some(*rw),
+                        _ => None,
+                    })
+            };
 
             // Stop the workload:
             // 1. Unbind from all plugins
             // 2. Clean up resources (drop will handle wasmtime cleanup)
             // 3. Remove from active workloads
-            {
-                if let Some(HostWorkload::Running(resolved_workload)) =
-                    self.workloads.read().await.get(&request.workload_id)
-                {
-                    debug!(
+            if let Some(resolved_workload) = resolved_workload {
+                debug!(
+                    workload_id = request.workload_id,
+                    workload_name = resolved_workload.name(),
+                    "stopping workload"
+                );
+
+                // Stop the service if running
+                resolved_workload.stop_service();
+
+                // Unbind all plugins from the workload
+                if let Err(e) = resolved_workload.unbind_all_plugins().await {
+                    warn!(
                         workload_id = request.workload_id,
-                        workload_name = resolved_workload.name(),
-                        "stopping workload"
+                        error = ?e,
+                        "error unbinding plugins during workload stop, continuing"
                     );
-
-                    // Stop the service if running
-                    resolved_workload.stop_service();
-
-                    // Unbind all plugins from the workload
-                    if let Err(e) = resolved_workload.unbind_all_plugins().await {
-                        warn!(
-                            workload_id = request.workload_id,
-                            error = ?e,
-                            "error unbinding plugins during workload stop, continuing"
-                        );
-                    }
                 }
             }
 

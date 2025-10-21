@@ -460,7 +460,6 @@ impl ResolvedWorkload {
         Ok(())
     }
 
-    // TODO: Good gravy please un-nest this
     /// This function plugs a components imports with the exports of other components
     /// that are already loaded in the plugin system.
     async fn resolve_workload_imports(
@@ -515,9 +514,7 @@ impl ResolvedWorkload {
         linker: &mut Linker<Ctx>,
         interface_map: &HashMap<String, Arc<str>>,
     ) -> anyhow::Result<()> {
-        // let component = workload_component.component.clone();
         let ty = component.component_type();
-        // let linker = workload_component.linker();
         let imports: Vec<_> = ty.imports(component.engine()).collect();
 
         // TODO: some kind of shared import_name -> component registry. need to remove when new store
@@ -959,6 +956,7 @@ impl ResolvedWorkload {
                 }
             }
         }
+
         Ok(())
     }
 }
@@ -1056,7 +1054,8 @@ impl UnresolvedWorkload {
             let required_interfaces: HashSet<WitInterface> = self
                 .host_interfaces
                 .iter()
-                .filter(|wit_interface| world.includes(wit_interface))
+                // TODO: not just includes, needs to match imports and exports or whatever
+                .filter(|wit_interface| world.includes_bidirectional(wit_interface))
                 .cloned()
                 .collect();
 
@@ -1071,7 +1070,7 @@ impl UnresolvedWorkload {
             let required_interfaces: HashSet<WitInterface> = self
                 .host_interfaces
                 .iter()
-                .filter(|wit_interface| world.includes(wit_interface))
+                .filter(|wit_interface| world.includes_bidirectional(wit_interface))
                 .cloned()
                 .collect();
 
@@ -1096,7 +1095,7 @@ impl UnresolvedWorkload {
                 let mut matching_interfaces = HashSet::new();
                 for wit_interface in required_interfaces.iter() {
                     // Check if plugin supports this interface
-                    if plugin_interfaces.includes(wit_interface) {
+                    if plugin_interfaces.includes_bidirectional(wit_interface) {
                         matching_interfaces.insert(wit_interface.clone());
                     }
                 }
@@ -1705,5 +1704,27 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[tokio::test]
+    async fn test_world_includes_bidirectional() {
+        let world = WitWorld {
+            imports: HashSet::from([WitInterface::from("wasmcloud:messaging/handler@0.1.0")]),
+            exports: HashSet::from([WitInterface::from(
+                "wasmcloud:messaging/consumer,types@0.1.0",
+            )]),
+        };
+
+        let interface1 = WitInterface::from("wasmcloud:messaging/handler@0.1.0");
+        let interface2 = WitInterface::from("wasmcloud:messaging/consumer,types@0.1.0");
+        let interface3 = WitInterface::from("wasmcloud:messaging/handler,consumer,types@0.1.0");
+        let interface4 = WitInterface::from("wasmcloud:messaging/producer@0.1.0");
+
+        assert!(world.includes_bidirectional(&interface1));
+        assert!(world.includes_bidirectional(&interface2));
+        assert!(world.includes_bidirectional(&interface3));
+        assert!(!world.includes_bidirectional(&interface4));
+        // Show the difference between includes and includes_bidirectional
+        assert!(!world.includes(&interface3));
     }
 }
