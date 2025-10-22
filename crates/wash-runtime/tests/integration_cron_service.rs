@@ -10,7 +10,7 @@ use gag::BufferRedirect;
 use std::collections::HashMap;
 use std::io::Read;
 
-use wasmcloud::{
+use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     types::{Component, Service, Workload, WorkloadStartRequest},

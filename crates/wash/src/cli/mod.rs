@@ -20,7 +20,7 @@ use serde_json::json;
 use tracing::{debug, error, info, instrument, trace};
 
 use serde::{Deserialize, Serialize};
-use wasmcloud::{
+use wash_runtime::{
     host::{Host, HostApi as _},
     plugin::wasi_config::RuntimeConfig,
     types::{Component, Workload, WorkloadStartRequest, WorkloadState},
@@ -374,11 +374,11 @@ impl CliContextBuilder {
 
         let plugin_manager = Arc::new(PluginManager::new(self.non_interactive));
 
-        let host = wasmcloud::host::Host::builder()
+        let host = wash_runtime::host::Host::builder()
             .with_plugin(Arc::new(RuntimeConfig::default()))?
             .with_plugin(plugin_manager.clone())?
             .build()
-            .context("failed to create wasmcloud runtime")?
+            .context("failed to create wash runtime")?
             .start()
             .await?;
 

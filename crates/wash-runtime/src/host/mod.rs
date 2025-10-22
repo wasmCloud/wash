@@ -22,8 +22,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use wasmcloud::host::{HostBuilder, HostApi};
-//! use wasmcloud::engine::Engine;
+//! use wash_runtime::host::{HostBuilder, HostApi};
+//! use wash_runtime::engine::Engine;
 //! use std::sync::Arc;
 //!
 //! # async fn example() -> anyhow::Result<()> {

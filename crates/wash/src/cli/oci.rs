@@ -5,8 +5,8 @@ use anyhow::Context as _;
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use tracing::instrument;
+use wash_runtime::oci::{OciConfig, pull_component, push_component};
 use wasm_metadata::Payload;
-use wasmcloud::oci::{OciConfig, pull_component, push_component};
 
 pub(crate) const OCI_CACHE_DIR: &str = "oci";
 

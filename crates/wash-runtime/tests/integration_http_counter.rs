@@ -15,7 +15,7 @@ use tokio::time::timeout;
 mod common;
 use common::find_available_port;
 
-use wasmcloud::{
+use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     plugin::{

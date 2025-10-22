@@ -1,7 +1,7 @@
 [package]
-name = "wasmcloud"
-version = "2.0.0-beta.1"
-description = "wasmCloud is a Cloud Native Computing Foundation (CNCF) project that enables teams to build polyglot applications composed of reusable Wasm components and run them—resiliently and efficiently—across any cloud, Kubernetes, datacenter, or edge."
+name = "wash-runtime"
+version = "0.1.0"
+description = "Opinionated wasmtime wrapper that provides a runtime and workload API for executing Wasm components"
 edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/wasmCloud/wash"

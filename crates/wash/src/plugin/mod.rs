@@ -22,7 +22,7 @@ use std::{
 };
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
-use wasmcloud::{
+use wash_runtime::{
     engine::workload::{ResolvedWorkload, WorkloadComponent},
     host::HostApi,
     oci::{OciConfig, pull_component},
