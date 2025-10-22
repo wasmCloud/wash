@@ -7,7 +7,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! use wasmcloud::oci::{pull_component, OciConfig};
+//! use wash_runtime::oci::{pull_component, OciConfig};
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
@@ -272,7 +272,7 @@ impl CredentialResolver {
 ///
 /// # Examples
 /// ```no_run
-/// use wasmcloud::oci::{pull_component, OciConfig};
+/// use wash_runtime::oci::{pull_component, OciConfig};
 ///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
@@ -387,7 +387,7 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
 ///
 /// # Examples
 /// ```no_run
-/// use wasmcloud::oci::{push_component, OciConfig};
+/// use wash_runtime::oci::{push_component, OciConfig};
 ///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
@@ -534,7 +534,7 @@ pub async fn push_component(
 ///
 /// # Examples
 /// ```no_run
-/// use wasmcloud::oci::validate_component;
+/// use wash_runtime::oci::validate_component;
 ///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {

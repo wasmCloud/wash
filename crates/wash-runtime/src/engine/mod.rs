@@ -17,8 +17,8 @@
 //! # Example
 //!
 //! ```no_run
-//! use wasmcloud::engine::Engine;
-//! use wasmcloud::types::Workload;
+//! use wash_runtime::engine::Engine;
+//! use wash_runtime::types::Workload;
 //!
 //! # async fn example() -> anyhow::Result<()> {
 //! let engine = Engine::builder().build()?;

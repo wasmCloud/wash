@@ -12,7 +12,7 @@ repository = "https://github.com/wasmcloud/wash"
 
 [workspace]
 members = [
-    "crates/wasmcloud",
+    "crates/wash-runtime",
 ]
 
 [lib]
@@ -58,7 +58,7 @@ url = { workspace = true }
 wasm-metadata = { workspace = true }
 wasm-pkg-client = { workspace = true }
 wasm-pkg-core = { workspace = true }
-wasmcloud = { path = "crates/wasmcloud", features = ["oci", "wasi-http", "wasi-config", "wasi-logging"] }
+wash-runtime = { path = "crates/wash-runtime", features = ["oci", "wasi-http", "wasi-config", "wasi-logging"] }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
 which = { workspace = true }

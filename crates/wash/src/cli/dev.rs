@@ -17,7 +17,7 @@ use notify::{
 };
 use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, trace, warn};
-use wasmcloud::{
+use wash_runtime::{
     host::{Host, HostApi},
     plugin::{wasi_config::RuntimeConfig, wasi_http::HttpServer},
     types::{

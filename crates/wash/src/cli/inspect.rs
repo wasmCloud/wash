@@ -1,6 +1,6 @@
 use clap::Args;
 use tracing::{info, instrument};
-use wasmcloud::oci::{OciConfig, pull_component};
+use wash_runtime::oci::{OciConfig, pull_component};
 
 use crate::{
     cli::{

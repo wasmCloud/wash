@@ -5094,13 +5094,46 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
+ "wash-runtime",
  "wasm-metadata 0.239.0",
  "wasm-pkg-client",
  "wasm-pkg-core",
- "wasmcloud",
  "wasmtime",
  "wasmtime-wasi",
  "which",
+ "wit-component 0.235.0",
+]
+
+[[package]]
+name = "wash-runtime"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "docker_credential",
+ "gag",
+ "hostname",
+ "hyper",
+ "names",
+ "oci-client 0.15.0",
+ "oci-wasm 0.3.0",
+ "reqwest",
+ "rustls 0.23.31",
+ "rustls-pemfile",
+ "semver",
+ "sha2",
+ "sysinfo",
+ "tempfile",
+ "tokio",
+ "tokio-rustls 0.26.2",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+ "wasmtime",
+ "wasmtime-wasi",
+ "wasmtime-wasi-http",
  "wit-component 0.235.0",
 ]
 
@@ -5432,39 +5465,6 @@ dependencies = [
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
-]
-
-[[package]]
-name = "wasmcloud"
-version = "2.0.0-beta.1"
-dependencies = [
- "anyhow",
- "async-trait",
- "bytes",
- "chrono",
- "docker_credential",
- "gag",
- "hostname",
- "hyper",
- "names",
- "oci-client 0.15.0",
- "oci-wasm 0.3.0",
- "reqwest",
- "rustls 0.23.31",
- "rustls-pemfile",
- "semver",
- "sha2",
- "sysinfo",
- "tempfile",
- "tokio",
- "tokio-rustls 0.26.2",
- "tracing",
- "tracing-subscriber",
- "uuid",
- "wasmtime",
- "wasmtime-wasi",
- "wasmtime-wasi-http",
- "wit-component 0.235.0",
 ]
 
 [[package]]

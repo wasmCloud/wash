@@ -6,7 +6,7 @@ use dialoguer::{Confirm, theme::ColorfulTheme};
 use std::{collections::HashMap, env, sync::Arc};
 use tokio::{process::Command, sync::RwLock};
 use tracing::{debug, warn};
-use wasmcloud::engine::ctx::Ctx;
+use wash_runtime::engine::ctx::Ctx;
 use wasmtime::component::Resource;
 use wasmtime_wasi::IoView;
 
