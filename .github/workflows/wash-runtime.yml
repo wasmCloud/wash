@@ -1,0 +1,42 @@
+name: wash-runtime
+
+on:
+  push:
+    tags:
+      - "wash-runtime-v*"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Rust
+        uses: ./.github/actions/setup-rust
+        with:
+          rust-toolchain: stable
+
+      - name: Verify version matches tag
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/wash-runtime-v}"
+          CARGO_VERSION=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "wash-runtime") | .version')
+
+          if [ "$TAG_VERSION" != "$CARGO_VERSION" ]; then
+            echo "Error: Tag version ($TAG_VERSION) does not match Cargo.toml version ($CARGO_VERSION)"
+            exit 1
+          fi
+
+          echo "Version check passed: $TAG_VERSION"
+
+      - name: Publish to crates.io
+        run: |
+          cd crates/wash-runtime
+          cargo publish --token "${{ secrets.CRATES_PUBLISH_TOKEN }}"
