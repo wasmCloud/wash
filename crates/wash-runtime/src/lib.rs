@@ -12,8 +12,6 @@ pub mod oci;
 // Re-export wasmtime for convenience
 pub use wasmtime;
 
-// TODO: Go to the complicated things and write doctests + show usage.
-
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;

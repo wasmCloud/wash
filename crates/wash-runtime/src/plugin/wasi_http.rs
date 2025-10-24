@@ -390,11 +390,12 @@ async fn handle_http_request(
                 Ok(resp) => resp,
                 Err(e) => {
                     error!(err = ?e, host = %host_header, "failed to invoke component");
-                    // TODO: add in error
                     hyper::Response::builder()
                         .status(500)
                         .body(HyperOutgoingBody::default())
-                        .unwrap()
+                        // TODO: Add in the actual error message in the response body
+                        // .body(HyperOutgoingBody::new(e.to_string()))
+                        .expect("failed to build 500 response")
                 }
             }
         }
@@ -403,7 +404,7 @@ async fn handle_http_request(
             hyper::Response::builder()
                 .status(404)
                 .body(HyperOutgoingBody::default())
-                .unwrap()
+                .expect("failed to build 404 response")
         }
     };
 
@@ -430,8 +431,14 @@ pub async fn handle_component_request<'a>(
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
-    // TODO: scheme change based on TLS
-    let req = store.data_mut().new_incoming_request(Scheme::Http, req)?;
+    let scheme = match req.uri().scheme() {
+        Some(scheme) if scheme == &hyper::http::uri::Scheme::HTTP => Scheme::Http,
+        Some(scheme) if scheme == &hyper::http::uri::Scheme::HTTPS => Scheme::Https,
+        Some(scheme) => Scheme::Other(scheme.as_str().to_string()),
+        // Fallback to HTTP if no scheme is present
+        None => Scheme::Http,
+    };
+    let req = store.data_mut().new_incoming_request(scheme, req)?;
     let out = store.data_mut().new_response_outparam(sender)?;
     let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
 
