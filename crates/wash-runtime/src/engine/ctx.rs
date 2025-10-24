@@ -64,7 +64,7 @@ impl IoView for Ctx {
         &mut self.table
     }
 }
-// TODO: Do some cleverness to pull up the _right_ WasiCtx based on what component is active, maybe
+// TODO(#103): Do some cleverness to pull up the WasiCtx based on what component is actively executing
 impl WasiView for Ctx {
     fn ctx(&mut self) -> &mut WasiCtx {
         &mut self.ctx
