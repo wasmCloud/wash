@@ -53,10 +53,27 @@ use crate::engine::Engine;
 use crate::engine::workload::ResolvedWorkload;
 use crate::plugin::HostPlugin;
 use crate::types::*;
-use crate::wit::WitWorld;
+use crate::wit::{WitInterface, WitWorld};
 
 mod sysinfo;
 use sysinfo::SystemMonitor;
+
+/// The host provides wasi@0.2 interfaces other than wasi:http
+/// <https://docs.rs/wasmtime-wasi/36.0.2/wasmtime_wasi/p2/index.html#wasip2-interfaces>
+pub const HOST_EXPORTS: [&str; 8] = [
+    "wasi:io/poll,error,streams@0.2.0",
+    "wasi:clocks/monotonic-clock,wall-time@0.2.0",
+    "wasi:random/random@0.2.0",
+    "wasi:cli/environment,exit,stderr,stdin,stdout,terminal-input,terminal-output,terminal-stderr,terminal-stdin,terminal-stdout@0.2.0",
+    "wasi:clocks/monotonic-clock,wall-clock@0.2.0",
+    "wasi:filesystem/preopens,types@0.2.0",
+    "wasi:random/insecure-seed,insecure,random@0.2.0",
+    "wasi:sockets/instance-network,ip-name-lookup,network,tcp-create-socket,tcp,udp-create-socket,udp@0.2.0",
+];
+
+pub fn host_exports() -> HashSet<WitInterface> {
+    HashSet::from_iter(HOST_EXPORTS.into_iter().map(WitInterface::from))
+}
 
 /// The API for interacting with a wasmcloud host.
 ///
@@ -307,18 +324,10 @@ impl Host {
     /// and other imports that are unsatisfied will be rejected.
     pub fn wit_world(&self) -> WitWorld {
         let mut imports = HashSet::new();
+
         // The host provides wasi@0.2 interfaces other than wasi:http
         // <https://docs.rs/wasmtime-wasi/36.0.2/wasmtime_wasi/p2/index.html#wasip2-interfaces>
-        let mut exports = HashSet::from([
-            "wasi:io/poll,error,streams@0.2.0".into(),
-            "wasi:clocks/monotonic-clock,wall-time@0.2.0".into(),
-            "wasi:random/random@0.2.0".into(),
-            "wasi:cli/environment,exit,stderr,stdin,stdout,terminal-input,terminal-output,terminal-stderr,terminal-stdin,terminal-stdout@0.2.0".into(),
-            "wasi:clocks/monotonic-clock,wall-clock@0.2.0".into(),
-            "wasi:filesystem/preopens,types@0.2.0".into(),
-            "wasi:random/insecure-seed,insecure,random@0.2.0".into(),
-            "wasi:sockets/instance-network,ip-name-lookup,network,tcp-create-socket,tcp,udp-create-socket,udp@0.2.0".into(),
-        ]);
+        let mut exports = host_exports();
 
         // Include imports and exports that plugins specify
         imports.extend(
