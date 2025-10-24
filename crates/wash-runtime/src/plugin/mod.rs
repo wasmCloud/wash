@@ -41,7 +41,6 @@ pub mod wasi_keyvalue;
 #[cfg(feature = "wasi-logging")]
 pub mod wasi_logging;
 
-// TODO: Try to get rid of the `async-trait` usage if possible, and set up the ID as an associated constant.
 /// The [`HostPlugin`] trait provides an interface for implementing built-in plugins for the host.
 /// A plugin is primarily responsible for implementing a specific [`WitWorld`] as a collection of
 /// imports and exports that will be directly linked to the workload's [`wasmtime::component::Linker`].

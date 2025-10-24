@@ -209,11 +209,12 @@ impl Engine {
         // Add WASI@0.2 interfaces to the linker
         wasmtime_wasi::add_to_linker_async(&mut linker).context("failed to add WASI to linker")?;
 
-        // TODO: only if workload declares incoming-handler or outgoing-handler & the component export/imports the interfaces
-        // Add HTTP interfaces to the linker
+        // Add HTTP interfaces to the linker if feature is enabled and component uses them
         #[cfg(feature = "wasi-http")]
-        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)
-            .context("failed to add wasi:http/types to linker")?;
+        if uses_wasi_http(&wasmtime_component) {
+            wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)
+                .context("failed to add wasi:http/types to linker")?;
+        }
 
         // Build volume mounts for this component by looking up validated volumes
         let mut component_volume_mounts = Vec::new();
@@ -261,11 +262,12 @@ impl Engine {
         // Add WASI@0.2 interfaces to the linker
         wasmtime_wasi::add_to_linker_async(&mut linker).context("failed to add WASI to linker")?;
 
-        // TODO: only if workload declares incoming-handler or outgoing-handler & the component export/imports the interfaces
         // Add HTTP interfaces to the linker
         #[cfg(feature = "wasi-http")]
-        wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)
-            .context("failed to add wasi:http/types to linker")?;
+        if uses_wasi_http(&wasmtime_component) {
+            wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)
+                .context("failed to add wasi:http/types to linker")?;
+        }
 
         // Build volume mounts for this component by looking up validated volumes
         let mut component_volume_mounts = Vec::new();
@@ -365,6 +367,18 @@ impl EngineBuilder {
         let inner = wasmtime::Engine::new(&self.config)?;
         Ok(Engine { inner })
     }
+}
+
+/// Helper function to determine if a component uses wasi:http interfaces
+fn uses_wasi_http(component: &Component) -> bool {
+    let ty: wasmtime::component::types::Component = component.component_type();
+    let engine = component.engine();
+
+    ty.exports(engine)
+        .any(|(export, _item)| export.starts_with("wasi:http"))
+        || ty
+            .imports(engine)
+            .any(|(import, _item)| import.starts_with("wasi:http"))
 }
 
 // TL;DR this is likely best for machines that can handle the large virtual memory requirement of the pooling allocator

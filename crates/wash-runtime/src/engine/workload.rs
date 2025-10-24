@@ -290,6 +290,10 @@ impl WorkloadComponent {
         let component = self.metadata.component.clone();
         self.metadata.linker.instantiate_pre(&component)
     }
+
+    pub fn metadata(&self) -> &WorkloadMetadata {
+        &self.metadata
+    }
 }
 
 impl std::fmt::Debug for WorkloadComponent {
@@ -377,7 +381,13 @@ impl ResolvedWorkload {
             .map(|s| (s.pre_instantiate(), s.max_restarts));
 
         if let Some((Ok(pre), mut max_restarts)) = service {
-            let mut store = self.new_service_store().await?;
+            // This will always be present since we just checked above, but we need this structure
+            // to only borrow the service metadata
+            let mut store = if let Some(service) = self.service.as_ref() {
+                self.new_store_from_metadata(&service.metadata).await?
+            } else {
+                bail!("service unexpectedly missing during execution");
+            };
             let instance = pre.instantiate_async(&mut store).await?;
             let handle = tokio::spawn(async move {
                 loop {
@@ -605,7 +615,7 @@ impl ResolvedWorkload {
                                     .func_new_async(
                                         &export_name.clone(),
                                         move |mut store, params, results| {
-                                            // TODO: some kind of store data hashing mechanism
+                                            // TODO(#103): some kind of store data hashing mechanism
                                             // to detect a diff store to drop the old one
                                             let import_name = import_name.clone();
                                             let export_name = export_name.clone();
@@ -717,7 +727,8 @@ impl ResolvedWorkload {
                                     continue;
                                 };
 
-                                // TODO(#4): This should get caught by the host resource check, but it isn't
+                                // TODO: This should be a comparison of the ComponentItem to the
+                                // host resource type, but for some reason the comparison fails.
                                 if export_name == "output-stream"
                                     || export_name == "input-stream"
                                     || export_name == "pollable"
@@ -791,72 +802,27 @@ impl ResolvedWorkload {
         self.components.read().await.len()
     }
 
+    /// Helper to create a new wasmtime Store for a given component in the workload.
     pub async fn new_store(&self, component_id: &str) -> anyhow::Result<wasmtime::Store<Ctx>> {
         let components = self.components.read().await;
         let component = components
             .get(component_id)
             .context("component ID not found in workload")?;
-
-        // TODO: Consider stderr/stdout buffering + logging
-        let mut wasi_ctx_builder = WasiCtxBuilder::new();
-        wasi_ctx_builder
-            .envs(
-                component
-                    .metadata
-                    .local_resources
-                    .environment
-                    .iter()
-                    .map(|kv| (kv.0.as_str(), kv.1.as_str()))
-                    .collect::<Vec<_>>()
-                    .as_slice(),
-            )
-            .inherit_stdout()
-            .inherit_stderr();
-
-        // TODO: We're going to need to mount all possible volume mounts in the workload
-        for (host_path, mount) in &components
-            .iter()
-            .flat_map(|(_id, workload_component)| workload_component.metadata.volume_mounts.clone())
-            .collect::<Vec<_>>()
-        {
-            // TODO: consider if bad to mount all volumes for a workload
-            let dir = tokio::fs::canonicalize(host_path).await?;
-            debug!(host_path = %dir.display(), container_path = %mount.mount_path, "preopening volume mount");
-            let (dir_perms, file_perms) = match mount.read_only {
-                true => (DirPerms::READ, FilePerms::READ),
-                false => (DirPerms::all(), FilePerms::all()),
-            };
-            wasi_ctx_builder.preopened_dir(&dir, &mount.mount_path, dir_perms, file_perms)?;
-        }
-
-        let mut ctx_builder =
-            Ctx::builder(component.metadata.workload_id(), component.metadata.id())
-                .with_wasi_ctx(wasi_ctx_builder.build());
-
-        if let Some(plugins) = &component.metadata.plugins {
-            ctx_builder = ctx_builder.with_plugins(plugins.clone());
-        }
-
-        let store = wasmtime::Store::new(component.metadata.engine(), ctx_builder.build());
-
-        Ok(store)
+        self.new_store_from_metadata(&component.metadata).await
     }
 
-    // TODO: Deduplicate with new_store
-    pub async fn new_service_store(&self) -> anyhow::Result<wasmtime::Store<Ctx>> {
-        let service = self
-            .service
-            .as_ref()
-            .context("no service defined for this workload")?;
-
+    /// Creates a new wasmtime Store from the given workload metadata.
+    pub async fn new_store_from_metadata(
+        &self,
+        metadata: &WorkloadMetadata,
+    ) -> anyhow::Result<wasmtime::Store<Ctx>> {
         let components = self.components.read().await;
 
         // TODO: Consider stderr/stdout buffering + logging
         let mut wasi_ctx_builder = WasiCtxBuilder::new();
         wasi_ctx_builder
             .envs(
-                service
-                    .metadata
+                metadata
                     .local_resources
                     .environment
                     .iter()
@@ -867,13 +833,12 @@ impl ResolvedWorkload {
             .inherit_stdout()
             .inherit_stderr();
 
-        // TODO: We're going to need to mount all possible volume mounts in the workload
+        // Mount all possible volume mounts in the workload since components share a WasiCtx
         for (host_path, mount) in &components
             .iter()
             .flat_map(|(_id, workload_component)| workload_component.metadata.volume_mounts.clone())
             .collect::<Vec<_>>()
         {
-            // TODO: consider if bad to mount all volumes for a workload
             let dir = tokio::fs::canonicalize(host_path).await?;
             debug!(host_path = %dir.display(), container_path = %mount.mount_path, "preopening volume mount");
             let (dir_perms, file_perms) = match mount.read_only {
@@ -883,14 +848,14 @@ impl ResolvedWorkload {
             wasi_ctx_builder.preopened_dir(&dir, &mount.mount_path, dir_perms, file_perms)?;
         }
 
-        let mut ctx_builder = Ctx::builder(service.metadata.workload_id(), service.metadata.id())
+        let mut ctx_builder = Ctx::builder(metadata.workload_id(), metadata.id())
             .with_wasi_ctx(wasi_ctx_builder.build());
 
-        if let Some(plugins) = &service.metadata.plugins {
+        if let Some(plugins) = &metadata.plugins {
             ctx_builder = ctx_builder.with_plugins(plugins.clone());
         }
 
-        let store = wasmtime::Store::new(service.metadata.engine(), ctx_builder.build());
+        let store = wasmtime::Store::new(metadata.engine(), ctx_builder.build());
 
         Ok(store)
     }
@@ -1054,7 +1019,6 @@ impl UnresolvedWorkload {
             let required_interfaces: HashSet<WitInterface> = self
                 .host_interfaces
                 .iter()
-                // TODO: not just includes, needs to match imports and exports or whatever
                 .filter(|wit_interface| world.includes_bidirectional(wit_interface))
                 .cloned()
                 .collect();
