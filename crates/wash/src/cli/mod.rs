@@ -564,3 +564,61 @@ impl CliContext {
         }
     }
 }
+
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use tempfile::{TempDir, tempdir};
+
+    #[derive(Debug)]
+    struct TestAppStrategy {
+        home: TempDir,
+    }
+
+    impl TestAppStrategy {
+        fn new() -> anyhow::Result<TestAppStrategy> {
+            Ok(TestAppStrategy { home: tempdir()? })
+        }
+    }
+
+    impl DirectoryStrategy for TestAppStrategy {
+        fn home_dir(&self) -> &Path {
+            self.home.path()
+        }
+        fn config_dir(&self) -> PathBuf {
+            self.home.path().join("config")
+        }
+        fn data_dir(&self) -> PathBuf {
+            self.home.path().join("data")
+        }
+        fn cache_dir(&self) -> PathBuf {
+            self.home.path().join("cache")
+        }
+        fn state_dir(&self) -> Option<PathBuf> {
+            Some(self.home.path().join("state"))
+        }
+        fn runtime_dir(&self) -> Option<PathBuf> {
+            Some(self.home.path().join("runtime"))
+        }
+    }
+
+    pub async fn create_test_cli_context() -> anyhow::Result<CliContext> {
+        let app_strategy = Arc::new(TestAppStrategy::new()?);
+        let (plugin_runtime, thread) = new_runtime()
+            .await
+            .context("failed to create wasmcloud runtime")?;
+
+        let plugin_manager = PluginManager::initialize(&plugin_runtime, app_strategy.data_dir())
+            .await
+            .context("failed to initialize plugin manager")?;
+
+        Ok(CliContext {
+            app_strategy,
+            runtime: plugin_runtime,
+            runtime_thread: Arc::new(thread),
+            plugin_manager: Arc::new(plugin_manager),
+            background_processes: Arc::default(),
+            non_interactive: true,
+        })
+    }
+}
