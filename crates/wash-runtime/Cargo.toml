@@ -57,6 +57,7 @@ wasmtime-wasi-http = { workspace = true, features = ["default-send-request"] }
 cap-net-ext = { workspace = true }
 cap-std = { workspace = true }
 io-lifetimes = { workspace = true }
+regex = { workspace = true }
 rustix = { workspace = true }
 rustls = { workspace = true, features = ["std", "tls12"] }
 rustls-pemfile = { workspace = true }
