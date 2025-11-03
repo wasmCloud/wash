@@ -13,9 +13,13 @@ pub struct HostCommand {
     #[clap(long = "host-group", default_value = "default")]
     pub host_group: String,
 
-    /// NATS URL for the host to connect to
-    #[clap(long = "nats-url", default_value = "nats://localhost:4222")]
-    pub nats_url: String,
+    /// NATS URL for Control Plane communications
+    #[clap(long = "scheduler-nats-url", default_value = "nats://localhost:4222")]
+    pub scheduler_nats_url: String,
+
+    /// NATS URL for Data Plane communications
+    #[clap(long = "data-nats-url", default_value = "nats://localhost:4222")]
+    pub data_nats_url: String,
 
     /// The host name to assign to the host
     #[clap(long = "host-name")]
@@ -28,13 +32,19 @@ pub struct HostCommand {
 
 impl CliCommand for HostCommand {
     async fn handle(&self, _ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let nats_client = wash_runtime::washlet::connect_nats(self.nats_url.clone(), None)
-            .await
-            .context("failed to connect to NATS")?;
-        let nats_client = Arc::new(nats_client);
+        let scheduler_nats_client =
+            wash_runtime::washlet::connect_nats(self.scheduler_nats_url.clone(), None)
+                .await
+                .context("failed to connect to NATS Scheduler URL")?;
+
+        let data_nats_client =
+            wash_runtime::washlet::connect_nats(self.data_nats_url.clone(), None)
+                .await
+                .context("failed to connect to NATS")?;
+        let data_nats_client = Arc::new(data_nats_client);
 
         let mut cluster_host_builder = wash_runtime::washlet::ClusterHostBuilder::default()
-            .with_nats_client(nats_client.clone())
+            .with_nats_client(Arc::new(scheduler_nats_client))
             .with_host_group(self.host_group.clone())
             .with_plugin(Arc::new(
                 wash_runtime::washlet::plugins::wasi_config::RuntimeConfig::default(),
@@ -47,11 +57,13 @@ impl CliCommand for HostCommand {
             ))?
             .with_plugin(Arc::new(
                 wash_runtime::washlet::plugins::wasmcloud_messaging::WasmcloudMessaging::new(
-                    nats_client.clone(),
+                    data_nats_client.clone(),
                 ),
             ))?
             .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_keyvalue::WasiKeyvalue::new(nats_client),
+                wash_runtime::washlet::plugins::wasi_keyvalue::WasiKeyvalue::new(
+                    data_nats_client.clone(),
+                ),
             ))?;
 
         if let Some(host_name) = &self.host_name {
