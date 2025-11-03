@@ -9,9 +9,10 @@ authors = ["The wasmCloud Team"]
 categories = ["wasm"]
 
 [features]
-default = ["wasi-http", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue"]
+default = ["wasi-http", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
 wasi-http = ["dep:wasmtime-wasi-http"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
+washlet = ["oci"]
 wasi-config = []
 wasi-logging = []
 wasi-blobstore = []
@@ -19,9 +20,11 @@ wasi-keyvalue = []
 
 [dependencies]
 anyhow = { workspace = true }
+async-nats = { workspace = true, features = ["aws-lc-rs"] }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }
+futures = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true, features = ["server", "http1"] }
 names = { workspace = true }
@@ -36,7 +39,22 @@ wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true, optional = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 tokio-rustls = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
+tonic = { workspace = true, features = [
+    "gzip",
+    "tls-aws-lc",
+    "transport",
+    "router",
+    "codegen",
+    "tls-native-roots",
+] }
+pbjson = { workspace = true, default-features = true }
+pbjson-types = { workspace = true, default-features = true }
+prost = { workspace = true, default-features = true }
+tonic-prost = { workspace = true, default-features = true }
 
 # OCI dependencies (optional, behind 'oci' feature)
 docker_credential = { workspace = true, optional = true }
@@ -44,6 +62,32 @@ oci-client = { workspace = true, optional = true, features = ["rustls-tls", "rus
 oci-wasm = { workspace = true, optional = true, features = ["rustls-tls"] }
 sha2 = { workspace = true, optional = true }
 wit-component = { workspace = true, optional = true }
+
+opentelemetry = { workspace = true }
+opentelemetry-appender-tracing = { workspace = true }
+opentelemetry-otlp = { workspace = true, features = [
+    "trace",
+    "metrics",
+    "logs",
+    "serialize",
+    "tls-roots",
+    "grpc-tonic",
+] }
+opentelemetry-semantic-conventions = { workspace = true, features = [
+    "semconv_experimental",
+] }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-stdout = { workspace = true, features = [
+    "trace",
+    "metrics",
+    "logs",
+] }
+
+
+[build-dependencies]
+anyhow = { workspace = true, default-features = true }
+tonic-prost-build = { workspace = true, default-features = true }
+pbjson-build = { workspace = true, default-features = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }

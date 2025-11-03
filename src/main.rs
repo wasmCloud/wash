@@ -84,6 +84,9 @@ enum WashCliCommand {
     /// Inspect a Wasm component's embedded WIT
     #[clap(name = "inspect", hide = true)]
     Inspect(wash::cli::inspect::InspectCommand),
+    /// Act as a Host
+    #[clap(name = "host")]
+    Host(wash::cli::host::HostCommand),
     /// Create a new project from a template or git repository
     #[clap(name = "new")]
     New(wash::cli::new::NewCommand),
@@ -126,6 +129,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Dev(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Doctor(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Inspect(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Host(cmd) => cmd.handle(ctx).await,
             WashCliCommand::New(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Oci(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Plugin(cmd) => cmd.handle(ctx).await,
@@ -141,6 +145,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Dev(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Doctor(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Inspect(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Host(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::New(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
@@ -155,6 +160,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Dev(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Doctor(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Inspect(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Host(cmd) => cmd.enable_post_hook(),
             WashCliCommand::New(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
@@ -223,7 +229,8 @@ async fn main() {
     let mut stdout_buf = BufWriter::new(stdout);
 
     // Recommend a new version of wash if available
-    if ctx
+    if !cli.non_interactive && 
+        ctx
         .check_new_version()
         .await
         .is_ok_and(|new_version| new_version)

@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package wasmcloud.runtime.v2;
+
+import "wasmcloud/runtime/v2/workload.proto";
+
+//  Methods called by the Runtime Operator on a given Wasm Host.
+service WorkloadService {
+  rpc WorkloadStart(WorkloadStartRequest) returns (WorkloadStartResponse);
+  rpc WorkloadStatus(WorkloadStatusRequest) returns (WorkloadStatusResponse);
+  rpc WorkloadStop(WorkloadStopRequest) returns (WorkloadStopResponse);
+}
+
+message WorkloadStartRequest {
+  Workload workload = 1;
+}
+
+message WorkloadStatus {
+  string workload_id = 1;
+  WorkloadState workload_state = 2;
+  string message = 3;
+}
+
+message WorkloadStartResponse {
+  WorkloadStatus workload_status = 1;
+}
+
+message WorkloadStatusRequest {
+  string workload_id = 1;
+}
+
+message WorkloadStatusResponse {
+  WorkloadStatus workload_status = 1;
+}
+
+message WorkloadStopRequest {
+  string workload_id = 1;
+}
+
+message WorkloadStopResponse {
+  WorkloadStatus workload_status = 1;
+}

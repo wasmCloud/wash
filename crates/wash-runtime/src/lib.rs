@@ -9,6 +9,9 @@ pub mod wit;
 #[cfg(feature = "oci")]
 pub mod oci;
 
+#[cfg(feature = "washlet")]
+pub mod washlet;
+
 // Re-export wasmtime for convenience
 pub use wasmtime;
 
