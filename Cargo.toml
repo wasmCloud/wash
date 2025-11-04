@@ -42,7 +42,6 @@ ctrlc = { workspace = true }
 dialoguer = { workspace = true, features = ["editor", "password", "zeroize", "fuzzy-select", "fuzzy-matcher"] }
 etcetera = { workspace = true }
 figment = { workspace = true, features = ["json", "env"] }
-futures = { workspace = true }
 flate2 = { workspace = true, features = ["rust_backend"] }
 indicatif = { workspace = true }
 notify = { workspace = true, features = ["macos_fsevent"] }
@@ -53,18 +52,6 @@ serde_json = { workspace = true, features = ["std"] }
 tar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
-tonic = { workspace = true, features = [
-    "gzip",
-    "tls-aws-lc",
-    "transport",
-    "router",
-    "codegen",
-    "tls-native-roots",
-] }
-tonic-prost = { workspace = true, default-features = true }
-pbjson = { workspace = true }
-pbjson-types = { workspace = true, default-features = true }
-prost = { workspace = true, default-features = true }
 tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi", "time", "json"] }
 url = { workspace = true }
@@ -163,6 +150,17 @@ rcgen = { version = "0.13", default-features = false, features = ["crypto", "rin
 tempfile = { version = "3.0", default-features = false }
 tokio = { version = "1.45.1", default-features = false, features = ["full"] }
 reqwest = { workspace = true, features = ["json"] }
+
+[workspace.metadata.cargo-machete]
+ignored = [
+    # Used in build.rs
+    "pbjson",
+    "pbjson-types",
+    "serde",
+    # Used for protos
+    "tonic",
+   "tonic-prost",
+]
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/{name}-v{version}/wash-{ target }{ binary-ext }"

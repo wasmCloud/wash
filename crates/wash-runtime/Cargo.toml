@@ -55,6 +55,11 @@ pbjson = { workspace = true, default-features = true }
 pbjson-types = { workspace = true, default-features = true }
 prost = { workspace = true, default-features = true }
 tonic-prost = { workspace = true, default-features = true }
+opentelemetry = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true, features = [
+    "semconv_experimental",
+] }
+opentelemetry_sdk = { workspace = true }
 
 # OCI dependencies (optional, behind 'oci' feature)
 docker_credential = { workspace = true, optional = true }
@@ -62,27 +67,6 @@ oci-client = { workspace = true, optional = true, features = ["rustls-tls", "rus
 oci-wasm = { workspace = true, optional = true, features = ["rustls-tls"] }
 sha2 = { workspace = true, optional = true }
 wit-component = { workspace = true, optional = true }
-
-opentelemetry = { workspace = true }
-opentelemetry-appender-tracing = { workspace = true }
-opentelemetry-otlp = { workspace = true, features = [
-    "trace",
-    "metrics",
-    "logs",
-    "serialize",
-    "tls-roots",
-    "grpc-tonic",
-] }
-opentelemetry-semantic-conventions = { workspace = true, features = [
-    "semconv_experimental",
-] }
-opentelemetry_sdk = { workspace = true }
-opentelemetry-stdout = { workspace = true, features = [
-    "trace",
-    "metrics",
-    "logs",
-] }
-
 
 [build-dependencies]
 anyhow = { workspace = true, default-features = true }
