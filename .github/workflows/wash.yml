@@ -56,6 +56,10 @@ jobs:
         uses: bytecodealliance/actions/wasm-tools/setup@v1
         with:
           version: "1.223.1"
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "29.x"
       - name: Setup Rust
         uses: ./.github/actions/setup-rust
       - name: Build
