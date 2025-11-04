@@ -5,6 +5,7 @@ pub mod host;
 pub mod plugin;
 pub mod types;
 pub mod wit;
+pub mod transport;
 
 #[cfg(feature = "oci")]
 pub mod oci;

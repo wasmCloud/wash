@@ -5667,6 +5667,7 @@ checksum = "14307c986784f72ef81c89db7d9e28d6ac26d16213b109ea501696195e6e3ce5"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
  "futures-util",
  "pin-project-lite",
@@ -6316,6 +6317,7 @@ dependencies = [
  "gag",
  "hostname",
  "hyper",
+ "hyper-util",
  "names",
  "oci-client 0.15.0",
  "oci-wasm 0.3.0",
@@ -6341,6 +6343,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "tower-service",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -6349,6 +6352,7 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "wasmtime-wasi-http",
+ "webpki-roots 0.26.11",
  "wit-component 0.235.0",
 ]
 

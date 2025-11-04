@@ -30,10 +30,16 @@ bytes = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 hostname = { workspace = true }
-hyper = { workspace = true, features = ["server", "http1"] }
+# http = { workspace = true }
+# http-body = { workspace = true }
+# http-body-util = { workspace = true }
+hyper = { workspace = true, features = ["server", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
 names = { workspace = true }
 semver = { workspace = true }
 sysinfo = { workspace = true }
+tokio-util = { version = "0.7", features = ["compat"] }
+tower-service = { version = "0.3" }
 uuid = { workspace = true, features = ["v4"] }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["sync", "net", "macros"] }
@@ -41,6 +47,7 @@ tracing = { workspace = true }
 wasmtime = { workspace = true, features = ["component-model", "cranelift", "pooling-allocator"] }
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-http = { workspace = true, optional = true }
+webpki-roots = { version = "0.26" }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
