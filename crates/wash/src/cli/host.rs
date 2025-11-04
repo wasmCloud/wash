@@ -2,7 +2,6 @@ use std::{net::SocketAddr, sync::Arc};
 
 use anyhow::Context as _;
 use clap::Args;
-use tokio::select;
 use tracing::info;
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
@@ -83,14 +82,12 @@ impl CliCommand for HostCommand {
             .await
             .context("failed to start cluster node")?;
 
-        let mut interrupt =
-            tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
+        tokio::signal::ctrl_c()
+            .await
+            .context("failed to listen for shutdown signal")?;
 
-        select! {
-            _ = interrupt.recv() => {
-                info!("Stopping host...");
-            },
-        }
+        info!("Stopping host...");
+
         host_cleanup.await?;
 
         Ok(CommandOutput::ok(
