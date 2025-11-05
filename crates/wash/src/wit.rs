@@ -551,20 +551,9 @@ pub async fn load_lock_file(project_dir: impl AsRef<Path>) -> Result<LockFile> {
                 )
             })
     } else {
-        debug!("lock file does not exist, will create when saving");
-        // Ensure the .wash directory exists for when we create the file
-        let wash_dir = project_dir.join(".wash");
-        tokio::fs::create_dir_all(&wash_dir)
-            .await
-            .with_context(|| {
-                format!(
-                    "failed to create .wash directory: {wash_dir}",
-                    wash_dir = wash_dir.display()
-                )
-            })?;
-
-        // Create a new empty lock file that will be written to the path later
-        LockFile::new_with_path([], &project_lock_file_path)
+        debug!("lock file does not exist, will create wkg.lock at project root when saving");
+        // Create a new empty lock file that will be written to wkg.lock at the project root
+        LockFile::new_with_path([], &wkg_lock_file_path)
             .await
             .context("failed to create new lock file")
     }
