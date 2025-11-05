@@ -1,7 +1,7 @@
 //! # WASI HTTP Plugin
 //!
 //! This module implements an http-server capable of routing requests based on
-//! the `X-Workload-Id` HTTP header to different wasmcloud workloads that
+//! the `Host` HTTP header to different wasmcloud workloads that
 //! implement the `wasi:http/incoming-handler` interface.
 
 use std::collections::{HashMap, HashSet};
@@ -157,7 +157,11 @@ impl HostPlugin for HttpServer {
             );
         }
 
-        let workload_id_header = component.workload_id().to_string();
+        let workload_id_header = http_iface
+            .config
+            .get("host")
+            .cloned()
+            .context("No host header found")?;
         let id = component.id();
 
         debug!(header = %workload_id_header, workload_id = id, "binding HTTP config for workload");
@@ -315,15 +319,10 @@ async fn handle_http_request(
     let method = req.method().clone();
     let uri = req.uri().clone();
 
-    // Extract the X-Workload-Id header
-    let workload_id_header = match req
-        .headers()
-        .get("x-workload-id")
-        .and_then(|h| h.to_str().ok())
-    {
+    let workload_id_header = match req.headers().get("host").and_then(|h| h.to_str().ok()) {
         Some(id) => id.to_string(),
         None => {
-            warn!("No workload-id header");
+            warn!("No host header");
             return hyper::Response::builder()
                 .status(400)
                 .body(HyperOutgoingBody::default());

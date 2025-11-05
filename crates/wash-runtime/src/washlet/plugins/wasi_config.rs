@@ -93,6 +93,7 @@ impl HostPlugin for RuntimeConfig {
         bindings::wasi::config::runtime::add_to_linker(component_handle.linker(), |ctx| ctx)?;
 
         // Store the configuration for lookups later
+        // This mirrors wasi:cli/env on wasi:config/runtime
         self.config.write().await.insert(
             component_handle.id().to_string(),
             component_handle.local_resources().environment.clone(),

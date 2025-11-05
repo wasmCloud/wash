@@ -8,6 +8,9 @@ repository = "https://github.com/wasmCloud/wash"
 authors = ["The wasmCloud Team"]
 categories = ["wasm"]
 
+[lib]
+path = "src/lib.rs"
+
 [features]
 default = ["wasi-http", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
 wasi-http = ["dep:wasmtime-wasi-http"]
