@@ -309,6 +309,24 @@ impl WkgFetcher {
 
         Ok(())
     }
+
+    /// Build a WIT package into a Wasm binary
+    pub async fn build_wit_package(
+        self,
+        wit_dir: impl AsRef<Path>,
+        lock: &mut LockFile,
+    ) -> Result<(
+        wasm_pkg_client::PackageRef,
+        Option<semver::Version>,
+        Vec<u8>,
+    )> {
+        let client = CachingClient::new(
+            Some(wasm_pkg_client::Client::new(self.wkg_client_config)),
+            self.cache,
+        );
+
+        wasm_pkg_core::wit::build_package(&self.wkg_config, wit_dir.as_ref(), lock, client).await
+    }
 }
 
 /// Detect source type from string format

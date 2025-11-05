@@ -46,6 +46,7 @@ pub mod new;
 pub mod oci;
 pub mod plugin;
 pub mod update;
+pub mod wit;
 
 pub const CONFIG_FILE_NAME: &str = "config.json";
 

@@ -99,6 +99,9 @@ enum WashCliCommand {
     /// Update wash to the latest version
     #[clap(name = "update", alias = "upgrade")]
     Update(wash::cli::update::UpdateCommand),
+    /// Manage WIT dependencies
+    #[clap(name = "wit", subcommand)]
+    Wit(wash::cli::wit::WitCommand),
 }
 
 impl CliCommand for WashCliCommand {
@@ -134,6 +137,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Plugin(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Update(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Wit(cmd) => cmd.handle(ctx).await,
         }
     }
 
@@ -150,6 +154,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Wit(cmd) => cmd.enable_pre_hook(),
         }
     }
     fn enable_post_hook(&self) -> Option<wash::plugin::bindings::wasmcloud::wash::types::HookType> {
@@ -165,6 +170,7 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Update(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Wit(cmd) => cmd.enable_post_hook(),
         }
     }
 }
