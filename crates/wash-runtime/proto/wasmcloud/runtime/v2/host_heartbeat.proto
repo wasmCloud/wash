@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+package wasmcloud.runtime.v2;
+
+import "google/protobuf/timestamp.proto";
+import "wasmcloud/runtime/v2/wit_interface.proto";
+
+message HostHeartbeat {
+  string id = 1;
+  string hostname = 2;
+  string friendly_name = 3;
+  string version = 4;
+  map<string, string> labels = 5;
+  google.protobuf.Timestamp started_at = 6;
+
+  string os_arch = 7;
+  string os_name = 8;
+  string os_kernel = 9;
+
+  // system cpu usage in percent
+  float system_cpu_usage = 10;
+  // system total memory in bytes
+  uint64 system_memory_total = 11;
+  // system free memory in bytes
+  uint64 system_memory_free = 12;
+
+  uint64 component_count = 13;
+  uint64 workload_count = 14;
+
+  // new stuff
+  repeated WitInterface imports = 15;
+  repeated WitInterface exports = 16;
+}

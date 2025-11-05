@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package wasmcloud.runtime.v2;
+
+message WitInterface {
+  string namespace = 1;
+  string package = 2;
+  string version = 3;
+  repeated string interfaces = 4;
+  map<string, string> config = 5;
+}

@@ -24,3 +24,8 @@ world blobstore {
     import wasi:blobstore/container@0.2.0-draft;
     import wasi:blobstore/blobstore@0.2.0-draft;
 }
+
+world messaging {
+    import wasmcloud:messaging/consumer@0.2.0;
+    export wasmcloud:messaging/handler@0.2.0;
+}

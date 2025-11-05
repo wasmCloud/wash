@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package wasmcloud.runtime.v2;
+
+import "google/protobuf/empty.proto";
+import "wasmcloud/runtime/v2/host_heartbeat.proto";
+
+//  Methods called by the Wasm Host on Runtime Operator.
+service HostService {
+  // Periodic heartbeat
+  // This information is used by the Runtime Operator to monitor the health of the Wasm Host & make placement decisions.
+  rpc HostHeartbeat(HostHeartbeatRequest) returns (google.protobuf.Empty);
+}
+
+message HostHeartbeatRequest {
+  HostHeartbeat heartbeat = 1;
+}
