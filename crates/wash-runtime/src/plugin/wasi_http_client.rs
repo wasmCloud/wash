@@ -8,15 +8,10 @@ use std::sync::Arc;
 
 use anyhow::{Context, bail};
 use hyper::body::Incoming;
-use hyper_util::{
-    client::legacy::Client,
-    rt::TokioExecutor,
-};
+use hyper_util::{client::legacy::Client, rt::TokioExecutor};
 use tracing::{debug, info, warn};
-use wasmtime::component::Resource;
 use wasmtime_wasi_http::body::HyperOutgoingBody;
 
-use crate::engine::ctx::Ctx;
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
@@ -41,11 +36,29 @@ mod bindings {
 const LOAD_WEBPKI_CERTS: &str = "load_webpki_certs";
 const SSL_CERTS_FILE: &str = "ssl_certs_file";
 const ENABLE_POOLING: &str = "enable_pooling";
+const PREFER_HTTP2: &str = "prefer_http2"; // New: prefer HTTP/2 for plain TCP
 
 /// HTTP/2 protocol identifier for ALPN
 const ALPN_H2: &[u8] = b"h2";
 /// HTTP/1.1 protocol identifier for ALPN
 const ALPN_HTTP11: &[u8] = b"http/1.1";
+
+/// HTTP version preference
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HttpVersion {
+    /// Always use HTTP/1.1
+    Http1Only,
+    /// Always use HTTP/2 (h2c for plain TCP, h2 for TLS)
+    Http2Only,
+    /// Use HTTP/1.1 for plain TCP, ALPN negotiation for TLS (default)
+    Auto,
+}
+
+impl Default for HttpVersion {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
 
 /// Shared HTTP clients with automatic connection pooling
 #[derive(Clone)]
@@ -56,10 +69,16 @@ pub struct HttpClients {
     http2: Client<HttpConnector, HyperOutgoingBody>,
     /// HTTPS client with ALPN negotiation
     https: Client<HttpsConnector, HyperOutgoingBody>,
+    /// HTTP version preference
+    version: HttpVersion,
 }
 
 impl HttpClients {
-    pub fn new(enable_pooling: bool, tls_config: Arc<rustls::ClientConfig>) -> Self {
+    pub fn new(
+        enable_pooling: bool,
+        tls_config: Arc<rustls::ClientConfig>,
+        version: HttpVersion,
+    ) -> Self {
         let builder = move || {
             let mut builder = Client::builder(TokioExecutor::new());
             if !enable_pooling {
@@ -69,9 +88,13 @@ impl HttpClients {
         };
 
         Self {
+            // HTTP/1.1 only client
             http1: builder().build(HttpConnector),
-            http2: builder().http2_only(true).build(HttpConnector),
+            // HTTP/2 client - hyper will use HTTP/2 when the connection is established
+            http2: builder().build(HttpConnector),
+            // HTTPS with ALPN - negotiates HTTP/1.1 or HTTP/2 based on server support
             https: builder().build(HttpsConnector::new(tls_config.clone())),
+            version,
         }
     }
 
@@ -83,10 +106,25 @@ impl HttpClients {
         let use_tls = request.uri().scheme() == Some(&hyper::http::uri::Scheme::HTTPS);
 
         if use_tls {
+            // TLS: Always use HTTPS client with ALPN negotiation
             self.https.request(request).await
         } else {
-            // Default to HTTP/1.1 for plain TCP
-            self.http1.request(request).await
+            // Plain TCP: Use version preference
+            match self.version {
+                HttpVersion::Http1Only => {
+                    tracing::debug!("using HTTP/1.1 for plain TCP request");
+                    self.http1.request(request).await
+                }
+                HttpVersion::Http2Only => {
+                    tracing::debug!("using HTTP/2 (h2c) for plain TCP request");
+                    self.http2.request(request).await
+                }
+                HttpVersion::Auto => {
+                    // Default: HTTP/1.1 for plain TCP
+                    tracing::debug!("using HTTP/1.1 (auto) for plain TCP request");
+                    self.http1.request(request).await
+                }
+            }
         }
     }
 
@@ -107,7 +145,7 @@ impl HttpClients {
 }
 
 /// HTTP client plugin for outgoing HTTP requests
-/// 
+///
 /// This follows the same pattern as WasiBlobstore:
 /// - Stores shared state (HTTP clients with connection pooling)
 /// - Ctx implements the Host traits and accesses this via get_plugin()
@@ -117,6 +155,7 @@ pub struct HttpClient {
     /// Similar to WasiBlobstore's storage: Arc<RwLock<...>>
     pub clients: Arc<HttpClients>,
     /// Configuration
+    #[allow(dead_code)]
     config: HashMap<String, String>,
 }
 
@@ -133,16 +172,23 @@ impl HttpClient {
             .map(|v| v.eq_ignore_ascii_case("true"))
             .unwrap_or(true);
 
-        let tls_config = Self::configure_tls(&config)
-            .expect("failed to configure TLS");
-        
-        let clients = Arc::new(HttpClients::new(enable_pooling, tls_config));
+        let version = match config.get(PREFER_HTTP2).map(|s| s.as_str()) {
+            Some("true") | Some("h2") | Some("http2") => HttpVersion::Http2Only,
+            Some("false") | Some("h1") | Some("http1") => HttpVersion::Http1Only,
+            _ => HttpVersion::Auto,
+        };
+
+        let tls_config = Self::configure_tls(&config).expect("failed to configure TLS");
+
+        let clients = Arc::new(HttpClients::new(enable_pooling, tls_config, version));
 
         Self { clients, config }
     }
 
     /// Configure TLS based on the provided configuration
-    fn configure_tls(config: &HashMap<String, String>) -> anyhow::Result<Arc<rustls::ClientConfig>> {
+    fn configure_tls(
+        config: &HashMap<String, String>,
+    ) -> anyhow::Result<Arc<rustls::ClientConfig>> {
         let mut ca = rustls::RootCertStore::empty();
 
         // Load Mozilla trusted root certificates
@@ -157,15 +203,18 @@ impl HttpClient {
 
         // Load root certificates from a file
         if let Some(file_path) = config.get(SSL_CERTS_FILE) {
-            let f = std::fs::File::open(file_path)
-                .context("failed to open SSL certificate file")?;
+            let f =
+                std::fs::File::open(file_path).context("failed to open SSL certificate file")?;
             let mut reader = std::io::BufReader::new(f);
-            let certs: Vec<rustls::pki_types::CertificateDer<'static>> = 
+            let certs: Vec<rustls::pki_types::CertificateDer<'static>> =
                 rustls_pemfile::certs(&mut reader)
                     .collect::<Result<Vec<_>, _>>()
                     .context("failed to parse certificates")?;
             let (added, ignored) = ca.add_parsable_certificates(certs);
-            debug!(added, ignored, file_path, "added additional root certificates");
+            debug!(
+                added,
+                ignored, file_path, "added additional root certificates"
+            );
         }
 
         // Configure ALPN protocols (HTTP/2 first, then HTTP/1.1)
@@ -217,78 +266,24 @@ impl HostPlugin for HttpClient {
         };
 
         if interfaces.len() > 1 {
-            warn!(?interfaces, "ignoring non-wasi:http/outgoing-handler interfaces");
+            warn!(
+                ?interfaces,
+                "ignoring non-wasi:http/outgoing-handler interfaces"
+            );
         } else if http_iface.interfaces.len() > 1 {
             warn!(?http_iface.interfaces, "ignoring non-outgoing-handler interfaces");
         }
 
         debug!(
             workload_id = component.id(),
-            "adding HTTP outgoing-handler interface to linker"
+            "HTTP client plugin bound to component - using WasiHttpView::send_request override"
         );
-        
-        let linker = component.linker();
-        bindings::wasi::http::outgoing_handler::add_to_linker(linker, |ctx| ctx)?;
-        
-        debug!(
-            workload_id = component.id(),
-            "HTTP client plugin bound to component"
-        );
-        
+
         Ok(())
     }
 
     async fn stop(&self) -> anyhow::Result<()> {
         info!("stopping HTTP client plugin");
         Ok(())
-    }
-}
-
-// Implementation of wasi:http/outgoing-handler on Ctx
-// This is where the actual HTTP request handling happens
-impl bindings::wasi::http::outgoing_handler::Host for Ctx {
-    async fn handle(
-        &mut self,
-        request: Resource<bindings::wasi::http::types::OutgoingRequest>,
-        options: Option<Resource<bindings::wasi::http::types::RequestOptions>>,
-    ) -> anyhow::Result<Result<Resource<bindings::wasi::http::types::FutureIncomingResponse>, bindings::wasi::http::types::ErrorCode>> {
-        use bindings::wasi::http::types::ErrorCode;
-        
-        // Get the HTTP client plugin (similar to blobstore pattern)
-        let Some(plugin) = self.get_plugin::<HttpClient>(HTTP_CLIENT_ID) else {
-            return Ok(Err(ErrorCode::InternalError(Some(
-                "HTTP client plugin not available".to_string(),
-            ))));
-        };
-
-        info!(
-            workload_id = ?self.workload_id,
-            component_id = ?self.component_id,
-            "handling outgoing HTTP request"
-        );
-
-        // TODO: Implement WASI type conversion
-        // 
-        // Similar to how blobstore does it:
-        // 1. Get request data from the resource table:
-        //    let request_data = self.table.get(&request)?;
-        //
-        // 2. Convert WASI types to hyper types:
-        //    - Extract method, URI, headers, body from request_data
-        //    - Build hyper::Request<HyperOutgoingBody>
-        //
-        // 3. Send request using the plugin's clients:
-        //    let response = plugin.clients.request(hyper_request).await
-        //        .map_err(|e| ErrorCode::HttpProtocolError)?;
-        //
-        // 4. Convert hyper response back to WASI types:
-        //    - Create FutureIncomingResponse from hyper::Response
-        //    - Push to resource table: self.table.push(wasi_response)?
-        //
-        // Note: Connection pooling is automatic - no manual management needed!
-        
-        Ok(Err(ErrorCode::InternalError(Some(
-            "WASI type conversion not yet implemented".to_string(),
-        ))))
     }
 }

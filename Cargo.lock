@@ -6316,6 +6316,7 @@ dependencies = [
  "futures",
  "gag",
  "hostname",
+ "http-body-util",
  "hyper",
  "hyper-util",
  "names",

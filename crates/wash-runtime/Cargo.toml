@@ -34,7 +34,7 @@ hostname = { workspace = true }
 # http-body = { workspace = true }
 # http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["server", "http1", "http2"] }
-hyper-util = { version = "0.1", features = ["tokio", "client-legacy"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1", "http2"] }
 names = { workspace = true }
 semver = { workspace = true }
 sysinfo = { workspace = true }
@@ -73,6 +73,7 @@ opentelemetry-semantic-conventions = { workspace = true, features = [
 opentelemetry_sdk = { workspace = true }
 wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "d450e7d44c003f09a8df70b68de66597c2e9453c", optional = true }
 wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "d450e7d44c003f09a8df70b68de66597c2e9453c", optional = true }
+http-body-util = { version = "0.1" }
 
 # OCI dependencies (optional, behind 'oci' feature)
 docker_credential = { workspace = true, optional = true }

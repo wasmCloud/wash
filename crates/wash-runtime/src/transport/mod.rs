@@ -81,13 +81,13 @@ pub fn validate_te_header(headers: &hyper::header::HeaderMap) -> anyhow::Result<
         let te_str = te
             .to_str()
             .context("TE header contains invalid characters")?;
-        
+
         // The TE header must only be "trailers"
         ensure!(
             te_str.trim().eq_ignore_ascii_case("trailers"),
             "TE header must be 'trailers', got: {te_str}"
         );
-        
+
         debug!("validated TE header: trailers");
     }
     Ok(())
@@ -132,7 +132,9 @@ pub fn configure_tls_client(
         let mut reader = std::io::BufReader::new(f);
         let certs: Vec<CertificateDer<'static>> = rustls_pemfile::certs(&mut reader)
             .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("failed to parse certificate file: {}", cert_path.display()))?;
+            .with_context(|| {
+                format!("failed to parse certificate file: {}", cert_path.display())
+            })?;
         let (added, ignored) = ca.add_parsable_certificates(certs);
         debug!(
             added,
@@ -224,29 +226,32 @@ mod tests {
             negotiate_http_version(Some(ALPN_HTTP11)),
             HttpVersion::Http11
         );
-        assert_eq!(negotiate_http_version(Some(b"unknown")), HttpVersion::Http11);
+        assert_eq!(
+            negotiate_http_version(Some(b"unknown")),
+            HttpVersion::Http11
+        );
         assert_eq!(negotiate_http_version(None), HttpVersion::Http11);
     }
 
     #[test]
     fn test_validate_te_header() {
         let mut headers = hyper::header::HeaderMap::new();
-        
+
         // No TE header should be valid
         assert!(validate_te_header(&headers).is_ok());
-        
+
         // TE: trailers should be valid
         headers.insert("te", "trailers".parse().unwrap());
         assert!(validate_te_header(&headers).is_ok());
-        
+
         // TE: trailers (with whitespace) should be valid
         headers.insert("te", "  trailers  ".parse().unwrap());
         assert!(validate_te_header(&headers).is_ok());
-        
+
         // TE: chunked should be invalid
         headers.insert("te", "chunked".parse().unwrap());
         assert!(validate_te_header(&headers).is_err());
-        
+
         // TE: gzip should be invalid
         headers.insert("te", "gzip".parse().unwrap());
         assert!(validate_te_header(&headers).is_err());
@@ -257,7 +262,7 @@ mod tests {
         // Should succeed with webpki certs
         let config = configure_tls_client(false, true, None);
         assert!(config.is_ok());
-        
+
         let config = config.unwrap();
         // Should have ALPN protocols configured
         assert_eq!(config.alpn_protocols.len(), 2);
