@@ -1,6 +1,6 @@
 //! Runtime configuration plugin for WebAssembly components.
 //!
-//! This plugin implements the `wasi:config/runtime@0.2.0-draft` interface,
+//! This plugin implements the `wasi:config/store@0.2.0-rc.1` interface,
 //! providing components with access to configuration data and environment
 //! variables at runtime. It allows components to retrieve configuration
 //! values without requiring them to be compiled into the component.
@@ -37,7 +37,7 @@ mod bindings {
     });
 }
 
-use bindings::wasi::config::runtime::{ConfigError, Host};
+use bindings::wasi::config::store::Host;
 
 const RUNTIME_CONFIG_ID: &str = "runtime-config";
 
@@ -55,7 +55,10 @@ pub struct RuntimeConfig {
 }
 
 impl Host for Ctx {
-    async fn get(&mut self, key: String) -> anyhow::Result<Result<Option<String>, ConfigError>> {
+    async fn get(
+        &mut self,
+        key: String,
+    ) -> anyhow::Result<Result<Option<String>, bindings::wasi::config::store::Error>> {
         let Some(plugin) = self.get_plugin::<RuntimeConfig>(RUNTIME_CONFIG_ID) else {
             return Ok(Ok(None));
         };
@@ -66,7 +69,9 @@ impl Host for Ctx {
             .map_or(Ok(Ok(None)), |v| Ok(Ok(Some(v))))
     }
 
-    async fn get_all(&mut self) -> anyhow::Result<Result<Vec<(String, String)>, ConfigError>> {
+    async fn get_all(
+        &mut self,
+    ) -> anyhow::Result<Result<Vec<(String, String)>, bindings::wasi::config::store::Error>> {
         let Some(plugin) = self.get_plugin::<RuntimeConfig>(RUNTIME_CONFIG_ID) else {
             return Ok(Ok(vec![]));
         };
@@ -87,7 +92,7 @@ impl HostPlugin for RuntimeConfig {
 
     fn world(&self) -> WitWorld {
         WitWorld {
-            imports: HashSet::from([WitInterface::from("wasi:config/runtime@0.2.0-draft")]),
+            imports: HashSet::from([WitInterface::from("wasi:config/store@0.2.0-rc.1")]),
             exports: HashSet::new(),
         }
     }
@@ -96,20 +101,20 @@ impl HostPlugin for RuntimeConfig {
         component_handle: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
-        // Find the "wasi:config/runtime" interface, if present
+        // Find the "wasi:config/store" interface, if present
         let Some(interface) = interfaces.iter().find(|i| {
-            i.namespace == "wasi" && i.package == "config" && i.interfaces.contains("runtime")
+            i.namespace == "wasi" && i.package == "config" && i.interfaces.contains("store")
         }) else {
-            // Log a warning if the requested interfaces are not wasi:config/runtime
+            // Log a warning if the requested interfaces are not wasi:config/store
             tracing::warn!(
-                "RuntimeConfig plugin requested for non-wasi:config/runtime interface(s): {:?}",
+                "RuntimeConfig plugin requested for non-wasi:config/store interface(s): {:?}",
                 interfaces
             );
             return Ok(());
         };
 
-        // Add `wasi:config/runtime` to the workload's linker
-        bindings::wasi::config::runtime::add_to_linker(component_handle.linker(), |ctx| ctx)?;
+        // Add `wasi:config/store` to the workload's linker
+        bindings::wasi::config::store::add_to_linker(component_handle.linker(), |ctx| ctx)?;
 
         // Store the configuration for lookups later
         self.config

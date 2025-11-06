@@ -172,8 +172,8 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
                 WitInterface {
                     namespace: "wasi".to_string(),
                     package: "config".to_string(),
-                    interfaces: ["runtime".to_string()].into_iter().collect(),
-                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    interfaces: ["store".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.0-rc.1").unwrap()),
                     config: HashMap::new(),
                 },
                 WitInterface {

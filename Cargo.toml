@@ -151,6 +151,7 @@ scopeguard = { version = "1.2", default-features = false }
 tempfile = { version = "3.0", default-features = false }
 tokio = { version = "1.45.1", default-features = false, features = ["full"] }
 reqwest = { workspace = true, features = ["json"] }
+wash-runtime = { workspace = true, features = ["wasi-keyvalue", "wasi-blobstore"] }
 
 [workspace.metadata.cargo-machete]
 ignored = [

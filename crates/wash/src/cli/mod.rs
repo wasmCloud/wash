@@ -498,7 +498,7 @@ impl CliContext {
             }],
             host_interfaces: vec![
                 WitInterface::from("wasmcloud:wash/types@0.0.2"),
-                WitInterface::from("wasi:config/runtime@0.2.0-draft"),
+                WitInterface::from("wasi:config/store@0.2.0-rc.1"),
             ],
             // TODO: Messes with host interface parsing
             // host_interfaces: vec![WitInterface::from("wasmcloud:wash/plugin,types@0.0.2")],
