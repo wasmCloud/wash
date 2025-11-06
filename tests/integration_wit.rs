@@ -10,11 +10,15 @@ use tokio::time::timeout;
 use wash::cli::{CliCommand, CliContext, wit::WitCommand};
 
 /// Helper to create a test project with world.wit
-fn setup_test_project_with_world(content: &str) -> Result<(TempDir, std::path::PathBuf)> {
+async fn setup_test_project_with_world(content: &str) -> Result<(TempDir, std::path::PathBuf)> {
     let temp = TempDir::new().context("failed to create temp dir")?;
     let wit_dir = temp.path().join("wit");
-    fs::create_dir_all(&wit_dir).context("failed to create wit dir")?;
-    fs::write(wit_dir.join("world.wit"), content).context("failed to write world.wit")?;
+    tokio::fs::create_dir_all(&wit_dir)
+        .await
+        .context("failed to create wit dir")?;
+    tokio::fs::write(wit_dir.join("world.wit"), content)
+        .await
+        .context("failed to write world.wit")?;
     Ok((temp, wit_dir))
 }
 
@@ -24,7 +28,8 @@ fn setup_test_project_with_world(content: &str) -> Result<(TempDir, std::path::P
 #[ignore] // Requires network access
 async fn test_add_fetch_clean_workflow() -> Result<()> {
     let (temp, wit_dir) =
-        setup_test_project_with_world("package test:component@0.1.0;\n\nworld example {\n}\n")?;
+        setup_test_project_with_world("package test:component@0.1.0;\n\nworld example {\n}\n")
+            .await?;
 
     let ctx = CliContext::builder()
         .non_interactive(true)
@@ -113,7 +118,8 @@ world example {
     import wasi:config/runtime@0.2.0-draft;
 }
 "#,
-    )?;
+    )
+    .await?;
 
     let ctx = CliContext::builder()
         .non_interactive(true)
@@ -173,7 +179,7 @@ world example {
 
 /// Test 3: Remove workflow
 /// Tests removing dependency removes from world.wit but not lock file
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test]
 async fn test_remove_workflow() -> Result<()> {
     let (temp, wit_dir) = setup_test_project_with_world(
         r#"package test:component@0.1.0;
@@ -183,7 +189,8 @@ world example {
     import wasi:config/runtime@0.2.0-draft;
 }
 "#,
-    )?;
+    )
+    .await?;
 
     let ctx = CliContext::builder()
         .non_interactive(true)
@@ -197,10 +204,10 @@ world example {
         let _ = std::env::set_current_dir(&original_dir);
     });
 
-    // Remove one dependency
+    // Remove one dependency - pass wit_dir explicitly to avoid relying on current directory
     let remove_cmd = WitCommand::Remove {
         package: "wasi:logging/logging".to_string(),
-        wit_dir: None,
+        wit_dir: Some(wit_dir.clone()),
     };
     let result = remove_cmd
         .handle(&ctx)
@@ -213,7 +220,7 @@ world example {
     }
 
     // Verify removed from world.wit
-    let content = fs::read_to_string(wit_dir.join("world.wit"))?;
+    let content = tokio::fs::read_to_string(wit_dir.join("world.wit")).await?;
     assert!(
         !content.contains("import wasi:logging/logging"),
         "wasi:logging should be removed from world.wit"
@@ -238,7 +245,8 @@ world example {
     import wasi:logging/logging@0.1.0-draft;
 }
 "#,
-    )?;
+    )
+    .await?;
 
     let ctx = CliContext::builder()
         .non_interactive(true)
@@ -318,11 +326,11 @@ world example {
 
 /// Test 5: Error handling - missing world.wit
 /// Tests that commands fail gracefully with helpful errors
-#[tokio::test(flavor = "current_thread")]
+#[tokio::test]
 async fn test_error_missing_world_wit() -> Result<()> {
     let temp = TempDir::new()?;
     let wit_dir = temp.path().join("wit");
-    fs::create_dir_all(&wit_dir)?;
+    tokio::fs::create_dir_all(&wit_dir).await?;
 
     // Don't create world.wit
 
@@ -339,9 +347,10 @@ async fn test_error_missing_world_wit() -> Result<()> {
     });
 
     // Try to add - should fail with helpful message
+    // Pass wit_dir explicitly to avoid relying on current directory
     let add_cmd = WitCommand::Add {
         package: "wasi:logging/logging@0.1.0-draft".to_string(),
-        wit_dir: None,
+        wit_dir: Some(wit_dir),
     };
     let result = add_cmd
         .handle(&ctx)
