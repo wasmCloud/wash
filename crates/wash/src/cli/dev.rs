@@ -19,7 +19,7 @@ use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, trace, warn};
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_config::RuntimeConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
+    plugin::{wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -52,9 +52,9 @@ pub struct DevCommand {
     #[clap(long = "address", default_value = "0.0.0.0:8000")]
     pub address: String,
 
-    /// Configuration values to use for `wasi:config/runtime` in the form of `key=value` pairs.
-    #[clap(long = "runtime-config", value_delimiter = ',')]
-    pub runtime_config: Vec<String>,
+    /// Configuration values to use for `wasi:config/store` in the form of `key=value` pairs.
+    #[clap(long = "wasi-config", value_delimiter = ',')]
+    pub wasi_config: Vec<String>,
 
     // TODO: filesystem root?
     /// The root directory for the blobstore to use for `wasi:blobstore/blobstore`. Defaults to a subfolder in the wash data directory.
@@ -173,8 +173,8 @@ impl CliCommand for DevCommand {
 
         let mut host_builder = Host::builder();
 
-        // Enable runtime config
-        host_builder = host_builder.with_plugin(Arc::new(RuntimeConfig::default()))?;
+        // Enable wasi config
+        host_builder = host_builder.with_plugin(Arc::new(WasiConfig::default()))?;
 
         let volume_root = self
             .blobstore_root
@@ -236,15 +236,15 @@ impl CliCommand for DevCommand {
         // Build and start the host
         let host = host_builder.build()?.start().await?;
 
-        // Collect runtime configuration for the component
-        let runtime_config = self
-            .runtime_config
+        // Collect wasi configuration for the component
+        let wasi_config = self
+            .wasi_config
             .clone()
             .into_iter()
             .filter_map(|orig| match orig.split_once('=') {
                 Some((k, v)) => Some((k.to_string(), v.to_string())),
                 None => {
-                    warn!(key = orig, "runtime config key without value, skipping");
+                    warn!(key = orig, "wasi config key without value, skipping");
                     None
                 }
             })
@@ -253,7 +253,7 @@ impl CliCommand for DevCommand {
         // Workload structure
         let mut workload = create_workload(
             wasm_bytes.into(),
-            runtime_config,
+            wasi_config,
             volume_root,
             dev_register_components,
         );
@@ -559,12 +559,12 @@ fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSe
 ///
 /// ## Arguments
 /// - `bytes`: The bytes of the component to develop
-/// - `runtime_config`: Any runtime configuration to pass to the workload
+/// - `wasi_config`: Any wasi configuration to pass to the workload
 /// - `volume_root`: The root directory of available scratch space to pass as a [`Volume`].
 ///   Must be a valid UTF-8 path.
 fn create_workload(
     bytes: Bytes,
-    runtime_config: HashMap<String, String>,
+    wasi_config: HashMap<String, String>,
     volume_root: PathBuf,
     dev_register_components: Vec<Bytes>,
 ) -> Workload {
@@ -585,9 +585,9 @@ fn create_workload(
             ("wasi", "http") if interface.interfaces.contains("incoming-handler") => {
                 interface.config.insert("host".to_string(), "*".to_string());
             }
-            // wasi:config/store gets the runtime config
+            // wasi:config/store gets the wasi config
             ("wasi", "config") if interface.interfaces.contains("store") => {
-                interface.config = runtime_config.clone();
+                interface.config = wasi_config.clone();
             }
             _ => {}
         }
@@ -856,12 +856,12 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
-        let runtime_config = HashMap::new();
+        let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
         let workload = create_workload(
             component_bytes,
-            runtime_config,
+            wasi_config,
             volume_root,
             dev_register_components,
         );
@@ -886,7 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn test_create_workload_applies_runtime_config_to_store() {
+    fn test_create_workload_applies_wasi_config_to_store() {
         // Component that uses config store interface
         let wat = r#"
             (component
@@ -897,17 +897,17 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
-        let mut runtime_config = HashMap::new();
-        runtime_config.insert(
+        let mut wasi_config = HashMap::new();
+        wasi_config.insert(
             "database_url".to_string(),
             "postgres://localhost".to_string(),
         );
-        runtime_config.insert("api_key".to_string(), "secret123".to_string());
+        wasi_config.insert("api_key".to_string(), "secret123".to_string());
         let dev_register_components = vec![];
 
         let workload = create_workload(
             component_bytes,
-            runtime_config.clone(),
+            wasi_config.clone(),
             volume_root,
             dev_register_components,
         );
@@ -919,10 +919,10 @@ mod tests {
             .find(|i| i.namespace == "wasi" && i.package == "config")
             .expect("wasi:config interface not found in workload");
 
-        // Verify runtime config was applied
+        // Verify wasi config was applied
         assert_eq!(
-            config_interface.config, runtime_config,
-            "runtime config should be applied to wasi:config/store"
+            config_interface.config, wasi_config,
+            "wasi config should be applied to wasi:config/store"
         );
     }
 
@@ -936,12 +936,12 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
-        let runtime_config = HashMap::new();
+        let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
         let workload = create_workload(
             component_bytes,
-            runtime_config,
+            wasi_config,
             volume_root,
             dev_register_components,
         );
@@ -960,12 +960,12 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
-        let runtime_config = HashMap::new();
+        let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
         let workload = create_workload(
             invalid_bytes,
-            runtime_config,
+            wasi_config,
             volume_root,
             dev_register_components,
         );
@@ -990,12 +990,12 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
-        let runtime_config = HashMap::new();
+        let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
         let workload = create_workload(
             component_bytes.clone(),
-            runtime_config,
+            wasi_config,
             volume_root.clone(),
             dev_register_components,
         );
@@ -1019,7 +1019,7 @@ mod tests {
             component.local_resources.volume_mounts[0].mount_path,
             "/tmp"
         );
-        assert_eq!(component.local_resources.volume_mounts[0].read_only, false);
+        assert!(!component.local_resources.volume_mounts[0].read_only);
 
         // Verify volume configuration
         assert_eq!(workload.volumes.len(), 1);

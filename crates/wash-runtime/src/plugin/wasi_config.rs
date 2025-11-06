@@ -39,17 +39,17 @@ mod bindings {
 
 use bindings::wasi::config::store::Host;
 
-const RUNTIME_CONFIG_ID: &str = "runtime-config";
+const WASI_CONFIG_ID: &str = "wasi-config";
 
 type ConfigMap = HashMap<Arc<str>, HashMap<String, String>>;
 
-/// Runtime configuration plugin that provides access to configuration data.
+/// WASI configuration plugin that provides access to configuration data.
 ///
 /// This plugin implements the WASI config interface, allowing components to
 /// retrieve configuration values and environment variables at runtime. Each
 /// component gets isolated access to its own configuration scope.
 #[derive(Clone, Default)]
-pub struct RuntimeConfig {
+pub struct WasiConfig {
     /// A map of configuration from component id to key-value pairs
     config: Arc<RwLock<ConfigMap>>,
 }
@@ -59,7 +59,7 @@ impl Host for Ctx {
         &mut self,
         key: String,
     ) -> anyhow::Result<Result<Option<String>, bindings::wasi::config::store::Error>> {
-        let Some(plugin) = self.get_plugin::<RuntimeConfig>(RUNTIME_CONFIG_ID) else {
+        let Some(plugin) = self.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
             return Ok(Ok(None));
         };
         let config_guard = plugin.config.read().await;
@@ -72,7 +72,7 @@ impl Host for Ctx {
     async fn get_all(
         &mut self,
     ) -> anyhow::Result<Result<Vec<(String, String)>, bindings::wasi::config::store::Error>> {
-        let Some(plugin) = self.get_plugin::<RuntimeConfig>(RUNTIME_CONFIG_ID) else {
+        let Some(plugin) = self.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
             return Ok(Ok(vec![]));
         };
         let config_guard = plugin.config.read().await;
@@ -85,9 +85,9 @@ impl Host for Ctx {
 }
 
 #[async_trait::async_trait]
-impl HostPlugin for RuntimeConfig {
+impl HostPlugin for WasiConfig {
     fn id(&self) -> &'static str {
-        RUNTIME_CONFIG_ID
+        WASI_CONFIG_ID
     }
 
     fn world(&self) -> WitWorld {
@@ -107,7 +107,7 @@ impl HostPlugin for RuntimeConfig {
         }) else {
             // Log a warning if the requested interfaces are not wasi:config/store
             tracing::warn!(
-                "RuntimeConfig plugin requested for non-wasi:config/store interface(s): {:?}",
+                "WasiConfig plugin requested for non-wasi:config/store interface(s): {:?}",
                 interfaces
             );
             return Ok(());

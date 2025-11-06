@@ -22,7 +22,7 @@ use tracing::{debug, error, info, instrument, trace};
 use serde::{Deserialize, Serialize};
 use wash_runtime::{
     host::{Host, HostApi as _},
-    plugin::wasi_config::RuntimeConfig,
+    plugin::wasi_config::WasiConfig,
     types::{Component, Workload, WorkloadStartRequest, WorkloadState},
     wit::WitInterface,
 };
@@ -377,7 +377,7 @@ impl CliContextBuilder {
         let plugin_manager = Arc::new(PluginManager::new(self.non_interactive));
 
         let host = wash_runtime::host::Host::builder()
-            .with_plugin(Arc::new(RuntimeConfig::default()))?
+            .with_plugin(Arc::new(WasiConfig::default()))?
             .with_plugin(plugin_manager.clone())?
             .build()
             .context("failed to create wash runtime")?

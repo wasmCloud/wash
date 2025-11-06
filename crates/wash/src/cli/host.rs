@@ -46,7 +46,7 @@ impl CliCommand for HostCommand {
             .with_nats_client(Arc::new(scheduler_nats_client))
             .with_host_group(self.host_group.clone())
             .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_config::RuntimeConfig::default(),
+                wash_runtime::washlet::plugins::wasi_config::WasiConfig::default(),
             ))?
             .with_plugin(Arc::new(
                 wash_runtime::washlet::plugins::wasi_logging::TracingLogging::default(),

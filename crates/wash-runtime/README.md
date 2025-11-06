@@ -25,7 +25,7 @@ use wash_runtime::{
     engine::Engine,
     host::{HostBuilder, HostApi},
     plugin::{
-        wasi_config::RuntimeConfig,
+        wasi_config::WasiConfig,
         wasi_http::HttpServer,
     },
     types::{WorkloadStartRequest, Workload},
@@ -38,13 +38,13 @@ async fn main() -> anyhow::Result<()> {
 
     // Configure plugins
     let http_plugin = HttpServer::new("127.0.0.1:8080".parse()?);
-    let runtime_config_plugin = RuntimeConfig::default();
+    let wasi_config_plugin = WasiConfig::default();
 
     // Build and start the host
     let host = HostBuilder::new()
         .with_engine(engine)
         .with_plugin(Arc::new(http_plugin))?
-        .with_plugin(Arc::new(runtime_config_plugin))?
+        .with_plugin(Arc::new(wasi_config_plugin))?
         .build()?;
 
     let host = host.start().await?;

@@ -18,7 +18,7 @@ use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     plugin::{
-        wasi_blobstore::WasiBlobstore, wasi_config::RuntimeConfig, wasi_http::HttpServer,
+        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_http::HttpServer,
         wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
@@ -50,7 +50,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     let blobstore_plugin = WasiBlobstore::new(None);
 
     // Create config plugin
-    let config_plugin = RuntimeConfig::default();
+    let config_plugin = WasiConfig::default();
 
     // Create logging plugin
     let logging_plugin = WasiLogging {};
@@ -322,7 +322,7 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
     let http_plugin = HttpServer::new(addr);
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
-    let config_plugin = RuntimeConfig::default();
+    let config_plugin = WasiConfig::default();
     let logging_plugin = WasiLogging {};
 
     let host = HostBuilder::new()
@@ -502,7 +502,7 @@ async fn test_keyvalue_error_handling() -> Result<()> {
     let http_plugin = HttpServer::new(addr);
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
-    let config_plugin = RuntimeConfig::default();
+    let config_plugin = WasiConfig::default();
     let logging_plugin = WasiLogging {};
 
     let host = HostBuilder::new()
