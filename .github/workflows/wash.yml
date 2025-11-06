@@ -107,6 +107,9 @@ jobs:
     # if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     # PR 125
     if: github.event.number == 125
+    permissions:
+      contents: write
+      packages: write
     uses: ./.github/workflows/docker-build-push.yml
     secrets: inherit
     with:
