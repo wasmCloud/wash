@@ -111,7 +111,7 @@ jobs:
     secrets: inherit
     with:
       push: true
-      image: ghcr.io/wasmCloud/wash
+      image: ghcr.io/wasmcloud/wash
       tags: |
         type=raw,value=canary-v2
 
