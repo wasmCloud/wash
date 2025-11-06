@@ -17,7 +17,7 @@ use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     plugin::{
-        wasi_config::RuntimeConfig, wasi_http::HttpServer, wasi_keyvalue::WasiKeyvalue,
+        wasi_config::WasiConfig, wasi_http::HttpServer, wasi_keyvalue::WasiKeyvalue,
         wasi_logging::WasiLogging,
     },
     types::{
@@ -59,7 +59,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     let logging_plugin = WasiLogging {};
 
     // Create config plugin
-    let config_plugin = RuntimeConfig::default();
+    let config_plugin = WasiConfig::default();
 
     // Create plugin manager to provide wasmcloud:wash interfaces
     let plugin_manager = PluginManager::default();

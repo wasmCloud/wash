@@ -16,7 +16,7 @@
 //!
 //! The crate provides several built-in plugins for common WASI interfaces:
 //! - [`wasi_http`] - HTTP server capabilities (`wasi:http/incoming-handler`)
-//! - [`wasi_config`] - Runtime configuration (`wasi:config/runtime`)
+//! - [`wasi_config`] - Runtime configuration (`wasi:config/store`)
 //! - [`wasi_blobstore`] - Object storage (`wasi:blobstore`)
 //! - [`wasi_keyvalue`] - Key-value storage (`wasi:keyvalue`)
 //! - [`wasi_logging`] - Structured logging (`wasi:logging`)

@@ -104,7 +104,7 @@ interface types {
     /// This is useful for passing information between commands and hooks, or for storing state that's accessed
     /// across multiple invocations of the plugin.
     ///
-    /// Plugin config key/value pairs are available both in this object and through wasi:config/runtime calls.
+    /// Plugin config key/value pairs are available both in this object and through wasi:config/store calls.
     ///
     /// This is a global store for all instances of the plugin and race contentions should be handled with care.
     /// The contents of the store are not persisted after wash's execution ends.
@@ -169,7 +169,7 @@ interface types {
         /// This is useful for passing information between commands and hooks, or for storing state that's accessed
         /// across multiple invocations of the plugin.
         ///
-        /// Plugin config key/value pairs are available both in this object and through wasi:config/runtime calls.
+        /// Plugin config key/value pairs are available both in this object and through wasi:config/store calls.
         ///
         /// This is a global store for all instances of the plugin and race contentions should be handled with care.
         /// The contents of the store are not persisted after wash's execution ends.

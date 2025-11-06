@@ -19,7 +19,7 @@ use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     plugin::{
-        wasi_blobstore::WasiBlobstore, wasi_config::RuntimeConfig, wasi_http::HttpServer,
+        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_http::HttpServer,
         wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
@@ -54,7 +54,7 @@ async fn test_http_counter_integration() -> Result<()> {
     let logging_plugin = WasiLogging {};
 
     // Create config plugin
-    let config_plugin = RuntimeConfig::default();
+    let config_plugin = WasiConfig::default();
 
     // Build host with all required plugins
     let host = HostBuilder::new()
@@ -393,7 +393,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
     let blobstore_plugin = WasiBlobstore::new(None);
     let keyvalue_plugin = WasiKeyvalue::new();
     let logging_plugin = WasiLogging {};
-    let config_plugin = RuntimeConfig::default();
+    let config_plugin = WasiConfig::default();
 
     let host = HostBuilder::new()
         .with_engine(engine)
