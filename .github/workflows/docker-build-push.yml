@@ -51,10 +51,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - arch: arm64
-            runner: ubuntu-latest-arm
           - arch: amd64
-            runner: ubuntu-latest
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     permissions:
