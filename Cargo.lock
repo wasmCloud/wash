@@ -5741,6 +5741,7 @@ dependencies = [
  "pbjson-build 0.8.0",
  "rcgen",
  "reqwest",
+ "scopeguard",
  "semver",
  "serde",
  "serde_json",
