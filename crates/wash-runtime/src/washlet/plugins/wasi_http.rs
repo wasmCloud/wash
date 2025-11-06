@@ -144,14 +144,14 @@ impl HostPlugin for HttpServer {
             );
         };
 
-        // Warnings for extra specified interfaces
+        // Debug log for extra specified interfaces
         if interfaces.len() > 1 {
-            warn!(
+            debug!(
                 interfaces = ?interfaces,
                 "ignoring non-wasi:http/incoming-handler interfaces",
             );
         } else if http_iface.interfaces.len() > 1 {
-            warn!(
+            debug!(
                 interfaces = ?http_iface.interfaces,
                 "ignoring non-incoming-handler interfaces",
             );

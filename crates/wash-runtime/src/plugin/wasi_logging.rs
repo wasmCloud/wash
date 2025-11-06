@@ -74,7 +74,7 @@ impl HostPlugin for WasiLogging {
 
     fn world(&self) -> WitWorld {
         WitWorld {
-            imports: HashSet::from([WitInterface::from("wasi:logging/logging@0.1.0-draft")]),
+            imports: HashSet::from([WitInterface::from("wasi:logging/logging")]),
             ..Default::default()
         }
     }
