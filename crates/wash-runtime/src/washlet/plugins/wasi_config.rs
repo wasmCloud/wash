@@ -1,7 +1,7 @@
 //! # WASI Runtime Config Plugin
 //!
 //! Copies the environment variables provided to each workload to
-//! `wasi:config/runtime`
+//! `wasi:config/store`
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -22,7 +22,7 @@ mod bindings {
     });
 }
 
-use bindings::wasi::config::runtime::{ConfigError, Host};
+use bindings::wasi::config::store::{Error as ConfigError, Host};
 
 /// Runtime configuration plugin that provides access to configuration data.
 ///
@@ -68,7 +68,7 @@ impl HostPlugin for RuntimeConfig {
 
     fn world(&self) -> WitWorld {
         WitWorld {
-            imports: HashSet::from([WitInterface::from("wasi:config/runtime@0.2.0-draft")]),
+            imports: HashSet::from([WitInterface::from("wasi:config/store@0.2.0-rc.1")]),
             exports: HashSet::new(),
         }
     }
@@ -77,23 +77,23 @@ impl HostPlugin for RuntimeConfig {
         component_handle: &mut WorkloadComponent,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
-        // Find the "wasi:config/runtime" interface, if present
+        // Find the "wasi:config/store" interface, if present
         let Some(_) = interfaces.iter().find(|i| {
-            i.namespace == "wasi" && i.package == "config" && i.interfaces.contains("runtime")
+            i.namespace == "wasi" && i.package == "config" && i.interfaces.contains("store")
         }) else {
-            // Log a warning if the requested interfaces are not wasi:config/runtime
+            // Log a warning if the requested interfaces are not wasi:config/store
             tracing::warn!(
-                "RuntimeConfig plugin requested for non-wasi:config/runtime interface(s): {:?}",
+                "RuntimeConfig plugin requested for non-wasi:config/store interface(s): {:?}",
                 interfaces
             );
             return Ok(());
         };
 
-        // Add `wasi:config/runtime` to the workload's linker
-        bindings::wasi::config::runtime::add_to_linker(component_handle.linker(), |ctx| ctx)?;
+        // Add `wasi:config/store` to the workload's linker
+        bindings::wasi::config::store::add_to_linker(component_handle.linker(), |ctx| ctx)?;
 
         // Store the configuration for lookups later
-        // This mirrors wasi:cli/env on wasi:config/runtime
+        // This mirrors wasi:cli/env on wasi:config/store
         self.config.write().await.insert(
             component_handle.id().to_string(),
             component_handle.local_resources().environment.clone(),

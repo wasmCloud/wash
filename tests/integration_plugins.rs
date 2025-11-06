@@ -16,6 +16,7 @@ use wash::{
 
 /// Test the plugin test command with the inspect plugin
 #[tokio::test]
+#[ignore] // TODO ignore until we have https://github.com/wasmCloud/go/issues/243 fixed
 async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())

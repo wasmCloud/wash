@@ -141,8 +141,8 @@ async fn test_http_counter_integration() -> Result<()> {
                 WitInterface {
                     namespace: "wasi".to_string(),
                     package: "config".to_string(),
-                    interfaces: ["runtime".to_string()].into_iter().collect(),
-                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    interfaces: ["store".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.0-rc.1").unwrap()),
                     config: HashMap::new(),
                 },
             ],
@@ -174,7 +174,7 @@ async fn test_http_counter_integration() -> Result<()> {
     println!("║ • wasi:blobstore/*@0.2.0-draft           (Response data storage)     ║");
     println!("║ • wasi:keyvalue/store+atomics@0.2.0-draft (Counter persistence)      ║");
     println!("║ • wasi:logging/logging@0.1.0-draft       (Structured logging)       ║");
-    println!("║ • wasi:config/runtime@0.2.0-draft        (Runtime configuration)    ║");
+    println!("║ • wasi:config/store@0.2.0-rc.1        (Runtime configuration)    ║");
     println!("╠═══════════════════════════════════════════════════════════════════════╣");
     println!("║                           📊 COMPONENT FEATURES                       ║");
     println!("║ ✓ Makes outbound HTTP requests to example.com                        ║");
@@ -473,8 +473,8 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
                 WitInterface {
                     namespace: "wasi".to_string(),
                     package: "config".to_string(),
-                    interfaces: ["runtime".to_string()].into_iter().collect(),
-                    version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
+                    interfaces: ["store".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.0-rc.1").unwrap()),
                     config: HashMap::new(),
                 },
             ],

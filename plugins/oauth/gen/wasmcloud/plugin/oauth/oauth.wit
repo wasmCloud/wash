@@ -417,10 +417,11 @@ package wasi:clocks@0.2.0 {
 	}
 }
 
-package wasi:config@0.2.0-draft {
-	interface runtime {
-		/// An error type that encapsulates the different errors that can occur fetching config
-		variant config-error {
+package wasi:config@0.2.0-rc.1 {
+	interface store {
+		/// An error type that encapsulates the different errors that can occur fetching configuration
+		/// values.
+		variant error {
 			/// This indicates an error from an "upstream" config source.
 			/// As this could be almost _anything_ (such as Vault, Kubernetes ConfigMaps, KeyValue
 			/// buckets, etc),
@@ -436,11 +437,16 @@ package wasi:config@0.2.0-draft {
 			io(string),
 		}
 
-		/// Gets a single opaque config value set at the given key if it exists
-		get: func(key: string) -> result<option<string>, config-error>;
+		/// Gets a configuration value of type `string` associated with the `key`.
+		///
+		/// The value is returned as an `option<string>`. If the key is not found,
+		/// `Ok(none)` is returned. If an error occurs, an `Err(error)` is returned.
+		get: func(key: string);
 
-		/// Gets a list of all set config data
-		get-all: func() -> result<list<tuple<string, string>>, config-error>;
+		/// Gets a list of configuration key-value pairs of type `string`.
+		///
+		/// If an error occurs, an `Err(error)` is returned.
+		get-all: func();
 	}
 }
 
@@ -1358,7 +1364,7 @@ package wasi:io@0.2.0 {
 
 package wasmcloud:plugin@0.1.0 {
 	world oauth {
-		import wasi:config/runtime@0.2.0-draft;
+		import wasi:config/store@0.2.0-rc.1;
 		import wasi:io/poll@0.2.0;
 		import wasi:clocks/monotonic-clock@0.2.0;
 		import wasi:io/error@0.2.0;
