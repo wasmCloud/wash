@@ -52,14 +52,6 @@ impl Config {
         Self {
             templates: vec![
                 NewTemplate {
-                    name: "cosmonic-control-welcome-tour".to_string(),
-                    description: Some("Welcome to Cosmonic!".to_string()),
-                    repository: "https://github.com/cosmonic-labs/control-demos".to_string(),
-                    subfolder: Some("welcome-tour".to_string()),
-                    language: crate::new::TemplateLanguage::TypeScript,
-                    git_ref: None,
-                },
-                NewTemplate {
                     name: "sample-wasi-http-rust".to_string(),
                     description: Some(
                         "An example wasi:http server component written in Rust".to_string(),
