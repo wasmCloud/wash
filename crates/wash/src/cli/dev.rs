@@ -518,7 +518,7 @@ fn create_workload(
             WitInterface {
                 namespace: "wasi".to_string(),
                 package: "config".to_string(),
-                interfaces: HashSet::from(["runtime".to_string()]),
+                interfaces: HashSet::from(["store".to_string()]),
                 version: None,
                 config: runtime_config,
             },
@@ -663,6 +663,227 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
+
+    #[test]
+    fn test_create_workload_basic_structure() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+
+        let component_bytes = Bytes::from_static(b"fake wasm component");
+        let runtime_config = HashMap::new();
+        let dev_register_components = vec![];
+
+        let workload = create_workload(
+            component_bytes.clone(),
+            runtime_config,
+            volume_root.clone(),
+            dev_register_components,
+        );
+
+        // Verify basic workload structure
+        assert_eq!(workload.namespace, "default");
+        assert_eq!(workload.name, "dev");
+        assert_eq!(workload.components.len(), 1);
+        assert_eq!(workload.volumes.len(), 1);
+
+        // Verify the main component
+        let component = &workload.components[0];
+        assert_eq!(component.bytes, component_bytes);
+        assert_eq!(component.pool_size, -1);
+        assert_eq!(component.max_invocations, -1);
+
+        // Verify volume mount
+        assert_eq!(component.local_resources.volume_mounts.len(), 1);
+        assert_eq!(component.local_resources.volume_mounts[0].name, "dev");
+        assert_eq!(
+            component.local_resources.volume_mounts[0].mount_path,
+            "/tmp"
+        );
+        assert_eq!(component.local_resources.volume_mounts[0].read_only, false);
+    }
+
+    #[test]
+    fn test_create_workload_correct_interfaces() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+
+        let component_bytes = Bytes::from_static(b"fake wasm component");
+        let runtime_config = HashMap::new();
+        let dev_register_components = vec![];
+
+        let workload = create_workload(
+            component_bytes,
+            runtime_config,
+            volume_root,
+            dev_register_components,
+        );
+
+        // Verify we have exactly 2 host interfaces
+        assert_eq!(
+            workload.host_interfaces.len(),
+            2,
+            "Expected exactly 2 host interfaces (wasi:http and wasi:config)"
+        );
+
+        // Find the HTTP interface
+        let http_interface = workload
+            .host_interfaces
+            .iter()
+            .find(|i| i.namespace == "wasi" && i.package == "http")
+            .expect("wasi:http interface not found");
+
+        assert_eq!(http_interface.namespace, "wasi");
+        assert_eq!(http_interface.package, "http");
+        assert!(
+            http_interface.interfaces.contains("incoming-handler"),
+            "wasi:http interface should contain 'incoming-handler'"
+        );
+        assert_eq!(
+            http_interface.config.get("host"),
+            Some(&"*".to_string()),
+            "wasi:http interface should have host='*' config"
+        );
+
+        // Find the config interface and verify it uses "store", NOT "runtime"
+        let config_interface = workload
+            .host_interfaces
+            .iter()
+            .find(|i| i.namespace == "wasi" && i.package == "config")
+            .expect("wasi:config interface not found");
+
+        assert_eq!(config_interface.namespace, "wasi");
+        assert_eq!(config_interface.package, "config");
+        assert!(
+            config_interface.interfaces.contains("store"),
+            "wasi:config interface MUST contain 'store', not 'runtime'"
+        );
+        assert!(
+            !config_interface.interfaces.contains("runtime"),
+            "wasi:config interface should NOT contain 'runtime' (this was the bug!)"
+        );
+    }
+
+    #[test]
+    fn test_create_workload_runtime_config_passed_through() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+
+        let component_bytes = Bytes::from_static(b"fake wasm component");
+        let mut runtime_config = HashMap::new();
+        runtime_config.insert(
+            "database_url".to_string(),
+            "postgres://localhost".to_string(),
+        );
+        runtime_config.insert("api_key".to_string(), "secret123".to_string());
+        runtime_config.insert("debug_mode".to_string(), "true".to_string());
+        let dev_register_components = vec![];
+
+        let workload = create_workload(
+            component_bytes,
+            runtime_config.clone(),
+            volume_root,
+            dev_register_components,
+        );
+
+        // Find the config interface
+        let config_interface = workload
+            .host_interfaces
+            .iter()
+            .find(|i| i.namespace == "wasi" && i.package == "config")
+            .expect("wasi:config interface not found");
+
+        // Verify runtime config was passed through correctly
+        assert_eq!(
+            config_interface.config, runtime_config,
+            "Runtime config should be passed through to wasi:config interface"
+        );
+        assert_eq!(
+            config_interface.config.get("database_url"),
+            Some(&"postgres://localhost".to_string())
+        );
+        assert_eq!(
+            config_interface.config.get("api_key"),
+            Some(&"secret123".to_string())
+        );
+        assert_eq!(
+            config_interface.config.get("debug_mode"),
+            Some(&"true".to_string())
+        );
+    }
+
+    #[test]
+    fn test_create_workload_with_dev_register_components() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+
+        let component_bytes = Bytes::from_static(b"main component");
+        let runtime_config = HashMap::new();
+        let dev_register_components = vec![
+            Bytes::from_static(b"plugin 1"),
+            Bytes::from_static(b"plugin 2"),
+            Bytes::from_static(b"plugin 3"),
+        ];
+
+        let workload = create_workload(
+            component_bytes.clone(),
+            runtime_config,
+            volume_root,
+            dev_register_components.clone(),
+        );
+
+        // Verify we have 1 main component + 3 dev register components
+        assert_eq!(
+            workload.components.len(),
+            4,
+            "Expected 1 main component + 3 dev register components"
+        );
+
+        // Verify main component is first
+        assert_eq!(workload.components[0].bytes, component_bytes);
+        assert_eq!(workload.components[0].pool_size, -1);
+        assert_eq!(workload.components[0].max_invocations, -1);
+
+        // Verify dev register components are added after
+        for (i, expected_bytes) in dev_register_components.iter().enumerate() {
+            let component = &workload.components[i + 1];
+            assert_eq!(component.bytes, *expected_bytes);
+            // Dev register components use default values
+            assert_eq!(component.pool_size, 0);
+            assert_eq!(component.max_invocations, 0);
+        }
+    }
+
+    #[test]
+    fn test_create_workload_volume_configuration() {
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+
+        let component_bytes = Bytes::from_static(b"fake wasm component");
+        let runtime_config = HashMap::new();
+        let dev_register_components = vec![];
+
+        let workload = create_workload(
+            component_bytes,
+            runtime_config,
+            volume_root.clone(),
+            dev_register_components,
+        );
+
+        // Verify volume configuration
+        assert_eq!(workload.volumes.len(), 1);
+        let volume = &workload.volumes[0];
+        assert_eq!(volume.name, "dev");
+
+        match &volume.volume_type {
+            VolumeType::HostPath(host_path) => {
+                assert_eq!(
+                    host_path.local_path,
+                    volume_root.to_string_lossy().to_string()
+                );
+            }
+            _ => panic!("Expected HostPath volume type"),
+        }
+    }
 
     #[test]
     fn test_is_ignored_rust_project() {
