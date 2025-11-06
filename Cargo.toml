@@ -27,7 +27,7 @@ path = "src/main.rs"
 maintenance = { status = "actively-developed" }
 
 [features]
-# TODO: Many opportunities to gate the build by features
+wasi-webgpu = ["wash-runtime/wasi-webgpu"]
 
 [dependencies]
 anyhow = { workspace = true }

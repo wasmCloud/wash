@@ -41,6 +41,9 @@ pub mod wasi_keyvalue;
 #[cfg(feature = "wasi-logging")]
 pub mod wasi_logging;
 
+#[cfg(feature = "wasi-webgpu")]
+pub mod wasi_webgpu;
+
 /// The [`HostPlugin`] trait provides an interface for implementing built-in plugins for the host.
 /// A plugin is primarily responsible for implementing a specific [`WitWorld`] as a collection of
 /// imports and exports that will be directly linked to the workload's [`wasmtime::component::Linker`].

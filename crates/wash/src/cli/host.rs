@@ -55,6 +55,9 @@ impl CliCommand for HostCommand {
                 wash_runtime::washlet::plugins::wasi_blobstore::WasiBlobstore::new(None),
             ))?
             .with_plugin(Arc::new(
+                wash_runtime::plugin::wasi_webgpu::WasiWebgpu::new(),
+            ))?
+            .with_plugin(Arc::new(
                 wash_runtime::washlet::plugins::wasmcloud_messaging::WasmcloudMessaging::new(
                     data_nats_client.clone(),
                 ),
