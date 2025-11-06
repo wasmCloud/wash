@@ -104,7 +104,9 @@ jobs:
           cargo machete
 
   canary:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # PR 125
+    if: github.event.number == 125
     uses: ./.github/workflows/docker-build-push.yml
     secrets: inherit
     with:
