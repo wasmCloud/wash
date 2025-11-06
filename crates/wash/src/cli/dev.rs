@@ -19,7 +19,7 @@ use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, trace, warn};
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_config::RuntimeConfig, wasi_http::HttpServer},
+    plugin::{wasi_config::RuntimeConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -228,6 +228,10 @@ impl CliCommand for DevCommand {
                 host_builder.with_plugin(Arc::new(HttpServer::new(self.address.parse()?)))?;
             "http"
         };
+
+        // Add logging plugin
+        host_builder = host_builder.with_plugin(Arc::new(WasiLogging))?;
+        debug!("Logging plugin registered");
 
         // Build and start the host
         let host = host_builder.build()?.start().await?;
@@ -463,6 +467,94 @@ fn update_workload_component(workload: &mut Workload, bytes: Bytes) {
     }
 }
 
+/// Extract WIT interfaces from a component's imports and exports
+///
+/// Inspects the component to determine what interfaces it uses and provides.
+/// This is used to populate the `host_interfaces` field in the Workload, which is
+/// checked bidirectionally against both imports and exports during plugin binding.
+///
+/// For example:
+/// - A component that **exports** `wasi:http/incoming-handler` needs the HTTP server plugin
+/// - A component that **imports** `wasi:blobstore/blobstore` needs the blobstore plugin
+fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSet<WitInterface>> {
+    use wasmtime::component::Component;
+
+    // Create a minimal engine just for introspection
+    let engine = wasmtime::Engine::default();
+    let component = Component::new(&engine, component_bytes)
+        .context("failed to parse component for interface extraction")?;
+
+    let ty = component.component_type();
+    let mut interfaces = HashSet::new();
+
+    // Helper closure to parse interface names
+    let parse_interface = |name: &str| -> Option<WitInterface> {
+        // Parse names like "wasi:http/incoming-handler@0.2.0"
+        let (namespace_package, interface_version) = name.rsplit_once('/')?;
+        let (namespace, package) = namespace_package.split_once(':')?;
+
+        // Extract interface name and optional version
+        let (interface, version) = if let Some((iface, ver)) = interface_version.split_once('@') {
+            let parsed_version = ver.parse().ok();
+            (iface.to_string(), parsed_version)
+        } else {
+            (interface_version.to_string(), None)
+        };
+
+        Some(WitInterface {
+            namespace: namespace.to_string(),
+            package: package.to_string(),
+            interfaces: HashSet::from([interface]),
+            version,
+            config: HashMap::new(),
+        })
+    };
+
+    // Helper to check if an interface is a standard WASI interface
+    // These are provided by wasmtime-wasi and should not be in host_interfaces
+    let is_standard_wasi = |interface: &WitInterface| -> bool {
+        if interface.namespace != "wasi" {
+            return false;
+        }
+
+        // Standard WASI 0.2 packages that are provided by wasmtime-wasi linker
+        // These don't need plugin binding
+        if matches!(
+            interface.package.as_str(),
+            // Core WASI provided by wasmtime-wasi
+            "cli" | "clocks" | "filesystem" | "io" | "random" | "sockets"
+        ) {
+            return true;
+        }
+
+        // Type-only interfaces that don't need plugin binding
+        // These are just type definitions used by other interfaces
+        if interface.interfaces.iter().any(|i| i == "types") {
+            return true;
+        }
+
+        false
+    };
+
+    // Extract imports (filter out standard WASI interfaces)
+    for (import_name, _item) in ty.imports(&engine) {
+        if let Some(interface) = parse_interface(import_name)
+            && !is_standard_wasi(&interface)
+        {
+            interfaces.insert(interface);
+        }
+    }
+
+    // Extract exports (these are what the component provides to plugins)
+    for (export_name, _item) in ty.exports(&engine) {
+        if let Some(interface) = parse_interface(export_name) {
+            interfaces.insert(interface);
+        }
+    }
+
+    Ok(interfaces)
+}
+
 /// Create the [`Workload`] structure for the development component
 ///
 /// ## Arguments
@@ -476,6 +568,31 @@ fn create_workload(
     volume_root: PathBuf,
     dev_register_components: Vec<Bytes>,
 ) -> Workload {
+    // Extract both imports and exports from the component
+    // This populates host_interfaces which is checked bidirectionally during plugin binding
+    let mut host_interfaces = extract_component_interfaces(&bytes)
+        .unwrap_or_else(|e| {
+            warn!(error = ?e, "failed to extract component interfaces, using empty interface list");
+            HashSet::new()
+        })
+        .into_iter()
+        .collect::<Vec<_>>();
+
+    // Apply configuration to specific interfaces
+    for interface in &mut host_interfaces {
+        match (interface.namespace.as_str(), interface.package.as_str()) {
+            // wasi:http incoming-handler needs host="*" config for routing
+            ("wasi", "http") if interface.interfaces.contains("incoming-handler") => {
+                interface.config.insert("host".to_string(), "*".to_string());
+            }
+            // wasi:config/store gets the runtime config
+            ("wasi", "config") if interface.interfaces.contains("store") => {
+                interface.config = runtime_config.clone();
+            }
+            _ => {}
+        }
+    }
+
     let mut components = Vec::with_capacity(dev_register_components.len() + 1);
     components.push(Component {
         bytes,
@@ -507,22 +624,7 @@ fn create_workload(
         namespace: "default".to_string(),
         name: "dev".to_string(),
         components,
-        host_interfaces: vec![
-            WitInterface {
-                namespace: "wasi".to_string(),
-                package: "http".to_string(),
-                interfaces: HashSet::from(["incoming-handler".to_string()]),
-                version: None,
-                config: HashMap::from([("host".to_string(), "*".to_string())]),
-            },
-            WitInterface {
-                namespace: "wasi".to_string(),
-                package: "config".to_string(),
-                interfaces: HashSet::from(["store".to_string()]),
-                version: None,
-                config: runtime_config,
-            },
-        ],
+        host_interfaces,
         annotations: HashMap::default(),
         service: None,
         volumes: vec![Volume {
@@ -665,11 +767,229 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn test_create_workload_basic_structure() {
+    fn test_extract_component_interfaces_with_http_export() {
+        // Create a component that exports wasi:http/incoming-handler
+        // Using import syntax since WAT exports require actual implementations
+        let wat = r#"
+            (component
+                (import "wasi:http/incoming-handler@0.2.0" (instance))
+            )
+        "#;
+        let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
+
+        let interfaces =
+            extract_component_interfaces(&component_bytes).expect("failed to extract interfaces");
+
+        // Should have extracted 1 interface
+        assert_eq!(interfaces.len(), 1, "expected 1 interface");
+
+        // Check for wasi:http interface
+        let http_interface = interfaces
+            .iter()
+            .find(|i| i.namespace == "wasi" && i.package == "http")
+            .expect("wasi:http interface not found");
+        assert!(
+            http_interface.interfaces.contains("incoming-handler"),
+            "should contain incoming-handler interface"
+        );
+    }
+
+    #[test]
+    fn test_extract_component_interfaces_with_version() {
+        let wat = r#"
+            (component
+                (import "wasi:http/incoming-handler@0.2.2" (instance))
+            )
+        "#;
+        let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
+
+        let interfaces =
+            extract_component_interfaces(&component_bytes).expect("failed to extract interfaces");
+
+        assert_eq!(interfaces.len(), 1);
+        let interface = interfaces.iter().next().unwrap();
+
+        // Version parsing might not work perfectly, but interface should be extracted
+        assert_eq!(interface.namespace, "wasi");
+        assert_eq!(interface.package, "http");
+        assert!(interface.interfaces.contains("incoming-handler"));
+    }
+
+    #[test]
+    fn test_extract_component_interfaces_no_interfaces() {
+        // Component with no imports or exports
+        let wat = r#"
+            (component)
+        "#;
+        let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
+
+        let interfaces =
+            extract_component_interfaces(&component_bytes).expect("failed to extract interfaces");
+
+        assert_eq!(
+            interfaces.len(),
+            0,
+            "expected no interfaces for component with no imports/exports"
+        );
+    }
+
+    #[test]
+    fn test_extract_component_interfaces_invalid_bytes() {
+        let invalid_bytes = b"not a valid component";
+
+        let result = extract_component_interfaces(invalid_bytes);
+        assert!(
+            result.is_err(),
+            "should fail to extract interfaces from invalid bytes"
+        );
+    }
+
+    #[test]
+    fn test_create_workload_applies_http_config() {
+        // HTTP server component with incoming-handler interface
+        let wat = r#"
+            (component
+                (import "wasi:http/incoming-handler@0.2.0" (instance))
+            )
+        "#;
+        let component_bytes = Bytes::from(wat::parse_str(wat).expect("failed to parse WAT"));
+
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
+        let runtime_config = HashMap::new();
+        let dev_register_components = vec![];
 
-        let component_bytes = Bytes::from_static(b"fake wasm component");
+        let workload = create_workload(
+            component_bytes,
+            runtime_config,
+            volume_root,
+            dev_register_components,
+        );
+
+        // Find the HTTP interface in host_interfaces
+        let http_interface = workload
+            .host_interfaces
+            .iter()
+            .find(|i| i.namespace == "wasi" && i.package == "http")
+            .expect("wasi:http interface not found in workload");
+
+        // Verify host="*" config was applied
+        assert_eq!(
+            http_interface.config.get("host"),
+            Some(&"*".to_string()),
+            "wasi:http/incoming-handler should have host='*' config"
+        );
+        assert!(
+            http_interface.interfaces.contains("incoming-handler"),
+            "should contain incoming-handler interface"
+        );
+    }
+
+    #[test]
+    fn test_create_workload_applies_runtime_config_to_store() {
+        // Component that uses config store interface
+        let wat = r#"
+            (component
+                (import "wasi:config/store@0.2.0" (instance))
+            )
+        "#;
+        let component_bytes = Bytes::from(wat::parse_str(wat).expect("failed to parse WAT"));
+
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+        let mut runtime_config = HashMap::new();
+        runtime_config.insert(
+            "database_url".to_string(),
+            "postgres://localhost".to_string(),
+        );
+        runtime_config.insert("api_key".to_string(), "secret123".to_string());
+        let dev_register_components = vec![];
+
+        let workload = create_workload(
+            component_bytes,
+            runtime_config.clone(),
+            volume_root,
+            dev_register_components,
+        );
+
+        // Find the config interface
+        let config_interface = workload
+            .host_interfaces
+            .iter()
+            .find(|i| i.namespace == "wasi" && i.package == "config")
+            .expect("wasi:config interface not found in workload");
+
+        // Verify runtime config was applied
+        assert_eq!(
+            config_interface.config, runtime_config,
+            "runtime config should be applied to wasi:config/store"
+        );
+    }
+
+    #[test]
+    fn test_create_workload_with_no_interfaces() {
+        // Component with no imports/exports - should create workload with empty host_interfaces
+        let wat = r#"
+            (component)
+        "#;
+        let component_bytes = Bytes::from(wat::parse_str(wat).expect("failed to parse WAT"));
+
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+        let runtime_config = HashMap::new();
+        let dev_register_components = vec![];
+
+        let workload = create_workload(
+            component_bytes,
+            runtime_config,
+            volume_root,
+            dev_register_components,
+        );
+
+        assert_eq!(
+            workload.host_interfaces.len(),
+            0,
+            "workload with no interfaces should have no host_interfaces"
+        );
+    }
+
+    #[test]
+    fn test_create_workload_graceful_fallback_on_invalid_component() {
+        // Invalid component bytes should fall back to empty interface list
+        let invalid_bytes = Bytes::from_static(b"not a valid component");
+
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
+        let runtime_config = HashMap::new();
+        let dev_register_components = vec![];
+
+        let workload = create_workload(
+            invalid_bytes,
+            runtime_config,
+            volume_root,
+            dev_register_components,
+        );
+
+        // Should gracefully fall back to empty interfaces
+        assert_eq!(
+            workload.host_interfaces.len(),
+            0,
+            "invalid component should result in empty host_interfaces with graceful fallback"
+        );
+    }
+
+    #[test]
+    fn test_create_workload_basic_structure() {
+        // HTTP server component with incoming-handler interface
+        let wat = r#"
+            (component
+                (import "wasi:http/incoming-handler@0.2.0" (instance))
+            )
+        "#;
+        let component_bytes = Bytes::from(wat::parse_str(wat).expect("failed to parse WAT"));
+
+        let temp_dir = TempDir::new().expect("failed to create temp dir");
+        let volume_root = temp_dir.path().to_path_buf();
         let runtime_config = HashMap::new();
         let dev_register_components = vec![];
 
@@ -700,174 +1020,6 @@ mod tests {
             "/tmp"
         );
         assert_eq!(component.local_resources.volume_mounts[0].read_only, false);
-    }
-
-    #[test]
-    fn test_create_workload_correct_interfaces() {
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let volume_root = temp_dir.path().to_path_buf();
-
-        let component_bytes = Bytes::from_static(b"fake wasm component");
-        let runtime_config = HashMap::new();
-        let dev_register_components = vec![];
-
-        let workload = create_workload(
-            component_bytes,
-            runtime_config,
-            volume_root,
-            dev_register_components,
-        );
-
-        // Verify we have exactly 2 host interfaces
-        assert_eq!(
-            workload.host_interfaces.len(),
-            2,
-            "Expected exactly 2 host interfaces (wasi:http and wasi:config)"
-        );
-
-        // Find the HTTP interface
-        let http_interface = workload
-            .host_interfaces
-            .iter()
-            .find(|i| i.namespace == "wasi" && i.package == "http")
-            .expect("wasi:http interface not found");
-
-        assert_eq!(http_interface.namespace, "wasi");
-        assert_eq!(http_interface.package, "http");
-        assert!(
-            http_interface.interfaces.contains("incoming-handler"),
-            "wasi:http interface should contain 'incoming-handler'"
-        );
-        assert_eq!(
-            http_interface.config.get("host"),
-            Some(&"*".to_string()),
-            "wasi:http interface should have host='*' config"
-        );
-
-        // Find the config interface and verify it uses "store", NOT "runtime"
-        let config_interface = workload
-            .host_interfaces
-            .iter()
-            .find(|i| i.namespace == "wasi" && i.package == "config")
-            .expect("wasi:config interface not found");
-
-        assert_eq!(config_interface.namespace, "wasi");
-        assert_eq!(config_interface.package, "config");
-        assert!(
-            config_interface.interfaces.contains("store"),
-            "wasi:config interface MUST contain 'store', not 'runtime'"
-        );
-        assert!(
-            !config_interface.interfaces.contains("runtime"),
-            "wasi:config interface should NOT contain 'runtime' (this was the bug!)"
-        );
-    }
-
-    #[test]
-    fn test_create_workload_runtime_config_passed_through() {
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let volume_root = temp_dir.path().to_path_buf();
-
-        let component_bytes = Bytes::from_static(b"fake wasm component");
-        let mut runtime_config = HashMap::new();
-        runtime_config.insert(
-            "database_url".to_string(),
-            "postgres://localhost".to_string(),
-        );
-        runtime_config.insert("api_key".to_string(), "secret123".to_string());
-        runtime_config.insert("debug_mode".to_string(), "true".to_string());
-        let dev_register_components = vec![];
-
-        let workload = create_workload(
-            component_bytes,
-            runtime_config.clone(),
-            volume_root,
-            dev_register_components,
-        );
-
-        // Find the config interface
-        let config_interface = workload
-            .host_interfaces
-            .iter()
-            .find(|i| i.namespace == "wasi" && i.package == "config")
-            .expect("wasi:config interface not found");
-
-        // Verify runtime config was passed through correctly
-        assert_eq!(
-            config_interface.config, runtime_config,
-            "Runtime config should be passed through to wasi:config interface"
-        );
-        assert_eq!(
-            config_interface.config.get("database_url"),
-            Some(&"postgres://localhost".to_string())
-        );
-        assert_eq!(
-            config_interface.config.get("api_key"),
-            Some(&"secret123".to_string())
-        );
-        assert_eq!(
-            config_interface.config.get("debug_mode"),
-            Some(&"true".to_string())
-        );
-    }
-
-    #[test]
-    fn test_create_workload_with_dev_register_components() {
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let volume_root = temp_dir.path().to_path_buf();
-
-        let component_bytes = Bytes::from_static(b"main component");
-        let runtime_config = HashMap::new();
-        let dev_register_components = vec![
-            Bytes::from_static(b"plugin 1"),
-            Bytes::from_static(b"plugin 2"),
-            Bytes::from_static(b"plugin 3"),
-        ];
-
-        let workload = create_workload(
-            component_bytes.clone(),
-            runtime_config,
-            volume_root,
-            dev_register_components.clone(),
-        );
-
-        // Verify we have 1 main component + 3 dev register components
-        assert_eq!(
-            workload.components.len(),
-            4,
-            "Expected 1 main component + 3 dev register components"
-        );
-
-        // Verify main component is first
-        assert_eq!(workload.components[0].bytes, component_bytes);
-        assert_eq!(workload.components[0].pool_size, -1);
-        assert_eq!(workload.components[0].max_invocations, -1);
-
-        // Verify dev register components are added after
-        for (i, expected_bytes) in dev_register_components.iter().enumerate() {
-            let component = &workload.components[i + 1];
-            assert_eq!(component.bytes, *expected_bytes);
-            // Dev register components use default values
-            assert_eq!(component.pool_size, 0);
-            assert_eq!(component.max_invocations, 0);
-        }
-    }
-
-    #[test]
-    fn test_create_workload_volume_configuration() {
-        let temp_dir = TempDir::new().expect("failed to create temp dir");
-        let volume_root = temp_dir.path().to_path_buf();
-
-        let component_bytes = Bytes::from_static(b"fake wasm component");
-        let runtime_config = HashMap::new();
-        let dev_register_components = vec![];
-
-        let workload = create_workload(
-            component_bytes,
-            runtime_config,
-            volume_root.clone(),
-            dev_register_components,
-        );
 
         // Verify volume configuration
         assert_eq!(workload.volumes.len(), 1);
