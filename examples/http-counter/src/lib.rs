@@ -201,7 +201,7 @@ fn store_response_in_blobstore(response_body: &str) -> Result<()> {
 fn increment_counter() -> Result<u64> {
     log(Level::Info, "", "Incrementing request counter");
 
-    let bucket = open("")?;
+    let bucket = open("default")?;
 
     let new_count = increment(&bucket, COUNTER_KEY, 1).context("Failed to increment counter")?;
 

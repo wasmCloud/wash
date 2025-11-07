@@ -135,8 +135,11 @@ impl Engine {
                     // Create a temporary directory for the empty dir volume
                     let temp_dir = tempfile::tempdir()
                         .context("failed to create temp dir for empty dir volume")?;
-                    tracing::debug!(path = ?temp_dir.path(), "created temp dir for empty dir volume");
-                    temp_dir.keep()
+                    // Persist the temp dir and use the returned host path. Keep returns the
+                    // host path to the directory so we can log it for debugging purposes.
+                    let kept_path = temp_dir.keep();
+                    tracing::info!(host_path = %kept_path.display(), "created and persisted temp dir for empty dir volume");
+                    kept_path
                 }
             };
 

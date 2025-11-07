@@ -529,6 +529,14 @@ impl CliContext {
         &self.plugin_manager
     }
 
+    /// Returns a reference to the Arc<PluginManager> for sharing across hosts
+    ///
+    /// This is useful when you need to add the same PluginManager to multiple hosts,
+    /// ensuring plugins are shared across different host instances.
+    pub fn plugin_manager_arc(&self) -> &Arc<PluginManager> {
+        &self.plugin_manager
+    }
+
     pub fn host(&self) -> &Arc<Host> {
         &self.host
     }

@@ -27,7 +27,10 @@ use wash_runtime::{
     host::HostApi,
     oci::{OciConfig, pull_component},
     plugin::HostPlugin,
-    types::{Component, LocalResources, Workload, WorkloadStartRequest, WorkloadState},
+    types::{
+        Component, EmptyDirVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
+        WorkloadStartRequest, WorkloadState,
+    },
     wit::{WitInterface, WitWorld},
 };
 
@@ -68,6 +71,20 @@ impl PluginManager {
         ctx: &CliContext,
         data_dir: impl AsRef<Path>,
     ) -> anyhow::Result<()> {
+        // Load plugins into the CLI context's host by default
+        let host = ctx.host().clone();
+        self.load_plugins_into_host(host, data_dir).await
+    }
+
+    /// Load existing plugins from the plugins directory and start their workloads on the
+    /// provided `host` instance. This is useful when you need to load plugins into a
+    /// host other than the CLI's default host (for example, the dev host created by
+    /// `wash dev`).
+    pub async fn load_plugins_into_host(
+        &self,
+        host: Arc<wash_runtime::host::Host>,
+        data_dir: impl AsRef<Path>,
+    ) -> anyhow::Result<()> {
         let plugins_dir = data_dir.as_ref().join(PLUGINS_DIR);
 
         // If plugins directory doesn't exist, create it
@@ -95,10 +112,29 @@ impl PluginManager {
                 .and_then(|name| name.to_str())
                 .unwrap_or("unknown");
 
+            debug!(plugin = %plugin_name, "Loading plugin from filesystem");
+
             // Load plugin as Vec<u8>
             let plugin = tokio::fs::read(&path)
                 .await
                 .with_context(|| format!("failed to read plugin file: {}", path.display()))?;
+
+            // Create an empty-dir volume for this plugin so the engine will create
+            // a unique temporary directory for the plugin filesystem on each run.
+            // The component will mount this volume at `/tmp` inside the component.
+            let plugin_volume = Volume {
+                name: "plugin_fs".to_string(),
+                volume_type: VolumeType::EmptyDir(EmptyDirVolume {}),
+            };
+
+            let component_local_resources = LocalResources {
+                volume_mounts: vec![VolumeMount {
+                    name: "plugin_fs".to_string(),
+                    mount_path: "/tmp".to_string(),
+                    read_only: false,
+                }],
+                ..Default::default()
+            };
 
             let workload = Workload {
                 namespace: "plugins".to_string(),
@@ -107,7 +143,7 @@ impl PluginManager {
                 service: None,
                 components: vec![Component {
                     bytes: plugin.into(),
-                    local_resources: LocalResources::default(),
+                    local_resources: component_local_resources,
                     pool_size: 1,
                     max_invocations: 1,
                 }],
@@ -115,11 +151,10 @@ impl PluginManager {
                     WitInterface::from("wasmcloud:wash/types@0.0.2"),
                     WitInterface::from("wasi:config/store@0.2.0-rc.1"),
                 ],
-                volumes: vec![],
+                volumes: vec![plugin_volume],
             };
 
-            let res = ctx
-                .host()
+            let res = host
                 .workload_start(WorkloadStartRequest { workload })
                 .await?;
             if res.workload_status.workload_state != WorkloadState::Running {
@@ -210,6 +245,46 @@ impl PluginManager {
 
     pub fn skip_confirmation(&self) -> bool {
         self.skip_confirmation
+    }
+}
+
+impl PluginManager {
+    /// Read installed plugin components from the CLI data directory and return their
+    /// raw component bytes. This does not instantiate or start the plugins; it simply
+    /// returns the bytes so they can be included in a workload (for example, the
+    /// dev workload) and linked together with the main component.
+    pub async fn installed_components_bytes(
+        &self,
+        ctx: &crate::cli::CliContext,
+    ) -> anyhow::Result<Vec<Bytes>> {
+        let plugins_dir = ctx.data_dir().join(PLUGINS_DIR);
+
+        let mut components = Vec::new();
+
+        if !plugins_dir.exists() {
+            return Ok(components);
+        }
+
+        let mut entries = tokio::fs::read_dir(&plugins_dir)
+            .await
+            .context("failed to read plugins directory")?;
+
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+
+            // Only process .wasm files
+            if path.extension().and_then(|ext| ext.to_str()) != Some("wasm") {
+                continue;
+            }
+
+            let plugin = tokio::fs::read(&path)
+                .await
+                .with_context(|| format!("failed to read plugin file: {}", path.display()))?;
+
+            components.push(Bytes::from(plugin));
+        }
+
+        Ok(components)
     }
 }
 

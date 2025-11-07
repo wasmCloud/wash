@@ -3,7 +3,7 @@ use crate::Component;
 
 wit_bindgen::generate!({
     path: "../../wit",
-    world: "plugin-guest",
+    world: "wash-plugin",
     generate_all,
 });
 

@@ -21,8 +21,8 @@ use wash_runtime::{
     host::{Host, HostApi},
     plugin::{wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
     types::{
-        Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
-        WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
+        Component, EmptyDirVolume, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType,
+        Workload, WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
     },
     wit::WitInterface,
 };
@@ -165,28 +165,57 @@ impl CliCommand for DevCommand {
         // Empty context for pre-hooks, consider adding more
         ctx.call_hooks(HookType::BeforeDev, Arc::default()).await;
         let dev_register_plugins = ctx.plugin_manager().get_hooks(HookType::DevRegister).await;
+        debug!(
+            count = dev_register_plugins.len(),
+            plugins = ?dev_register_plugins.iter().map(|p| &p.metadata.name).collect::<Vec<_>>(),
+            "Found DevRegister plugins"
+        );
 
         let mut dev_register_components = Vec::with_capacity(dev_register_plugins.len());
         for plugin in dev_register_plugins {
             dev_register_components.push(plugin.get_original_component(ctx).await?)
         }
+        debug!(
+            count = dev_register_components.len(),
+            "Converted DevRegister plugins to components"
+        );
+
+        // Note: installed plugins will be loaded into the dev host so they can
+        // register their provided interfaces as HostPlugins. Do NOT include
+        // installed plugin component bytes directly into the workload here.
 
         let mut host_builder = Host::builder();
 
         // Enable wasi config
         host_builder = host_builder.with_plugin(Arc::new(WasiConfig::default()))?;
 
-        let volume_root = self
-            .blobstore_root
-            .clone()
-            .unwrap_or_else(|| ctx.data_dir().join("dev_blobstore"));
-        // Ensure the blobstore root directory exists
-        if !volume_root.exists() {
-            tokio::fs::create_dir_all(&volume_root)
-                .await
-                .context("failed to create blobstore root directory")?;
-        }
-        debug!(path = ?volume_root.display(), "using blobstore root directory");
+        // Add the plugin manager from CliContext to enable DevRegister plugins
+        host_builder = host_builder.with_plugin(Arc::clone(ctx.plugin_manager_arc()))?;
+
+        // Decide on volumes for the dev workload. If the user provided a
+        // `--blobstore-root` use that host path; otherwise request an
+        // EmptyDir so the engine will create a unique temp dir each run.
+        let volumes = if let Some(root) = &self.blobstore_root {
+            // Ensure the provided blobstore root directory exists
+            if !root.exists() {
+                tokio::fs::create_dir_all(root)
+                    .await
+                    .context("failed to create blobstore root directory")?;
+            }
+            debug!(path = ?root.display(), "using provided blobstore root directory");
+            vec![Volume {
+                name: "dev".to_string(),
+                volume_type: VolumeType::HostPath(HostPathVolume {
+                    local_path: root.to_string_lossy().to_string(),
+                }),
+            }]
+        } else {
+            debug!(path = ?ctx.data_dir().join("dev_blobstore").display(), "using ephemeral EmptyDir for dev blobstore");
+            vec![Volume {
+                name: "dev".to_string(),
+                volume_type: VolumeType::EmptyDir(EmptyDirVolume {}),
+            }]
+        };
 
         // TODO(#19): Only spawn the server if the component exports wasi:http
         // Configure HTTP server with optional TLS, enable HTTP Server
@@ -233,8 +262,20 @@ impl CliCommand for DevCommand {
         host_builder = host_builder.with_plugin(Arc::new(WasiLogging))?;
         debug!("Logging plugin registered");
 
+        // Note: filesystem-backed keyvalue plugins are loaded into the dev host
+        // via the PluginManager (see `PluginManager::load_plugins_into_host`).
+
         // Build and start the host
         let host = host_builder.build()?.start().await?;
+
+        // Load installed plugins into the dev host so they start as separate
+        // plugin workloads and can register their HostPlugin interfaces.
+        // This ensures provider interfaces (e.g., wasi:keyvalue) are available
+        // to the dev workload via the host plugin system.
+        ctx.plugin_manager()
+            .load_plugins_into_host(host.clone(), ctx.data_dir())
+            .await
+            .context("failed to load installed plugins into dev host")?;
 
         // Collect wasi configuration for the component
         let wasi_config = self
@@ -254,7 +295,7 @@ impl CliCommand for DevCommand {
         let mut workload = create_workload(
             wasm_bytes.into(),
             wasi_config,
-            volume_root,
+            volumes,
             dev_register_components,
         );
         // Running workload ID for reloads
@@ -565,18 +606,28 @@ fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSe
 fn create_workload(
     bytes: Bytes,
     wasi_config: HashMap<String, String>,
-    volume_root: PathBuf,
+    volumes: Vec<Volume>,
     dev_register_components: Vec<Bytes>,
 ) -> Workload {
     // Extract both imports and exports from the component
     // This populates host_interfaces which is checked bidirectionally during plugin binding
-    let mut host_interfaces = extract_component_interfaces(&bytes)
-        .unwrap_or_else(|e| {
-            warn!(error = ?e, "failed to extract component interfaces, using empty interface list");
-            HashSet::new()
-        })
-        .into_iter()
-        .collect::<Vec<_>>();
+    let mut host_interfaces = extract_component_interfaces(&bytes).unwrap_or_else(|e| {
+        warn!(error = ?e, "failed to extract component interfaces, using empty interface list");
+        HashSet::new()
+    });
+
+    // Also extract interfaces from DevRegister plugin components
+    // This ensures that plugin imports (like wasmcloud:wash/types) are registered
+    for dev_component_bytes in &dev_register_components {
+        let dev_interfaces =
+            extract_component_interfaces(dev_component_bytes).unwrap_or_else(|e| {
+                warn!(error = ?e, "failed to extract DevRegister component interfaces");
+                HashSet::new()
+            });
+        host_interfaces.extend(dev_interfaces);
+    }
+
+    let mut host_interfaces = host_interfaces.into_iter().collect::<Vec<_>>();
 
     // Apply configuration to specific interfaces
     for interface in &mut host_interfaces {
@@ -609,15 +660,14 @@ fn create_workload(
     });
     components.extend(dev_register_components.into_iter().map(|bytes| Component {
         bytes,
-        // TODO: Must have the root, but can't isolate rn
-        // local_resources: LocalResources {
-        //     volume_mounts: vec![VolumeMount {
-        //         name: "plugin-scratch-dir".to_string(),
-        //         // mount_path: "foo",
-        //         read_only: false,
-        //     }],
-        //     ..Default::default()
-        // },
+        local_resources: LocalResources {
+            volume_mounts: vec![VolumeMount {
+                name: "dev".to_string(),
+                mount_path: "/tmp".to_string(),
+                read_only: false,
+            }],
+            ..Default::default()
+        },
         ..Default::default()
     }));
     Workload {
@@ -627,12 +677,7 @@ fn create_workload(
         host_interfaces,
         annotations: HashMap::default(),
         service: None,
-        volumes: vec![Volume {
-            name: "dev".to_string(),
-            volume_type: VolumeType::HostPath(HostPathVolume {
-                local_path: volume_root.to_string_lossy().to_string(),
-            }),
-        }],
+        volumes,
     }
 }
 
@@ -856,13 +901,19 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
+        let volumes = vec![Volume {
+            name: "dev".to_string(),
+            volume_type: VolumeType::HostPath(HostPathVolume {
+                local_path: volume_root.to_string_lossy().to_string(),
+            }),
+        }];
         let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
         let workload = create_workload(
             component_bytes,
             wasi_config,
-            volume_root,
+            volumes,
             dev_register_components,
         );
 
@@ -897,6 +948,12 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
+        let volumes = vec![Volume {
+            name: "dev".to_string(),
+            volume_type: VolumeType::HostPath(HostPathVolume {
+                local_path: volume_root.to_string_lossy().to_string(),
+            }),
+        }];
         let mut wasi_config = HashMap::new();
         wasi_config.insert(
             "database_url".to_string(),
@@ -908,7 +965,7 @@ mod tests {
         let workload = create_workload(
             component_bytes,
             wasi_config.clone(),
-            volume_root,
+            volumes,
             dev_register_components,
         );
 
@@ -936,13 +993,19 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
+        let volumes = vec![Volume {
+            name: "dev".to_string(),
+            volume_type: VolumeType::HostPath(HostPathVolume {
+                local_path: volume_root.to_string_lossy().to_string(),
+            }),
+        }];
         let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
         let workload = create_workload(
             component_bytes,
             wasi_config,
-            volume_root,
+            volumes,
             dev_register_components,
         );
 
@@ -960,15 +1023,17 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
+        let volumes = vec![Volume {
+            name: "dev".to_string(),
+            volume_type: VolumeType::HostPath(HostPathVolume {
+                local_path: volume_root.to_string_lossy().to_string(),
+            }),
+        }];
         let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
-        let workload = create_workload(
-            invalid_bytes,
-            wasi_config,
-            volume_root,
-            dev_register_components,
-        );
+        let workload =
+            create_workload(invalid_bytes, wasi_config, volumes, dev_register_components);
 
         // Should gracefully fall back to empty interfaces
         assert_eq!(
@@ -990,13 +1055,19 @@ mod tests {
 
         let temp_dir = TempDir::new().expect("failed to create temp dir");
         let volume_root = temp_dir.path().to_path_buf();
+        let volumes = vec![Volume {
+            name: "dev".to_string(),
+            volume_type: VolumeType::HostPath(HostPathVolume {
+                local_path: volume_root.to_string_lossy().to_string(),
+            }),
+        }];
         let wasi_config = HashMap::new();
         let dev_register_components = vec![];
 
         let workload = create_workload(
             component_bytes.clone(),
             wasi_config,
-            volume_root.clone(),
+            volumes,
             dev_register_components,
         );
 

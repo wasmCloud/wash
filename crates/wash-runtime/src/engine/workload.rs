@@ -233,6 +233,14 @@ impl WorkloadService {
         Ok(command)
     }
 
+    /// Pre-instantiate the component for use as an export provider (returns raw InstancePre).
+    /// This is used for component-to-component linking where we need access to the raw Instance exports.
+    pub fn pre_instantiate_for_linking(&mut self) -> anyhow::Result<InstancePre<Ctx>> {
+        let component = self.metadata.component.clone();
+        let pre = self.metadata.linker.instantiate_pre(&component)?;
+        Ok(pre)
+    }
+
     /// Whether or not the service is currently running.
     pub fn is_running(&self) -> bool {
         self.handle.is_some()
@@ -465,6 +473,12 @@ impl ResolvedWorkload {
             }
         }
 
+        debug!(
+            interface_count = interface_map.len(),
+            interfaces = ?interface_map.keys().collect::<Vec<_>>(),
+            "component interface map built for linking"
+        );
+
         self.resolve_workload_imports(&interface_map).await?;
 
         Ok(())
@@ -478,8 +492,6 @@ impl ResolvedWorkload {
     ) -> anyhow::Result<()> {
         let component_ids: Vec<Arc<str>> = self.components.read().await.keys().cloned().collect();
         for component_id in component_ids {
-            // In order to have mutable access to both the workload component and components that need
-            // to be instantiated as "plugins" during linking, we remove and re-add the component to the list.
             let mut workload_component = {
                 self.components
                     .write()
@@ -527,28 +539,59 @@ impl ResolvedWorkload {
         let ty = component.component_type();
         let imports: Vec<_> = ty.imports(component.engine()).collect();
 
-        // TODO: some kind of shared import_name -> component registry. need to remove when new store
-        // store id, instance, import_name. That will keep the instance properly unique
-        let instance: Arc<RwLock<Option<(String, Instance)>>> = Arc::default();
+        // Map from package name (e.g., "wasi:blobstore@0.2.0-draft") to instance Arc.
+        // All interfaces in the same package (e.g., wasi:blobstore/container, wasi:blobstore/blobstore)
+        // must share the same instance so that resources can be passed between them.
+        let mut package_instances: HashMap<String, Arc<RwLock<Option<(String, Instance)>>>> =
+            HashMap::new();
+
         for (import_name, import_item) in imports.into_iter() {
             match import_item {
                 ComponentItem::ComponentInstance(import_instance_ty) => {
                     trace!(name = import_name, "processing component instance import");
-                    let mut all_components = self.components.write().await;
-                    let (plugin_component, instance_idx) = {
-                        let Some(exporter_component) = interface_map.get(import_name) else {
+
+                    // Extract package name from import_name (e.g., "wasi:blobstore/container@0.2.0-draft" -> "wasi:blobstore@0.2.0-draft")
+                    let package_name = if let Some(slash_pos) = import_name.rfind('/') {
+                        // Everything before the last '/' plus everything after '@'
+                        let before_slash = &import_name[..slash_pos];
+                        if let Some(at_pos) = import_name.rfind('@') {
+                            format!("{}@{}", before_slash, &import_name[at_pos + 1..])
+                        } else {
+                            before_slash.to_string()
+                        }
+                    } else {
+                        // Fallback: use full import_name if it doesn't have expected format
+                        import_name.to_string()
+                    };
+
+                    // Get or create instance Arc for this package
+                    let instance = package_instances
+                        .entry(package_name.clone())
+                        .or_insert_with(|| Arc::default())
+                        .clone();
+                    debug!(
+                        import_name = import_name,
+                        available_in_map = interface_map.contains_key(import_name),
+                        map_keys = ?interface_map.keys().collect::<Vec<_>>(),
+                        "checking if import can be satisfied by component export"
+                    );
+                    let all_components = self.components.read().await;
+                    let (exporter_component_id, instance_idx, plugin_component_ref) = {
+                        let Some(exporter_component_id) = interface_map.get(import_name) else {
                             // TODO: error because unsatisfied import, if there's no available
                             // export then it's an unresolvable workload
-                            trace!(
+                            debug!(
                                 name = import_name,
+                                available_exports = ?interface_map.keys().collect::<Vec<_>>(),
                                 "import not found in component exports, skipping"
                             );
                             continue;
                         };
-                        let Some(plugin_component) = all_components.get_mut(exporter_component)
+                        let Some(plugin_component) = all_components.get(exporter_component_id)
                         else {
                             trace!(
                                 name = import_name,
+                                exporter_id = %exporter_component_id,
                                 "exporting component not found in all components, skipping"
                             );
                             continue;
@@ -561,14 +604,31 @@ impl ResolvedWorkload {
                             trace!(name = import_name, "skipping non-instance import");
                             continue;
                         };
-                        (plugin_component, idx)
+                        (
+                            exporter_component_id.clone(),
+                            idx,
+                            plugin_component.metadata.component.clone(),
+                        )
                     };
                     trace!(name = import_name, index = ?instance_idx, "found import at index");
 
-                    // Preinstantiate the plugin instance so we can use it later
-                    let pre = plugin_component
-                        .pre_instantiate()
-                        .context("failed to pre-instantiate during component linking")?;
+                    // Release the read lock before acquiring write lock for pre-instantiation
+                    drop(all_components);
+
+                    // Pre-instantiate the exporting component for linking (returns raw InstancePre)
+                    let pre = {
+                        let mut components = self.components.write().await;
+                        let Some(exporter) = components.get_mut(&exporter_component_id) else {
+                            trace!(
+                                name = import_name,
+                                exporter_id = %exporter_component_id,
+                                "exporting component not found for pre-instantiation, skipping"
+                            );
+                            continue;
+                        };
+                        exporter.pre_instantiate()
+                            .context("failed to pre-instantiate exporting component during component linking")?
+                    };
 
                     let mut linker_instance = match linker.instance(import_name) {
                         Ok(i) => i,
@@ -579,13 +639,11 @@ impl ResolvedWorkload {
                     };
 
                     for (export_name, export_ty) in
-                        import_instance_ty.exports(plugin_component.metadata.component.engine())
+                        import_instance_ty.exports(plugin_component_ref.engine())
                     {
                         match export_ty {
                             ComponentItem::ComponentFunc(_func_ty) => {
-                                let (item, func_idx) = match plugin_component
-                                    .metadata
-                                    .component
+                                let (item, _func_idx) = match plugin_component_ref
                                     .export_index(Some(&instance_idx), export_name)
                                 {
                                     Some(res) => res,
@@ -607,8 +665,25 @@ impl ResolvedWorkload {
                                     fn_name = export_name,
                                     "linking function import"
                                 );
+                                // Debug: List all available exports before creating closure
+                                debug!(
+                                    name = import_name,
+                                    "listing all available exports from component type"
+                                );
+                                let available_exports: Vec<String> = plugin_component_ref
+                                    .component_type()
+                                    .exports(plugin_component_ref.engine())
+                                    .map(|(name, _)| name.to_string())
+                                    .collect();
+                                debug!(
+                                    name = import_name,
+                                    ?available_exports,
+                                    "available exports from exporting component"
+                                );
+
                                 let import_name: Arc<str> = import_name.into();
                                 let export_name: Arc<str> = export_name.into();
+                                let instance_idx_clone = instance_idx.clone();
                                 let pre = pre.clone();
                                 let instance = instance.clone();
                                 linker_instance
@@ -619,6 +694,7 @@ impl ResolvedWorkload {
                                             // to detect a diff store to drop the old one
                                             let import_name = import_name.clone();
                                             let export_name = export_name.clone();
+                                            let instance_idx = instance_idx_clone.clone();
                                             let pre = pre.clone();
                                             let instance = instance.clone();
                                             Box::new(async move {
@@ -632,17 +708,45 @@ impl ResolvedWorkload {
                                                     instance
                                                 } else {
                                                     // Likely unnecessary, but explicit drop of the read lock
+                                                    debug!(
+                                                        name = %import_name,
+                                                        fn_name = %export_name,
+                                                        store_id = %store_id,
+                                                        "creating new instance via pre.instantiate_async"
+                                                    );
                                                     let new_instance =
                                                         pre.instantiate_async(&mut store).await?;
+                                                    debug!(
+                                                        name = %import_name,
+                                                        fn_name = %export_name,
+                                                        store_id = %store_id,
+                                                        "successfully created new instance"
+                                                    );
                                                     drop(existing_instance);
                                                     *instance.write().await =
                                                         Some((store_id, new_instance));
                                                     new_instance
                                                 };
 
+                                                debug!(
+                                                    name = %import_name,
+                                                    fn_name = %export_name,
+                                                    "looking up function from runtime instance by name"
+                                                );
+
+                                                // Look up the function by name from the runtime instance.
+                                                // We do a two-step lookup:
+                                                // 1. Look up the interface instance by name (e.g., "wasi:keyvalue/store@0.2.0-draft")
+                                                // 2. Use that runtime instance index to look up the function within it
+                                                let interface_idx = instance.get_export(&mut store, None, &import_name)
+                                                    .ok_or_else(|| anyhow::anyhow!("interface '{}' not found in runtime instance", import_name))?;
+
+                                                let func_idx = instance.get_export(&mut store, Some(&interface_idx), &export_name)
+                                                    .ok_or_else(|| anyhow::anyhow!("function '{}' not found in interface '{}'", export_name, import_name))?;
+
                                                 let func = instance
                                                     .get_func(&mut store, func_idx)
-                                                    .context("function not found")?;
+                                                    .with_context(|| format!("'{}' in interface '{}' is not a function", export_name, import_name))?;
                                                 trace!(
                                                     name = %import_name,
                                                     fn_name = %export_name,
@@ -703,9 +807,7 @@ impl ResolvedWorkload {
                                     .expect("failed to create async func");
                             }
                             ComponentItem::Resource(resource_ty) => {
-                                let (item, _idx) = match plugin_component
-                                    .metadata
-                                    .component
+                                let (item, _idx) = match plugin_component_ref
                                     .export_index(Some(&instance_idx), export_name)
                                 {
                                     Some(res) => res,
@@ -1008,8 +1110,55 @@ impl UnresolvedWorkload {
     ) -> anyhow::Result<Vec<(Arc<dyn HostPlugin + 'static>, Vec<String>)>> {
         let mut bound_plugins: Vec<(Arc<dyn HostPlugin + 'static>, Vec<String>)> = Vec::new();
 
+        // Build a list of interfaces provided by component exports
+        let mut component_exports: HashSet<String> = HashSet::new();
+        for component in self.components.values() {
+            let exported_instances = component.component_exports()?;
+            for (name, item) in exported_instances {
+                if matches!(item, ComponentItem::ComponentInstance(_)) {
+                    component_exports.insert(name.to_string());
+                }
+            }
+        }
+
+        // Build a list of interfaces required by component imports
+        let mut component_imports: HashSet<String> = HashSet::new();
+        for component in self.components.values() {
+            let world = component.world();
+            for import in &world.imports {
+                // Construct the full interface name for each interface in the WitInterface
+                for iface_name in &import.interfaces {
+                    let full_interface =
+                        format!("{}:{}/{}", import.namespace, import.package, iface_name);
+                    component_imports.insert(full_interface);
+                }
+            }
+        }
+
+        // Interfaces that can be satisfied by component-to-component linking
+        // are those that are BOTH imported by one component AND exported by another
+        let component_to_component_interfaces: HashSet<String> = component_imports
+            .iter()
+            .filter(|import_iface| {
+                component_exports.iter().any(|export| {
+                    // Match if the export starts with the import interface name
+                    // (to handle version differences like @0.2.0)
+                    export.starts_with(import_iface.as_str())
+                })
+            })
+            .cloned()
+            .collect();
+
+        trace!(
+            component_exports = ?component_exports,
+            component_imports = ?component_imports,
+            component_to_component_interfaces = ?component_to_component_interfaces,
+            "identified interfaces for component-to-component linking"
+        );
+
         // Collect all component's required (unmatched) host interfaces
         // This tracks which interfaces each component still needs to be bound
+        // Filter out interfaces that can be satisfied by component exports
         let mut unmatched_interfaces: HashMap<Arc<str>, HashSet<WitInterface>> = HashMap::new();
         trace!(host_interfaces = ?self.host_interfaces, "determining missing guest interfaces");
 
@@ -1019,7 +1168,23 @@ impl UnresolvedWorkload {
             let required_interfaces: HashSet<WitInterface> = self
                 .host_interfaces
                 .iter()
-                .filter(|wit_interface| world.includes_bidirectional(wit_interface))
+                .filter(|wit_interface| {
+                    // Check both imports and exports (bidirectional)
+                    if !world.includes_bidirectional(wit_interface) {
+                        return false;
+                    }
+                    // Filter out interfaces that can be satisfied by component-to-component linking
+                    // Only filter if ALL interfaces in this WitInterface are component-to-component
+                    let all_provided_by_components =
+                        wit_interface.interfaces.iter().all(|iface_name| {
+                            let full_interface = format!(
+                                "{}:{}/{}",
+                                wit_interface.namespace, wit_interface.package, iface_name
+                            );
+                            component_to_component_interfaces.contains(&full_interface)
+                        });
+                    !all_provided_by_components
+                })
                 .cloned()
                 .collect();
 
@@ -1034,7 +1199,23 @@ impl UnresolvedWorkload {
             let required_interfaces: HashSet<WitInterface> = self
                 .host_interfaces
                 .iter()
-                .filter(|wit_interface| world.includes_bidirectional(wit_interface))
+                .filter(|wit_interface| {
+                    // Check both imports and exports (bidirectional)
+                    if !world.includes_bidirectional(wit_interface) {
+                        return false;
+                    }
+                    // Filter out interfaces that can be satisfied by component-to-component linking
+                    // Only filter if ALL interfaces in this WitInterface are component-to-component
+                    let all_provided_by_components =
+                        wit_interface.interfaces.iter().all(|iface_name| {
+                            let full_interface = format!(
+                                "{}:{}/{}",
+                                wit_interface.namespace, wit_interface.package, iface_name
+                            );
+                            component_to_component_interfaces.contains(&full_interface)
+                        });
+                    !all_provided_by_components
+                })
                 .cloned()
                 .collect();
 
@@ -1043,7 +1224,10 @@ impl UnresolvedWorkload {
             }
         }
 
-        trace!(?unmatched_interfaces, "resolving unmatched interfaces");
+        trace!(
+            ?unmatched_interfaces,
+            "resolving unmatched interfaces after filtering component-provided interfaces"
+        );
 
         // Iterate through each plugin first, then check every component for matching worlds
         for (plugin_id, p) in plugins.iter() {
@@ -1144,17 +1328,42 @@ impl UnresolvedWorkload {
             }
         }
 
-        // Check if all required interfaces were matched
+        // Check if all required IMPORTED interfaces were matched by HostPlugins
+        // (component-to-component interfaces were already filtered out earlier)
+        // Note: Unmatched exports are OK - they're optional for host plugins to consume
         for (component_id, unmatched) in unmatched_interfaces.iter() {
-            if !unmatched.is_empty() {
-                tracing::error!(
-                    component_id = component_id.as_ref(),
-                    interfaces = ?unmatched,
-                    "no plugins found for requested interfaces"
-                );
-                bail!(
-                    "workload component {component_id} requested interfaces that are not available on this host: {unmatched:?}",
-                )
+            // Find the component to check which unmatched interfaces are imports vs exports
+            let component_world = if let Some(service) = self.service.as_ref() {
+                if service.id() == component_id.as_ref() {
+                    Some(service.world())
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+            .or_else(|| self.components.get(component_id).map(|c| c.world()));
+
+            if let Some(world) = component_world {
+                // Filter to only unmatched IMPORTS (not exports)
+                let unmatched_imports: Vec<&WitInterface> = unmatched
+                    .iter()
+                    .filter(|iface| {
+                        // Check if this is an import (not just an export)
+                        world.imports.iter().any(|import| import.contains(iface))
+                    })
+                    .collect();
+
+                if !unmatched_imports.is_empty() {
+                    tracing::error!(
+                        component_id = component_id.as_ref(),
+                        interfaces = ?unmatched_imports,
+                        "no plugins found for required imports"
+                    );
+                    bail!(
+                        "workload component {component_id} has unmatched import interfaces: {unmatched_imports:?}",
+                    )
+                }
             }
         }
 
@@ -1205,14 +1414,12 @@ impl UnresolvedWorkload {
             service: self.service,
         };
 
-        // Link components before plugin resolution
+        // Link components to each other so component exports satisfy component imports
         if let Err(e) = resolved_workload.link_components().await {
-            // If linking fails, unbind all plugins before returning the error
             warn!(
                 error = ?e,
-                "failed to link components, unbinding all plugins"
+                "failed to link components in resolved workload"
             );
-            let _ = resolved_workload.unbind_all_plugins().await;
             bail!(e);
         }
 
