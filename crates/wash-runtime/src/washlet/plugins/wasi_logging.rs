@@ -19,13 +19,13 @@ const PLUGIN_LOGGING_ID: &str = "wasi-logging";
 mod bindings {
     crate::wasmtime::component::bindgen!({
         world: "logging",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
     });
 }
 
 use bindings::wasi::logging::logging::Level;
 use tokio::sync::RwLock;
+use wasmtime::component::HasSelf;
 
 type ComponentMap = Arc<RwLock<HashMap<String, ComponentInfo>>>;
 
@@ -148,7 +148,10 @@ impl HostPlugin for TracingLogging {
         }
 
         // Add `wasi:logging/logging` to the workload's linker
-        bindings::wasi::logging::logging::add_to_linker(component.linker(), |ctx| ctx)?;
+        bindings::wasi::logging::logging::add_to_linker::<_, HasSelf<Ctx>>(
+            component.linker(),
+            |ctx| ctx,
+        )?;
 
         tracing::info!(
             "TracingLoggingPlugin bound to component {} of workload {} in namespace {}",

@@ -14,7 +14,7 @@ use tracing::{debug, info, trace, warn};
 use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, bindings::CommandPre};
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, p2::bindings::CommandPre};
 
 use crate::{
     engine::{
@@ -565,7 +565,7 @@ impl ResolvedWorkload {
                         let Some((ComponentItem::ComponentInstance(_), idx)) = plugin_component
                             .metadata
                             .component
-                            .export_index(None, import_name)
+                            .get_export(None, import_name)
                         else {
                             trace!(name = import_name, "skipping non-instance import");
                             continue;
@@ -595,7 +595,7 @@ impl ResolvedWorkload {
                                 let (item, func_idx) = match plugin_component
                                     .metadata
                                     .component
-                                    .export_index(Some(&instance_idx), export_name)
+                                    .get_export(Some(&instance_idx), export_name)
                                 {
                                     Some(res) => res,
                                     None => {
@@ -723,7 +723,7 @@ impl ResolvedWorkload {
                                 let (item, _idx) = match plugin_component
                                     .metadata
                                     .component
-                                    .export_index(Some(&instance_idx), export_name)
+                                    .get_export(Some(&instance_idx), export_name)
                                 {
                                     Some(res) => res,
                                     None => {
