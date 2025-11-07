@@ -130,7 +130,7 @@ jobs:
       push: true
       image: ghcr.io/wasmcloud/wash
       tags: |
-        type=semver,pattern={{version}}
+        type=match,pattern=wash-v(.*),group=1
 
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wash-v')
