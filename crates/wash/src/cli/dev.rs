@@ -5,6 +5,7 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::SystemTime,
 };
 
 use anyhow::{Context as _, bail, ensure};
@@ -260,6 +261,9 @@ impl CliCommand for DevCommand {
         // Running workload ID for reloads
         let mut workload_id = reload_component(host.clone(), &workload, None).await?;
 
+        // Track last build time for WIT change detection
+        let mut last_build_time = SystemTime::now();
+
         // Canonicalize project root once to ensure consistent path comparisons
         let canonical_project_root = self.project_dir.canonicalize().with_context(|| {
             format!(
@@ -364,13 +368,31 @@ impl CliCommand for DevCommand {
 
                     info!("rebuilding component after file changed ...");
 
+                    // Check if WIT-related files have changed since the last build
+                    let wit_changed = wit_files_changed(&self.project_dir, last_build_time);
+
+                    // Create a modified config with skip_fetch set based on WIT file changes
+                    let mut rebuild_config = config.clone();
+                    if !wit_changed {
+                        info!("no WIT-related files changed, skipping WIT dependency fetch");
+                        if let Some(wit_config) = rebuild_config.wit.as_mut() {
+                            wit_config.skip_fetch = true;
+                        } else {
+                            rebuild_config.wit = Some(crate::wit::WitConfig {
+                                skip_fetch: true,
+                                ..Default::default()
+                            });
+                        }
+                    } else {
+                        debug!("WIT-related files changed, fetching WIT dependencies");
+                    }
+
                     // TODO(IMPORTANT): ensure that this calls the build pre-post hooks
-                    // TODO(#21): Skip wit fetch if no .wit change
                     // TODO(#22): Typescript: Skip install if no package.json change
                     let rebuild_result = build_component(
                         &self.project_dir,
                         ctx,
-                        &config,
+                        &rebuild_config,
                     ).await;
 
                     match rebuild_result {
@@ -391,6 +413,9 @@ impl CliCommand for DevCommand {
                                 &workload,
                                 Some(workload_id),
                             ).await?;
+
+                            // Update last build time after successful rebuild
+                            last_build_time = SystemTime::now();
 
                             // Avoid jitter with reloads by pausing the watcher for a short time
                             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -661,6 +686,73 @@ async fn reload_component(
     }
 
     Ok(response.workload_status.workload_id)
+}
+
+/// Check if WIT-related files have been modified since the last build
+///
+/// This function checks the following files for modifications:
+/// - `wit/**/*.wit` files (excluding `wit/deps/*`)
+///
+/// # Arguments
+/// * `project_root` - The project root directory
+/// * `last_build_time` - The timestamp of the last build
+///
+/// # Returns
+/// `true` if any WIT-related files have been modified, `false` otherwise
+fn wit_files_changed(project_root: &Path, last_build_time: SystemTime) -> bool {
+    // Check wit/**/*.wit files (excluding wit/deps/*)
+    let wit_dir = project_root.join("wit");
+    if wit_dir.exists()
+        && let Ok(entries) = std::fs::read_dir(&wit_dir)
+    {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            // Skip the deps directory
+            if path.is_dir() && path.file_name().is_some_and(|n| n == "deps") {
+                continue;
+            }
+
+            // Check .wit files directly in wit/
+            if path.is_file()
+                && path.extension().is_some_and(|ext| ext == "wit")
+                && let Ok(metadata) = path.metadata()
+                && let Ok(modified) = metadata.modified()
+                && modified > last_build_time
+            {
+                debug!(path = ?path.display(), "WIT file modified since last build");
+                return true;
+            }
+
+            // Recursively check subdirectories (except deps)
+            if path.is_dir() && check_wit_files_in_dir(&path, last_build_time) {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Helper function to recursively check for modified .wit files in a directory
+fn check_wit_files_in_dir(dir: &Path, last_build_time: SystemTime) -> bool {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            if path.is_file()
+                && path.extension().is_some_and(|ext| ext == "wit")
+                && let Ok(metadata) = path.metadata()
+                && let Ok(modified) = metadata.modified()
+                && modified > last_build_time
+            {
+                debug!(path = ?path.display(), "WIT file modified since last build");
+                return true;
+            } else if path.is_dir() && check_wit_files_in_dir(&path, last_build_time) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Helper function to check if a path should be ignored during file watching
