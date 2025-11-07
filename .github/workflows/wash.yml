@@ -180,6 +180,12 @@ jobs:
           install-zigbuild: ${{ matrix.runner == 'ubuntu-latest' }}
           rust-targets: "${{ matrix.target }}"
 
+      - name: Setup protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "29.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build binary (${{ matrix.target }})
         run: |
           ${{ matrix.buildCommand }} --release --target ${{ matrix.target }}
