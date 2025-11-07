@@ -4,7 +4,7 @@ use std::time::SystemTime;
 
 const PLUGIN_BLOBSTORE_ID: &str = "wasi-blobstore";
 use crate::engine::ctx::Ctx;
-use crate::engine::workload::{ResolvedWorkload, WorkloadComponent};
+use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use tokio::sync::RwLock;
@@ -959,15 +959,14 @@ impl HostPlugin for WasiBlobstore {
 
     async fn on_workload_unbind(
         &self,
-        workload_handle: &ResolvedWorkload,
+        workload_id: &str,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
-        let id = workload_handle.id();
         // Clean up storage for this workload
         let mut storage = self.storage.write().await;
-        storage.remove(id);
+        storage.remove(workload_id);
 
-        tracing::debug!("WasiBlobstore plugin unbound from workload '{id}'");
+        tracing::debug!("WasiBlobstore plugin unbound from workload '{workload_id}'");
 
         Ok(())
     }

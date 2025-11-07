@@ -252,17 +252,17 @@ impl HostPlugin for HttpServer {
 
     async fn on_workload_unbind(
         &self,
-        workload: &ResolvedWorkload,
+        workload_id: &str,
         _interfaces: HashSet<WitInterface>,
     ) -> anyhow::Result<()> {
-        debug!(workload_id = workload.id(), "removing HTTP workload handle");
+        debug!(workload_id, "removing HTTP workload handle");
 
         // Remove from workload handles
         let mut handles_guard = self.workload_handles.write().await;
-        handles_guard.retain(|_, (handle, _, _)| handle.id() != workload.id());
+        handles_guard.retain(|_, (handle, _, _)| handle.id() != workload_id);
 
         // Remove from workload configs
-        self.workload_configs.write().await.remove(workload.id());
+        self.workload_configs.write().await.remove(workload_id);
 
         Ok(())
     }

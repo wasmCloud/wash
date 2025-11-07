@@ -6,8 +6,9 @@ pub mod wasi_logging;
 pub mod wasmcloud_messaging;
 
 use std::collections::HashMap;
+use std::future::Future;
 
-use crate::engine::workload::{ResolvedWorkload, UnresolvedWorkload, WorkloadComponent};
+use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent};
 
 /// A tracker for workloads and their components, allowing storage of associated
 /// data.
@@ -47,8 +48,8 @@ impl<T, Y> WorkloadTracker<T, Y> {
         );
     }
 
-    pub async fn remove_workload(&mut self, workload: &ResolvedWorkload) {
-        if let Some(item) = self.workloads.remove(workload.id()) {
+    pub async fn remove_workload(&mut self, workload_id: &str) {
+        if let Some(item) = self.workloads.remove(workload_id) {
             for component_id in item.components.keys() {
                 self.components.remove(component_id);
             }
@@ -60,11 +61,11 @@ impl<T, Y> WorkloadTracker<T, Y> {
         FutC: Future<Output = ()>,
     >(
         &mut self,
-        workload: &ResolvedWorkload,
+        workload_id: &str,
         workload_cleanup: impl FnOnce(Option<T>) -> FutW,
         component_cleanup: impl Fn(Y) -> FutC,
     ) {
-        if let Some(item) = self.workloads.remove(workload.id()) {
+        if let Some(item) = self.workloads.remove(workload_id) {
             for (component_id, component_data) in item.components {
                 component_cleanup(component_data).await;
                 self.components.remove(&component_id);

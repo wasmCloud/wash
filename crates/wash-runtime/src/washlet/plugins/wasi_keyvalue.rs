@@ -11,7 +11,7 @@ use bytes::{Buf, Bytes};
 
 const PLUGIN_KEYVALUE_ID: &str = "wasi-keyvalue";
 use crate::engine::ctx::Ctx;
-use crate::engine::workload::{ResolvedWorkload, WorkloadComponent};
+use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use futures::StreamExt;
@@ -503,12 +503,10 @@ impl HostPlugin for WasiKeyvalue {
 
     async fn on_workload_unbind(
         &self,
-        workload_handle: &ResolvedWorkload,
+        workload_id: &str,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
-        let id = workload_handle.id();
-
-        tracing::debug!("WasiKeyvalue plugin unbound from workload '{id}'");
+        tracing::debug!("WasiKeyvalue plugin unbound from workload '{workload_id}'");
 
         Ok(())
     }

@@ -158,10 +158,13 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
     /// Called when a workload is being stopped or unbound from this plugin.
     ///
     /// This method allows plugins to clean up any resources associated with
-    /// the workload. The default implementation does nothing.
+    /// the workload. This can be called during binding failures (before resolution)
+    /// or during normal workload shutdown (after resolution).
+    ///
+    /// The default implementation does nothing.
     ///
     /// # Arguments
-    /// * `workload` - The workload being unbound
+    /// * `workload_id` - The ID of the workload being unbound
     /// * `interfaces` - The interfaces that were bound
     ///
     /// # Returns
@@ -171,7 +174,7 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
     /// Returns an error if cleanup fails.
     async fn on_workload_unbind(
         &self,
-        _workload: &ResolvedWorkload,
+        _workload_id: &str,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         Ok(())

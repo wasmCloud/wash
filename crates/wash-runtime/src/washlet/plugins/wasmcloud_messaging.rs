@@ -247,7 +247,7 @@ impl HostPlugin for WasmcloudMessaging {
 
     async fn on_workload_unbind(
         &self,
-        workload: &ResolvedWorkload,
+        workload_id: &str,
         _interfaces: HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         let workload_cleanup = |_| async {};
@@ -258,7 +258,7 @@ impl HostPlugin for WasmcloudMessaging {
         self.tracker
             .write()
             .await
-            .remove_workload_with_cleanup(workload, workload_cleanup, component_cleanup)
+            .remove_workload_with_cleanup(workload_id, workload_cleanup, component_cleanup)
             .await;
 
         Ok(())
