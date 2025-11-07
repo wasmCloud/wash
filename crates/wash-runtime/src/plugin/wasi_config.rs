@@ -22,6 +22,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
+use wasmtime::component::HasSelf;
 
 use crate::{
     engine::{ctx::Ctx, workload::WorkloadComponent},
@@ -32,8 +33,7 @@ use crate::{
 mod bindings {
     wasmtime::component::bindgen!({
         world: "config",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
     });
 }
 
@@ -114,7 +114,10 @@ impl HostPlugin for WasiConfig {
         };
 
         // Add `wasi:config/store` to the workload's linker
-        bindings::wasi::config::store::add_to_linker(component_handle.linker(), |ctx| ctx)?;
+        bindings::wasi::config::store::add_to_linker::<_, HasSelf<Ctx>>(
+            component_handle.linker(),
+            |ctx| ctx,
+        )?;
 
         // Store the configuration for lookups later
         self.config

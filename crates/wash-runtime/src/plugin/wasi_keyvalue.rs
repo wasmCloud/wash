@@ -10,7 +10,7 @@ use std::{
 
 const WASI_KEYVALUE_ID: &str = "wasi-keyvalue";
 use tokio::sync::RwLock;
-use wasmtime::component::Resource;
+use wasmtime::component::{HasSelf, Resource};
 
 use crate::{
     engine::{ctx::Ctx, workload::WorkloadComponent},
@@ -21,8 +21,7 @@ use crate::{
 mod bindings {
     wasmtime::component::bindgen!({
         world: "keyvalue",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
         with: {
             "wasi:keyvalue/store/bucket": crate::plugin::wasi_keyvalue::BucketHandle,
         },
@@ -451,9 +450,9 @@ impl HostPlugin for WasiKeyvalue {
         );
         let linker = component.linker();
 
-        bindings::wasi::keyvalue::store::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::atomics::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::batch::add_to_linker(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::store::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::atomics::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::batch::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
 
         let id = component.id();
         tracing::debug!(

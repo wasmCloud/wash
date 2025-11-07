@@ -8,7 +8,8 @@ wasmtime::component::bindgen!({
     path: "./wit",
     world: "wash-plugin",
     additional_derives: [serde::Serialize],
-    async: true,
+    imports: { default: async },
+    exports: { default: async },
     with: {
         "wasmcloud:wash/types/runner": crate::plugin::runner::Runner,
         "wasmcloud:wash/types/project-config": crate::plugin::runner::ProjectConfig,

@@ -16,13 +16,14 @@ const PLUGIN_MESSAGING_ID: &str = "wasmcloud-messaging";
 mod bindings {
     crate::wasmtime::component::bindgen!({
         world: "messaging",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
+        exports: { default: async },
     });
 }
 
 use bindings::wasmcloud::messaging::consumer::Host;
 use bindings::wasmcloud::messaging::types;
+use wasmtime::component::HasSelf;
 
 use crate::washlet::plugins::WorkloadTracker;
 
@@ -125,8 +126,11 @@ impl HostPlugin for WasmcloudMessaging {
             return Ok(());
         };
 
-        bindings::wasmcloud::messaging::types::add_to_linker(component_handle.linker(), |ctx| ctx)?;
-        bindings::wasmcloud::messaging::consumer::add_to_linker(
+        bindings::wasmcloud::messaging::types::add_to_linker::<_, HasSelf<Ctx>>(
+            component_handle.linker(),
+            |ctx| ctx,
+        )?;
+        bindings::wasmcloud::messaging::consumer::add_to_linker::<_, HasSelf<Ctx>>(
             component_handle.linker(),
             |ctx| ctx,
         )?;
