@@ -20,8 +20,8 @@ use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     plugin::{
-        wasi_blobstore::WasiBlobstore, wasi_config::RuntimeConfig, wasi_http::HttpServer,
-        wasi_http_client::HttpClient, wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
+        wasi_config::WasiConfig, wasi_http::HttpServer, wasi_http_client::HttpClient,
+        wasi_logging::WasiLogging,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
@@ -59,10 +59,8 @@ async fn test_http_client_default_config() -> Result<()> {
         .with_engine(engine.clone())
         .with_plugin(Arc::new(HttpServer::new(addr)))?
         .with_plugin(Arc::new(http_client))?
-        .with_plugin(Arc::new(WasiBlobstore::new(None)))?
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
-        .with_plugin(Arc::new(RuntimeConfig::default()))?
+        .with_plugin(Arc::new(WasiConfig::default()))?
         .build()?;
 
     let host = host.start().await.context("Failed to start host")?;
@@ -168,10 +166,8 @@ async fn test_http_client_http2_forced() -> Result<()> {
         .with_engine(engine.clone())
         .with_plugin(Arc::new(HttpServer::new(addr)))?
         .with_plugin(Arc::new(http_client))?
-        .with_plugin(Arc::new(WasiBlobstore::new(None)))?
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
-        .with_plugin(Arc::new(RuntimeConfig::default()))?
+        .with_plugin(Arc::new(WasiConfig::default()))?
         .build()?;
 
     let host = host.start().await.context("Failed to start host")?;
@@ -242,10 +238,8 @@ async fn test_http_client_http1_only() -> Result<()> {
         .with_engine(engine.clone())
         .with_plugin(Arc::new(HttpServer::new(addr)))?
         .with_plugin(Arc::new(http_client))?
-        .with_plugin(Arc::new(WasiBlobstore::new(None)))?
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
-        .with_plugin(Arc::new(RuntimeConfig::default()))?
+        .with_plugin(Arc::new(WasiConfig::default()))?
         .build()?;
 
     let host = host.start().await.context("Failed to start host")?;
@@ -312,10 +306,8 @@ async fn test_http_client_no_pooling() -> Result<()> {
         .with_engine(engine.clone())
         .with_plugin(Arc::new(HttpServer::new(addr)))?
         .with_plugin(Arc::new(http_client))?
-        .with_plugin(Arc::new(WasiBlobstore::new(None)))?
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
-        .with_plugin(Arc::new(RuntimeConfig::default()))?
+        .with_plugin(Arc::new(WasiConfig::default()))?
         .build()?;
 
     let host = host.start().await.context("Failed to start host")?;
@@ -378,10 +370,8 @@ async fn test_http_client_concurrent_requests() -> Result<()> {
         .with_engine(engine.clone())
         .with_plugin(Arc::new(HttpServer::new(addr)))?
         .with_plugin(Arc::new(http_client))?
-        .with_plugin(Arc::new(WasiBlobstore::new(None)))?
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
-        .with_plugin(Arc::new(RuntimeConfig::default()))?
+        .with_plugin(Arc::new(WasiConfig::default()))?
         .build()?;
 
     let host = host.start().await.context("Failed to start host")?;

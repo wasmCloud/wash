@@ -47,8 +47,10 @@ impl GrpcClients {
             h2_builder.pool_max_idle_per_host(0);
         }
 
-        // Note: hyper_util Client will automatically use HTTP/2 when the connection supports it
-        // For gRPC, we rely on the connector and ALPN to establish HTTP/2
+        // Configure both clients to use HTTP/2 only (prior knowledge for h2c, ALPN for h2)
+        // This is required for gRPC which mandates HTTP/2
+        let h2c_builder = h2c_builder.http2_only(true);
+        let h2_builder = h2_builder.http2_only(true);
 
         Self {
             h2c: h2c_builder.build(HttpConnector),
@@ -129,6 +131,9 @@ impl GrpcClient {
     fn configure_tls(
         config: &HashMap<String, String>,
     ) -> anyhow::Result<Arc<rustls::ClientConfig>> {
+        // This is required for rustls 0.23+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let mut ca = rustls::RootCertStore::empty();
 
         // Load Mozilla trusted root certificates

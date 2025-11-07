@@ -189,6 +189,9 @@ impl HttpClient {
     fn configure_tls(
         config: &HashMap<String, String>,
     ) -> anyhow::Result<Arc<rustls::ClientConfig>> {
+        // This is required for rustls 0.23+
+        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
         let mut ca = rustls::RootCertStore::empty();
 
         // Load Mozilla trusted root certificates

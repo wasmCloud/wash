@@ -30,15 +30,12 @@ bytes = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 hostname = { workspace = true }
-# http = { workspace = true }
-# http-body = { workspace = true }
-# http-body-util = { workspace = true }
 hyper = { workspace = true, features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1", "http2"] }
 names = { workspace = true }
 semver = { workspace = true }
 sysinfo = { workspace = true }
-tokio-util = { version = "0.7", features = ["compat"] }
+tokio-util = { version = "0.7", features = ["compat","rt"] }
 tower-service = { version = "0.3" }
 uuid = { workspace = true, features = ["v4"] }
 tempfile = { workspace = true }
@@ -53,7 +50,6 @@ rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
 tokio-rustls = { workspace = true }
-tokio-util = { workspace = true, features = ["rt"] }
 tonic = { workspace = true, features = [
     "gzip",
     "tls-aws-lc",
