@@ -197,6 +197,54 @@ impl ComponentBuilder {
         }
     }
 
+    /// Check if package files have been modified since the last install
+    /// Returns true if any package file (package.json, lock files) has been modified
+    /// after node_modules was created/updated, or if node_modules doesn't exist
+    fn package_files_modified(&self, package_manager: &str) -> bool {
+        // Check if node_modules exists - if not, must install
+        let node_modules = self.project_path.join("node_modules");
+        let node_modules_mtime = match std::fs::metadata(&node_modules) {
+            Ok(metadata) => match metadata.modified() {
+                Ok(mtime) => mtime,
+                Err(_) => {
+                    debug!("could not read node_modules mtime, running install");
+                    return true;
+                }
+            },
+            Err(_) => {
+                debug!("node_modules directory missing, install required");
+                return true;
+            }
+        };
+
+        // Check package.json (always present for npm/yarn/pnpm projects)
+        let package_json = self.project_path.join("package.json");
+        if let Ok(metadata) = std::fs::metadata(&package_json)
+            && let Ok(modified) = metadata.modified()
+            && modified > node_modules_mtime
+        {
+            debug!("package.json modified since last install");
+            return true;
+        }
+
+        // Check lock file based on package manager
+        let lock_file = match package_manager {
+            "pnpm" => self.project_path.join("pnpm-lock.yaml"),
+            "yarn" => self.project_path.join("yarn.lock"),
+            _ => self.project_path.join("package-lock.json"), // npm default
+        };
+
+        if let Ok(metadata) = std::fs::metadata(&lock_file)
+            && let Ok(modified) = metadata.modified()
+            && modified > node_modules_mtime
+        {
+            debug!(lock_file = ?lock_file.display(), "lock file modified since last install");
+            return true;
+        }
+
+        false
+    }
+
     /// Build the component
     #[instrument(level = "debug", skip(self, ctx, config))]
     pub async fn build(
@@ -861,7 +909,20 @@ impl ComponentBuilder {
                 _ => vec!["install".to_string()], // default to npm
             };
 
-            if !ts_config.skip_install {
+            // Determine if install should run:
+            // - Skip if skip_install is true (manual override)
+            // - Skip if package files haven't changed since last install (in-memory check)
+            let should_run_install = if ts_config.skip_install {
+                debug!(package_manager = %package_manager, "skipping install step as per configuration");
+                false
+            } else if self.package_files_modified(package_manager) {
+                true
+            } else {
+                debug!(package_manager = %package_manager, "skipping install step - no package file changes detected");
+                false
+            };
+
+            if should_run_install {
                 info!(package_manager = %package_manager, install_args = ?install_args, "running install command");
 
                 let install_output = self
@@ -883,8 +944,6 @@ impl ComponentBuilder {
 
                 let stdout = String::from_utf8_lossy(&install_output.stdout);
                 debug!(package_manager = %package_manager, stdout = %stdout, "install output");
-            } else {
-                info!(package_manager = %package_manager, "skipping install step as per configuration");
             }
 
             // Build npm/pnpm/yarn command arguments
