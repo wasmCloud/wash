@@ -25,6 +25,14 @@ use crate::{
     wit::{WitInterface, WitWorld},
 };
 
+/// Type alias for tracking bound plugins with their matched interfaces during binding.
+/// Tuple: (plugin, matched_interfaces, component_ids)
+type BoundPluginWithInterfaces = (
+    Arc<dyn HostPlugin + 'static>,
+    HashSet<WitInterface>,
+    Vec<String>,
+);
+
 /// Metadata associated with components and services within a workload.
 #[derive(Clone)]
 pub struct WorkloadMetadata {
@@ -909,7 +917,7 @@ impl ResolvedWorkload {
                         .cloned()
                         .collect::<std::collections::HashSet<_>>();
 
-                    if let Err(e) = plugin.on_workload_unbind(self, bound_interfaces).await {
+                    if let Err(e) = plugin.on_workload_unbind(self.id(), bound_interfaces).await {
                         warn!(
                             plugin_id,
                             component_id = component.id(),
@@ -1006,6 +1014,8 @@ impl UnresolvedWorkload {
         &mut self,
         plugins: &HashMap<&'static str, Arc<dyn HostPlugin + 'static>>,
     ) -> anyhow::Result<Vec<(Arc<dyn HostPlugin + 'static>, Vec<String>)>> {
+        // Track bound plugins with their matched interfaces for cleanup on failure
+        let mut bound_plugins_with_interfaces: Vec<BoundPluginWithInterfaces> = Vec::new();
         let mut bound_plugins: Vec<(Arc<dyn HostPlugin + 'static>, Vec<String>)> = Vec::new();
 
         // Collect all component's required (unmatched) host interfaces
@@ -1083,12 +1093,34 @@ impl UnresolvedWorkload {
                 );
 
                 // Call on_workload_bind with the workload and all matched interfaces
-                if let Err(e) = p.on_workload_bind(self, plugin_matched_interfaces).await {
+                if let Err(e) = p
+                    .on_workload_bind(self, plugin_matched_interfaces.clone())
+                    .await
+                {
                     tracing::error!(
                         plugin_id = plugin_id,
                         err = ?e,
                         "failed to bind plugin to workload"
                     );
+                    // Clean up all previously bound plugins in reverse order
+                    for (bound_plugin, bound_interfaces, _) in
+                        bound_plugins_with_interfaces.iter().rev()
+                    {
+                        debug!(
+                            plugin_id = bound_plugin.id(),
+                            "calling on_workload_unbind for cleanup after bind failure"
+                        );
+                        if let Err(cleanup_err) = bound_plugin
+                            .on_workload_unbind(self.id(), bound_interfaces.clone())
+                            .await
+                        {
+                            warn!(
+                                plugin_id = bound_plugin.id(),
+                                error = ?cleanup_err,
+                                "failed to cleanup plugin after bind failure"
+                            );
+                        }
+                    }
                     bail!(e)
                 }
 
@@ -1120,6 +1152,25 @@ impl UnresolvedWorkload {
                             err = ?e,
                             "failed to bind workload component to plugin"
                         );
+                        // Clean up all previously bound plugins in reverse order
+                        for (bound_plugin, bound_interfaces, _) in
+                            bound_plugins_with_interfaces.iter().rev()
+                        {
+                            debug!(
+                                plugin_id = bound_plugin.id(),
+                                "calling on_workload_unbind for cleanup after component bind failure"
+                            );
+                            if let Err(cleanup_err) = bound_plugin
+                                .on_workload_unbind(self.id(), bound_interfaces.clone())
+                                .await
+                            {
+                                warn!(
+                                    plugin_id = bound_plugin.id(),
+                                    error = ?cleanup_err,
+                                    "failed to cleanup plugin after component bind failure"
+                                );
+                            }
+                        }
                         bail!(e)
                     } else {
                         trace!(
@@ -1140,7 +1191,12 @@ impl UnresolvedWorkload {
                 }
 
                 // Add this plugin with all its bound component IDs
-                bound_plugins.push((p.clone(), plugin_component_ids));
+                bound_plugins.push((p.clone(), plugin_component_ids.clone()));
+                bound_plugins_with_interfaces.push((
+                    p.clone(),
+                    plugin_matched_interfaces,
+                    plugin_component_ids,
+                ));
             }
         }
 

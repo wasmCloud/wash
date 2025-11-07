@@ -19,7 +19,7 @@ use wasmtime_wasi::{
 
 use crate::{
     engine::ctx::Ctx,
-    engine::workload::{ResolvedWorkload, WorkloadComponent},
+    engine::workload::WorkloadComponent,
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -949,15 +949,14 @@ impl HostPlugin for WasiBlobstore {
 
     async fn on_workload_unbind(
         &self,
-        workload_handle: &ResolvedWorkload,
+        workload_id: &str,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
-        let id = workload_handle.id();
         // Clean up storage for this workload
         let mut storage = self.storage.write().await;
-        storage.remove(id);
+        storage.remove(workload_id);
 
-        tracing::debug!("WasiBlobstore plugin unbound from workload '{id}'");
+        tracing::debug!("WasiBlobstore plugin unbound from workload '{workload_id}'");
 
         Ok(())
     }
