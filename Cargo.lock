@@ -6230,7 +6230,7 @@ dependencies = [
 
 [[package]]
 name = "wash"
-version = "1.0.0-beta.10"
+version = "1.0.0-rc.1"
 dependencies = [
  "anyhow",
  "async-trait",
