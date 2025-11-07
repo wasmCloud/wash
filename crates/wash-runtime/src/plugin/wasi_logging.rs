@@ -28,6 +28,7 @@
 use std::collections::HashSet;
 
 use anyhow::bail;
+use wasmtime::component::HasSelf;
 
 const WASI_LOGGING_ID: &str = "wasi-logging";
 
@@ -40,8 +41,7 @@ use crate::{
 mod bindings {
     wasmtime::component::bindgen!({
         world: "logging",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
     });
 }
 
@@ -101,7 +101,10 @@ impl HostPlugin for WasiLogging {
         }
 
         // Add `wasi:logging/logging` to the workload's linker
-        bindings::wasi::logging::logging::add_to_linker(workload_handle.linker(), |ctx| ctx)?;
+        bindings::wasi::logging::logging::add_to_linker::<_, HasSelf<Ctx>>(
+            workload_handle.linker(),
+            |ctx| ctx,
+        )?;
 
         Ok(())
     }

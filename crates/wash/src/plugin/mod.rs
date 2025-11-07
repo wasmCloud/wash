@@ -23,13 +23,17 @@ use std::{
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 use wash_runtime::{
-    engine::workload::{ResolvedWorkload, WorkloadComponent},
+    engine::{
+        ctx::Ctx,
+        workload::{ResolvedWorkload, WorkloadComponent},
+    },
     host::HostApi,
     oci::{OciConfig, pull_component},
     plugin::HostPlugin,
     types::{Component, LocalResources, Workload, WorkloadStartRequest, WorkloadState},
     wit::{WitInterface, WitWorld},
 };
+use wasmtime::component::HasSelf;
 
 pub mod bindings;
 pub mod runner;
@@ -252,7 +256,10 @@ impl HostPlugin for PluginManager {
         );
 
         // Add the types interface (provides runner, context, etc. to components that import wasmcloud:wash/types)
-        bindings::wasmcloud::wash::types::add_to_linker(component.linker(), |ctx| ctx)?;
+        bindings::wasmcloud::wash::types::add_to_linker::<_, HasSelf<Ctx>>(
+            component.linker(),
+            |ctx| ctx,
+        )?;
 
         Ok(())
     }

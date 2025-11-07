@@ -8,7 +8,6 @@ use tokio::{process::Command, sync::RwLock};
 use tracing::{debug, warn};
 use wash_runtime::engine::ctx::Ctx;
 use wasmtime::component::Resource;
-use wasmtime_wasi::IoView;
 
 use crate::plugin::{PLUGIN_MANAGER_ID, PluginManager, bindings::wasmcloud::wash::types::Metadata};
 
@@ -56,7 +55,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::Host for Ctx {}
 /// The Context resource is a passthrough to the same map we use for runtime configuration
 impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
     async fn get(&mut self, ctx: Resource<Context>, key: String) -> Option<String> {
-        let context = match self.table().get(&ctx) {
+        let context = match self.table.get(&ctx) {
             Ok(context) => context,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get context resource");
@@ -67,7 +66,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
     }
 
     async fn set(&mut self, ctx: Resource<Context>, key: String, value: String) -> Option<String> {
-        let context = match self.table().get(&ctx) {
+        let context = match self.table.get(&ctx) {
             Ok(context) => context,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get context resource");
@@ -79,7 +78,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
     }
 
     async fn delete(&mut self, ctx: Resource<Context>, key: String) -> Option<String> {
-        let context = match self.table().get(&ctx) {
+        let context = match self.table.get(&ctx) {
             Ok(context) => context,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get context resource");
@@ -91,7 +90,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
     }
 
     async fn list(&mut self, ctx: Resource<Context>) -> Vec<String> {
-        let context = match self.table().get(&ctx) {
+        let context = match self.table.get(&ctx) {
             Ok(context) => context,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get context resource");
@@ -103,7 +102,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
     }
 
     async fn drop(&mut self, ctx: Resource<Context>) -> wasmtime::Result<()> {
-        self.table()
+        self.table
             .delete(ctx)
             .context("[host-context-drop] deleting context")?;
         Ok(())
@@ -112,12 +111,12 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostContext for Ctx {
 
 impl crate::plugin::bindings::wasmcloud::wash::types::HostProjectConfig for Ctx {
     async fn version(&mut self, ctx: Resource<ProjectConfig>) -> String {
-        let c = self.table().get(&ctx).unwrap();
+        let c = self.table.get(&ctx).unwrap();
         c.version.clone()
     }
 
     async fn drop(&mut self, ctx: Resource<ProjectConfig>) -> wasmtime::Result<()> {
-        self.table()
+        self.table
             .delete(ctx)
             .context("[host-project-config-drop] deleting project config")?;
         Ok(())
@@ -233,7 +232,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostRunner for Ctx {
     }
 
     async fn drop(&mut self, ctx: Resource<Runner>) -> wasmtime::Result<()> {
-        self.table()
+        self.table
             .delete(ctx)
             .context("[host-runner-drop] deleting runner")?;
         Ok(())
@@ -242,7 +241,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostRunner for Ctx {
 
 impl crate::plugin::bindings::wasmcloud::wash::types::HostPluginConfig for Ctx {
     async fn get(&mut self, ctx: Resource<PluginConfig>, key: String) -> Option<String> {
-        let plugin_config = match self.table().get(&ctx) {
+        let plugin_config = match self.table.get(&ctx) {
             Ok(plugin_config) => plugin_config,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get plugin config resource");
@@ -258,7 +257,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostPluginConfig for Ctx {
         key: String,
         value: String,
     ) -> Option<String> {
-        let plugin_config = match self.table().get_mut(&ctx) {
+        let plugin_config = match self.table.get_mut(&ctx) {
             Ok(plugin_config) => plugin_config,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get plugin config resource");
@@ -269,7 +268,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostPluginConfig for Ctx {
     }
 
     async fn delete(&mut self, ctx: Resource<PluginConfig>, key: String) -> Option<String> {
-        let plugin_config = match self.table().get_mut(&ctx) {
+        let plugin_config = match self.table.get_mut(&ctx) {
             Ok(plugin_config) => plugin_config,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get plugin config resource");
@@ -280,7 +279,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostPluginConfig for Ctx {
     }
 
     async fn list(&mut self, ctx: Resource<PluginConfig>) -> Vec<String> {
-        let plugin_config = match self.table().get(&ctx) {
+        let plugin_config = match self.table.get(&ctx) {
             Ok(plugin_config) => plugin_config,
             Err(e) => {
                 tracing::error!(error = %e, "failed to get plugin config resource");
@@ -291,7 +290,7 @@ impl crate::plugin::bindings::wasmcloud::wash::types::HostPluginConfig for Ctx {
     }
 
     async fn drop(&mut self, ctx: Resource<PluginConfig>) -> wasmtime::Result<()> {
-        self.table()
+        self.table
             .delete(ctx)
             .context("[host-plugin-drop] deleting plugin config")?;
         Ok(())
