@@ -1,0 +1,7 @@
+# These owners are the default owners for everything in the repo.
+*       @yoshuawuyts
+
+# These owners own specific parts of the repo
+.devcontainer          @asw101
+.github/workflows      @asw101 @duffney
+.github/scripts        @asw101 @duffney

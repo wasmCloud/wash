@@ -1,0 +1,34 @@
+name: CI
+on:
+  pull_request:
+env:
+  RUSTFLAGS: -Dwarnings
+
+jobs:
+  check_and_test:
+    name: It builds and tests pass
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Add wasm32-wasip2 target
+      run: rustup target add wasm32-wasip2
+    - name: Install cargo-binstall
+      uses: cargo-bins/cargo-binstall@v1.10.15
+    - name: Install cargo-component
+      shell: bash
+      run: cargo binstall cargo-component
+    - name: Run cargo check
+      shell: bash
+      run: cargo component check
+
+  check_style:
+    name: It follows all style conventions
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install wasm32-wasip2 target
+      run: rustup target add wasm32-wasip2
+    - name: Run cargo clippy
+      run: cargo clippy -- -Dwarnings
+    - name: Run cargo fmt
+      run: cargo fmt --all -- --check

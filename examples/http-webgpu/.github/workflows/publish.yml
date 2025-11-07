@@ -1,0 +1,125 @@
+name: Build and publish a Wasm Component to GitHub Artifacts
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: ${{ github.repository }}
+  CARGO_COMPONENT_VERSION: "0.16.0"
+  # TODO: These can be removed once https://github.com/bytecodealliance/cargo-component/pull/372 is merged
+  COMPONENT_NAME: sample-wasi-http-rust
+  COMPONENT_DESCRIPTION: "A sample WASI HTTP component written in Rust"
+  COMPONENT_SOURCE: "https://github.com/bytecodealliance/sample-wasi-http-rust"
+  COMPONENT_HOMEPAGE: "https://github.com/bytecodealliance/sample-wasi-http-rust"
+  COMPONENT_LICENSES: "Apache-2.0 WITH LLVM-exception"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      packages: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@v1.10.15
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.actor }}/{{ env.COMPONENT_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        if: github.event_name != 'workflow_dispatch'
+        uses: sigstore/cosign-installer@v3.7.0
+
+      - name: Cache cargo bin
+        id: cache-cargo
+        uses: actions/cache@v3
+        env:
+          cache-name: cache-cargo-bin
+        with:
+          path: ~/.cargo/bin
+          key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('scripts/install.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-build-${{ env.cache-name }}-
+            ${{ runner.os }}-build-
+            ${{ runner.os }}-
+
+      - if: ${{ steps.cache-cargo.outputs.cache-hit != 'true' }}
+        name: Install build dependencies
+        continue-on-error: false
+        run: |
+          cargo binstall cargo-component --force --version ${{ env.CARGO_COMPONENT_VERSION }}
+          cargo binstall wkg --force 
+          cargo binstall cargo-auditable cargo-audit
+          cargo binstall auditable2cdx
+
+      - name: Build the component
+        run: cargo auditable component build --release
+
+      - name: Normalize COMPONENT_NAME and Append .wasm
+        run: echo "COMPONENT_NAME_UNDERSCORED=${COMPONENT_NAME//-/_}.wasm" >> $GITHUB_ENV
+
+      - name: Extract the SBOM from the component
+        if: github.event_name != 'workflow_dispatch'
+        run: auditable2cdx target/wasm32-wasip1/release/${{ env.COMPONENT_NAME_UNDERSCORED }} >> ${{ env.COMPONENT_NAME }}.spdx.json
+
+      - name: Publish `:<version>` to GitHub Container Registry
+        if: github.event_name != 'workflow_dispatch'
+        id: publish_versioned
+        uses: bytecodealliance/wkg-github-action@v5
+        with:
+          file: target/wasm32-wasip1/release/${{ env.COMPONENT_NAME_UNDERSCORED }}
+          oci-reference-without-tag: ghcr.io/${{ env.IMAGE_NAME }}/${{ env.COMPONENT_NAME }}
+          version: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+          description: ${{ env.COMPONENT_DESCRIPTION }}
+          source: ${{ env.COMPONENT_SOURCE }}
+          homepage: ${{ env.COMPONENT_HOMEPAGE }}
+          licenses: ${{ env.COMPONENT_LICENSES }}
+
+      - name: Sign the versioned wasm component
+        if: github.event_name != 'workflow_dispatch'
+        run: cosign sign --yes ghcr.io/${{ env.IMAGE_NAME }}/${{ env.COMPONENT_NAME }}@${{ steps.publish_versioned.outputs.digest }}
+
+      - name: Sign the SBOM for the versioned Wasm component
+        if: github.event_name != 'workflow_dispatch'
+        run: cosign attest --yes --type spdxjson --predicate ${{ env.COMPONENT_NAME }}.spdx.json ghcr.io/${{ env.IMAGE_NAME }}/${{ env.COMPONENT_NAME }}@${{ steps.publish_versioned.outputs.digest }}
+
+      - name: Publish `:latest` release to GitHub Container Registry
+        if: github.event_name != 'workflow_dispatch'
+        id: publish_latest
+        uses: bytecodealliance/wkg-github-action@v5
+        with:
+          file: target/wasm32-wasip1/release/${{ env.COMPONENT_NAME_UNDERSCORED }}
+          oci-reference-without-tag: ghcr.io/${{ env.IMAGE_NAME }}/${{ env.COMPONENT_NAME }}
+          version: latest
+          description: ${{ env.COMPONENT_DESCRIPTION }}
+          source: ${{ env.COMPONENT_SOURCE }}
+          homepage: ${{ env.COMPONENT_HOMEPAGE }}
+          licenses: ${{ env.COMPONENT_LICENSES }}
+
+      - name: Sign the latest wasm component
+        if: github.event_name != 'workflow_dispatch'
+        run: cosign sign --yes ghcr.io/${{ env.IMAGE_NAME }}/${{ env.COMPONENT_NAME }}@${{ steps.publish_latest.outputs.digest }}
+
+      - name: Sign the SBOM for the latest Wasm component
+        if: github.event_name != 'workflow_dispatch'
+        run: cosign attest --yes --type spdxjson --predicate ${{ env.COMPONENT_NAME }}.spdx.json ghcr.io/${{ env.IMAGE_NAME }}/${{ env.COMPONENT_NAME }}@${{ steps.publish_latest.outputs.digest }}
