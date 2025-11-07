@@ -72,8 +72,8 @@ impl HostPlugin for WasiWebgpu {
     fn world(&self) -> WitWorld {
         WitWorld {
             exports: HashSet::from([
-                WitInterface::from("wasi:graphics-context/graphics-context@0.0.1"),
-                WitInterface::from("wasi:webgpu/webgpu@0.0.1"),
+                WitInterface::from("wasi:graphics-context/graphics-context"),
+                WitInterface::from("wasi:webgpu/webgpu"),
             ]),
             ..Default::default()
         }
