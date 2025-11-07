@@ -3,6 +3,7 @@ use std::{net::SocketAddr, sync::Arc};
 use anyhow::Context as _;
 use clap::Args;
 use tracing::info;
+use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 
@@ -27,6 +28,10 @@ pub struct HostCommand {
     /// The address on which the HTTP server will listen
     #[clap(long = "http-addr")]
     pub http_addr: Option<SocketAddr>,
+
+    /// Enable WASI WebGPU support
+    #[clap(long = "wasi-webgpu", default_value_t = false)]
+    pub wasi_webgpu: bool,
 }
 
 impl CliCommand for HostCommand {
@@ -75,6 +80,14 @@ impl CliCommand for HostCommand {
                 wash_runtime::washlet::plugins::wasi_http::HttpServer::new(addr),
             ))?;
         }
+
+        // Enable WASI WebGPU if requested
+        if self.wasi_webgpu {
+            tracing::info!("WASI WebGPU support enabled");
+            cluster_host_builder =
+                cluster_host_builder.with_plugin(Arc::new(WasiWebGpu::default()))?;
+        }
+
         let cluster_host = cluster_host_builder
             .build()
             .context("failed to build cluster host")?;
