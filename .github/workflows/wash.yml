@@ -119,6 +119,19 @@ jobs:
       tags: |
         type=raw,value=canary-v2
 
+  docker-release:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wash-v')
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/docker-build-push.yml
+    secrets: inherit
+    with:
+      push: true
+      image: ghcr.io/wasmcloud/wash
+      tags: |
+        type=semver,pattern={{version}}
+
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/wash-v')
     runs-on: ${{ matrix.runner }}
