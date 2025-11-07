@@ -109,8 +109,21 @@ pub async fn build_component(
         wit_dir = ?wit_dir.as_ref().map(|p| p.display()),
         "building component at specified project path",
     );
+
+    // Execute pre-build hooks
+    trace!("executing before-build hooks");
+    ctx.call_hooks(HookType::BeforeBuild, std::sync::Arc::default())
+        .await;
+
     let builder = ComponentBuilder::new(project_path.to_path_buf(), wit_dir, skip_fetch);
-    builder.build(ctx, config).await
+    let result = builder.build(ctx, config).await;
+
+    // Execute post-build hooks (even if build failed, plugins may want to know)
+    trace!("executing after-build hooks");
+    ctx.call_hooks(HookType::AfterBuild, std::sync::Arc::default())
+        .await;
+
+    result
 }
 
 /// Component builder that handles the actual build process

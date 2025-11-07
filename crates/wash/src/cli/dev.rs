@@ -387,8 +387,6 @@ impl CliCommand for DevCommand {
                         debug!("WIT-related files changed, fetching WIT dependencies");
                     }
 
-                    // TODO(IMPORTANT): ensure that this calls the build pre-post hooks
-                    // TODO(#22): Typescript: Skip install if no package.json change
                     let rebuild_result = build_component(
                         &self.project_dir,
                         ctx,
