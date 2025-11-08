@@ -18,12 +18,11 @@ use notify::{
 };
 use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, trace, warn};
+#[cfg(not(target_os = "windows"))]
+use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{
-        wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging,
-        wasi_webgpu::WasiWebGpu,
-    },
+    plugin::{wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -61,6 +60,7 @@ pub struct DevCommand {
     pub wasi_config: Vec<String>,
 
     /// Enable WASI WebGPU support
+    #[cfg(not(target_os = "windows"))]
     #[clap(long = "wasi-webgpu", default_value_t = false)]
     pub wasi_webgpu: bool,
 
@@ -242,6 +242,7 @@ impl CliCommand for DevCommand {
         debug!("Logging plugin registered");
 
         // Enable WASI WebGPU if requested
+        #[cfg(not(target_os = "windows"))]
         if self.wasi_webgpu {
             host_builder = host_builder.with_plugin(Arc::new(WasiWebGpu::default()))?;
             debug!("WASI WebGPU plugin registered");

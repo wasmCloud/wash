@@ -12,6 +12,9 @@ tests/output
 # Ignore Rust target directory
 target/
 
+# Ignore build artifacts
+wash.exe
+
 # Ignore worktrees
 worktrees/
 
