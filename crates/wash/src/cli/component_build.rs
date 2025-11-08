@@ -42,7 +42,9 @@ pub struct ComponentBuildCommand {
     #[clap(long = "skip-fetch")]
     skip_fetch: bool,
 
-    /// The arguments to pass to the build command
+    /// Additional arguments to pass to the underlying build command (cargo, tinygo, or npm/pnpm/yarn).
+    /// These arguments must come after a '--' separator.
+    /// Example: wash build -- --release --features extra
     #[clap(
         name = "arg",
         trailing_var_arg = true,
@@ -986,7 +988,7 @@ impl ComponentBuilder {
                 build_args.push(flag.clone());
             }
 
-            // Add any additional cargo flags provided via CLI
+            // Add any additional build flags provided via CLI
             build_args.extend_from_slice(args.unwrap_or_default());
 
             debug!(package_manager = %package_manager, build_args = ?build_args, "running build command");
