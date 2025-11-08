@@ -64,8 +64,8 @@ opentelemetry-semantic-conventions = { workspace = true, features = [
     "semconv_experimental",
 ] }
 opentelemetry_sdk = { workspace = true }
-wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "476bec98a86ad599be8638a38d00a1fbb64188fd", optional = true }
-wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "476bec98a86ad599be8638a38d00a1fbb64188fd", optional = true }
+wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "423acfd1835fbb71556a2e1e069bc82a6fab33ec", optional = true }
+wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "423acfd1835fbb71556a2e1e069bc82a6fab33ec", optional = true }
 
 # OCI dependencies (optional, behind 'oci' feature)
 docker_credential = { workspace = true, optional = true }
