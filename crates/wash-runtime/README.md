@@ -78,6 +78,8 @@ The crate supports the following cargo features:
 - `wasi-blobstore` (default): Blob storage interface
 - `wasi-keyvalue` (default): Key-value storage interface
 - `oci`: OCI registry integration for pulling components
+- `washlet` (default): Kubernetes integration with secret resolution for OCI registry authentication
+- `wasi-webgpu`: WebGPU support (experimental)
 
 ### Architecture
 
@@ -86,6 +88,71 @@ wash-runtime provides three main abstractions:
 1. **Engine**: Wasmtime configuration and component compilation
 2. **Host**: Runtime environment with plugin management
 3. **Workload**: High-level API for managing component lifecycles
+
+## Kubernetes Integration
+
+When the `washlet` feature is enabled, wash-runtime supports pulling components from private OCI registries using Kubernetes secrets.
+
+### Supported Secret Types
+
+1. **kubernetes.io/dockerconfigjson**: Standard Docker registry secrets created with `kubectl create secret docker-registry`
+2. **Opaque**: Generic secrets with `username` and `password` keys
+
+### RBAC Requirements
+
+To use Kubernetes secret resolution, the pod running wash-runtime must have permissions to read secrets:
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: wash-runtime-secret-reader
+  namespace: your-namespace
+rules:
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: wash-runtime-secret-reader-binding
+  namespace: your-namespace
+subjects:
+- kind: ServiceAccount
+  name: wash-runtime-sa
+  namespace: your-namespace
+roleRef:
+  kind: Role
+  name: wash-runtime-secret-reader
+  apiGroup: rbac.authorization.k8s.io
+```
+
+### Example: Using a Secret Reference
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: my-registry-secret
+  namespace: default
+type: Opaque
+stringData:
+  username: myuser
+  password: mytoken
+```
+
+Reference this secret in your workload configuration:
+
+```rust
+use wash_runtime::washlet::types::v2::{ImagePullSecret, image_pull_secret::Credential};
+
+let secret = ImagePullSecret {
+    credential: Some(Credential::SecretRef("my-registry-secret".to_string())),
+};
+```
+
+The runtime will automatically resolve the secret and use the credentials when pulling components from private registries.
 
 ## License
 
