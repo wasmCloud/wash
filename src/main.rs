@@ -235,7 +235,7 @@ async fn main() {
     let mut stdout_buf = BufWriter::new(stdout);
 
     // Recommend a new version of wash if available
-    if !cli.non_interactive &&
+    if !non_interactive &&
         ctx
         .check_new_version()
         .await
