@@ -24,6 +24,7 @@ pub struct BuildConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_path: Option<PathBuf>,
 
+    /// Additional arguments to pass to the build toolchain (cargo, tinygo, npm)
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub additional_args: Vec<String>,
 }

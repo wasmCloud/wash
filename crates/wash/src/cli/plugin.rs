@@ -383,7 +383,7 @@ impl TestCommand {
                     ) =>
                 {
                     let _ = e.print();
-                    return Ok(CommandOutput::error("", None));
+                    return Ok(CommandOutput::error(e.to_string(), None));
                 }
                 Err(e) => anyhow::bail!("Failed to parse command arguments: {}", e),
             };

@@ -42,7 +42,8 @@ pub struct ComponentBuildCommand {
     #[clap(long = "skip-fetch")]
     skip_fetch: bool,
 
-    /// The arguments to pass to the native build tool (cargo, tinygo, npm, etc.)
+    /// Additional arguments to pass to the native build tool after '--'.
+    /// Example: wash build -- --release --features extra
     #[clap(name = "arg", trailing_var_arg = true, allow_hyphen_values = true)]
     pub args: Vec<String>,
 }
@@ -61,15 +62,15 @@ impl CliCommand for ComponentBuildCommand {
                 ..Default::default()
             })
         }
-        if let Some(build) = config.build.as_mut() {
-            if !self.args.is_empty() {
+        if !self.args.is_empty() {
+            if let Some(build) = config.build.as_mut() {
                 build.additional_args = self.args.clone();
+            } else {
+                config.build = Some(crate::component_build::BuildConfig {
+                    additional_args: self.args.clone(),
+                    ..Default::default()
+                });
             }
-        } else {
-            config.build = Some(crate::component_build::BuildConfig {
-                additional_args: self.args.clone(),
-                ..Default::default()
-            });
         }
         let result = build_component(&self.project_path, ctx, &config).await?;
 
@@ -560,7 +561,7 @@ impl ComponentBuilder {
             || config
                 .build
                 .as_ref()
-                .map(|b| b.additional_args.contains(&"--release".to_string()))
+                .map(|b| b.additional_args.iter().any(|arg| arg == "--release"))
                 .unwrap_or(false);
 
         // Apply release mode if configured
