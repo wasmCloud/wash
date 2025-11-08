@@ -8,12 +8,21 @@
 //!
 //! ```no_run
 //! use wash_runtime::oci::{pull_component, OciConfig};
+//! use std::time::Duration;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
+//!     // Basic pull
 //!     let config = OciConfig::default();
 //!     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
 //!     println!("Pulled component of {} bytes", component_bytes.len());
+//!
+//!     // Pull with credentials and timeout
+//!     let config = OciConfig::new_with_credentials("username", "password")
+//!         .with_timeout(Duration::from_secs(30));
+//!     let (bytes, digest) = pull_component("ghcr.io/my-org/private:latest", config).await?;
+//!     println!("Pulled {} bytes, digest: {}", bytes.len(), digest);
+//!
 //!     Ok(())
 //! }
 //! ```
@@ -31,6 +40,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
     path::PathBuf,
+    time::Duration,
 };
 use tracing::{debug, info, instrument, warn};
 
@@ -39,14 +49,44 @@ use tracing::{debug, info, instrument, warn};
 const WASMCLOUD_MEDIA_TYPE: &str = "application/vnd.module.wasm.content.layer.v1+wasm";
 
 /// Configuration for OCI operations
+///
+/// # Security Considerations
+///
+/// ⚠️ **Credentials in Memory**: Credentials are stored as plain `String` in memory.
+/// In production environments, consider:
+/// - Using the `secrecy` crate for `Secret<String>` to prevent accidental exposure
+/// - Implementing `Drop` to zero memory after use
+/// - Being aware that credentials may appear in core dumps or debugging tools
+///
+/// ⚠️ **Network Security**: Always use TLS for registry communication unless testing locally.
+/// The `insecure` flag should only be used for local development with registries like
+/// `localhost:5000`.
+///
+/// ⚠️ **Credential Precedence**:
+/// 1. Explicit credentials (if provided in this config)
+/// 2. Docker credential helper (system default)
+/// 3. Anonymous (if no credentials found)
+///
+/// # Rate Limiting
+///
+/// Note: This implementation does not include retry logic or exponential backoff for
+/// authentication failures. Repeated failures may trigger registry rate limits or
+/// account lockouts. Consider implementing retry logic at a higher level if needed.
 #[derive(Debug, Default, Clone)]
 pub struct OciConfig {
     /// Optional explicit credentials (username, password)
+    ///
+    /// ⚠️ **Security**: Stored as plain String. Consider using `secrecy` crate in production.
     pub credentials: Option<(String, String)>,
-    /// Whether to allow insecure registries
+    /// Whether to allow insecure registries (HTTP instead of HTTPS)
+    ///
+    /// ⚠️ **Security**: Only use for local development. Always use HTTPS in production.
     pub insecure: bool,
     /// Cache directory override
     pub cache_dir: Option<PathBuf>,
+    /// Timeout for OCI operations (pull, push, etc.)
+    /// If None, uses default timeout from oci-client
+    pub timeout: Option<Duration>,
 }
 
 impl OciConfig {
@@ -59,9 +99,9 @@ impl OciConfig {
     }
 
     /// Create a new OciConfig with explicit credentials
-    pub fn new_with_credentials(username: String, password: String) -> Self {
+    pub fn new_with_credentials(username: impl Into<String>, password: impl Into<String>) -> Self {
         Self {
-            credentials: Some((username, password)),
+            credentials: Some((username.into(), password.into())),
             ..Default::default()
         }
     }
@@ -72,6 +112,20 @@ impl OciConfig {
             insecure: true,
             ..Default::default()
         }
+    }
+
+    /// Create a new OciConfig with a timeout
+    pub fn new_with_timeout(timeout: Duration) -> Self {
+        Self {
+            timeout: Some(timeout),
+            ..Default::default()
+        }
+    }
+
+    /// Set the timeout for this config
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = Some(timeout);
+        self
     }
 }
 
@@ -323,18 +377,32 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
     let client = Client::new(client_config);
 
     // Pull the component using oci-client
-    let image_data = client
-        .pull(
-            &reference_parsed,
-            &auth,
-            vec![
-                WASM_LAYER_MEDIA_TYPE,
-                #[allow(deprecated)]
-                WASMCLOUD_MEDIA_TYPE,
-            ],
-        )
-        .await
-        .with_context(|| format!("failed to pull component from {reference}"))?;
+    let pull_future = client.pull(
+        &reference_parsed,
+        &auth,
+        vec![
+            WASM_LAYER_MEDIA_TYPE,
+            #[allow(deprecated)]
+            WASMCLOUD_MEDIA_TYPE,
+        ],
+    );
+
+    // Apply timeout if configured, otherwise just await the pull
+    let image_data = if let Some(timeout) = config.timeout {
+        tokio::time::timeout(timeout, pull_future)
+            .await
+            .with_context(|| {
+                format!(
+                    "timeout pulling component from {reference} after {:?}",
+                    timeout
+                )
+            })?
+            .with_context(|| format!("failed to pull component from {reference}"))?
+    } else {
+        pull_future
+            .await
+            .with_context(|| format!("failed to pull component from {reference}"))?
+    };
 
     // Extract the component bytes from the first layer
     let component_data = image_data
@@ -491,10 +559,24 @@ pub async fn push_component(
     });
 
     // Push the component
-    let push_result = client
-        .push(&reference_parsed, &layers, config_obj, &auth, manifest)
-        .await
-        .with_context(|| format!("failed to push component to {reference}"))?;
+    let push_future = client.push(&reference_parsed, &layers, config_obj, &auth, manifest);
+
+    // Apply timeout if configured, otherwise just await the push
+    let push_result = if let Some(timeout) = config.timeout {
+        tokio::time::timeout(timeout, push_future)
+            .await
+            .with_context(|| {
+                format!(
+                    "timeout pushing component to {reference} after {:?}",
+                    timeout
+                )
+            })?
+            .with_context(|| format!("failed to push component to {reference}"))?
+    } else {
+        push_future
+            .await
+            .with_context(|| format!("failed to push component to {reference}"))?
+    };
 
     // Extract the digest from the manifest URL
     // The manifest URL typically contains the digest in the format: registry/repo@sha256:digest

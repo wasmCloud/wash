@@ -15,6 +15,10 @@ message Workload {
   WitWorld wit_world = 5;
 
   repeated Volume volumes = 6;
+
+  // Default credentials for pulling images from private registries.
+  // Used as a fallback when component/service doesn't specify its own image_pull_secret.
+  ImagePullSecret default_image_pull_secret = 7;
 }
 
 enum WorkloadState {
@@ -65,6 +69,8 @@ message Service {
   string image = 1;
   LocalResources local_resources = 2;
   uint64 max_restarts = 3;
+  // Optional credentials for pulling the image from a private registry
+  ImagePullSecret image_pull_secret = 4;
 }
 
 // Represents the WIT World (WebAssembly Interface Types)
@@ -84,6 +90,8 @@ message Component {
   LocalResources local_resources = 2;
   sint32 pool_size = 3;
   sint32 max_invocations = 4;
+  // Optional credentials for pulling the image from a private registry
+  ImagePullSecret image_pull_secret = 5;
 }
 
 message LocalResources {
@@ -121,4 +129,53 @@ message VolumeMount {
 message EmptyDirVolume {}
 message HostPathVolume {
   string local_path = 1;
+}
+
+// Credentials for pulling images from private OCI registries
+//
+// ⚠️ SECURITY NOTE:
+// Credentials are transmitted as plain text in protobuf messages.
+// Always use TLS/encryption for all network communication to protect these credentials.
+// The runtime implementation should:
+// 1. Never log credentials (use tracing instrument skip)
+// 2. Validate that credentials are not empty before use
+// 3. Clear credentials from memory when no longer needed
+//
+// Production recommendations:
+// - Use secret_ref with orchestrator secret management (Kubernetes secrets, etc.)
+// - Rotate credentials regularly
+// - Use minimal-privilege credentials (read-only access)
+// - Monitor for authentication failures and rate limiting
+message ImagePullSecret {
+  oneof credential {
+    // Basic authentication (username/password)
+    // Most direct but least secure - credentials exposed in config
+    BasicAuth basic_auth = 1;
+
+    // Reference to a secret stored in the orchestrator (e.g., Kubernetes secret name)
+    // The runtime will resolve this to actual credentials
+    // Preferred for production - credentials managed by orchestrator
+    string secret_ref = 2;
+
+    // Docker config.json format (base64-encoded or plain JSON)
+    // Compatible with Kubernetes imagePullSecrets
+    // Allows multi-registry credentials in single config
+    string docker_config_json = 3;
+  }
+}
+
+// Username and password for basic authentication
+//
+// ⚠️ SECURITY WARNING:
+// Passwords are stored and transmitted as plain strings.
+// This is the least secure option and should only be used:
+// - For development/testing
+// - When orchestrator secret management is not available
+// - With short-lived, minimal-privilege credentials
+//
+// For production, prefer secret_ref which delegates credential
+// management to the orchestrator's secret management system.
+message BasicAuth {
+  string username = 1;
+  string password = 2;  // ⚠️ Plain text - use TLS for transport
 }
