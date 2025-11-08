@@ -196,7 +196,7 @@ pub struct TestCommand {
         name = "arg",
         conflicts_with = "type",
         trailing_var_arg = true,
-        // TODO: --help won't get collected into this args
+        allow_hyphen_values = true
     )]
     pub args: Vec<String>,
 }
@@ -394,7 +394,7 @@ impl TestCommand {
                 plugin_component: Some(plugin),
             };
 
-            output.push_str(component_plugin_command.handle(ctx).await?.message.as_str());
+            output = component_plugin_command.handle(ctx).await?.message;
         }
 
         Ok(CommandOutput::ok(

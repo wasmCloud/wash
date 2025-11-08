@@ -41,6 +41,11 @@ pub struct ComponentBuildCommand {
     /// Skip fetching WIT dependencies, useful for offline builds
     #[clap(long = "skip-fetch")]
     skip_fetch: bool,
+
+    /// Additional arguments to pass to the native build tool after '--'.
+    /// Example: wash build -- --release --features extra
+    #[clap(name = "arg", trailing_var_arg = true, allow_hyphen_values = true)]
+    pub args: Vec<String>,
 }
 
 impl CliCommand for ComponentBuildCommand {
@@ -56,6 +61,16 @@ impl CliCommand for ComponentBuildCommand {
                 skip_fetch: self.skip_fetch,
                 ..Default::default()
             })
+        }
+        if !self.args.is_empty() {
+            if let Some(build) = config.build.as_mut() {
+                build.additional_args = self.args.clone();
+            } else {
+                config.build = Some(crate::component_build::BuildConfig {
+                    additional_args: self.args.clone(),
+                    ..Default::default()
+                });
+            }
         }
         let result = build_component(&self.project_path, ctx, &config).await?;
 
@@ -542,8 +557,15 @@ impl ComponentBuilder {
         // Build cargo command arguments
         let mut cargo_args = vec!["build".to_string()];
 
+        let release_mode = rust_config.release
+            || config
+                .build
+                .as_ref()
+                .map(|b| b.additional_args.iter().any(|arg| arg == "--release"))
+                .unwrap_or(false);
+
         // Apply release mode if configured
-        if rust_config.release {
+        if release_mode {
             cargo_args.push("--release".to_string());
         }
 
@@ -574,6 +596,14 @@ impl ComponentBuilder {
         // Add any additional cargo flags if configured
         for flag in &rust_config.cargo_flags {
             cargo_args.push(flag.clone());
+        }
+
+        if let Some(build_config) = &config.build {
+            for arg in &build_config.additional_args {
+                if arg != "--release" {
+                    cargo_args.push(arg.clone());
+                }
+            }
         }
 
         debug!(cargo_args = ?cargo_args, "running cargo with args");
@@ -619,11 +649,7 @@ impl ComponentBuilder {
         }
 
         // Find the generated wasm file
-        let build_type = if rust_config.release {
-            "release"
-        } else {
-            "debug"
-        };
+        let build_type = if release_mode { "release" } else { "debug" };
         let target_dir = self
             .project_path
             .join(format!("target/{}/{}", rust_config.target, build_type));
@@ -791,6 +817,12 @@ impl ComponentBuilder {
             tinygo_args.push(flag.to_string());
         }
 
+        if let Some(build_config) = &config.build {
+            for arg in &build_config.additional_args {
+                tinygo_args.push(arg.clone());
+            }
+        }
+
         // Add source directory
         tinygo_args.push(".".to_string());
 
@@ -956,6 +988,12 @@ impl ComponentBuilder {
             // Add any additional build flags if configured
             for flag in &ts_config.build_flags {
                 build_args.push(flag.clone());
+            }
+
+            if let Some(build_config) = &config.build {
+                for arg in &build_config.additional_args {
+                    build_args.push(arg.clone());
+                }
             }
 
             debug!(package_manager = %package_manager, build_args = ?build_args, "running build command");
