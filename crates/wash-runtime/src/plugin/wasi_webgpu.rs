@@ -28,6 +28,7 @@ impl Default for WasiWebGpu {
                     backends: wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::all(),
                     flags: wasi_webgpu_wasmtime::reexports::wgpu_types::InstanceFlags::from_build_config(),
                     backend_options: wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions::default(),
+                    memory_budget_thresholds: Default::default(),
                 },
             )),
         }
