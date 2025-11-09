@@ -249,10 +249,24 @@ async fn main() {
     }
 
     // Since some interactive commands may hide the cursor, we need to ensure it is shown again on exit
+    // Clone the host Arc to move into the ctrl-c handler
+    let host_for_handler = ctx.host().clone();
     if let Err(e) = ctrlc::set_handler(move || {
         let term = dialoguer::console::Term::stdout();
         let _ = term.show_cursor();
-        // TODO(IMPORTANT): If the runtime is executing a component here, we need to stop it.
+
+        // Stop all running workloads and the host runtime
+        // Note: Signal handlers run outside the normal runtime context,
+        // so block_on is safe here and won't deadlock
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let host = host_for_handler.clone();
+            if let Err(e) = handle.block_on(async move { host.stop().await }) {
+                eprintln!("Error stopping host: {e:?}");
+            }
+        }
+
+        // Exit with standard SIGINT code (128 + 2)
+        std::process::exit(130);
     }) {
         warn!(err = ?e, "failed to set ctrl_c handler, interactive prompts may not restore cursor visibility");
     }

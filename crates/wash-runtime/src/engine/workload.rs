@@ -5,10 +5,11 @@ use std::{
     ops::{Deref, DerefMut},
     path::PathBuf,
     sync::Arc,
+    time::Duration,
 };
 
 use anyhow::{Context as _, bail, ensure};
-use tokio::{sync::RwLock, task::JoinHandle};
+use tokio::{sync::RwLock, task::JoinHandle, time::timeout};
 use tracing::{debug, info, trace, warn};
 use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
@@ -674,14 +675,22 @@ impl ResolvedWorkload {
 
                                                 let mut results_buf =
                                                     vec![Val::Bool(false); results.len()];
-                                                // TODO(IMPORTANT): Enforce a timeout on this call
-                                                // to prevent hanging indefinitely.
-                                                func.call_async(
-                                                    &mut store,
-                                                    &params_buf,
-                                                    &mut results_buf,
+
+                                                // Enforce a timeout on this call to prevent hanging indefinitely
+                                                const CALL_TIMEOUT: Duration =
+                                                    Duration::from_secs(30);
+                                                timeout(
+                                                    CALL_TIMEOUT,
+                                                    func.call_async(
+                                                        &mut store,
+                                                        &params_buf,
+                                                        &mut results_buf,
+                                                    ),
                                                 )
                                                 .await
+                                                .context(
+                                                    "function call timed out after 30 seconds",
+                                                )?
                                                 .context("failed to call function")?;
 
                                                 trace!(
