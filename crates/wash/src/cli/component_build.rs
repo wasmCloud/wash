@@ -127,7 +127,7 @@ pub async fn build_component(
         .await;
 
     let builder = ComponentBuilder::new(project_path.to_path_buf(), wit_dir, skip_fetch);
-    let result = builder.build(ctx, config, args).await
+    let result = builder.build(ctx, config, args).await;
 
     // Execute post-build hooks (even if build failed, plugins may want to know)
     trace!("executing after-build hooks");
