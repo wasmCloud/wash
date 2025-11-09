@@ -75,7 +75,7 @@ impl ClusterHostBuilder {
             .with_label("hostgroup", host_group.clone());
 
         if let Some(host_name) = self.host_name {
-            builder = builder.with_friendly_name(host_name)
+            builder = builder.with_hostname(host_name)
         }
         let heartbeat_interval = self.heartbeat_interval.unwrap_or(HEARTBEAT_INTERVAL);
         let host = builder.build()?;
