@@ -110,6 +110,10 @@ pub fn configure_tls_client(
     load_webpki_certs: bool,
     cert_file: Option<&Path>,
 ) -> anyhow::Result<ClientConfig> {
+    // Install default crypto provider if not already installed
+    // This is required for rustls 0.23+
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     let mut ca = rustls::RootCertStore::empty();
 
     // Load native certificates
@@ -173,6 +177,10 @@ pub async fn configure_tls_server(
     key_path: &Path,
     enable_http2: bool,
 ) -> anyhow::Result<ServerConfig> {
+    // Install default crypto provider if not already installed
+    // This is required for rustls 0.23+
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+
     // Load certificate chain
     let cert_data = tokio::fs::read(cert_path)
         .await

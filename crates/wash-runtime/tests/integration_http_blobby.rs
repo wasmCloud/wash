@@ -16,7 +16,10 @@ use common::find_available_port;
 use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
-    plugin::{wasi_blobstore::WasiBlobstore, wasi_http::HttpServer, wasi_logging::WasiLogging},
+    plugin::{
+        wasi_blobstore::WasiBlobstore, wasi_http::HttpServer, wasi_http_client::HttpClient,
+        wasi_logging::WasiLogging,
+    },
     types::{Component, LocalResources, Workload, WorkloadStartRequest, WorkloadStopRequest},
     wit::WitInterface,
 };
@@ -37,7 +40,7 @@ async fn test_blobby_integration() -> Result<()> {
     // Create HTTP server plugin on a dynamically allocated port
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
 
     // Create blobstore plugin
     let blobstore_plugin = WasiBlobstore::new(None);
@@ -45,10 +48,14 @@ async fn test_blobby_integration() -> Result<()> {
     // Create logging plugin
     let logging_plugin = WasiLogging {};
 
+    // Create HTTP client plugin
+    let http_client_plugin = HttpClient::new();
+
     // Build host with plugins
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
+        .with_plugin(Arc::new(http_client_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
         .build()?;
@@ -90,6 +97,13 @@ async fn test_blobby_integration() -> Result<()> {
                         config.insert("host".to_string(), "blobby-test".to_string());
                         config
                     },
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "http".to_string(),
+                    interfaces: ["outgoing-handler".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.2").unwrap()),
+                    config: HashMap::new(),
                 },
                 WitInterface {
                     namespace: "wasi".to_string(),
@@ -242,13 +256,15 @@ async fn test_blobby_error_handling() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
+    let http_client_plugin = HttpClient::new();
     let blobstore_plugin = WasiBlobstore::new(Some(1024 * 1024)); // 1MB limit for testing
     let logging_plugin = WasiLogging {};
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
+        .with_plugin(Arc::new(http_client_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
         .build()?;
@@ -289,6 +305,13 @@ async fn test_blobby_error_handling() -> Result<()> {
                         config.insert("host".to_string(), "blobby-error-test".to_string());
                         config
                     },
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "http".to_string(),
+                    interfaces: ["outgoing-handler".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.2").unwrap()),
+                    config: HashMap::new(),
                 },
                 WitInterface {
                     namespace: "wasi".to_string(),

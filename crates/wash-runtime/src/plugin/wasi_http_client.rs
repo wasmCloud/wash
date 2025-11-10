@@ -44,20 +44,15 @@ const ALPN_H2: &[u8] = b"h2";
 const ALPN_HTTP11: &[u8] = b"http/1.1";
 
 /// HTTP version preference
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HttpVersion {
     /// Always use HTTP/1.1
     Http1Only,
     /// Always use HTTP/2 (h2c for plain TCP, h2 for TLS)
     Http2Only,
     /// Use HTTP/1.1 for plain TCP, ALPN negotiation for TLS (default)
+    #[default]
     Auto,
-}
-
-impl Default for HttpVersion {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Shared HTTP clients with automatic connection pooling

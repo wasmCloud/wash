@@ -48,7 +48,7 @@ fn main() {
             .build_client(false)
             .build_server(true)
             .build_transport(true)
-            .compile_protos(&[&test_proto_file], &[&workspace_dir.join(&"tests/proto")])
+            .compile_protos(&[&test_proto_file], &[&workspace_dir.join("tests/proto")])
             .expect("failed to compile test protos");
     }
 }

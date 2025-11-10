@@ -17,8 +17,8 @@ use wash_runtime::{
     engine::Engine,
     host::{HostApi, HostBuilder},
     plugin::{
-        wasi_config::WasiConfig, wasi_http::HttpServer, wasi_keyvalue::WasiKeyvalue,
-        wasi_logging::WasiLogging,
+        wasi_config::WasiConfig, wasi_http::HttpServer, wasi_http_client::HttpClient,
+        wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
     },
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
@@ -50,7 +50,8 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     // Create HTTP server plugin on a dynamically allocated port
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
+    let http_client_plugin = HttpClient::new();
 
     // Create keyvalue plugin for counter persistence (still using built-in)
     let keyvalue_plugin = WasiKeyvalue::new();
@@ -68,7 +69,8 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     // We'll use the blobstore-filesystem component instead
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
+        .with_plugin(Arc::new(http_client_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
         .with_plugin(Arc::new(config_plugin))?
@@ -150,6 +152,13 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
                         config.insert("host".to_string(), "test".to_string());
                         config
                     },
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "http".to_string(),
+                    interfaces: ["outgoing-handler".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.4").unwrap()),
+                    config: HashMap::new(),
                 },
                 // NOTE: We DON'T include wasi:blobstore here because it will be
                 // provided by the blobstore-filesystem component, not the host
@@ -391,6 +400,7 @@ async fn test_component_resolution_with_multiple_providers() -> Result<()> {
     let host = HostBuilder::new()
         .with_engine(engine)
         .with_plugin(Arc::new(HttpServer::new(addr)))?
+        .with_plugin(Arc::new(HttpClient::new()))?
         .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
         .build()?;

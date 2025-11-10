@@ -32,12 +32,12 @@ const HTTP_HELLO_WORLD_WASM: &[u8] = include_bytes!("fixtures/http_hello_world.w
 /// Test HTTP client plugin with default configuration (auto HTTP version, pooling enabled)
 #[tokio::test]
 async fn test_http_client_default_config() -> Result<()> {
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("wash_runtime=debug".parse().unwrap()),
         )
-        .init();
+        .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
     println!("║           🧪 HTTP CLIENT PLUGIN - DEFAULT CONFIG TEST                ║");
@@ -135,12 +135,12 @@ async fn test_http_client_default_config() -> Result<()> {
 /// Test HTTP client with HTTP/2 forced via configuration
 #[tokio::test]
 async fn test_http_client_http2_forced() -> Result<()> {
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("wash_runtime=debug".parse().unwrap()),
         )
-        .init();
+        .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
     println!("║           🧪 HTTP CLIENT PLUGIN - FORCE HTTP/2 TEST                  ║");
@@ -207,12 +207,12 @@ async fn test_http_client_http2_forced() -> Result<()> {
 /// Test HTTP client with HTTP/1.1 only
 #[tokio::test]
 async fn test_http_client_http1_only() -> Result<()> {
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("wash_runtime=debug".parse().unwrap()),
         )
-        .init();
+        .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
     println!("║           🧪 HTTP CLIENT PLUGIN - HTTP/1.1 ONLY TEST                 ║");
@@ -278,12 +278,12 @@ async fn test_http_client_http1_only() -> Result<()> {
 /// Test HTTP client with connection pooling disabled
 #[tokio::test]
 async fn test_http_client_no_pooling() -> Result<()> {
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("wash_runtime=debug".parse().unwrap()),
         )
-        .init();
+        .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
     println!("║           🧪 HTTP CLIENT PLUGIN - NO POOLING TEST                    ║");
@@ -347,12 +347,12 @@ async fn test_http_client_no_pooling() -> Result<()> {
 /// Test concurrent requests with connection pooling
 #[tokio::test]
 async fn test_http_client_concurrent_requests() -> Result<()> {
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive("wash_runtime=debug".parse().unwrap()),
         )
-        .init();
+        .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
     println!("║           🧪 HTTP CLIENT PLUGIN - CONCURRENT REQUESTS TEST           ║");

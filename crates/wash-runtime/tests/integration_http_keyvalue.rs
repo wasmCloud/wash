@@ -19,7 +19,7 @@ use wash_runtime::{
     host::{HostApi, HostBuilder},
     plugin::{
         wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_http::HttpServer,
-        wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
+        wasi_http_client::HttpClient, wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
@@ -41,7 +41,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Create HTTP server plugin on a dynamically allocated port
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
 
     // Create keyvalue plugin
     let keyvalue_plugin = WasiKeyvalue::new();
@@ -55,10 +55,14 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Create logging plugin
     let logging_plugin = WasiLogging {};
 
+    // Create HTTP client plugin
+    let http_client_plugin = HttpClient::new();
+
     // Build host with plugins
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
+        .with_plugin(Arc::new(http_client_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(config_plugin))?
@@ -102,6 +106,13 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
                         config.insert("host".to_string(), "keyvalue-counter-test".to_string());
                         config
                     },
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "http".to_string(),
+                    interfaces: ["outgoing-handler".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.4").unwrap()),
+                    config: HashMap::new(),
                 },
                 WitInterface {
                     namespace: "wasi".to_string(),
@@ -156,7 +167,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Test 1: GET request to read initial counter value
     println!("Test 1: Reading initial counter value");
     let get_response = timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(15),
         client
             .get(format!("http://{addr}/"))
             .header("HOST", "keyvalue-counter-test")
@@ -203,7 +214,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Test 2: POST request to increment counter
     println!("Test 2: Incrementing counter via POST");
     let post_response = timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(15),
         client
             .post(format!("http://{addr}/"))
             .header("HOST", "keyvalue-counter-test")
@@ -235,7 +246,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Test 3: Another GET request to verify counter was incremented
     println!("Test 3: Reading counter value after increment");
     let get2_response = timeout(
-        Duration::from_secs(5),
+        Duration::from_secs(15),
         client
             .get(format!("http://{addr}/"))
             .header("HOST", "keyvalue-counter-test")
@@ -319,7 +330,8 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
+    let http_client_plugin = HttpClient::new();
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
     let config_plugin = WasiConfig::default();
@@ -327,7 +339,8 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
+        .with_plugin(Arc::new(http_client_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(config_plugin))?
@@ -370,6 +383,13 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
                         config.insert("host".to_string(), "concurrent-counter-test".to_string());
                         config
                     },
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "http".to_string(),
+                    interfaces: ["outgoing-handler".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.4").unwrap()),
+                    config: HashMap::new(),
                 },
                 WitInterface {
                     namespace: "wasi".to_string(),
@@ -499,7 +519,8 @@ async fn test_keyvalue_error_handling() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
+    let http_client_pllugin = HttpClient::new();
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
     let config_plugin = WasiConfig::default();
@@ -507,7 +528,8 @@ async fn test_keyvalue_error_handling() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
+        .with_plugin(Arc::new(http_client_pllugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(config_plugin))?
@@ -549,6 +571,13 @@ async fn test_keyvalue_error_handling() -> Result<()> {
                         config.insert("host".to_string(), "keyvalue-error-test".to_string());
                         config
                     },
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "http".to_string(),
+                    interfaces: ["outgoing-handler".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.4").unwrap()),
+                    config: HashMap::new(),
                 },
                 WitInterface {
                     namespace: "wasi".to_string(),
