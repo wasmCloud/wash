@@ -65,6 +65,8 @@ message Service {
   string image = 1;
   LocalResources local_resources = 2;
   uint64 max_restarts = 3;
+  // Optional credentials for pulling the image from a private registry
+  ImagePullSecret image_pull_secret = 4;
 }
 
 // Represents the WIT World (WebAssembly Interface Types)
@@ -84,6 +86,8 @@ message Component {
   LocalResources local_resources = 2;
   sint32 pool_size = 3;
   sint32 max_invocations = 4;
+  // Optional credentials for pulling the image from a private registry
+  ImagePullSecret image_pull_secret = 5;
 }
 
 message LocalResources {
@@ -121,4 +125,15 @@ message VolumeMount {
 message EmptyDirVolume {}
 message HostPathVolume {
   string local_path = 1;
+}
+
+// Credentials for pulling images from private OCI registries
+//
+// ⚠️ SECURITY NOTE:
+// Credentials are transmitted as plain text in protobuf messages.
+// Always use TLS/encryption for all network communication to protect these credentials.
+//
+message ImagePullSecret {
+    string username = 1;
+    string password = 2;
 }

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::host::{Host, HostApi};
-use crate::oci;
+use crate::oci::{self, OciConfig};
 use crate::plugin::HostPlugin;
 use anyhow::Context as _;
 use futures::StreamExt as _;
@@ -225,6 +225,16 @@ async fn handle_command(
     }
 }
 
+/// Convert ImagePullSecret from protobuf to OciConfig
+fn image_pull_secret_to_oci_config(
+    pull_secret: &Option<types::v2::ImagePullSecret>,
+) -> oci::OciConfig {
+    match &pull_secret {
+        Some(creds) => oci::OciConfig::new_with_credentials(&creds.username, &creds.password),
+        None => OciConfig::default(),
+    }
+}
+
 async fn host_heartbeat(host: &impl HostApi) -> anyhow::Result<types::v2::HostHeartbeat> {
     let hb = host.heartbeat().await?;
 
@@ -249,16 +259,21 @@ async fn workload_start(
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
-            // TODO(lxf): Pull Secrets
-            let Ok(bytes) = oci::pull_component(&component.image, oci::OciConfig::default()).await
-            else {
-                return Ok(types::v2::WorkloadStartResponse {
-                    workload_status: Some(types::v2::WorkloadStatus {
-                        workload_id: "".into(),
-                        workload_state: types::v2::WorkloadState::Error.into(),
-                        message: format!("failed to pull component image: {}", component.image),
-                    }),
-                });
+            let oci_config = image_pull_secret_to_oci_config(&component.image_pull_secret);
+            let bytes = match oci::pull_component(&component.image, oci_config).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return Ok(types::v2::WorkloadStartResponse {
+                        workload_status: Some(types::v2::WorkloadStatus {
+                            workload_id: "".into(),
+                            workload_state: types::v2::WorkloadState::Error.into(),
+                            message: format!(
+                                "failed to pull component image {}: {}",
+                                component.image, e
+                            ),
+                        }),
+                    });
+                }
             };
             pulled_components.push(crate::types::Component {
                 bytes: bytes.0.into(),
@@ -284,14 +299,18 @@ async fn workload_start(
     };
 
     let service = if let Some(service) = service {
-        let Ok(bytes) = oci::pull_component(&service.image, oci::OciConfig::default()).await else {
-            return Ok(types::v2::WorkloadStartResponse {
-                workload_status: Some(types::v2::WorkloadStatus {
-                    workload_id: "".into(),
-                    workload_state: types::v2::WorkloadState::Error.into(),
-                    message: format!("failed to pull service image: {}", service.image),
-                }),
-            });
+        let oci_config = image_pull_secret_to_oci_config(&service.image_pull_secret);
+        let bytes = match oci::pull_component(&service.image, oci_config).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Ok(types::v2::WorkloadStartResponse {
+                    workload_status: Some(types::v2::WorkloadStatus {
+                        workload_id: "".into(),
+                        workload_state: types::v2::WorkloadState::Error.into(),
+                        message: format!("failed to pull service image {}: {}", service.image, e),
+                    }),
+                });
+            }
         };
         Some(crate::types::Service {
             bytes: bytes.0.into(),
@@ -530,5 +549,32 @@ impl From<crate::types::WorkloadStatus> for types::v2::WorkloadStatus {
             workload_state: status.workload_state as i32,
             message: status.message,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_image_pull_secret_to_oci_config_none() {
+        let secret: Option<types::v2::ImagePullSecret> = None;
+        let config = image_pull_secret_to_oci_config(&secret);
+        assert!(config.credentials.is_none());
+        assert!(!config.insecure);
+    }
+
+    #[tokio::test]
+    async fn test_image_pull_secret_to_oci_config_basic_auth() {
+        let secret = Some(types::v2::ImagePullSecret {
+            username: "testuser".to_string(),
+            password: "testpass".to_string(),
+        });
+
+        let config = image_pull_secret_to_oci_config(&secret);
+        assert_eq!(
+            config.credentials,
+            Some(("testuser".to_string(), "testpass".to_string()))
+        );
     }
 }
