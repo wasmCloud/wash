@@ -558,19 +558,20 @@ mod tests {
 
     #[tokio::test]
     async fn test_image_pull_secret_to_oci_config_none() {
-        let config = image_pull_secret_to_oci_config(None).await;
+        let secret: Option<types::v2::ImagePullSecret> = None;
+        let config = image_pull_secret_to_oci_config(&secret);
         assert!(config.credentials.is_none());
         assert!(!config.insecure);
     }
 
     #[tokio::test]
     async fn test_image_pull_secret_to_oci_config_basic_auth() {
-        let secret = types::v2::ImagePullSecret {
+        let secret = Some(types::v2::ImagePullSecret {
             username: "testuser".to_string(),
             password: "testpass".to_string(),
-        };
+        });
 
-        let config = image_pull_secret_to_oci_config(Some(&secret));
+        let config = image_pull_secret_to_oci_config(&secret);
         assert_eq!(
             config.credentials,
             Some(("testuser".to_string(), "testpass".to_string()))
