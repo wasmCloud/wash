@@ -49,20 +49,7 @@ use tracing::{debug, info, instrument, warn};
 const WASMCLOUD_MEDIA_TYPE: &str = "application/vnd.module.wasm.content.layer.v1+wasm";
 
 /// Configuration for OCI operations
-///
-/// # Security Considerations
-///
-/// ⚠️ **Credentials in Memory**: Credentials are stored as plain `String` in memory.
-/// In production environments, consider:
-/// - Using the `secrecy` crate for `Secret<String>` to prevent accidental exposure
-/// - Implementing `Drop` to zero memory after use
-/// - Being aware that credentials may appear in core dumps or debugging tools
-///
-/// ⚠️ **Network Security**: Always use TLS for registry communication unless testing locally.
-/// The `insecure` flag should only be used for local development with registries like
-/// `localhost:5000`.
-///
-/// ⚠️ **Credential Precedence**:
+/// ️ **Credential Precedence**:
 /// 1. Explicit credentials (if provided in this config)
 /// 2. Docker credential helper (system default)
 /// 3. Anonymous (if no credentials found)
@@ -75,12 +62,8 @@ const WASMCLOUD_MEDIA_TYPE: &str = "application/vnd.module.wasm.content.layer.v1
 #[derive(Debug, Default, Clone)]
 pub struct OciConfig {
     /// Optional explicit credentials (username, password)
-    ///
-    /// ⚠️ **Security**: Stored as plain String. Consider using `secrecy` crate in production.
     pub credentials: Option<(String, String)>,
     /// Whether to allow insecure registries (HTTP instead of HTTPS)
-    ///
-    /// ⚠️ **Security**: Only use for local development. Always use HTTPS in production.
     pub insecure: bool,
     /// Cache directory override
     pub cache_dir: Option<PathBuf>,
