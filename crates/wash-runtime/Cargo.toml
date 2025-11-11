@@ -15,7 +15,7 @@ path = "src/lib.rs"
 default = ["wasi-http", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
 wasi-http = ["dep:wasmtime-wasi-http"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
-washlet = ["oci", "dep:kube", "dep:k8s-openapi", "dep:base64"]
+washlet = ["oci"]
 wasi-config = []
 wasi-logging = []
 wasi-blobstore = []
@@ -73,11 +73,6 @@ oci-client = { workspace = true, optional = true, features = ["rustls-tls", "rus
 oci-wasm = { workspace = true, optional = true, features = ["rustls-tls"] }
 sha2 = { workspace = true, optional = true }
 wit-component = { workspace = true, optional = true }
-
-# Kubernetes dependencies (optional, for secret resolution)
-kube = { version = "0.95", optional = true, features = ["client", "rustls-tls"], default-features = false }
-k8s-openapi = { version = "0.23", optional = true, features = ["v1_30"], default-features = false }
-base64 = { version = "0.22", optional = true }
 
 [build-dependencies]
 anyhow = { workspace = true, default-features = true }

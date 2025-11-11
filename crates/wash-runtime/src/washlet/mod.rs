@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::host::{Host, HostApi};
-use crate::oci;
+use crate::oci::{self, OciConfig};
 use crate::plugin::HostPlugin;
 use anyhow::Context as _;
 use futures::StreamExt as _;
@@ -13,9 +13,6 @@ use sysinfo::System;
 use tokio::sync::oneshot;
 
 pub mod plugins;
-
-#[cfg(feature = "washlet")]
-pub mod k8s_secrets;
 
 pub const HOST_API_PREFIX: &str = "runtime.host";
 pub const OPERATOR_API_PREFIX: &str = "runtime.operator";
@@ -229,101 +226,12 @@ async fn handle_command(
 }
 
 /// Convert ImagePullSecret from protobuf to OciConfig
-///
-/// # Credential Resolution Precedence
-///
-/// This function resolves credentials in the following order:
-/// 1. **Explicit BasicAuth** - Username/password from ImagePullSecret (highest priority)
-/// 2. **SecretRef** - Reference to Kubernetes secret (resolved via K8s API)
-/// 3. **DockerConfigJson** - Docker config.json format (TODO: not yet implemented, falls back to #4)
-/// 4. **Docker credential helper** - System docker credentials (via `OciConfig::default()`)
-/// 5. **Anonymous** - No credentials (when docker helper fails)
-///
-/// # Security Notes
-///
-/// - Empty username or password in BasicAuth triggers a warning and falls back to docker credentials
-/// - Credentials are skipped from tracing via `#[instrument(skip(secret))]`
-/// - SecretRef requires running in Kubernetes with proper RBAC permissions
-/// - DockerConfigJson logs error when used (not yet implemented)
-///
-/// # Arguments
-///
-/// * `secret` - Optional ImagePullSecret from the protobuf message
-/// * `namespace` - Kubernetes namespace for secret resolution (required for SecretRef)
-///
-/// # Examples
-///
-/// ```ignore
-/// // Component with explicit credentials
-/// let secret = Some(ImagePullSecret {
-///     credential: Some(BasicAuth {
-///         username: "user".into(),
-///         password: "pass".into(),
-///     })
-/// });
-/// let config = image_pull_secret_to_oci_config(secret.as_ref(), "default").await;
-/// // Uses explicit credentials
-///
-/// // Component without credentials
-/// let config = image_pull_secret_to_oci_config(None, "default").await;
-/// // Falls back to docker credential helper
-/// ```
-#[tracing::instrument(skip(secret), fields(namespace = %namespace))]
-async fn image_pull_secret_to_oci_config(
-    secret: Option<&types::v2::ImagePullSecret>,
-    namespace: &str,
+fn image_pull_secret_to_oci_config(
+    pull_secret: &Option<types::v2::ImagePullSecret>,
 ) -> oci::OciConfig {
-    let Some(secret) = secret else {
-        return oci::OciConfig::default();
-    };
-
-    match &secret.credential {
-        Some(types::v2::image_pull_secret::Credential::BasicAuth(basic)) => {
-            if basic.username.is_empty() || basic.password.is_empty() {
-                tracing::warn!("BasicAuth credentials provided but username or password is empty");
-                return oci::OciConfig::default();
-            }
-            oci::OciConfig::new_with_credentials(&basic.username, &basic.password)
-        }
-        Some(types::v2::image_pull_secret::Credential::SecretRef(secret_name)) => {
-            // Resolve secret from Kubernetes
-            match k8s_secrets::resolve_secret(secret_name, namespace).await {
-                Ok(Some((username, password))) => {
-                    tracing::info!(
-                        secret_name = %secret_name,
-                        namespace = %namespace,
-                        "Successfully resolved Kubernetes secret"
-                    );
-                    oci::OciConfig::new_with_credentials(username, password)
-                }
-                Ok(None) => {
-                    tracing::error!(
-                        secret_name = %secret_name,
-                        namespace = %namespace,
-                        "Kubernetes secret exists but contains no valid credentials"
-                    );
-                    oci::OciConfig::default()
-                }
-                Err(e) => {
-                    tracing::error!(
-                        secret_name = %secret_name,
-                        namespace = %namespace,
-                        error = %e,
-                        "Failed to resolve Kubernetes secret - falling back to docker credential helper"
-                    );
-                    oci::OciConfig::default()
-                }
-            }
-        }
-        Some(types::v2::image_pull_secret::Credential::DockerConfigJson(_config_json)) => {
-            // TODO: Implement Docker config.json parsing
-            // For now, fall back to default (docker credential helper)
-            tracing::error!(
-                "docker_config_json not implemented - component pull may fail or use unintended credentials"
-            );
-            oci::OciConfig::default()
-        }
-        None => oci::OciConfig::default(),
+    match &pull_secret {
+        Some(creds) => oci::OciConfig::new_with_credentials(&creds.username, &creds.password),
+        None => OciConfig::default(),
     }
 }
 
@@ -344,7 +252,6 @@ async fn workload_start(
         service,
         wit_world,
         volumes,
-        default_image_pull_secret,
     }) = req.workload
     else {
         anyhow::bail!("workload is required");
@@ -352,12 +259,7 @@ async fn workload_start(
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
-            // Use component-specific secret, or fall back to workload default
-            let pull_secret = component
-                .image_pull_secret
-                .as_ref()
-                .or(default_image_pull_secret.as_ref());
-            let oci_config = image_pull_secret_to_oci_config(pull_secret, &namespace).await;
+            let oci_config = image_pull_secret_to_oci_config(&component.image_pull_secret);
             let bytes = match oci::pull_component(&component.image, oci_config).await {
                 Ok(bytes) => bytes,
                 Err(e) => {
@@ -397,12 +299,7 @@ async fn workload_start(
     };
 
     let service = if let Some(service) = service {
-        // Use service-specific secret, or fall back to workload default
-        let pull_secret = service
-            .image_pull_secret
-            .as_ref()
-            .or(default_image_pull_secret.as_ref());
-        let oci_config = image_pull_secret_to_oci_config(pull_secret, &namespace).await;
+        let oci_config = image_pull_secret_to_oci_config(&service.image_pull_secret);
         let bytes = match oci::pull_component(&service.image, oci_config).await {
             Ok(bytes) => bytes,
             Err(e) => {
@@ -661,7 +558,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_image_pull_secret_to_oci_config_none() {
-        let config = image_pull_secret_to_oci_config(None, "default").await;
+        let config = image_pull_secret_to_oci_config(None).await;
         assert!(config.credentials.is_none());
         assert!(!config.insecure);
     }
@@ -669,92 +566,14 @@ mod tests {
     #[tokio::test]
     async fn test_image_pull_secret_to_oci_config_basic_auth() {
         let secret = types::v2::ImagePullSecret {
-            credential: Some(types::v2::image_pull_secret::Credential::BasicAuth(
-                types::v2::BasicAuth {
-                    username: "testuser".to_string(),
-                    password: "testpass".to_string(),
-                },
-            )),
+            username: "testuser".to_string(),
+            password: "testpass".to_string(),
         };
 
-        let config = image_pull_secret_to_oci_config(Some(&secret), "default").await;
+        let config = image_pull_secret_to_oci_config(Some(&secret));
         assert_eq!(
             config.credentials,
             Some(("testuser".to_string(), "testpass".to_string()))
         );
-    }
-
-    #[tokio::test]
-    async fn test_image_pull_secret_to_oci_config_secret_ref() {
-        // Initialize rustls crypto provider for kube client
-        // This is needed when running tests outside of a full application context
-        let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
-
-        // secret_ref should fall back to default when not running in K8s
-        let secret = types::v2::ImagePullSecret {
-            credential: Some(types::v2::image_pull_secret::Credential::SecretRef(
-                "my-k8s-secret".to_string(),
-            )),
-        };
-
-        let config = image_pull_secret_to_oci_config(Some(&secret), "default").await;
-        // Should fall back to default (no explicit credentials) when K8s is not available
-        assert!(config.credentials.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_image_pull_secret_to_oci_config_empty_credential() {
-        let secret = types::v2::ImagePullSecret { credential: None };
-
-        let config = image_pull_secret_to_oci_config(Some(&secret), "default").await;
-        assert!(config.credentials.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_image_pull_secret_with_empty_username() {
-        let secret = types::v2::ImagePullSecret {
-            credential: Some(types::v2::image_pull_secret::Credential::BasicAuth(
-                types::v2::BasicAuth {
-                    username: "".to_string(),
-                    password: "testpass".to_string(),
-                },
-            )),
-        };
-
-        let config = image_pull_secret_to_oci_config(Some(&secret), "default").await;
-        // Should fall back to default when username is empty
-        assert!(config.credentials.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_image_pull_secret_with_empty_password() {
-        let secret = types::v2::ImagePullSecret {
-            credential: Some(types::v2::image_pull_secret::Credential::BasicAuth(
-                types::v2::BasicAuth {
-                    username: "testuser".to_string(),
-                    password: "".to_string(),
-                },
-            )),
-        };
-
-        let config = image_pull_secret_to_oci_config(Some(&secret), "default").await;
-        // Should fall back to default when password is empty
-        assert!(config.credentials.is_none());
-    }
-
-    #[tokio::test]
-    async fn test_image_pull_secret_with_both_empty() {
-        let secret = types::v2::ImagePullSecret {
-            credential: Some(types::v2::image_pull_secret::Credential::BasicAuth(
-                types::v2::BasicAuth {
-                    username: "".to_string(),
-                    password: "".to_string(),
-                },
-            )),
-        };
-
-        let config = image_pull_secret_to_oci_config(Some(&secret), "default").await;
-        // Should fall back to default when both are empty
-        assert!(config.credentials.is_none());
     }
 }
