@@ -4,7 +4,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::AsyncWrite;
 use tracing::{info, warn};
-use wasmtime_wasi::{AsyncStdoutStream, OutputStream, StdoutStream, pipe::AsyncWriteStream};
+use wasmtime_wasi::cli::{IsTerminal, StdoutStream};
 
 /// AsyncWrite implementation that forwards all writes to tracing macros
 pub struct TracingAsyncWrite {
@@ -93,14 +93,16 @@ impl TracingStream {
 }
 
 impl StdoutStream for TracingStream {
-    fn stream(&self) -> Box<dyn OutputStream> {
-        let async_writer = TracingAsyncWrite::new(self.component_name.clone(), self.is_stderr);
-        let write_stream = AsyncWriteStream::new(8192, async_writer);
-        let stdout_stream = AsyncStdoutStream::new(write_stream);
-        Box::new(stdout_stream)
+    fn async_stream(&self) -> Box<dyn AsyncWrite + Send + Sync> {
+        Box::new(TracingAsyncWrite::new(
+            self.component_name.clone(),
+            self.is_stderr,
+        ))
     }
+}
 
-    fn isatty(&self) -> bool {
+impl IsTerminal for TracingStream {
+    fn is_terminal(&self) -> bool {
         false // We're not a TTY since we're forwarding to tracing
     }
 }

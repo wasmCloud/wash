@@ -15,15 +15,14 @@ use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use futures::StreamExt;
-use wasmtime::component::Resource;
+use wasmtime::component::{HasSelf, Resource};
 
 const LIST_KEYS_BATCH_SIZE: usize = 1000;
 
 mod bindings {
     wasmtime::component::bindgen!({
         world: "keyvalue",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
         with: {
             "wasi:keyvalue/store/bucket": crate::washlet::plugins::wasi_keyvalue::BucketHandle,
         },
@@ -486,9 +485,9 @@ impl HostPlugin for WasiKeyvalue {
         );
         let linker = component.linker();
 
-        bindings::wasi::keyvalue::store::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::atomics::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::batch::add_to_linker(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::store::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::atomics::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::batch::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
 
         let id = component.id();
         tracing::debug!(

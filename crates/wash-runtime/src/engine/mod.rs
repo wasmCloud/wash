@@ -207,7 +207,8 @@ impl Engine {
         let mut linker: Linker<Ctx> = Linker::new(&self.inner);
 
         // Add WASI@0.2 interfaces to the linker
-        wasmtime_wasi::add_to_linker_async(&mut linker).context("failed to add WASI to linker")?;
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker)
+            .context("failed to add WASI to linker")?;
 
         // Add HTTP interfaces to the linker if feature is enabled and component uses them
         #[cfg(feature = "wasi-http")]
@@ -260,7 +261,8 @@ impl Engine {
         let mut linker: Linker<Ctx> = Linker::new(&self.inner);
 
         // Add WASI@0.2 interfaces to the linker
-        wasmtime_wasi::add_to_linker_async(&mut linker).context("failed to add WASI to linker")?;
+        wasmtime_wasi::p2::add_to_linker_async(&mut linker)
+            .context("failed to add WASI to linker")?;
 
         // Add HTTP interfaces to the linker
         #[cfg(feature = "wasi-http")]

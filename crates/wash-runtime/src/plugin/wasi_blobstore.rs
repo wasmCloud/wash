@@ -11,8 +11,8 @@ use std::{
 
 const WASI_BLOBSTORE_ID: &str = "wasi-blobstore";
 use tokio::sync::RwLock;
-use wasmtime::component::Resource;
-use wasmtime_wasi::{
+use wasmtime::component::{HasSelf, Resource};
+use wasmtime_wasi::p2::{
     InputStream, OutputStream,
     pipe::{MemoryInputPipe, MemoryOutputPipe},
 };
@@ -27,10 +27,9 @@ use crate::{
 mod bindings {
     wasmtime::component::bindgen!({
         world: "blobstore",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
         with: {
-            "wasi:io": ::wasmtime_wasi::bindings::io,
+            "wasi:io": ::wasmtime_wasi::p2::bindings::io,
             "wasi:blobstore/container/container": String,
             "wasi:blobstore/container/stream-object-names": crate::plugin::wasi_blobstore::StreamObjectNamesHandle,
             "wasi:blobstore/types/incoming-value": crate::plugin::wasi_blobstore::IncomingValueHandle,
@@ -927,9 +926,9 @@ impl HostPlugin for WasiBlobstore {
         );
         let linker = workload_handle.linker();
 
-        bindings::wasi::blobstore::blobstore::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::container::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::types::add_to_linker(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::blobstore::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::container::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::types::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
 
         let id = workload_handle.id();
 
