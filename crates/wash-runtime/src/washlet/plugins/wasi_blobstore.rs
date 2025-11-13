@@ -1,9 +1,6 @@
-use std::collections::{HashMap, HashSet};
-use std::f64::consts::E;
+use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::SystemTime;
 
-const PLUGIN_BLOBSTORE_ID: &str = "wasi-blobstore";
 use crate::engine::ctx::Ctx;
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
@@ -11,14 +8,14 @@ use crate::washlet::plugins::WorkloadTracker;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::Context;
 use async_nats::jetstream::object_store::{self, List, Object, ObjectStore};
-use futures::{StreamExt, TryStreamExt};
+use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
 use wasmtime::component::Resource;
-use wasmtime_wasi::pipe::{self, MemoryInputPipe, MemoryOutputPipe};
+use wasmtime_wasi::pipe::{self};
 use wasmtime_wasi::{InputStream, OutputStream};
 
-const MAX_FILE_UPLOAD_SIZE: usize = 2 * 1024 * 1024 * 1024; // 2 GiB
+const PLUGIN_BLOBSTORE_ID: &str = "wasi-blobstore";
 
 mod bindings {
     wasmtime::component::bindgen!({
@@ -122,13 +119,6 @@ impl WasiBlobstore {
             }
             None => None,
         }
-    }
-
-    fn default_create_timestamp() -> u64 {
-        SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
     }
 }
 
@@ -328,7 +318,12 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
                 return Ok(Err(format!("failed to get source bucket: {e}")));
             }
         };
-        self.copy_object(src.clone(), dest.clone()).await?;
+
+        let copy = self.copy_object(src.clone(), dest.clone()).await?;
+        if let Err(e) = copy {
+            return Ok(Err(format!("failed to copy object during move: {e}")));
+        }
+
         match delete_store.delete(src.object.as_str()).await {
             Ok(_) => Ok(Ok(())),
             Err(e) => Ok(Err(format!("failed to delete source object: {e}"))),
@@ -425,7 +420,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
             Ok(names) => names,
             Err(e) => {
                 return Ok(Err(format!(
-                    "failed to list objects in container '{}'",
+                    "failed to list objects in container '{}': {e}",
                     container_data.name
                 )));
             }
@@ -836,7 +831,7 @@ impl HostPlugin for WasiBlobstore {
         let read_only = interface
             .config
             .get("read_only")
-            .map_or(false, |v| v == "true");
+            .is_some_and(|v| v == "true");
 
         self.tracker.write().await.add_unresolved_workload(
             workload,
