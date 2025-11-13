@@ -672,7 +672,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         // read in finish()
         let boxed: Box<dyn OutputStream> = Box::new(stream);
 
-        let resource = self.table.push_child(boxed, &outgoing_value)?;
+        let resource = self.table.push(boxed)?;
         Ok(Ok(resource))
     }
 
