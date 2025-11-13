@@ -438,6 +438,9 @@ impl ResolvedWorkload {
     }
 
     async fn link_components(&mut self) -> anyhow::Result<()> {
+        // Regex to match wasi@0.2 versions
+        let re = regex::Regex::new(r"^0\.2\.[0-9]+$").map_err(|e| anyhow::anyhow!(e))?;
+
         // A map from component ID to its exported interfaces
         let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
 
@@ -445,10 +448,15 @@ impl ResolvedWorkload {
         for c in self.components.read().await.values() {
             let exported_instances = c.component_exports()?;
             for (name, item) in exported_instances {
-                // TODO(#11): It's probably a good idea to skip registering wasi@0.2 interfaces
                 match name.split_once('@') {
                     Some(("wasmcloud:wash/plugin", _)) => {
                         trace!(name, "skipping internal plugin export");
+                        continue;
+                    }
+                    Some((iface, version))
+                        if iface.starts_with("wasi:") && re.is_match(version) =>
+                    {
+                        trace!(name, "skipping wasi@0.2 export");
                         continue;
                     }
                     None => {
@@ -1755,5 +1763,36 @@ mod tests {
         assert!(!world.includes_bidirectional(&interface4));
         // Show the difference between includes and includes_bidirectional
         assert!(!world.includes(&interface3));
+    }
+
+    #[tokio::test]
+    async fn test_resolve_with_plugins_success() {
+        let http_interface = WitInterface::from("wasi:http/incoming-handler@0.2.0");
+
+        let plugin = Arc::new(MockPlugin::new(
+            "http-plugin",
+            vec![],
+            vec![http_interface.clone()],
+        ));
+
+        let mut plugins = HashMap::new();
+        plugins.insert(plugin.id(), plugin.clone() as Arc<dyn HostPlugin>);
+
+        let components = vec![create_test_component("component1")];
+
+        let workload = UnresolvedWorkload::new(
+            "test-workload-id".to_string(),
+            "test-workload".to_string(),
+            "test-namespace".to_string(),
+            None,
+            components,
+            vec![http_interface.clone()],
+        );
+
+        let result = workload.resolve(Some(&plugins)).await;
+        assert!(
+            result.is_ok(),
+            "Workload should resolve successfully with available plugins"
+        );
     }
 }
