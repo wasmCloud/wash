@@ -59,7 +59,9 @@ impl CliCommand for HostCommand {
                 wash_runtime::washlet::plugins::wasi_logging::TracingLogging::default(),
             ))?
             .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_blobstore::WasiBlobstore::new(None),
+                wash_runtime::washlet::plugins::wasi_blobstore::WasiBlobstore::new(
+                    data_nats_client.clone(),
+                ),
             ))?
             .with_plugin(Arc::new(
                 wash_runtime::washlet::plugins::wasmcloud_messaging::WasmcloudMessaging::new(
