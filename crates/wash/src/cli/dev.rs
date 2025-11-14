@@ -21,8 +21,9 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(not(target_os = "windows"))]
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
+    engine::workload::ResolvedWorkload,
     host::{Host, HostApi},
-    plugin::{wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
+    plugin::{wasi_config::WasiConfig, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -40,6 +41,61 @@ use crate::{
     config::{Config, load_config},
     plugin::bindings::wasmcloud::wash::types::HookType,
 };
+
+#[derive(Default)]
+struct HTTPDevRouter {
+    last_workload_id: tokio::sync::Mutex<Option<String>>,
+}
+
+#[async_trait::async_trait]
+impl wash_runtime::host::http::Router for HTTPDevRouter {
+    async fn on_workload_resolved(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+        _component_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut lock = self.last_workload_id.lock().await;
+        tracing::info!(workload_id = %resolved_handle.id(), "routing HTTP requests to new workload");
+        lock.replace(resolved_handle.id().to_string());
+        Ok(())
+    }
+
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
+        let mut lock = self.last_workload_id.lock().await;
+        if let Some(current_id) = &*lock
+            && current_id == workload_id
+        {
+            let _ = lock.take();
+        }
+        Ok(())
+    }
+
+    fn allow_outgoing_request(
+        &self,
+        _workload_id: &str,
+        _request: &hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        _config: &wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Pick a workload ID based on the incoming request
+    fn route_incoming_request(
+        &self,
+        _req: &hyper::Request<hyper::body::Incoming>,
+    ) -> anyhow::Result<String> {
+        tokio::task::block_in_place(move || {
+            let lock = self.last_workload_id.blocking_lock();
+            match &*lock {
+                Some(id) => {
+                    tracing::info!(workload_id = %id, "incoming request");
+                    Ok(id.clone())
+                }
+                None => bail!("no workload available to route request"),
+            }
+        })
+    }
+}
 
 #[derive(Debug, Clone, Args)]
 pub struct DevCommand {
@@ -196,6 +252,7 @@ impl CliCommand for DevCommand {
         }
         debug!(path = ?volume_root.display(), "using blobstore root directory");
 
+        let http_handler = HTTPDevRouter::default();
         // TODO(#19): Only spawn the server if the component exports wasi:http
         // Configure HTTP server with optional TLS, enable HTTP Server
         let protocol = if let (Some(cert_path), Some(key_path)) = (&self.tls_cert, &self.tls_key) {
@@ -218,22 +275,24 @@ impl CliCommand for DevCommand {
                 );
             }
 
-            host_builder = host_builder.with_plugin(Arc::new(
-                HttpServer::new_with_tls(
-                    self.address.parse()?,
-                    cert_path,
-                    key_path,
-                    self.tls_ca.as_deref(),
-                )
-                .await?,
-            ))?;
+            let http_server = wash_runtime::host::http::HttpServer::new_with_tls(
+                http_handler,
+                self.address.parse()?,
+                cert_path,
+                key_path,
+                self.tls_ca.as_deref(),
+            )
+            .await?;
+
+            host_builder = host_builder.with_http_handler(Arc::new(http_server));
 
             debug!("TLS configured - server will use HTTPS");
             "https"
         } else {
             debug!("No TLS configuration provided - server will use HTTP");
-            host_builder =
-                host_builder.with_plugin(Arc::new(HttpServer::new(self.address.parse()?)))?;
+            let http_server =
+                wash_runtime::host::http::HttpServer::new(http_handler, self.address.parse()?);
+            host_builder = host_builder.with_http_handler(Arc::new(http_server));
             "http"
         };
 
@@ -512,7 +571,6 @@ fn update_workload_component(workload: &mut Workload, bytes: Bytes) {
 /// checked bidirectionally against both imports and exports during plugin binding.
 ///
 /// For example:
-/// - A component that **exports** `wasi:http/incoming-handler` needs the HTTP server plugin
 /// - A component that **imports** `wasi:blobstore/blobstore` needs the blobstore plugin
 fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSet<WitInterface>> {
     use wasmtime::component::Component;
@@ -561,6 +619,14 @@ fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSe
             interface.package.as_str(),
             // Core WASI provided by wasmtime-wasi
             "cli" | "clocks" | "filesystem" | "io" | "random" | "sockets"
+        ) {
+            return true;
+        }
+
+        if matches!(
+            interface.package.as_str(),
+            // HTTP WASI provided by wash-runtime
+            "http"
         ) {
             return true;
         }

@@ -372,7 +372,7 @@ impl EngineBuilder {
 }
 
 /// Helper function to determine if a component uses wasi:http interfaces
-fn uses_wasi_http(component: &Component) -> bool {
+pub fn uses_wasi_http(component: &Component) -> bool {
     let ty: wasmtime::component::types::Component = component.component_type();
     let engine = component.engine();
 

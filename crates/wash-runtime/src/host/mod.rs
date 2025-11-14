@@ -53,10 +53,13 @@ use crate::engine::Engine;
 use crate::engine::workload::ResolvedWorkload;
 use crate::plugin::HostPlugin;
 use crate::types::*;
-use crate::wit::WitWorld;
+use crate::wit::{WitInterface, WitWorld};
 
 mod sysinfo;
 use sysinfo::SystemMonitor;
+
+#[cfg(feature = "wasi-http")]
+pub mod http;
 
 /// The API for interacting with a wasmcloud host.
 ///
@@ -188,6 +191,8 @@ pub struct Host {
     /// System monitor for tracking CPU/memory usage
     system_monitor: Arc<RwLock<SystemMonitor>>,
     // endpoints: HashMap<String, EndpointConfiguration>
+    #[cfg(feature = "wasi-http")]
+    pub(crate) http_handler: std::sync::Arc<dyn crate::host::http::HostHandler>,
 }
 
 impl Host {
@@ -207,6 +212,14 @@ impl Host {
     /// # Errors
     /// Returns an error if any plugin fails to start.
     pub async fn start(self) -> anyhow::Result<Arc<Self>> {
+        #[cfg(feature = "wasi-http")]
+        {
+            self.http_handler
+                .start()
+                .await
+                .context("failed to start HTTP handler")?;
+        }
+
         // Start all plugins, any errors means the host fails to start.
         for (id, plugin) in &self.plugins {
             if let Err(e) = plugin.start().await {
@@ -227,6 +240,14 @@ impl Host {
     /// # Returns
     /// Ok if the shutdown process completes (even with plugin errors).
     pub async fn stop(self: Arc<Self>) -> anyhow::Result<()> {
+        #[cfg(feature = "wasi-http")]
+        {
+            self.http_handler
+                .stop()
+                .await
+                .context("failed to stop HTTP handler")?;
+        }
+
         // Stop all plugins, log errors but continue stopping others
         for (id, plugin) in &self.plugins {
             let stop_fut = plugin.stop();
@@ -428,12 +449,35 @@ impl HostApi for Host {
 
         let service_present = request.workload.service.is_some();
 
+        #[cfg(feature = "wasi-http")]
+        let http_present = {
+            let http_iface = WitInterface::from("wasi:http/incoming-handler");
+            request
+                .workload
+                .host_interfaces
+                .iter()
+                .any(|hi| hi.contains(&http_iface))
+        };
+
         // Initialize the workload using the engine, receiving the unresolved workload
         let unresolved_workload = self
             .engine
             .initialize_workload(&request.workload_id, request.workload)?;
 
         let mut resolved_workload = unresolved_workload.resolve(Some(&self.plugins)).await?;
+
+        #[cfg(feature = "wasi-http")]
+        if http_present {
+            for component in resolved_workload.components.read().await.values() {
+                if component.uses_wasi_http() {
+                    self.http_handler
+                        .on_workload_resolved(&resolved_workload, component.id())
+                        .await
+                        .context("failed to notify HTTP handler of workload")?;
+                    break;
+                }
+            }
+        }
 
         // If the service didn't run and we had one, warn
         if resolved_workload.execute_service().await? != service_present {
@@ -520,6 +564,19 @@ impl HostApi for Host {
                 // Stop the service if running
                 resolved_workload.stop_service();
 
+                #[cfg(feature = "wasi-http")]
+                {
+                    for component in resolved_workload.components.read().await.values() {
+                        if component.uses_wasi_http() {
+                            self.http_handler
+                                .on_workload_unbind(resolved_workload.id())
+                                .await
+                                .context("failed to notify HTTP handler of workload")?;
+                            break;
+                        }
+                    }
+                }
+
                 // Unbind all plugins from the workload
                 if let Err(e) = resolved_workload.unbind_all_plugins().await {
                     warn!(
@@ -579,6 +636,8 @@ pub struct HostBuilder {
     hostname: Option<String>,
     friendly_name: Option<String>,
     labels: HashMap<String, String>,
+    #[cfg(feature = "wasi-http")]
+    http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
 impl HostBuilder {
@@ -588,6 +647,13 @@ impl HostBuilder {
 
     pub fn with_engine(mut self, engine: Engine) -> Self {
         self.engine = Some(engine);
+        self
+    }
+
+    /// Overrides the default HTTP handler.
+    #[cfg(feature = "wasi-http")]
+    pub fn with_http_handler(mut self, handler: Arc<dyn crate::host::http::HostHandler>) -> Self {
+        self.http_handler = Some(handler);
         self
     }
 
@@ -678,6 +744,12 @@ impl HostBuilder {
                 .unwrap_or_else(|| format!("host-{}", uuid::Uuid::new_v4()))
         });
 
+        #[cfg(feature = "wasi-http")]
+        let http_handler = match self.http_handler {
+            Some(handler) => handler,
+            None => Arc::new(crate::host::http::NullServer::default()),
+        };
+
         Ok(Host {
             engine,
             workloads: Arc::default(),
@@ -689,6 +761,8 @@ impl HostBuilder {
             labels: self.labels,
             started_at: chrono::Utc::now(),
             system_monitor: Arc::new(RwLock::new(SystemMonitor::new())),
+            #[cfg(feature = "wasi-http")]
+            http_handler,
         })
     }
 }
