@@ -51,6 +51,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Start a workload
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "test".to_string(),
             name: "test-workload".to_string(),

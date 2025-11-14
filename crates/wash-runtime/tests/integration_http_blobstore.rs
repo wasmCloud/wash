@@ -61,6 +61,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
 
     // Create a workload request with the HTTP component
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "test".to_string(),
             name: "test-workload".to_string(),
@@ -244,6 +245,7 @@ async fn test_plugin_lifecycle() -> Result<()> {
 
 //     // Create a workload request with the HTTP component
 //     let req = WorkloadStartRequest {
+//         workload_id: uuid::Uuid::new_v4().to_string(),
 //         workload: Workload {
 //             namespace: "stress-test".to_string(),
 //             name: "large-payload-workload".to_string(),

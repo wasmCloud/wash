@@ -55,6 +55,7 @@ tokio = { workspace = true, features = ["full"] }
 tracing = { workspace = true, features = ["attributes"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "ansi", "time", "json"] }
 url = { workspace = true }
+uuid = { workspace = true }
 wasm-metadata = { workspace = true }
 wasm-pkg-client = { workspace = true }
 wasm-pkg-core = { workspace = true }

@@ -120,7 +120,10 @@ impl PluginManager {
 
             let res = ctx
                 .host()
-                .workload_start(WorkloadStartRequest { workload })
+                .workload_start(WorkloadStartRequest {
+                    workload_id: uuid::Uuid::new_v4().to_string(),
+                    workload,
+                })
                 .await?;
             if res.workload_status.workload_state != WorkloadState::Running {
                 error!(

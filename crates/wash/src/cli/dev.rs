@@ -687,6 +687,7 @@ async fn reload_component(
 
     let response = host
         .workload_start(WorkloadStartRequest {
+            workload_id: uuid::Uuid::new_v4().to_string(),
             workload: workload.to_owned(),
         })
         .await?;

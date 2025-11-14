@@ -73,6 +73,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
 
     // Create a workload request with the counter component
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "test".to_string(),
             name: "keyvalue-counter-workload".to_string(),
@@ -341,6 +342,7 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
 
     // Create workload
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "concurrent-test".to_string(),
             name: "concurrent-counter-workload".to_string(),
@@ -520,6 +522,7 @@ async fn test_keyvalue_error_handling() -> Result<()> {
         .context("Failed to start error test host")?;
 
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "error-test".to_string(),
             name: "keyvalue-error-workload".to_string(),

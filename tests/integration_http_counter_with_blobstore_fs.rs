@@ -91,6 +91,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     // 1. blobstore-filesystem component (provides wasi:blobstore)
     // 2. http-counter component (consumes wasi:blobstore)
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "test".to_string(),
             name: "http-counter-with-fs-blobstore".to_string(),

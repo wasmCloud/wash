@@ -74,6 +74,7 @@ async fn test_http_counter_integration() -> Result<()> {
 
     // Create a workload request with the HTTP counter component
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "test".to_string(),
             name: "http-counter-workload".to_string(),
@@ -411,6 +412,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
 
     // Create workload with restricted configuration (no outbound hosts allowed)
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "error-test".to_string(),
             name: "http-counter-error-workload".to_string(),
