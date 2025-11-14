@@ -43,6 +43,8 @@ dialoguer = { workspace = true, features = ["editor", "password", "zeroize", "fu
 etcetera = { workspace = true }
 figment = { workspace = true, features = ["json", "env"] }
 flate2 = { workspace = true, features = ["rust_backend"] }
+hyper = { workspace = true, features = ["server", "http1"] }
+wasmtime-wasi-http = { workspace = true }
 indicatif = { workspace = true }
 notify = { workspace = true, features = ["macos_fsevent"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
