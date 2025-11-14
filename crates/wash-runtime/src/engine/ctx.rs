@@ -32,20 +32,15 @@ pub struct Ctx {
     /// These all implement the [`HostPlugin`] trait, but they are cast as `Arc<dyn Any + Send + Sync>`
     /// to support downcasting to the specific plugin type in [`Ctx::get_plugin`]
     plugins: HashMap<&'static str, Arc<dyn Any + Send + Sync>>,
+    /// The HTTP handler for outgoing HTTP requests.
+    #[cfg(feature = "wasi-http")]
+    http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
 impl Ctx {
     /// Get a plugin by its string ID and downcast to the expected type
     pub fn get_plugin<T: HostPlugin + 'static>(&self, plugin_id: &str) -> Option<Arc<T>> {
         self.plugins.get(plugin_id)?.clone().downcast().ok()
-    }
-
-    /// Create a new [`CtxBuilder`] to construct a [`Ctx`]
-    pub fn builder(
-        workload_id: impl Into<Arc<str>>,
-        component_id: impl Into<Arc<str>>,
-    ) -> CtxBuilder {
-        CtxBuilder::new(workload_id, component_id)
     }
 }
 
@@ -84,6 +79,19 @@ impl WasiHttpView for Ctx {
     fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
     }
+
+    fn send_request(
+        &mut self,
+        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        config: wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
+        match &self.http_handler {
+            Some(handler) => handler.outgoing_request(&self.workload_id, request, config),
+            None => Err(wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!(
+                "http client not available"
+            ))),
+        }
+    }
 }
 
 /// Helper struct to build a [`Ctx`] with a builder pattern
@@ -93,6 +101,8 @@ pub struct CtxBuilder {
     component_id: Arc<str>,
     ctx: Option<WasiCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
+    #[cfg(feature = "wasi-http")]
+    http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
 impl CtxBuilder {
@@ -102,6 +112,7 @@ impl CtxBuilder {
             component_id: component_id.into(),
             workload_id: workload_id.into(),
             ctx: None,
+            http_handler: None,
             plugins: HashMap::new(),
         }
     }
@@ -139,6 +150,8 @@ impl CtxBuilder {
             http: WasiHttpCtx::new(),
             table: ResourceTable::new(),
             plugins,
+            #[cfg(feature = "wasi-http")]
+            http_handler: self.http_handler,
         }
     }
 }

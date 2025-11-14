@@ -18,7 +18,7 @@ use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, p2::bindings::CommandPr
 
 use crate::{
     engine::{
-        ctx::Ctx,
+        ctx::{Ctx, CtxBuilder},
         value::{lift, lower},
     },
     plugin::HostPlugin,
@@ -131,6 +131,10 @@ impl WorkloadMetadata {
                 }
             })
             .collect::<Vec<_>>())
+    }
+
+    pub fn uses_wasi_http(&self) -> bool {
+        crate::engine::uses_wasi_http(&self.component)
     }
 
     /// Computes and returns the [`WitWorld`] of this component.
@@ -376,7 +380,7 @@ pub struct ResolvedWorkload {
     namespace: Arc<str>,
     /// All components in the workload. This is behind a `RwLock` to support mutable
     /// access to the component linkers.
-    components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
+    pub(crate) components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
     /// An optional service component that runs once to completion or for the duration of the workload
     service: Option<WorkloadService>,
 }
@@ -865,7 +869,7 @@ impl ResolvedWorkload {
             wasi_ctx_builder.preopened_dir(&dir, &mount.mount_path, dir_perms, file_perms)?;
         }
 
-        let mut ctx_builder = Ctx::builder(metadata.workload_id(), metadata.id())
+        let mut ctx_builder = CtxBuilder::new(metadata.workload_id(), metadata.id())
             .with_wasi_ctx(wasi_ctx_builder.build());
 
         if let Some(plugins) = &metadata.plugins {
@@ -1210,18 +1214,18 @@ impl UnresolvedWorkload {
         }
 
         // Check if all required interfaces were matched
-        for (component_id, unmatched) in unmatched_interfaces.iter() {
-            if !unmatched.is_empty() {
-                tracing::error!(
-                    component_id = component_id.as_ref(),
-                    interfaces = ?unmatched,
-                    "no plugins found for requested interfaces"
-                );
-                bail!(
-                    "workload component {component_id} requested interfaces that are not available on this host: {unmatched:?}",
-                )
-            }
-        }
+        // for (component_id, unmatched) in unmatched_interfaces.iter() {
+        //     if !unmatched.is_empty() {
+        //         tracing::error!(
+        //             component_id = component_id.as_ref(),
+        //             interfaces = ?unmatched,
+        //             "no plugins found for requested interfaces"
+        //         );
+        //         bail!(
+        //             "workload component {component_id} requested interfaces that are not available on this host: {unmatched:?}",
+        //         )
+        //     }
+        // }
 
         Ok(bound_plugins)
     }
@@ -1323,6 +1327,14 @@ impl UnresolvedWorkload {
     /// Gets the namespace of the workload
     pub fn namespace(&self) -> &str {
         &self.namespace
+    }
+
+    /// Retrieves the interface configuration for a given WIT interface, if it exists.
+    pub fn interface_config(&self, interface: &WitInterface) -> Option<&HashMap<String, String>> {
+        self.host_interfaces
+            .iter()
+            .find(|i| i.contains(interface))
+            .map(|i| &i.config)
     }
 }
 
