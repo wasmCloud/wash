@@ -41,6 +41,7 @@ async fn test_cron_service_integration() -> Result<()> {
 
     // Create a workload request with a service and component
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "test".to_string(),
             name: "cron-service-workload".to_string(),

@@ -160,6 +160,7 @@ pub struct WorkloadStatus {
 /// Request to start a new workload on the host.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkloadStartRequest {
+    pub workload_id: String,
     pub workload: Workload,
 }
 

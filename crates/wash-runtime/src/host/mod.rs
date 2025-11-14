@@ -271,11 +271,6 @@ impl Host {
         &self.friendly_name
     }
 
-    /// Helper function to generate a unique ID for a workload
-    fn generate_workload_id(&self) -> String {
-        uuid::Uuid::new_v4().to_string()
-    }
-
     /// Returns the WIT (imports, exports) that this host can provide to any component.
     ///
     /// Put another way, this represents a simplified version of the host world. For
@@ -425,27 +420,25 @@ impl HostApi for Host {
         &self,
         request: WorkloadStartRequest,
     ) -> anyhow::Result<WorkloadStartResponse> {
-        let workload_id = self.generate_workload_id();
-
         // Store the workload with initial state
         self.workloads
             .write()
             .await
-            .insert(workload_id.clone(), HostWorkload::Starting);
+            .insert(request.workload_id.clone(), HostWorkload::Starting);
 
         let service_present = request.workload.service.is_some();
 
         // Initialize the workload using the engine, receiving the unresolved workload
         let unresolved_workload = self
             .engine
-            .initialize_workload(&workload_id, request.workload)?;
+            .initialize_workload(&request.workload_id, request.workload)?;
 
         let mut resolved_workload = unresolved_workload.resolve(Some(&self.plugins)).await?;
 
         // If the service didn't run and we had one, warn
         if resolved_workload.execute_service().await? != service_present {
             warn!(
-                workload_id = workload_id,
+                workload_id = request.workload_id,
                 "service did not properly execute"
             );
         }
@@ -454,14 +447,14 @@ impl HostApi for Host {
         self.workloads
             .write()
             .await
-            .entry(workload_id.clone())
+            .entry(request.workload_id.clone())
             .and_modify(|workload| {
                 *workload = HostWorkload::Running(Box::new(resolved_workload));
             });
 
         Ok(WorkloadStartResponse {
             workload_status: WorkloadStatus {
-                workload_id,
+                workload_id: request.workload_id,
                 workload_state: WorkloadState::Running,
                 message: "Workload started successfully".to_string(),
             },

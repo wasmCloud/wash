@@ -61,6 +61,7 @@ async fn test_blobby_integration() -> Result<()> {
 
     // Create a workload request with the blobby component
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "test".to_string(),
             name: "blobby-workload".to_string(),
@@ -260,6 +261,7 @@ async fn test_blobby_error_handling() -> Result<()> {
 
     // Create workload
     let req = WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: Workload {
             namespace: "error-test".to_string(),
             name: "blobby-error-workload".to_string(),

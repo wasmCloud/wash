@@ -328,6 +328,7 @@ async fn workload_start(
     let volumes = volumes.into_iter().map(Into::into).collect();
 
     let request = crate::types::WorkloadStartRequest {
+        workload_id: uuid::Uuid::new_v4().to_string(),
         workload: crate::types::Workload {
             namespace,
             name,
