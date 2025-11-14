@@ -76,6 +76,108 @@ impl WasiHttpView for Ctx {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.http
     }
+
+    fn send_request(
+        &mut self,
+        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        config: wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
+        use http_body_util::BodyExt;
+        use wasmtime_wasi_http::types::{HostFutureIncomingResponse, IncomingResponse};
+
+        // Detect if this is a gRPC request by checking Content-Type header
+        let is_grpc = request
+            .headers()
+            .get(hyper::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v.starts_with("application/grpc"))
+            .unwrap_or(false);
+
+        // Route to appropriate client plugin
+        if is_grpc {
+            // Use gRPC client for gRPC requests
+            if let Some(plugin) =
+                self.get_plugin::<crate::plugin::wasi_grpc_client::GrpcClient>("grpc-client")
+            {
+                tracing::debug!(
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    use_tls = config.use_tls,
+                    "sending gRPC request with HTTP/2 client"
+                );
+
+                let clients = plugin.clients.clone();
+                let between_bytes_timeout = config.between_bytes_timeout;
+
+                Ok(HostFutureIncomingResponse::Pending(
+                    wasmtime_wasi::runtime::spawn(async move {
+                        match clients.request(request).await {
+                            Ok(resp) => Ok(Ok(IncomingResponse {
+                                resp: resp.map(|body| body.map_err(|e| {
+                                    tracing::warn!(?e, "gRPC body error");
+                                    wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError
+                                }).boxed()),
+                                worker: None,
+                                between_bytes_timeout,
+                            })),
+                            Err(e) => {
+                                tracing::warn!(?e, "gRPC request failed");
+                                Ok(Err(wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError))
+                            }
+                        }
+                    }),
+                ))
+            } else {
+                tracing::error!("gRPC client plugin not available - cannot send gRPC request");
+                Ok(HostFutureIncomingResponse::Ready(Ok(Err(
+                    wasmtime_wasi_http::bindings::http::types::ErrorCode::InternalError(Some(
+                        "gRPC client plugin not configured".to_string(),
+                    )),
+                ))))
+            }
+        } else {
+            // Use HTTP client for regular HTTP requests
+            if let Some(plugin) =
+                self.get_plugin::<crate::plugin::wasi_http_client::HttpClient>("http-client")
+            {
+                tracing::debug!(
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    use_tls = config.use_tls,
+                    "sending HTTP request with custom client"
+                );
+
+                let clients = plugin.clients.clone();
+                let between_bytes_timeout = config.between_bytes_timeout;
+
+                Ok(HostFutureIncomingResponse::Pending(
+                    wasmtime_wasi::runtime::spawn(async move {
+                        match clients.request(request).await {
+                            Ok(resp) => Ok(Ok(IncomingResponse {
+                                resp: resp.map(|body| body.map_err(|e| {
+                                    tracing::warn!(?e, "HTTP body error");
+                                    wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError
+                                }).boxed()),
+                                worker: None,
+                                between_bytes_timeout,
+                            })),
+                            Err(e) => {
+                                tracing::warn!(?e, "HTTP request failed");
+                                Ok(Err(wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError))
+                            }
+                        }
+                    }),
+                ))
+            } else {
+                tracing::error!("HTTP client plugin not available - cannot send HTTP request");
+                Ok(HostFutureIncomingResponse::Ready(Ok(Err(
+                    wasmtime_wasi_http::bindings::http::types::ErrorCode::InternalError(Some(
+                        "HTTP client plugin not configured".to_string(),
+                    )),
+                ))))
+            }
+        }
+    }
 }
 
 /// Helper struct to build a [`Ctx`] with a builder pattern

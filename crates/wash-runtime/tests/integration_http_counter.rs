@@ -20,7 +20,7 @@ use wash_runtime::{
     host::{HostApi, HostBuilder},
     plugin::{
         wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_http::HttpServer,
-        wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
+        wasi_http_client::HttpClient, wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
@@ -30,9 +30,9 @@ const HTTP_COUNTER_WASM: &[u8] = include_bytes!("fixtures/http_counter.wasm");
 
 #[tokio::test]
 async fn test_http_counter_integration() -> Result<()> {
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
-        .init();
+        .try_init();
 
     println!("Starting HTTP counter component integration test");
 
@@ -42,7 +42,10 @@ async fn test_http_counter_integration() -> Result<()> {
     // Create HTTP server plugin on a dynamically allocated port
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
+
+    // Create HTTP client plugin
+    let http_client_plugin = HttpClient::new();
 
     // Create blobstore plugin for storing HTTP responses
     let blobstore_plugin = WasiBlobstore::new(None);
@@ -59,7 +62,8 @@ async fn test_http_counter_integration() -> Result<()> {
     // Build host with all required plugins
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
+        .with_plugin(Arc::new(http_client_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
@@ -109,6 +113,13 @@ async fn test_http_counter_integration() -> Result<()> {
                         config.insert("host".to_string(), "foo".to_string());
                         config
                     },
+                },
+                WitInterface {
+                    namespace: "wasi".to_string(),
+                    package: "http".to_string(),
+                    interfaces: ["outgoing-handler".to_string()].into_iter().collect(),
+                    version: Some(semver::Version::parse("0.2.4").unwrap()),
+                    config: HashMap::new(),
                 },
                 WitInterface {
                     namespace: "wasi".to_string(),
@@ -193,7 +204,7 @@ async fn test_http_counter_integration() -> Result<()> {
     // Test 1: First request - should initialize counter and make outbound request
     println!("Test 1: Making first request to initialize counter");
     let first_response = timeout(
-        Duration::from_secs(10), // Longer timeout for outbound HTTP request
+        Duration::from_secs(15), // Longer timeout for outbound HTTP request
         client
             .get(format!("http://{addr}/"))
             .header("HOST", "foo")
@@ -390,7 +401,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_server_plugin = HttpServer::new(addr);
     let blobstore_plugin = WasiBlobstore::new(None);
     let keyvalue_plugin = WasiKeyvalue::new();
     let logging_plugin = WasiLogging {};
@@ -398,7 +409,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_plugin(Arc::new(http_plugin))?
+        .with_plugin(Arc::new(http_server_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(logging_plugin))?
@@ -588,6 +599,7 @@ async fn test_http_counter_plugin_isolation() -> Result<()> {
     let host1 = HostBuilder::new()
         .with_engine(engine1)
         .with_plugin(Arc::new(HttpServer::new(addr1)))?
+        .with_plugin(Arc::new(HttpClient::new()))?
         .with_plugin(Arc::new(WasiBlobstore::new(None)))?
         .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
@@ -597,6 +609,7 @@ async fn test_http_counter_plugin_isolation() -> Result<()> {
     let host2 = HostBuilder::new()
         .with_engine(engine2)
         .with_plugin(Arc::new(HttpServer::new(addr2)))?
+        .with_plugin(Arc::new(HttpClient::new()))?
         .with_plugin(Arc::new(WasiBlobstore::new(None)))?
         .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
