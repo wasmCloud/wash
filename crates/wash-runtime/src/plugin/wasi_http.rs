@@ -127,9 +127,7 @@ impl HostPlugin for HttpServer {
 
     fn world(&self) -> WitWorld {
         WitWorld {
-            imports: HashSet::from([WitInterface::from(
-                "wasi:http/incoming-handler,outgoing-handler",
-            )]),
+            imports: HashSet::from([WitInterface::from("wasi:http/incoming-handler")]),
             ..Default::default()
         }
     }

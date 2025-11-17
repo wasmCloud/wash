@@ -3,6 +3,7 @@
 pub mod engine;
 pub mod host;
 pub mod plugin;
+pub mod transport;
 pub mod types;
 pub mod wit;
 

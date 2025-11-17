@@ -29,6 +29,12 @@ use crate::{
 #[cfg(feature = "wasi-http")]
 pub mod wasi_http;
 
+#[cfg(feature = "wasi-http")]
+pub mod wasi_http_client;
+
+#[cfg(feature = "wasi-http")]
+pub mod wasi_grpc_client;
+
 #[cfg(feature = "wasi-config")]
 pub mod wasi_config;
 
