@@ -90,11 +90,13 @@ cargo install --path .
 | `wash completion` | Generate shell completion scripts for wash                      |
 | `wash dev`        | Start a development server for a Wasm component with hot-reload |
 | `wash doctor`     | Check the health of your wash installation and environment      |
+| `wash host`       | Act as a host.                                                  |
 | `wash inspect`    | Inspect a Wasm component's embedded WIT interfaces              |
 | `wash new`        | Create a new project from a template or git repository          |
 | `wash oci`        | Push or pull Wasm components to/from an OCI registry            |
 | `wash plugin`     | Manage wash plugins                                             |
 | `wash update`     | Update wash to the latest version                               |
+| `wash wit`        | Manage WIT dependencies                                         |
 | `wash help`       | Print this message or the help of the given subcommand(s)       |
 
 Run `wash --help` or `wash <command> --help` for detailed usage information.
