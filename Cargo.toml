@@ -137,6 +137,7 @@ wasm-metadata = { version = "0.239.0", default-features = false, features = ["oc
 wasmcloud = { path = "crates/wasmcloud", default-features = false }
 wasmtime = { version = "38", default-features = false }
 wasmtime-wasi = { version = "38", default-features = false }
+wasmtime-wasi-io = { version = "38", default-features = false }
 wasmtime-wasi-http = { version = "38", default-features = false }
 which = { version = "6.0.3", default-features = false }
 wit-component = { version = "0.235.0", default-features = false }

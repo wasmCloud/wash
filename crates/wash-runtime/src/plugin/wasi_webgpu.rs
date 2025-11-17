@@ -47,6 +47,7 @@ impl wasi_webgpu_wasmtime::MainThreadSpawner for UiThreadSpawner {
         f()
     }
 }
+
 impl wasi_webgpu_wasmtime::WasiWebGpuView for Ctx {
     fn instance(&self) -> Arc<wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global> {
         let plugin = self.get_plugin::<WasiWebGpu>(WASI_WEBGPU_ID).unwrap();
