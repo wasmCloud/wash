@@ -69,6 +69,12 @@ impl WasiView for Ctx {
     }
 }
 
+impl wasmtime_wasi_io::IoView for Ctx {
+    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
+        &mut self.table
+    }
+}
+
 // Implement WasiHttpView for wasi:http@0.2
 impl WasiHttpView for Ctx {
     fn ctx(&mut self) -> &mut WasiHttpCtx {

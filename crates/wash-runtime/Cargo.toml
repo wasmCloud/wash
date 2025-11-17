@@ -40,6 +40,7 @@ tokio = { workspace = true, features = ["sync", "net", "macros"] }
 tracing = { workspace = true }
 wasmtime = { workspace = true, features = ["component-model", "cranelift", "pooling-allocator"] }
 wasmtime-wasi = { workspace = true }
+wasmtime-wasi-io = { workspace = true }
 wasmtime-wasi-http = { workspace = true, features = ["default-send-request"], optional = true }
 rustls = { workspace = true }
 rustls-pemfile = { workspace = true }
@@ -64,8 +65,8 @@ opentelemetry-semantic-conventions = { workspace = true, features = [
     "semconv_experimental",
 ] }
 opentelemetry_sdk = { workspace = true }
-wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "d450e7d44c003f09a8df70b68de66597c2e9453c", optional = true }
-wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "d450e7d44c003f09a8df70b68de66597c2e9453c", optional = true }
+wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "c9d0bf73f8db26acda2f658ad705878e2b4c3a95", optional = true }
+wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "c9d0bf73f8db26acda2f658ad705878e2b4c3a95", optional = true }
 
 # OCI dependencies (optional, behind 'oci' feature)
 docker_credential = { workspace = true, optional = true }
