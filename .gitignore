@@ -18,6 +18,9 @@ wash.exe
 # Ignore worktrees
 worktrees/
 
+# Trash
+.DS_Store
+
 # AI things
 .claude
 CLAUDE.md
