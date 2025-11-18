@@ -94,6 +94,12 @@ pub trait HostHandler: Send + Sync + 'static {
     ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse>;
 }
 
+impl std::fmt::Debug for dyn HostHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostHandler").finish()
+    }
+}
+
 #[derive(Default)]
 pub struct NullServer {}
 
