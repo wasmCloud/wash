@@ -33,7 +33,6 @@ pub struct Ctx {
     /// to support downcasting to the specific plugin type in [`Ctx::get_plugin`]
     plugins: HashMap<&'static str, Arc<dyn Any + Send + Sync>>,
     /// The HTTP handler for outgoing HTTP requests.
-    #[cfg(feature = "wasi-http")]
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
@@ -41,6 +40,14 @@ impl Ctx {
     /// Get a plugin by its string ID and downcast to the expected type
     pub fn get_plugin<T: HostPlugin + 'static>(&self, plugin_id: &str) -> Option<Arc<T>> {
         self.plugins.get(plugin_id)?.clone().downcast().ok()
+    }
+
+    /// Create a new [`CtxBuilder`] to construct a [`Ctx`]               
+    pub fn builder(
+        workload_id: impl Into<Arc<str>>,
+        component_id: impl Into<Arc<str>>,
+    ) -> CtxBuilder {
+        CtxBuilder::new(workload_id, component_id)
     }
 }
 
@@ -101,7 +108,6 @@ pub struct CtxBuilder {
     component_id: Arc<str>,
     ctx: Option<WasiCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
-    #[cfg(feature = "wasi-http")]
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
@@ -119,6 +125,14 @@ impl CtxBuilder {
 
     pub fn with_wasi_ctx(mut self, ctx: WasiCtx) -> Self {
         self.ctx = Some(ctx);
+        self
+    }
+
+    pub fn with_http_handler(
+        mut self,
+        http_handler: Arc<dyn crate::host::http::HostHandler>,
+    ) -> Self {
+        self.http_handler = Some(http_handler);
         self
     }
 
@@ -150,7 +164,6 @@ impl CtxBuilder {
             http: WasiHttpCtx::new(),
             table: ResourceTable::new(),
             plugins,
-            #[cfg(feature = "wasi-http")]
             http_handler: self.http_handler,
         }
     }

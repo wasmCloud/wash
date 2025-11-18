@@ -18,7 +18,7 @@ use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, p2::bindings::CommandPr
 
 use crate::{
     engine::{
-        ctx::{Ctx, CtxBuilder},
+        ctx::Ctx,
         value::{lift, lower},
     },
     plugin::HostPlugin,
@@ -135,6 +135,14 @@ impl WorkloadMetadata {
 
     pub fn uses_wasi_http(&self) -> bool {
         crate::engine::uses_wasi_http(&self.component)
+    }
+
+    pub fn imports_wasi_http(&self) -> bool {
+        crate::engine::imports_wasi_http(&self.component)
+    }
+
+    pub fn exports_wasi_http(&self) -> bool {
+        crate::engine::exports_wasi_http(&self.component)
     }
 
     /// Computes and returns the [`WitWorld`] of this component.
@@ -381,6 +389,8 @@ pub struct ResolvedWorkload {
     /// All components in the workload. This is behind a `RwLock` to support mutable
     /// access to the component linkers.
     pub(crate) components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
+    /// The HTTP handler for outgoing HTTP requests
+    http_handler: Arc<dyn crate::host::http::HostHandler>,
     /// An optional service component that runs once to completion or for the duration of the workload
     service: Option<WorkloadService>,
 }
@@ -869,7 +879,8 @@ impl ResolvedWorkload {
             wasi_ctx_builder.preopened_dir(&dir, &mount.mount_path, dir_perms, file_perms)?;
         }
 
-        let mut ctx_builder = CtxBuilder::new(metadata.workload_id(), metadata.id())
+        let mut ctx_builder = Ctx::builder(metadata.workload_id(), metadata.id())
+            .with_http_handler(self.http_handler.clone())
             .with_wasi_ctx(wasi_ctx_builder.build());
 
         if let Some(plugins) = &metadata.plugins {
@@ -1256,6 +1267,7 @@ impl UnresolvedWorkload {
     pub async fn resolve(
         mut self,
         plugins: Option<&HashMap<&'static str, Arc<dyn HostPlugin + 'static>>>,
+        http_handler: Arc<dyn crate::host::http::HostHandler>,
     ) -> anyhow::Result<ResolvedWorkload> {
         // Bind to plugins
         let bound_plugins = if let Some(plugins) = plugins {
@@ -1272,6 +1284,7 @@ impl UnresolvedWorkload {
             namespace: self.namespace.clone(),
             components: Arc::new(RwLock::new(self.components)),
             service: self.service,
+            http_handler,
         };
 
         // Link components before plugin resolution

@@ -30,7 +30,6 @@ mod test {
     use super::{engine::Engine, host::HostBuilder};
 
     #[tokio::test]
-    #[cfg(feature = "wasi-http")]
     async fn can_run_engine() -> anyhow::Result<()> {
         let engine = Engine::builder().build()?;
         let http_plugin = HttpServer::new("127.0.0.1:8080".parse()?);
