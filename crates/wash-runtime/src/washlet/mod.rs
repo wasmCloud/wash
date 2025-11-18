@@ -101,6 +101,12 @@ pub struct ClusterHost {
     heartbeat_interval: Duration,
 }
 
+impl ClusterHost {
+    pub fn host(&self) -> &Host {
+        &self.prepared_host
+    }
+}
+
 pub async fn run_cluster_host(
     cluster_host: ClusterHost,
 ) -> anyhow::Result<impl Future<Output = anyhow::Result<()>>, anyhow::Error> {
