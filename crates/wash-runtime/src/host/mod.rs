@@ -588,8 +588,8 @@ impl std::fmt::Debug for Host {
 }
 
 /// Builder for the [`Host`]
-#[derive(Default)]
 pub struct HostBuilder {
+    id: String,
     engine: Option<Engine>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin>>,
     hostname: Option<String>,
@@ -598,9 +598,26 @@ pub struct HostBuilder {
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
+impl Default for HostBuilder {
+    fn default() -> Self {
+        Self {
+            id: uuid::Uuid::new_v4().to_string(),
+            engine: Default::default(),
+            plugins: Default::default(),
+            hostname: Default::default(),
+            friendly_name: Default::default(),
+            labels: Default::default(),
+        }
+    }
+}
+
 impl HostBuilder {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
     pub fn with_engine(mut self, engine: Engine) -> Self {
@@ -712,7 +729,7 @@ impl HostBuilder {
             engine,
             workloads: Arc::default(),
             plugins: self.plugins,
-            id: uuid::Uuid::new_v4().to_string(),
+            id: self.id,
             hostname,
             friendly_name,
             version: env!("CARGO_PKG_VERSION").to_string(),
