@@ -53,7 +53,7 @@ use crate::engine::Engine;
 use crate::engine::workload::ResolvedWorkload;
 use crate::plugin::HostPlugin;
 use crate::types::*;
-use crate::wit::{WitInterface, WitWorld};
+use crate::wit::WitWorld;
 
 mod sysinfo;
 use sysinfo::SystemMonitor;
@@ -441,15 +441,6 @@ impl HostApi for Host {
 
         let service_present = request.workload.service.is_some();
 
-        let http_present = {
-            let http_iface = WitInterface::from("wasi:http/incoming-handler");
-            request
-                .workload
-                .host_interfaces
-                .iter()
-                .any(|hi| hi.contains(&http_iface))
-        };
-
         // Initialize the workload using the engine, receiving the unresolved workload
         let unresolved_workload = self
             .engine
@@ -458,18 +449,6 @@ impl HostApi for Host {
         let mut resolved_workload = unresolved_workload
             .resolve(Some(&self.plugins), self.http_handler.clone())
             .await?;
-
-        if http_present {
-            for component in resolved_workload.components.read().await.values() {
-                if component.exports_wasi_http() {
-                    self.http_handler
-                        .on_workload_resolved(&resolved_workload, component.id())
-                        .await
-                        .context("failed to notify HTTP handler of workload")?;
-                    break;
-                }
-            }
-        }
 
         // If the service didn't run and we had one, warn
         if resolved_workload.execute_service().await? != service_present {

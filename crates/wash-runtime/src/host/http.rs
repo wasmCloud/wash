@@ -147,7 +147,7 @@ pub type WorkloadHandles =
 /// HTTP requests to appropriate WebAssembly components based on virtual hosting.
 /// It supports both HTTP and HTTPS connections with optional mutual TLS.
 pub struct HttpServer<T: Router> {
-    handler: Arc<T>,
+    router: Arc<T>,
     addr: SocketAddr,
     workload_handles: WorkloadHandles,
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
@@ -166,13 +166,14 @@ impl<T: Router> HttpServer<T> {
     /// Creates a new HTTP server listening on the specified address.
     ///
     /// # Arguments
+    /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
     ///
     /// # Returns
     /// A new `HttpServer` instance configured for HTTP connections.
-    pub fn new(handler: T, addr: SocketAddr) -> Self {
+    pub fn new(router: T, addr: SocketAddr) -> Self {
         Self {
-            handler: Arc::new(handler),
+            router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
@@ -183,6 +184,7 @@ impl<T: Router> HttpServer<T> {
     /// Creates a new HTTPS server with TLS support.
     ///
     /// # Arguments
+    /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
     /// * `cert_path` - Path to the TLS certificate file
     /// * `key_path` - Path to the private key file
@@ -194,7 +196,7 @@ impl<T: Router> HttpServer<T> {
     /// # Errors
     /// Returns an error if the TLS configuration cannot be loaded.
     pub async fn new_with_tls(
-        handler: T,
+        router: T,
         addr: SocketAddr,
         cert_path: &Path,
         key_path: &Path,
@@ -204,7 +206,7 @@ impl<T: Router> HttpServer<T> {
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
         Ok(Self {
-            handler: Arc::new(handler),
+            router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
@@ -229,7 +231,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
         debug!(addr = ?addr, "HTTP server listening");
         // Start the HTTP server, any incoming requests call Host::handle and then it's routed
         // to the workload based on host header.
-        let handler = self.handler.clone();
+        let handler = self.router.clone();
         tokio::spawn(async move {
             if let Err(e) = run_http_server(
                 listener,
@@ -267,10 +269,15 @@ impl<T: Router> HostHandler for HttpServer<T> {
         resolved_handle: &ResolvedWorkload,
         component_id: &str,
     ) -> anyhow::Result<()> {
-        self.handler
+        self.router
             .on_workload_resolved(resolved_handle, component_id)
             .await?;
-        let instance_pre = resolved_handle.instantiate_pre(component_id).await?;
+        let instance_pre = match resolved_handle.instantiate_pre(component_id).await {
+            Ok(pre) => pre,
+            Err(e) => {
+                anyhow::bail!("failed to get instance pre for component {}", component_id);
+            }
+        };
 
         self.workload_handles.write().await.insert(
             resolved_handle.id().to_string(),
@@ -285,14 +292,14 @@ impl<T: Router> HostHandler for HttpServer<T> {
     }
 
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
-        debug!(workload_id, "removing HTTP workload handle");
+        info!(workload_id, "removing HTTP workload handle");
 
         // Remove from workload handles
         let mut handles_guard = self.workload_handles.write().await;
         handles_guard.remove(workload_id);
         drop(handles_guard);
 
-        self.handler.on_workload_unbind(workload_id).await?;
+        self.router.on_workload_unbind(workload_id).await?;
 
         Ok(())
     }
@@ -303,7 +310,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
         request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
         config: wasmtime_wasi_http::types::OutgoingRequestConfig,
     ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
-        self.handler
+        self.router
             .allow_outgoing_request(workload_id, &request, &config)
             .map_err(|e| {
                 wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!("request not allowed: {}", e))
@@ -415,7 +422,7 @@ async fn handle_http_request<T: Router>(
     // Look up workload handle for this host, with wildcard fallback
     let workload_handle = {
         let handles = workload_handles.read().await;
-        debug!(host = %workload_id, "looking up workload handle for host header");
+        info!(host = %workload_id, "looking up workload handle for host header");
 
         // First try exact host match
         if let Some(handle) = handles.get(&workload_id) {
