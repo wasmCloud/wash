@@ -22,7 +22,7 @@ use tracing::{debug, error, info, trace, warn};
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
+    plugin::{wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging, wasi_keyvalue::WasiKeyvalue},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -247,6 +247,11 @@ impl CliCommand for DevCommand {
             host_builder = host_builder.with_plugin(Arc::new(WasiWebGpu::default()))?;
             debug!("WASI WebGPU plugin registered");
         }
+
+        // Add in-memory wasi:keyvalue plugin so components importing wasi:keyvalue
+        // have a host implementation available during `wash dev`.
+        host_builder = host_builder.with_plugin(Arc::new(WasiKeyvalue::new()))?;
+        debug!("WasiKeyvalue plugin registered");
 
         // Build and start the host
         let host = host_builder.build()?.start().await?;
