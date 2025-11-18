@@ -57,6 +57,7 @@ impl wash_runtime::host::http::Router for HTTPDevRouter {
         let mut lock = self.last_workload_id.lock().await;
         tracing::info!(workload_id = %resolved_handle.id(), "routing HTTP requests to new workload");
         lock.replace(resolved_handle.id().to_string());
+        tracing::info!(workload_id = %resolved_handle.id(), "HTTP requests will be routed to this workload");
         Ok(())
     }
 

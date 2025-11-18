@@ -1277,6 +1277,23 @@ impl UnresolvedWorkload {
             Vec::new()
         };
 
+        let incoming_http_component = {
+            let http_iface = WitInterface::from("wasi:http/incoming-handler");
+            match self
+                .host_interfaces
+                .iter()
+                .any(|hi| hi.contains(&http_iface))
+            {
+                // http was not part of the requested interfaces
+                false => None,
+                true => self
+                    .components
+                    .values()
+                    .find(|component| component.exports_wasi_http())
+                    .map(|c| c.id().to_string()),
+            }
+        };
+
         // Resolve the workload
         let mut resolved_workload = ResolvedWorkload {
             id: self.id.clone(),
@@ -1284,7 +1301,7 @@ impl UnresolvedWorkload {
             namespace: self.namespace.clone(),
             components: Arc::new(RwLock::new(self.components)),
             service: self.service,
-            http_handler,
+            http_handler: http_handler.clone(),
         };
 
         // Link components before plugin resolution
@@ -1322,6 +1339,20 @@ impl UnresolvedWorkload {
                     bail!(e);
                 }
             }
+        }
+
+        if let Some(component_id) = incoming_http_component
+            && let Err(e) = http_handler
+                .on_workload_resolved(&resolved_workload, &component_id)
+                .await
+        {
+            warn!(
+                component_id = component_id,
+                error = ?e,
+                "failed to notify HTTP handler of resolved workload, unbinding all plugins"
+            );
+            let _ = resolved_workload.unbind_all_plugins().await;
+            bail!(e);
         }
 
         Ok(resolved_workload)

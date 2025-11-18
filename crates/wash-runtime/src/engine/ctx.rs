@@ -42,7 +42,7 @@ impl Ctx {
         self.plugins.get(plugin_id)?.clone().downcast().ok()
     }
 
-    /// Create a new [`CtxBuilder`] to construct a [`Ctx`]               
+    /// Create a new [`CtxBuilder`] to construct a [`Ctx`]
     pub fn builder(
         workload_id: impl Into<Arc<str>>,
         component_id: impl Into<Arc<str>>,
