@@ -6315,6 +6315,7 @@ dependencies = [
  "pbjson-types 0.8.0",
  "prost 0.14.1",
  "reqwest",
+ "rustls 0.23.31",
  "rustls-pemfile",
  "semver",
  "serde",

@@ -26,9 +26,6 @@ use crate::{
     wit::WitWorld,
 };
 
-#[cfg(feature = "wasi-http")]
-pub mod wasi_http;
-
 #[cfg(feature = "wasi-config")]
 pub mod wasi_config;
 

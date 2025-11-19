@@ -535,18 +535,6 @@ impl HostApi for Host {
                 // Stop the service if running
                 resolved_workload.stop_service();
 
-                {
-                    for component in resolved_workload.components.read().await.values() {
-                        if component.exports_wasi_http() {
-                            self.http_handler
-                                .on_workload_unbind(resolved_workload.id())
-                                .await
-                                .context("failed to notify HTTP handler of workload")?;
-                            break;
-                        }
-                    }
-                }
-
                 // Unbind all plugins from the workload
                 if let Err(e) = resolved_workload.unbind_all_plugins().await {
                     warn!(

@@ -21,7 +21,6 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(not(target_os = "windows"))]
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
-    engine::workload::ResolvedWorkload,
     host::{Host, HostApi},
     plugin::{wasi_config::WasiConfig, wasi_logging::WasiLogging},
     types::{
@@ -41,62 +40,6 @@ use crate::{
     config::{Config, load_config},
     plugin::bindings::wasmcloud::wash::types::HookType,
 };
-
-#[derive(Default)]
-struct HTTPDevRouter {
-    last_workload_id: tokio::sync::Mutex<Option<String>>,
-}
-
-#[async_trait::async_trait]
-impl wash_runtime::host::http::Router for HTTPDevRouter {
-    async fn on_workload_resolved(
-        &self,
-        resolved_handle: &ResolvedWorkload,
-        _component_id: &str,
-    ) -> anyhow::Result<()> {
-        let mut lock = self.last_workload_id.lock().await;
-        tracing::info!(workload_id = %resolved_handle.id(), "routing HTTP requests to new workload");
-        lock.replace(resolved_handle.id().to_string());
-        tracing::info!(workload_id = %resolved_handle.id(), "HTTP requests will be routed to this workload");
-        Ok(())
-    }
-
-    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
-        let mut lock = self.last_workload_id.lock().await;
-        if let Some(current_id) = &*lock
-            && current_id == workload_id
-        {
-            let _ = lock.take();
-        }
-        Ok(())
-    }
-
-    fn allow_outgoing_request(
-        &self,
-        _workload_id: &str,
-        _request: &hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
-        _config: &wasmtime_wasi_http::types::OutgoingRequestConfig,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    /// Pick a workload ID based on the incoming request
-    fn route_incoming_request(
-        &self,
-        _req: &hyper::Request<hyper::body::Incoming>,
-    ) -> anyhow::Result<String> {
-        tokio::task::block_in_place(move || {
-            let lock = self.last_workload_id.blocking_lock();
-            match &*lock {
-                Some(id) => {
-                    tracing::info!(workload_id = %id, "incoming request");
-                    Ok(id.clone())
-                }
-                None => bail!("no workload available to route request"),
-            }
-        })
-    }
-}
 
 #[derive(Debug, Clone, Args)]
 pub struct DevCommand {
@@ -253,7 +196,7 @@ impl CliCommand for DevCommand {
         }
         debug!(path = ?volume_root.display(), "using blobstore root directory");
 
-        let http_handler = HTTPDevRouter::default();
+        let http_handler = wash_runtime::host::http::DevRouter::default();
         // TODO(#19): Only spawn the server if the component exports wasi:http
         // Configure HTTP server with optional TLS, enable HTTP Server
         let protocol = if let (Some(cert_path), Some(key_path)) = (&self.tls_cert, &self.tls_key) {
@@ -624,14 +567,6 @@ fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSe
             return true;
         }
 
-        if matches!(
-            interface.package.as_str(),
-            // HTTP WASI provided by wash-runtime
-            "http"
-        ) {
-            return true;
-        }
-
         // Type-only interfaces that don't need plugin binding
         // These are just type definitions used by other interfaces
         if interface.interfaces.iter().any(|i| i == "types") {
@@ -971,7 +906,7 @@ mod tests {
     fn test_extract_component_interfaces_with_version() {
         let wat = r#"
             (component
-                (import "wasi:http/incoming-handler@0.2.2" (instance))
+                (import "wasi:fake/interface@0.2.2" (instance))
             )
         "#;
         let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
@@ -984,8 +919,8 @@ mod tests {
 
         // Version parsing might not work perfectly, but interface should be extracted
         assert_eq!(interface.namespace, "wasi");
-        assert_eq!(interface.package, "http");
-        assert!(interface.interfaces.contains("incoming-handler"));
+        assert_eq!(interface.package, "fake");
+        assert!(interface.interfaces.contains("interface"));
     }
 
     #[test]

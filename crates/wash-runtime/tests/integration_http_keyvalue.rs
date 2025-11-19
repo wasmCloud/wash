@@ -16,10 +16,13 @@ use common::find_available_port;
 
 use wash_runtime::{
     engine::Engine,
-    host::{HostApi, HostBuilder},
+    host::{
+        HostApi, HostBuilder,
+        http::{DevRouter, HttpServer},
+    },
     plugin::{
-        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_http::HttpServer,
-        wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging,
+        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
+        wasi_logging::WasiLogging,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
@@ -41,7 +44,8 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Create HTTP server plugin on a dynamically allocated port
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_handler = DevRouter::default();
+    let http_plugin = HttpServer::new(http_handler, addr);
 
     // Create keyvalue plugin
     let keyvalue_plugin = WasiKeyvalue::new();
@@ -58,7 +62,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     // Build host with plugins
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(http_plugin))?
+        .with_http_handler(Arc::new(http_plugin))
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(config_plugin))?
@@ -320,7 +324,7 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), addr);
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
     let config_plugin = WasiConfig::default();
@@ -328,7 +332,7 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_plugin(Arc::new(http_plugin))?
+        .with_http_handler(Arc::new(http_plugin))
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(config_plugin))?
@@ -501,7 +505,7 @@ async fn test_keyvalue_error_handling() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), addr);
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
     let config_plugin = WasiConfig::default();
@@ -509,7 +513,7 @@ async fn test_keyvalue_error_handling() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_plugin(Arc::new(http_plugin))?
+        .with_http_handler(Arc::new(http_plugin))
         .with_plugin(Arc::new(keyvalue_plugin))?
         .with_plugin(Arc::new(blobstore_plugin))?
         .with_plugin(Arc::new(config_plugin))?

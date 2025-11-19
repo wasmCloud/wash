@@ -12,10 +12,9 @@ categories = ["wasm"]
 path = "src/lib.rs"
 
 [features]
-default = ["wasi-http", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
+default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
 washlet = ["oci"]
-wasi-http = []
 wasi-config = []
 wasi-logging = []
 wasi-blobstore = []
@@ -42,6 +41,7 @@ wasmtime = { workspace = true, features = ["component-model", "cranelift", "pool
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-io = { workspace = true }
 wasmtime-wasi-http = { workspace = true, features = ["default-send-request"] }
+rustls = { workspace = true, features = ["std", "tls12"] }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

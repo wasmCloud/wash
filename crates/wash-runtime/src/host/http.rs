@@ -22,6 +22,7 @@ use std::{collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
 
 use crate::engine::ctx::Ctx;
 use crate::engine::workload::ResolvedWorkload;
+use crate::wit::WitInterface;
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
 use tokio::net::TcpListener;
@@ -69,6 +70,130 @@ pub trait Router: Send + Sync + 'static {
         &self,
         req: &hyper::Request<hyper::body::Incoming>,
     ) -> anyhow::Result<String>;
+}
+
+/// Router that routes requests by 'Host' header, configured via WitInterface config
+#[derive(Default)]
+pub struct DynamicRouter {
+    host_to_workload: tokio::sync::Mutex<HashMap<String, String>>,
+}
+
+/// Implementation of Router that maps Host headers to workload IDs
+/// based on the 'host' config in the wasi:http/incoming-handler interface
+#[async_trait::async_trait]
+impl Router for DynamicRouter {
+    async fn on_workload_resolved(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+        _component_id: &str,
+    ) -> anyhow::Result<()> {
+        let incoming_handler_interface = WitInterface::from("wasi:http/incoming-handler");
+        let Some(http_iface) = resolved_handle
+            .host_interfaces()
+            .iter()
+            .find(|iface| iface.contains(&incoming_handler_interface))
+        else {
+            anyhow::bail!("workload did not request wasi:http/incoming-handler interface");
+        };
+
+        let host_header = http_iface
+            .config
+            .get("host")
+            .cloned()
+            .context("No host header found")?;
+
+        let mut lock = self.host_to_workload.lock().await;
+        lock.insert(host_header, resolved_handle.id().to_string());
+
+        Ok(())
+    }
+
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
+        let mut lock = self.host_to_workload.lock().await;
+        lock.remove(workload_id);
+        Ok(())
+    }
+
+    fn allow_outgoing_request(
+        &self,
+        _workload_id: &str,
+        _request: &hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        _config: &wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Pick a workload ID based on the incoming request
+    fn route_incoming_request(
+        &self,
+        req: &hyper::Request<hyper::body::Incoming>,
+    ) -> anyhow::Result<String> {
+        tokio::task::block_in_place(move || {
+            let lock = self.host_to_workload.blocking_lock();
+            let workload_host = req
+                .headers()
+                .get(hyper::header::HOST)
+                .and_then(|h| h.to_str().ok())
+                .context("no Host header in request")?;
+            let Some(workload_id) = lock.get(workload_host) else {
+                anyhow::bail!("no workload bound to host header: {}", workload_host);
+            };
+            Ok(workload_id.clone())
+        })
+    }
+}
+
+/// Development router that routes all requests to the last resolved workload
+#[derive(Default)]
+pub struct DevRouter {
+    last_workload_id: tokio::sync::Mutex<Option<String>>,
+}
+
+#[async_trait::async_trait]
+impl Router for DevRouter {
+    async fn on_workload_resolved(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+        _component_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut lock = self.last_workload_id.lock().await;
+        lock.replace(resolved_handle.id().to_string());
+        Ok(())
+    }
+
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
+        let mut lock = self.last_workload_id.lock().await;
+        if let Some(current_id) = &*lock
+            && current_id == workload_id
+        {
+            let _ = lock.take();
+        }
+        Ok(())
+    }
+
+    fn allow_outgoing_request(
+        &self,
+        _workload_id: &str,
+        _request: &hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        _config: &wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Pick a workload ID based on the incoming request
+    fn route_incoming_request(
+        &self,
+        _req: &hyper::Request<hyper::body::Incoming>,
+    ) -> anyhow::Result<String> {
+        let lock = self.last_workload_id.try_lock()?;
+        match &*lock {
+            Some(id) => {
+                tracing::info!(workload_id = %id, "incoming request");
+                Ok(id.clone())
+            }
+            None => anyhow::bail!("no workload available to route request"),
+        }
+    }
 }
 
 /// Trait defining the behavior of a Host HTTP Extension
@@ -272,12 +397,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
         self.router
             .on_workload_resolved(resolved_handle, component_id)
             .await?;
-        let instance_pre = match resolved_handle.instantiate_pre(component_id).await {
-            Ok(pre) => pre,
-            Err(e) => {
-                anyhow::bail!("failed to get instance pre for component {}", component_id);
-            }
-        };
+        let instance_pre = resolved_handle.instantiate_pre(component_id).await?;
 
         self.workload_handles.write().await.insert(
             resolved_handle.id().to_string(),
@@ -292,8 +412,6 @@ impl<T: Router> HostHandler for HttpServer<T> {
     }
 
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
-        info!(workload_id, "removing HTTP workload handle");
-
         // Remove from workload handles
         let mut handles_guard = self.workload_handles.write().await;
         handles_guard.remove(workload_id);
@@ -316,7 +434,8 @@ impl<T: Router> HostHandler for HttpServer<T> {
                 wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!("request not allowed: {}", e))
             })?;
 
-        // NOTE(lxf): Separate HTTP / GRPC handling
+        // NOTE(lxf): Bring wasi-http code if needed
+        // Separate HTTP / GRPC handling
         Ok(wasmtime_wasi_http::types::default_send_request(
             request, config,
         ))
@@ -422,16 +541,8 @@ async fn handle_http_request<T: Router>(
     // Look up workload handle for this host, with wildcard fallback
     let workload_handle = {
         let handles = workload_handles.read().await;
-        info!(host = %workload_id, "looking up workload handle for host header");
-
-        // First try exact host match
-        if let Some(handle) = handles.get(&workload_id) {
-            Some(handle.clone())
-        } else {
-            // Fall back to wildcard if no exact match
-            debug!("No exact match for host header, trying wildcard '*'");
-            handles.get("*").cloned()
-        }
+        debug!(host = %workload_id, "looking up workload handle for host header");
+        handles.get(&workload_id).cloned()
     };
 
     let response = match workload_handle {
