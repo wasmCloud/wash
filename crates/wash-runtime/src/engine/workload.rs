@@ -1062,13 +1062,22 @@ impl UnresolvedWorkload {
         // Collect all component's required (unmatched) host interfaces
         // This tracks which interfaces each component still needs to be bound
         let mut unmatched_interfaces: HashMap<Arc<str>, HashSet<WitInterface>> = HashMap::new();
-        trace!(host_interfaces = ?self.host_interfaces, "determining missing guest interfaces");
+        let host_interfaces = {
+            // filter out Plugins fulfilled by host
+            let http_iface = WitInterface::from("wasi:http/incoming-handler,outgoing-handler");
+            self.host_interfaces
+                .iter()
+                .filter(|wit_interface| !http_iface.contains(wit_interface))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        trace!(host_interfaces = ?host_interfaces, "determining missing guest interfaces");
 
         if let Some(service) = self.service.as_ref() {
             let world = service.world();
             trace!(?world, "comparing service world to host interfaces");
-            let required_interfaces: HashSet<WitInterface> = self
-                .host_interfaces
+            let required_interfaces: HashSet<WitInterface> = host_interfaces
                 .iter()
                 .filter(|wit_interface| world.includes_bidirectional(wit_interface))
                 .cloned()
@@ -1082,8 +1091,7 @@ impl UnresolvedWorkload {
         for (id, workload_component) in &self.components {
             let world = workload_component.world();
             trace!(?world, "comparing component world to host interfaces");
-            let required_interfaces: HashSet<WitInterface> = self
-                .host_interfaces
+            let required_interfaces: HashSet<WitInterface> = host_interfaces
                 .iter()
                 .filter(|wit_interface| world.includes_bidirectional(wit_interface))
                 .cloned()
@@ -1242,18 +1250,18 @@ impl UnresolvedWorkload {
         }
 
         // Check if all required interfaces were matched
-        // for (component_id, unmatched) in unmatched_interfaces.iter() {
-        //     if !unmatched.is_empty() {
-        //         tracing::error!(
-        //             component_id = component_id.as_ref(),
-        //             interfaces = ?unmatched,
-        //             "no plugins found for requested interfaces"
-        //         );
-        //         bail!(
-        //             "workload component {component_id} requested interfaces that are not available on this host: {unmatched:?}",
-        //         )
-        //     }
-        // }
+        for (component_id, unmatched) in unmatched_interfaces.iter() {
+            if !unmatched.is_empty() {
+                tracing::error!(
+                    component_id = component_id.as_ref(),
+                    interfaces = ?unmatched,
+                    "no plugins found for requested interfaces"
+                );
+                bail!(
+                    "workload component {component_id} requested interfaces that are not available on this host: {unmatched:?}",
+                )
+            }
+        }
 
         Ok(bound_plugins)
     }

@@ -318,6 +318,7 @@ impl Host {
         // The host provides wasi@0.2 interfaces other than wasi:http
         // <https://docs.rs/wasmtime-wasi/36.0.2/wasmtime_wasi/p2/index.html#wasip2-interfaces>
         let mut exports = HashSet::from([
+            "wasi:http/types,incoming-handler,outgoing-handler@0.2.0".into(),
             "wasi:io/poll,error,streams@0.2.0".into(),
             "wasi:clocks/monotonic-clock,wall-time@0.2.0".into(),
             "wasi:random/random@0.2.0".into(),

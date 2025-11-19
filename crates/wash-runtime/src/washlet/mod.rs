@@ -62,6 +62,14 @@ impl ClusterHostBuilder {
         Ok(self)
     }
 
+    pub fn with_http_handler(
+        mut self,
+        http_handler: Arc<dyn crate::host::http::HostHandler>,
+    ) -> Self {
+        self.host_builder = self.host_builder.with_http_handler(http_handler);
+        self
+    }
+
     pub fn build(self) -> anyhow::Result<ClusterHost> {
         let Some(nats_client) = self.nats_client else {
             anyhow::bail!("nats_client is required");
