@@ -1569,14 +1569,14 @@ mod tests {
         // Use the actual interfaces that http_counter.wasm uses
         let http_interface = WitInterface {
             namespace: "wasi".to_string(),
-            package: "http".to_string(),
-            interfaces: ["incoming-handler".to_string()].into_iter().collect(),
-            version: Some(semver::Version::parse("0.2.2").unwrap()),
+            package: "blobstore".to_string(),
+            interfaces: ["container".to_string()].into_iter().collect(),
+            version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
             config: std::collections::HashMap::new(),
         };
 
         let plugin = Arc::new(MockPlugin::new(
-            "http-plugin",
+            "blobstore-plugin",
             vec![],
             vec![http_interface.clone()],
         ));
