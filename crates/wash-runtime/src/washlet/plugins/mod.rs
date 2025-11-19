@@ -1,6 +1,5 @@
 pub mod wasi_blobstore;
 pub mod wasi_config;
-pub mod wasi_http;
 pub mod wasi_keyvalue;
 pub mod wasi_logging;
 pub mod wasmcloud_messaging;

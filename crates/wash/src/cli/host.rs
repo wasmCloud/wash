@@ -80,9 +80,10 @@ impl CliCommand for HostCommand {
 
         if let Some(addr) = self.http_addr {
             tracing::info!(addr = ?addr, "Starting HTTP server for components");
-            cluster_host_builder = cluster_host_builder.with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_http::HttpServer::new(addr),
-            ))?;
+            let http_router = wash_runtime::host::http::DynamicRouter::default();
+            cluster_host_builder = cluster_host_builder.with_http_handler(Arc::new(
+                wash_runtime::host::http::HttpServer::new(http_router, addr),
+            ));
         }
 
         // Enable WASI WebGPU if requested
