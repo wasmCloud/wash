@@ -110,7 +110,7 @@ impl Router for DynamicRouter {
 
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
         let mut lock = self.host_to_workload.write().await;
-        lock.remove(workload_id);
+        lock.retain(|_host, wid| wid != workload_id);
         Ok(())
     }
 
