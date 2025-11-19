@@ -18,8 +18,11 @@ use common::find_available_port;
 
 use wash_runtime::{
     engine::Engine,
-    host::{HostApi, HostBuilder},
-    plugin::{wasi_blobstore::WasiBlobstore, wasi_http::HttpServer},
+    host::{
+        HostApi, HostBuilder,
+        http::{DevRouter, HttpServer},
+    },
+    plugin::wasi_blobstore::WasiBlobstore,
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
 };
@@ -40,7 +43,8 @@ async fn test_http_blobstore_integration() -> Result<()> {
     // Create HTTP server plugin on a dynamically allocated port
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_handler = DevRouter::default();
+    let http_plugin = HttpServer::new(http_handler, addr);
 
     // Create blobstore plugin
     let blobstore_plugin = WasiBlobstore::new(None);
@@ -48,7 +52,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
     // Build host with plugins following the existing pattern from lib.rs test
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(http_plugin))?
+        .with_http_handler(Arc::new(http_plugin))
         .with_plugin(Arc::new(blobstore_plugin))?
         .build()?;
 
@@ -202,11 +206,12 @@ async fn test_plugin_lifecycle() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(addr);
+    let http_handler = DevRouter::default();
+    let http_plugin = HttpServer::new(http_handler, addr);
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_plugin(Arc::new(http_plugin))?
+        .with_http_handler(Arc::new(http_plugin))
         .build()?;
 
     // Start host

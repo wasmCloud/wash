@@ -388,11 +388,13 @@ pub struct ResolvedWorkload {
     namespace: Arc<str>,
     /// All components in the workload. This is behind a `RwLock` to support mutable
     /// access to the component linkers.
-    pub(crate) components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
+    components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
     /// The HTTP handler for outgoing HTTP requests
     http_handler: Arc<dyn crate::host::http::HostHandler>,
     /// An optional service component that runs once to completion or for the duration of the workload
     service: Option<WorkloadService>,
+    /// The requested host [`WitInterface`]s to resolve this workload
+    host_interfaces: Vec<WitInterface>,
 }
 
 impl ResolvedWorkload {
@@ -449,6 +451,14 @@ impl ResolvedWorkload {
                 "service for workload aborted"
             );
         }
+    }
+
+    pub fn components(&self) -> Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>> {
+        self.components.clone()
+    }
+
+    pub fn host_interfaces(&self) -> &Vec<WitInterface> {
+        &self.host_interfaces
     }
 
     async fn link_components(&mut self) -> anyhow::Result<()> {
@@ -952,6 +962,13 @@ impl ResolvedWorkload {
                     }
                 }
             }
+
+            if component.exports_wasi_http() {
+                self.http_handler
+                    .on_workload_unbind(self.id())
+                    .await
+                    .context("failed to notify HTTP handler of workload")?;
+            }
         }
 
         Ok(())
@@ -1301,6 +1318,7 @@ impl UnresolvedWorkload {
             namespace: self.namespace.clone(),
             components: Arc::new(RwLock::new(self.components)),
             service: self.service,
+            host_interfaces: self.host_interfaces,
             http_handler: http_handler.clone(),
         };
 
