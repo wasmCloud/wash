@@ -75,7 +75,7 @@ pub trait Router: Send + Sync + 'static {
 /// Router that routes requests by 'Host' header, configured via WitInterface config
 #[derive(Default)]
 pub struct DynamicRouter {
-    host_to_workload: tokio::sync::Mutex<HashMap<String, String>>,
+    host_to_workload: tokio::sync::RwLock<HashMap<String, String>>,
 }
 
 /// Implementation of Router that maps Host headers to workload IDs
@@ -102,14 +102,14 @@ impl Router for DynamicRouter {
             .cloned()
             .context("No host header found")?;
 
-        let mut lock = self.host_to_workload.lock().await;
+        let mut lock = self.host_to_workload.write().await;
         lock.insert(host_header, resolved_handle.id().to_string());
 
         Ok(())
     }
 
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
-        let mut lock = self.host_to_workload.lock().await;
+        let mut lock = self.host_to_workload.write().await;
         lock.remove(workload_id);
         Ok(())
     }
@@ -129,7 +129,7 @@ impl Router for DynamicRouter {
         req: &hyper::Request<hyper::body::Incoming>,
     ) -> anyhow::Result<String> {
         tokio::task::block_in_place(move || {
-            let lock = self.host_to_workload.blocking_lock();
+            let lock = self.host_to_workload.try_read()?;
             let workload_host = req
                 .headers()
                 .get(hyper::header::HOST)
@@ -412,12 +412,9 @@ impl<T: Router> HostHandler for HttpServer<T> {
     }
 
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
-        // Remove from workload handles
-        let mut handles_guard = self.workload_handles.write().await;
-        handles_guard.remove(workload_id);
-        drop(handles_guard);
-
         self.router.on_workload_unbind(workload_id).await?;
+
+        self.workload_handles.write().await.remove(workload_id);
 
         Ok(())
     }
