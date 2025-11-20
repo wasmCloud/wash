@@ -191,6 +191,7 @@ pub struct Host {
     system_monitor: Arc<RwLock<SystemMonitor>>,
     // endpoints: HashMap<String, EndpointConfiguration>
     pub(crate) http_handler: std::sync::Arc<dyn crate::host::http::HostHandler>,
+    config: HostConfig,
 }
 
 impl Host {
@@ -274,6 +275,14 @@ impl Host {
     /// The host's unique ID string.
     pub fn id(&self) -> &str {
         &self.id
+    }
+
+    /// Get host config
+    ///
+    /// # Returns
+    /// The host's config
+    pub fn config(&self) -> &HostConfig {
+        &self.config
     }
 
     /// Get the human-readable name for this host.
@@ -587,6 +596,12 @@ impl std::fmt::Debug for Host {
     }
 }
 
+/// Config for the [`Host`]
+#[derive(Clone, Debug, Default)]
+pub struct HostConfig {
+    pub allow_oci_insecure: bool,
+}
+
 /// Builder for the [`Host`]
 pub struct HostBuilder {
     id: String,
@@ -596,6 +611,7 @@ pub struct HostBuilder {
     friendly_name: Option<String>,
     labels: HashMap<String, String>,
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
+    config: Option<HostConfig>,
 }
 
 impl Default for HostBuilder {
@@ -685,6 +701,11 @@ impl HostBuilder {
         self
     }
 
+    pub fn with_config(mut self, config: HostConfig) -> Self {
+        self.config.replace(config);
+        self
+    }
+
     /// Builds and returns a configured [`Host`].
     ///
     /// This method finalizes the configuration and creates the host.
@@ -738,6 +759,7 @@ impl HostBuilder {
             started_at: chrono::Utc::now(),
             system_monitor: Arc::new(RwLock::new(SystemMonitor::new())),
             http_handler,
+            config: self.config.unwrap_or_default(),
         })
     }
 }
