@@ -53,7 +53,7 @@ pub struct PullCommand {
     #[clap(name = "component_path", default_value = "component.wasm")]
     component_path: PathBuf,
     /// Use HTTP or HTTPS protocol
-    #[clap(long = "insecure", default_value_t = true)]
+    #[clap(long = "insecure", default_value_t = false)]
     insecure: bool,
 }
 
@@ -95,7 +95,7 @@ pub struct PushCommand {
     #[clap(name = "component_path")]
     component_path: PathBuf,
     /// Use HTTP or HTTPS protocol
-    #[clap(long = "insecure", default_value_t = true)]
+    #[clap(long = "insecure", default_value_t = false)]
     insecure: bool,
 }
 
