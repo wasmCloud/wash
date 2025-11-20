@@ -11,19 +11,18 @@ use async_nats::jetstream::object_store::{self, List, Object, ObjectStore};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
-use wasmtime::component::Resource;
-use wasmtime_wasi::pipe::{self};
-use wasmtime_wasi::{InputStream, OutputStream};
+use wasmtime::component::{HasSelf, Resource};
+use wasmtime_wasi::p2::pipe::{AsyncReadStream, AsyncWriteStream};
+use wasmtime_wasi::p2::{InputStream, OutputStream};
 
 const PLUGIN_BLOBSTORE_ID: &str = "wasi-blobstore";
 
 mod bindings {
     wasmtime::component::bindgen!({
         world: "blobstore",
-        trappable_imports: true,
-        async: true,
+        imports: { default: async | trappable },
         with: {
-            "wasi:io": ::wasmtime_wasi::bindings::io,
+            "wasi:io": ::wasmtime_wasi::p2::bindings::io,
             "wasi:blobstore/container/container": crate::washlet::plugins::wasi_blobstore::ContainerData,
             "wasi:blobstore/container/stream-object-names": crate::washlet::plugins::wasi_blobstore::StreamObjectNamesHandle,
             "wasi:blobstore/types/incoming-value": crate::washlet::plugins::wasi_blobstore::IncomingValueHandle,
@@ -666,7 +665,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         let handle = self.table.get_mut(&outgoing_value)?;
 
         let file_wrapper = tokio::fs::File::from_std(handle.temp_file.reopen()?);
-        let stream = pipe::AsyncWriteStream::new(8192, file_wrapper);
+        let stream = AsyncWriteStream::new(8192, file_wrapper);
 
         // Return the pipe as the output stream - this is the same pipe that will be
         // read in finish()
@@ -743,7 +742,7 @@ impl bindings::wasi::blobstore::types::HostIncomingValue for Ctx {
     > {
         let data = self.table.delete(incoming_value)?;
 
-        let stream: Box<dyn InputStream> = Box::new(pipe::AsyncReadStream::new(data.object));
+        let stream: Box<dyn InputStream> = Box::new(AsyncReadStream::new(data.object));
         let stream = self.table.push(stream)?;
 
         Ok(Ok(stream))
@@ -804,9 +803,9 @@ impl HostPlugin for WasiBlobstore {
         );
         let linker = component_handle.linker();
 
-        bindings::wasi::blobstore::blobstore::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::container::add_to_linker(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::types::add_to_linker(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::blobstore::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::container::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::types::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
 
         Ok(())
     }

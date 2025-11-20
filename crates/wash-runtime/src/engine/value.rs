@@ -1,11 +1,10 @@
 //! Contains [`lift`] and [`lower`] functions to convert values from one component
 //! instance to another in the context of a single [`wasmtime::Store`].
 
-use anyhow::Context as _;
+use anyhow::{Context as _, bail};
 use tracing::trace;
 use wasmtime::component::Val;
 use wasmtime::{AsContextMut, StoreContextMut};
-use wasmtime_wasi::IoView as _;
 
 use crate::engine::ctx::Ctx;
 
@@ -86,13 +85,13 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
         Val::Flags(v) => Ok(Val::Flags(v.clone())),
         &Val::Resource(any) => {
             if let Ok(res) = any
-                .try_into_resource::<wasmtime_wasi::bindings::io::streams::OutputStream>(
+                .try_into_resource::<wasmtime_wasi::p2::bindings::io::streams::OutputStream>(
                     store.as_context_mut(),
                 )
             {
                 trace!("lowering output stream");
-                let stream = store.data_mut().table().delete(res)?;
-                let resource = store.data_mut().table().push(stream)?;
+                let stream = store.data_mut().table.delete(res)?;
+                let resource = store.data_mut().table.push(stream)?;
                 Ok(Val::Resource(
                     resource.try_into_resource_any(store.as_context_mut())?,
                 ))
@@ -101,16 +100,21 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
                 let res = any
                     .try_into_resource(store.as_context_mut())
                     .context("failed to lower resource")?;
-                let table = store.data_mut().table();
                 if res.owned() {
                     trace!("lowering owned resource");
                     Ok(Val::Resource(
-                        table.delete(res).context("owned resource not in table")?,
+                        store
+                            .data_mut()
+                            .table
+                            .delete(res)
+                            .context("owned resource not in table")?,
                     ))
                 } else {
                     trace!("lowering borrowed resource");
                     Ok(Val::Resource(
-                        table
+                        store
+                            .data_mut()
+                            .table
                             .get(&res)
                             .context("borrowed resource not in table")
                             .cloned()?,
@@ -118,6 +122,7 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
                 }
             }
         }
+        &Val::Future(_) | &Val::Stream(_) | &Val::ErrorContext(_) => bail!("async not supported"),
     }
 }
 
@@ -198,25 +203,25 @@ pub(crate) fn lift(store: &mut StoreContextMut<'_, Ctx>, v: Val) -> anyhow::Resu
         Val::Flags(v) => Ok(Val::Flags(v)),
         Val::Resource(any) => {
             if let Ok(res) = any
-                .try_into_resource::<wasmtime_wasi::bindings::io::streams::OutputStream>(
+                .try_into_resource::<wasmtime_wasi::p2::bindings::io::streams::OutputStream>(
                     store.as_context_mut(),
                 )
             {
                 trace!("lifting output stream");
-                let stream = store.data_mut().table().delete(res)?;
-                let resource = store.data_mut().table().push(stream)?;
+                let stream = store.data_mut().table.delete(res)?;
+                let resource = store.data_mut().table.push(stream)?;
 
                 Ok(Val::Resource(
                     resource.try_into_resource_any(store.as_context_mut())?,
                 ))
             } else if let Ok(res) = any
-                .try_into_resource::<wasmtime_wasi::bindings::io::streams::InputStream>(
+                .try_into_resource::<wasmtime_wasi::p2::bindings::io::streams::InputStream>(
                     store.as_context_mut(),
                 )
             {
                 trace!("lifting input stream");
-                let stream = store.data_mut().table().delete(res)?;
-                let resource = store.data_mut().table().push(stream)?;
+                let stream = store.data_mut().table.delete(res)?;
+                let resource = store.data_mut().table.push(stream)?;
 
                 Ok(Val::Resource(
                     resource.try_into_resource_any(store.as_context_mut())?,
@@ -224,11 +229,12 @@ pub(crate) fn lift(store: &mut StoreContextMut<'_, Ctx>, v: Val) -> anyhow::Resu
             } else {
                 trace!(resource = ?any, "lifting resource");
                 // Resource lifting logic: push the resource into the store's table and return a new Val::Resource
-                let res = store.data_mut().table().push(any)?;
+                let res = store.data_mut().table.push(any)?;
                 Ok(Val::Resource(
                     res.try_into_resource_any(store.as_context_mut())?,
                 ))
             }
         }
+        Val::Future(_) | Val::Stream(_) | Val::ErrorContext(_) => bail!("async not supported"),
     }
 }

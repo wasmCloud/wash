@@ -58,6 +58,8 @@ use crate::wit::WitWorld;
 mod sysinfo;
 use sysinfo::SystemMonitor;
 
+pub mod http;
+
 /// The API for interacting with a wasmcloud host.
 ///
 /// This trait defines the core operations for managing workloads on a host,
@@ -188,6 +190,7 @@ pub struct Host {
     /// System monitor for tracking CPU/memory usage
     system_monitor: Arc<RwLock<SystemMonitor>>,
     // endpoints: HashMap<String, EndpointConfiguration>
+    pub(crate) http_handler: std::sync::Arc<dyn crate::host::http::HostHandler>,
 }
 
 impl Host {
@@ -207,6 +210,11 @@ impl Host {
     /// # Errors
     /// Returns an error if any plugin fails to start.
     pub async fn start(self) -> anyhow::Result<Arc<Self>> {
+        self.http_handler
+            .start()
+            .await
+            .context("failed to start HTTP handler")?;
+
         // Start all plugins, any errors means the host fails to start.
         for (id, plugin) in &self.plugins {
             if let Err(e) = plugin.start().await {
@@ -227,6 +235,11 @@ impl Host {
     /// # Returns
     /// Ok if the shutdown process completes (even with plugin errors).
     pub async fn stop(self: Arc<Self>) -> anyhow::Result<()> {
+        self.http_handler
+            .stop()
+            .await
+            .context("failed to stop HTTP handler")?;
+
         // Stop all plugins, log errors but continue stopping others
         for (id, plugin) in &self.plugins {
             let stop_fut = plugin.stop();
@@ -305,6 +318,7 @@ impl Host {
         // The host provides wasi@0.2 interfaces other than wasi:http
         // <https://docs.rs/wasmtime-wasi/36.0.2/wasmtime_wasi/p2/index.html#wasip2-interfaces>
         let mut exports = HashSet::from([
+            "wasi:http/types,incoming-handler,outgoing-handler@0.2.0".into(),
             "wasi:io/poll,error,streams@0.2.0".into(),
             "wasi:clocks/monotonic-clock,wall-time@0.2.0".into(),
             "wasi:random/random@0.2.0".into(),
@@ -433,7 +447,9 @@ impl HostApi for Host {
             .engine
             .initialize_workload(&request.workload_id, request.workload)?;
 
-        let mut resolved_workload = unresolved_workload.resolve(Some(&self.plugins)).await?;
+        let mut resolved_workload = unresolved_workload
+            .resolve(Some(&self.plugins), self.http_handler.clone())
+            .await?;
 
         // If the service didn't run and we had one, warn
         if resolved_workload.execute_service().await? != service_present {
@@ -579,6 +595,7 @@ pub struct HostBuilder {
     hostname: Option<String>,
     friendly_name: Option<String>,
     labels: HashMap<String, String>,
+    http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
 impl HostBuilder {
@@ -588,6 +605,12 @@ impl HostBuilder {
 
     pub fn with_engine(mut self, engine: Engine) -> Self {
         self.engine = Some(engine);
+        self
+    }
+
+    /// Overrides the default HTTP handler.
+    pub fn with_http_handler(mut self, handler: Arc<dyn crate::host::http::HostHandler>) -> Self {
+        self.http_handler = Some(handler);
         self
     }
 
@@ -678,6 +701,13 @@ impl HostBuilder {
                 .unwrap_or_else(|| format!("host-{}", uuid::Uuid::new_v4()))
         });
 
+        // Use a null HTTP handler if none provided
+        // It will reject any HTTP requests
+        let http_handler = match self.http_handler {
+            Some(handler) => handler,
+            None => Arc::new(crate::host::http::NullServer::default()),
+        };
+
         Ok(Host {
             engine,
             workloads: Arc::default(),
@@ -689,6 +719,7 @@ impl HostBuilder {
             labels: self.labels,
             started_at: chrono::Utc::now(),
             system_monitor: Arc::new(RwLock::new(SystemMonitor::new())),
+            http_handler,
         })
     }
 }

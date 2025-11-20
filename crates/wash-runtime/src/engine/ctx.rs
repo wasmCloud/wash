@@ -7,7 +7,7 @@
 use std::{any::Any, collections::HashMap, sync::Arc};
 
 use wasmtime::component::ResourceTable;
-use wasmtime_wasi::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 use crate::plugin::HostPlugin;
@@ -32,6 +32,8 @@ pub struct Ctx {
     /// These all implement the [`HostPlugin`] trait, but they are cast as `Arc<dyn Any + Send + Sync>`
     /// to support downcasting to the specific plugin type in [`Ctx::get_plugin`]
     plugins: HashMap<&'static str, Arc<dyn Any + Send + Sync>>,
+    /// The HTTP handler for outgoing HTTP requests.
+    http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
 impl Ctx {
@@ -59,15 +61,19 @@ impl std::fmt::Debug for Ctx {
     }
 }
 
-impl IoView for Ctx {
-    fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
-    }
-}
 // TODO(#103): Do some cleverness to pull up the WasiCtx based on what component is actively executing
 impl WasiView for Ctx {
-    fn ctx(&mut self) -> &mut WasiCtx {
-        &mut self.ctx
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.ctx,
+            table: &mut self.table,
+        }
+    }
+}
+
+impl wasmtime_wasi_io::IoView for Ctx {
+    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
+        &mut self.table
     }
 }
 
@@ -75,6 +81,23 @@ impl WasiView for Ctx {
 impl WasiHttpView for Ctx {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
         &mut self.http
+    }
+
+    fn table(&mut self) -> &mut ResourceTable {
+        &mut self.table
+    }
+
+    fn send_request(
+        &mut self,
+        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        config: wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
+        match &self.http_handler {
+            Some(handler) => handler.outgoing_request(&self.workload_id, request, config),
+            None => Err(wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!(
+                "http client not available"
+            ))),
+        }
     }
 }
 
@@ -85,6 +108,7 @@ pub struct CtxBuilder {
     component_id: Arc<str>,
     ctx: Option<WasiCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
+    http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
 
 impl CtxBuilder {
@@ -94,12 +118,21 @@ impl CtxBuilder {
             component_id: component_id.into(),
             workload_id: workload_id.into(),
             ctx: None,
+            http_handler: None,
             plugins: HashMap::new(),
         }
     }
 
     pub fn with_wasi_ctx(mut self, ctx: WasiCtx) -> Self {
         self.ctx = Some(ctx);
+        self
+    }
+
+    pub fn with_http_handler(
+        mut self,
+        http_handler: Arc<dyn crate::host::http::HostHandler>,
+    ) -> Self {
+        self.http_handler = Some(http_handler);
         self
     }
 
@@ -131,6 +164,7 @@ impl CtxBuilder {
             http: WasiHttpCtx::new(),
             table: ResourceTable::new(),
             plugins,
+            http_handler: self.http_handler,
         }
     }
 }

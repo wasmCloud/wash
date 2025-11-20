@@ -14,7 +14,7 @@ use tracing::{debug, info, trace, warn};
 use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, bindings::CommandPre};
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, p2::bindings::CommandPre};
 
 use crate::{
     engine::{
@@ -131,6 +131,18 @@ impl WorkloadMetadata {
                 }
             })
             .collect::<Vec<_>>())
+    }
+
+    pub fn uses_wasi_http(&self) -> bool {
+        crate::engine::uses_wasi_http(&self.component)
+    }
+
+    pub fn imports_wasi_http(&self) -> bool {
+        crate::engine::imports_wasi_http(&self.component)
+    }
+
+    pub fn exports_wasi_http(&self) -> bool {
+        crate::engine::exports_wasi_http(&self.component)
     }
 
     /// Computes and returns the [`WitWorld`] of this component.
@@ -377,8 +389,12 @@ pub struct ResolvedWorkload {
     /// All components in the workload. This is behind a `RwLock` to support mutable
     /// access to the component linkers.
     components: Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>>,
+    /// The HTTP handler for outgoing HTTP requests
+    http_handler: Arc<dyn crate::host::http::HostHandler>,
     /// An optional service component that runs once to completion or for the duration of the workload
     service: Option<WorkloadService>,
+    /// The requested host [`WitInterface`]s to resolve this workload
+    host_interfaces: Vec<WitInterface>,
 }
 
 impl ResolvedWorkload {
@@ -435,6 +451,14 @@ impl ResolvedWorkload {
                 "service for workload aborted"
             );
         }
+    }
+
+    pub fn components(&self) -> Arc<RwLock<HashMap<Arc<str>, WorkloadComponent>>> {
+        self.components.clone()
+    }
+
+    pub fn host_interfaces(&self) -> &Vec<WitInterface> {
+        &self.host_interfaces
     }
 
     async fn link_components(&mut self) -> anyhow::Result<()> {
@@ -565,7 +589,7 @@ impl ResolvedWorkload {
                         let Some((ComponentItem::ComponentInstance(_), idx)) = plugin_component
                             .metadata
                             .component
-                            .export_index(None, import_name)
+                            .get_export(None, import_name)
                         else {
                             trace!(name = import_name, "skipping non-instance import");
                             continue;
@@ -595,7 +619,7 @@ impl ResolvedWorkload {
                                 let (item, func_idx) = match plugin_component
                                     .metadata
                                     .component
-                                    .export_index(Some(&instance_idx), export_name)
+                                    .get_export(Some(&instance_idx), export_name)
                                 {
                                     Some(res) => res,
                                     None => {
@@ -723,7 +747,7 @@ impl ResolvedWorkload {
                                 let (item, _idx) = match plugin_component
                                     .metadata
                                     .component
-                                    .export_index(Some(&instance_idx), export_name)
+                                    .get_export(Some(&instance_idx), export_name)
                                 {
                                     Some(res) => res,
                                     None => {
@@ -866,6 +890,7 @@ impl ResolvedWorkload {
         }
 
         let mut ctx_builder = Ctx::builder(metadata.workload_id(), metadata.id())
+            .with_http_handler(self.http_handler.clone())
             .with_wasi_ctx(wasi_ctx_builder.build());
 
         if let Some(plugins) = &metadata.plugins {
@@ -936,6 +961,13 @@ impl ResolvedWorkload {
                         );
                     }
                 }
+            }
+
+            if component.exports_wasi_http() {
+                self.http_handler
+                    .on_workload_unbind(self.id())
+                    .await
+                    .context("failed to notify HTTP handler of workload")?;
             }
         }
 
@@ -1030,13 +1062,22 @@ impl UnresolvedWorkload {
         // Collect all component's required (unmatched) host interfaces
         // This tracks which interfaces each component still needs to be bound
         let mut unmatched_interfaces: HashMap<Arc<str>, HashSet<WitInterface>> = HashMap::new();
-        trace!(host_interfaces = ?self.host_interfaces, "determining missing guest interfaces");
+        let host_interfaces = {
+            // filter out Plugins fulfilled by host
+            let http_iface = WitInterface::from("wasi:http/incoming-handler,outgoing-handler");
+            self.host_interfaces
+                .iter()
+                .filter(|wit_interface| !http_iface.contains(wit_interface))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+
+        trace!(host_interfaces = ?host_interfaces, "determining missing guest interfaces");
 
         if let Some(service) = self.service.as_ref() {
             let world = service.world();
             trace!(?world, "comparing service world to host interfaces");
-            let required_interfaces: HashSet<WitInterface> = self
-                .host_interfaces
+            let required_interfaces: HashSet<WitInterface> = host_interfaces
                 .iter()
                 .filter(|wit_interface| world.includes_bidirectional(wit_interface))
                 .cloned()
@@ -1050,8 +1091,7 @@ impl UnresolvedWorkload {
         for (id, workload_component) in &self.components {
             let world = workload_component.world();
             trace!(?world, "comparing component world to host interfaces");
-            let required_interfaces: HashSet<WitInterface> = self
-                .host_interfaces
+            let required_interfaces: HashSet<WitInterface> = host_interfaces
                 .iter()
                 .filter(|wit_interface| world.includes_bidirectional(wit_interface))
                 .cloned()
@@ -1252,6 +1292,7 @@ impl UnresolvedWorkload {
     pub async fn resolve(
         mut self,
         plugins: Option<&HashMap<&'static str, Arc<dyn HostPlugin + 'static>>>,
+        http_handler: Arc<dyn crate::host::http::HostHandler>,
     ) -> anyhow::Result<ResolvedWorkload> {
         // Bind to plugins
         let bound_plugins = if let Some(plugins) = plugins {
@@ -1261,6 +1302,23 @@ impl UnresolvedWorkload {
             Vec::new()
         };
 
+        let incoming_http_component = {
+            let http_iface = WitInterface::from("wasi:http/incoming-handler");
+            match self
+                .host_interfaces
+                .iter()
+                .any(|hi| hi.contains(&http_iface))
+            {
+                // http was not part of the requested interfaces
+                false => None,
+                true => self
+                    .components
+                    .values()
+                    .find(|component| component.exports_wasi_http())
+                    .map(|c| c.id().to_string()),
+            }
+        };
+
         // Resolve the workload
         let mut resolved_workload = ResolvedWorkload {
             id: self.id.clone(),
@@ -1268,6 +1326,8 @@ impl UnresolvedWorkload {
             namespace: self.namespace.clone(),
             components: Arc::new(RwLock::new(self.components)),
             service: self.service,
+            host_interfaces: self.host_interfaces,
+            http_handler: http_handler.clone(),
         };
 
         // Link components before plugin resolution
@@ -1307,6 +1367,20 @@ impl UnresolvedWorkload {
             }
         }
 
+        if let Some(component_id) = incoming_http_component
+            && let Err(e) = http_handler
+                .on_workload_resolved(&resolved_workload, &component_id)
+                .await
+        {
+            warn!(
+                component_id = component_id,
+                error = ?e,
+                "failed to notify HTTP handler of resolved workload, unbinding all plugins"
+            );
+            let _ = resolved_workload.unbind_all_plugins().await;
+            bail!(e);
+        }
+
         Ok(resolved_workload)
     }
 
@@ -1323,6 +1397,14 @@ impl UnresolvedWorkload {
     /// Gets the namespace of the workload
     pub fn namespace(&self) -> &str {
         &self.namespace
+    }
+
+    /// Retrieves the interface configuration for a given WIT interface, if it exists.
+    pub fn interface_config(&self, interface: &WitInterface) -> Option<&HashMap<String, String>> {
+        self.host_interfaces
+            .iter()
+            .find(|i| i.contains(interface))
+            .map(|i| &i.config)
     }
 }
 
@@ -1487,14 +1569,14 @@ mod tests {
         // Use the actual interfaces that http_counter.wasm uses
         let http_interface = WitInterface {
             namespace: "wasi".to_string(),
-            package: "http".to_string(),
-            interfaces: ["incoming-handler".to_string()].into_iter().collect(),
-            version: Some(semver::Version::parse("0.2.2").unwrap()),
+            package: "blobstore".to_string(),
+            interfaces: ["container".to_string()].into_iter().collect(),
+            version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
             config: std::collections::HashMap::new(),
         };
 
         let plugin = Arc::new(MockPlugin::new(
-            "http-plugin",
+            "blobstore-plugin",
             vec![],
             vec![http_interface.clone()],
         ));

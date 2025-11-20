@@ -18,14 +18,12 @@
 //! 4. Managing the request/response lifecycle through WASI-HTTP
 //! ```
 
-use std::collections::HashSet;
 use std::{collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
 
-use crate::engine::workload::{ResolvedWorkload, WorkloadComponent};
+use crate::engine::ctx::Ctx;
+use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
-use crate::wit::WitWorld;
-use crate::{engine::ctx::Ctx, plugin::HostPlugin};
-use anyhow::{Context, bail, ensure};
+use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
 use tokio::net::TcpListener;
 use tracing::{debug, error, info, warn};
@@ -43,11 +41,225 @@ use rustls_pemfile::{certs, private_key};
 use tokio::sync::{RwLock, mpsc};
 use tokio_rustls::TlsAcceptor;
 
-const HTTP_SERVER_ID: &str = "http-server";
+/// Trait defining the routing behavior for HTTP requests
+/// Allows for custom routing logic based on workload IDs and requests
+/// Use this trait to implement custom routing strategies with the default HTTP Extension
+#[async_trait::async_trait]
+pub trait Router: Send + Sync + 'static {
+    /// Register a workload that has been resolved
+    /// and is guaranteed to be available for handling requests
+    async fn on_workload_resolved(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+        component_id: &str,
+    ) -> anyhow::Result<()>;
 
-#[derive(Clone, Debug)]
-struct HttpWorkloadConfig {
-    host_header: String,
+    /// Unregister a workload that is being stopped
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()>;
+
+    /// Determine if the outgoing request is allowed
+    fn allow_outgoing_request(
+        &self,
+        workload_id: &str,
+        request: &hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        config: &wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> anyhow::Result<()>;
+
+    /// Pick a workload ID based on the incoming request
+    fn route_incoming_request(
+        &self,
+        req: &hyper::Request<hyper::body::Incoming>,
+    ) -> anyhow::Result<String>;
+}
+
+/// Router that routes requests by 'Host' header, configured via WitInterface config
+#[derive(Default)]
+pub struct DynamicRouter {
+    host_to_workload: tokio::sync::RwLock<HashMap<String, String>>,
+}
+
+/// Implementation of Router that maps Host headers to workload IDs
+/// based on the 'host' config in the wasi:http/incoming-handler interface
+#[async_trait::async_trait]
+impl Router for DynamicRouter {
+    async fn on_workload_resolved(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+        _component_id: &str,
+    ) -> anyhow::Result<()> {
+        let incoming_handler_interface = WitInterface::from("wasi:http/incoming-handler");
+        let Some(http_iface) = resolved_handle
+            .host_interfaces()
+            .iter()
+            .find(|iface| iface.contains(&incoming_handler_interface))
+        else {
+            anyhow::bail!("workload did not request wasi:http/incoming-handler interface");
+        };
+
+        let host_header = http_iface
+            .config
+            .get("host")
+            .cloned()
+            .context("No host header found")?;
+
+        let mut lock = self.host_to_workload.write().await;
+        lock.insert(host_header, resolved_handle.id().to_string());
+
+        Ok(())
+    }
+
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
+        let mut lock = self.host_to_workload.write().await;
+        lock.retain(|_host, wid| wid != workload_id);
+        Ok(())
+    }
+
+    fn allow_outgoing_request(
+        &self,
+        _workload_id: &str,
+        _request: &hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        _config: &wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Pick a workload ID based on the incoming request
+    fn route_incoming_request(
+        &self,
+        req: &hyper::Request<hyper::body::Incoming>,
+    ) -> anyhow::Result<String> {
+        tokio::task::block_in_place(move || {
+            let lock = self.host_to_workload.try_read()?;
+            let workload_host = req
+                .headers()
+                .get(hyper::header::HOST)
+                .and_then(|h| h.to_str().ok())
+                .context("no Host header in request")?;
+            let Some(workload_id) = lock.get(workload_host) else {
+                anyhow::bail!("no workload bound to host header: {}", workload_host);
+            };
+            Ok(workload_id.clone())
+        })
+    }
+}
+
+/// Development router that routes all requests to the last resolved workload
+#[derive(Default)]
+pub struct DevRouter {
+    last_workload_id: tokio::sync::Mutex<Option<String>>,
+}
+
+#[async_trait::async_trait]
+impl Router for DevRouter {
+    async fn on_workload_resolved(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+        _component_id: &str,
+    ) -> anyhow::Result<()> {
+        let mut lock = self.last_workload_id.lock().await;
+        lock.replace(resolved_handle.id().to_string());
+        Ok(())
+    }
+
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
+        let mut lock = self.last_workload_id.lock().await;
+        if let Some(current_id) = &*lock
+            && current_id == workload_id
+        {
+            let _ = lock.take();
+        }
+        Ok(())
+    }
+
+    fn allow_outgoing_request(
+        &self,
+        _workload_id: &str,
+        _request: &hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        _config: &wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Pick a workload ID based on the incoming request
+    fn route_incoming_request(
+        &self,
+        _req: &hyper::Request<hyper::body::Incoming>,
+    ) -> anyhow::Result<String> {
+        let lock = self.last_workload_id.try_lock()?;
+        match &*lock {
+            Some(id) => {
+                tracing::info!(workload_id = %id, "incoming request");
+                Ok(id.clone())
+            }
+            None => anyhow::bail!("no workload available to route request"),
+        }
+    }
+}
+
+/// Trait defining the behavior of a Host HTTP Extension
+/// Allows for custom handling of incoming and outgoing HTTP requests
+/// Use this trait to implement custom HTTP server transport
+#[async_trait::async_trait]
+pub trait HostHandler: Send + Sync + 'static {
+    async fn start(&self) -> anyhow::Result<()>;
+    async fn stop(&self) -> anyhow::Result<()>;
+
+    async fn on_workload_resolved(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+        component_id: &str,
+    ) -> anyhow::Result<()>;
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()>;
+
+    fn outgoing_request(
+        &self,
+        workload_id: &str,
+        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        config: wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse>;
+}
+
+impl std::fmt::Debug for dyn HostHandler {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HostHandler").finish()
+    }
+}
+
+#[derive(Default)]
+pub struct NullServer {}
+
+#[async_trait::async_trait]
+impl HostHandler for NullServer {
+    async fn start(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn stop(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn on_workload_resolved(
+        &self,
+        _resolved_handle: &ResolvedWorkload,
+        _component_id: &str,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn on_workload_unbind(&self, _workload_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn outgoing_request(
+        &self,
+        _workload_id: &str,
+        _request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        _config: wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
+        Err(wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!(
+            "http client not available"
+        )))
+    }
 }
 
 /// A map from host header to resolved workload handles and their associated component id
@@ -59,29 +271,36 @@ pub type WorkloadHandles =
 /// This plugin implements the `wasi:http/incoming-handler` interface and routes
 /// HTTP requests to appropriate WebAssembly components based on virtual hosting.
 /// It supports both HTTP and HTTPS connections with optional mutual TLS.
-pub struct HttpServer {
+pub struct HttpServer<T: Router> {
+    router: Arc<T>,
     addr: SocketAddr,
-    /// Map from host header to resolved workload handles
     workload_handles: WorkloadHandles,
-    /// Map from workload ID to HTTP-specific config
-    workload_configs: Arc<RwLock<HashMap<String, HttpWorkloadConfig>>>,
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
 }
 
-impl HttpServer {
+impl<T: Router> std::fmt::Debug for HttpServer<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HttpServer")
+            .field("addr", &self.addr)
+            .finish()
+    }
+}
+
+impl<T: Router> HttpServer<T> {
     /// Creates a new HTTP server listening on the specified address.
     ///
     /// # Arguments
+    /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
     ///
     /// # Returns
     /// A new `HttpServer` instance configured for HTTP connections.
-    pub fn new(addr: SocketAddr) -> Self {
+    pub fn new(router: T, addr: SocketAddr) -> Self {
         Self {
+            router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
-            workload_configs: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: None,
         }
@@ -90,6 +309,7 @@ impl HttpServer {
     /// Creates a new HTTPS server with TLS support.
     ///
     /// # Arguments
+    /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
     /// * `cert_path` - Path to the TLS certificate file
     /// * `key_path` - Path to the private key file
@@ -101,6 +321,7 @@ impl HttpServer {
     /// # Errors
     /// Returns an error if the TLS configuration cannot be loaded.
     pub async fn new_with_tls(
+        router: T,
         addr: SocketAddr,
         cert_path: &Path,
         key_path: &Path,
@@ -110,9 +331,9 @@ impl HttpServer {
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
         Ok(Self {
+            router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
-            workload_configs: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
         })
@@ -120,20 +341,7 @@ impl HttpServer {
 }
 
 #[async_trait::async_trait]
-impl HostPlugin for HttpServer {
-    fn id(&self) -> &'static str {
-        HTTP_SERVER_ID
-    }
-
-    fn world(&self) -> WitWorld {
-        WitWorld {
-            imports: HashSet::from([WitInterface::from(
-                "wasi:http/incoming-handler,outgoing-handler",
-            )]),
-            ..Default::default()
-        }
-    }
-
+impl<T: Router> HostHandler for HttpServer<T> {
     async fn start(&self) -> anyhow::Result<()> {
         let addr = self.addr;
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
@@ -148,9 +356,16 @@ impl HostPlugin for HttpServer {
         debug!(addr = ?addr, "HTTP server listening");
         // Start the HTTP server, any incoming requests call Host::handle and then it's routed
         // to the workload based on host header.
+        let handler = self.router.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                run_http_server(listener, workload_handles, &mut shutdown_rx, tls_acceptor).await
+            if let Err(e) = run_http_server(
+                listener,
+                handler,
+                workload_handles,
+                &mut shutdown_rx,
+                tls_acceptor,
+            )
+            .await
             {
                 error!(err = ?e, addr = ?addr, "HTTP server error");
             }
@@ -165,56 +380,12 @@ impl HostPlugin for HttpServer {
         Ok(())
     }
 
-    async fn on_component_bind(
-        &self,
-        component: &mut WorkloadComponent,
-        interfaces: std::collections::HashSet<crate::wit::WitInterface>,
-    ) -> anyhow::Result<()> {
-        let Some(http_iface) = interfaces.iter().find(|iface| {
-            iface.namespace == "wasi"
-                && iface.package == "http"
-                && iface.interfaces.contains("incoming-handler")
-        }) else {
-            bail!(
-                "No wasi:http/incoming-handler interface found, plugin should not be bound to this workload"
-            );
-        };
-
-        // Debug log for extra specified interfaces
-        if interfaces.len() > 1 {
-            debug!(
-                interfaces = ?interfaces,
-                "ignoring non-wasi:http/incoming-handler interfaces",
-            );
-        } else if http_iface.interfaces.len() > 1 {
-            debug!(
-                interfaces = ?http_iface.interfaces,
-                "ignoring non-incoming-handler interfaces",
-            );
+    async fn stop(&self) -> anyhow::Result<()> {
+        info!(addr = ?self.addr, "HTTP server stopping");
+        let mut shutdown_guard = self.shutdown_tx.write().await;
+        if let Some(tx) = shutdown_guard.take() {
+            let _ = tx.send(()).await;
         }
-
-        // Use wildcard "*" as default if no host header is specified
-        let host_header = http_iface
-            .config
-            .get("host")
-            .cloned()
-            .unwrap_or_else(|| "*".to_string());
-
-        let id = component.id();
-
-        debug!(host = %host_header, workload_id = id, "binding HTTP config for workload");
-
-        // Store config by workload ID for later retrieval
-        let config = HttpWorkloadConfig { host_header };
-        self.workload_configs
-            .write()
-            .await
-            .insert(id.to_string(), config);
-
-        // NOTE: There is no `add_to_linker` call here because it's already added when initializing
-        // the Ctx, as long as the `http` feature is enabled. This is totally possible to do here, but it would
-        // mean re-implementing wasmtime_wasi_http.
-
         Ok(())
     }
 
@@ -223,23 +394,13 @@ impl HostPlugin for HttpServer {
         resolved_handle: &ResolvedWorkload,
         component_id: &str,
     ) -> anyhow::Result<()> {
-        // Retrieve config using the same ID from bind_workload
-        let config = self
-            .workload_configs
-            .read()
-            .await
-            .get(component_id)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("No HTTP config found for workload {component_id}"))?;
-
-        debug!(host = %config.host_header, workload_id = resolved_handle.id(), component_id, "storing resolved workload handle");
-
-        // Get the pre-instantiated component
+        self.router
+            .on_workload_resolved(resolved_handle, component_id)
+            .await?;
         let instance_pre = resolved_handle.instantiate_pre(component_id).await?;
 
-        // Store the resolved handle with the configured host header
         self.workload_handles.write().await.insert(
-            config.host_header,
+            resolved_handle.id().to_string(),
             (
                 resolved_handle.clone(),
                 instance_pre,
@@ -250,37 +411,38 @@ impl HostPlugin for HttpServer {
         Ok(())
     }
 
-    async fn on_workload_unbind(
-        &self,
-        workload_id: &str,
-        _interfaces: HashSet<WitInterface>,
-    ) -> anyhow::Result<()> {
-        debug!(workload_id, "removing HTTP workload handle");
+    async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
+        self.router.on_workload_unbind(workload_id).await?;
 
-        // Remove from workload handles
-        let mut handles_guard = self.workload_handles.write().await;
-        handles_guard.retain(|_, (handle, _, _)| handle.id() != workload_id);
-
-        // Remove from workload configs
-        self.workload_configs.write().await.remove(workload_id);
+        self.workload_handles.write().await.remove(workload_id);
 
         Ok(())
     }
 
-    async fn stop(&self) -> anyhow::Result<()> {
-        info!(addr = ?self.addr, "HTTP server stopping");
-        // Stop the HTTP server
-        let mut shutdown_guard = self.shutdown_tx.write().await;
-        if let Some(tx) = shutdown_guard.take() {
-            let _ = tx.send(()).await;
-        }
-        Ok(())
+    fn outgoing_request(
+        &self,
+        workload_id: &str,
+        request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
+        config: wasmtime_wasi_http::types::OutgoingRequestConfig,
+    ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
+        self.router
+            .allow_outgoing_request(workload_id, &request, &config)
+            .map_err(|e| {
+                wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!("request not allowed: {}", e))
+            })?;
+
+        // NOTE(lxf): Bring wasi-http code if needed
+        // Separate HTTP / GRPC handling
+        Ok(wasmtime_wasi_http::types::default_send_request(
+            request, config,
+        ))
     }
 }
 
 /// HTTP server implementation that routes to workload components
-async fn run_http_server(
+async fn run_http_server<T: Router>(
     listener: TcpListener,
+    handler: Arc<T>,
     workload_handles: WorkloadHandles,
     shutdown_rx: &mut mpsc::Receiver<()>,
     tls_acceptor: Option<TlsAcceptor>,
@@ -300,11 +462,13 @@ async fn run_http_server(
 
                         let handles_clone = workload_handles.clone();
                         let tls_acceptor_clone = tls_acceptor.clone();
+                        let handler_clone = handler.clone();
                         tokio::spawn(async move {
                             let service = hyper::service::service_fn(move |req| {
                                 let handles = handles_clone.clone();
+                                let handler = handler_clone.clone();
                                 async move {
-                                    handle_http_request(req, handles).await
+                                    handle_http_request(handler, req, handles).await
                                 }
                             });
 
@@ -347,41 +511,35 @@ async fn run_http_server(
 }
 
 /// Handle individual HTTP requests by looking up workload and invoking component
-async fn handle_http_request(
+async fn handle_http_request<T: Router>(
+    handler: Arc<T>,
     req: hyper::Request<hyper::body::Incoming>,
     workload_handles: WorkloadHandles,
 ) -> Result<hyper::Response<HyperOutgoingBody>, hyper::Error> {
     let method = req.method().clone();
     let uri = req.uri().clone();
 
-    // Extract the Host header
-    let host_header = req
-        .headers()
-        .get("host")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("<no host header>")
-        .to_string(); // Convert to String to avoid borrow issues
+    let Ok(workload_id) = handler.route_incoming_request(&req) else {
+        return Ok(hyper::Response::builder()
+            .status(400)
+            .body(HyperOutgoingBody::default())
+            .expect("failed to build 400 response"));
+    };
 
     debug!(
         method = %method,
         uri = %uri,
-        host = %host_header,
+        host = %workload_id,
         "HTTP request received"
     );
+
+    // NOTE(lxf): Separate HTTP / GRPC handling
 
     // Look up workload handle for this host, with wildcard fallback
     let workload_handle = {
         let handles = workload_handles.read().await;
-        debug!(host = %host_header, "looking up workload handle for host header");
-
-        // First try exact host match
-        if let Some(handle) = handles.get(&host_header) {
-            Some(handle.clone())
-        } else {
-            // Fall back to wildcard if no exact match
-            debug!("No exact match for host header, trying wildcard '*'");
-            handles.get("*").cloned()
-        }
+        debug!(host = %workload_id, "looking up workload handle for host header");
+        handles.get(&workload_id).cloned()
     };
 
     let response = match workload_handle {
@@ -389,7 +547,7 @@ async fn handle_http_request(
             match invoke_component_handler(handle, instance_pre, &component_id, req).await {
                 Ok(resp) => resp,
                 Err(e) => {
-                    error!(err = ?e, host = %host_header, "failed to invoke component");
+                    error!(err = ?e, host = %workload_id, "failed to invoke component");
                     hyper::Response::builder()
                         .status(500)
                         .body(HyperOutgoingBody::default())
@@ -400,7 +558,7 @@ async fn handle_http_request(
             }
         }
         None => {
-            warn!(host = %host_header, "No workload bound to host header or wildcard '*'");
+            warn!(host = %workload_id, "No workload bound to host header or wildcard '*'");
             hyper::Response::builder()
                 .status(404)
                 .body(HyperOutgoingBody::default())

@@ -22,7 +22,7 @@ use tracing::{debug, error, info, trace, warn};
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_config::WasiConfig, wasi_http::HttpServer, wasi_logging::WasiLogging},
+    plugin::{wasi_config::WasiConfig, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -196,6 +196,7 @@ impl CliCommand for DevCommand {
         }
         debug!(path = ?volume_root.display(), "using blobstore root directory");
 
+        let http_handler = wash_runtime::host::http::DevRouter::default();
         // TODO(#19): Only spawn the server if the component exports wasi:http
         // Configure HTTP server with optional TLS, enable HTTP Server
         let protocol = if let (Some(cert_path), Some(key_path)) = (&self.tls_cert, &self.tls_key) {
@@ -218,22 +219,24 @@ impl CliCommand for DevCommand {
                 );
             }
 
-            host_builder = host_builder.with_plugin(Arc::new(
-                HttpServer::new_with_tls(
-                    self.address.parse()?,
-                    cert_path,
-                    key_path,
-                    self.tls_ca.as_deref(),
-                )
-                .await?,
-            ))?;
+            let http_server = wash_runtime::host::http::HttpServer::new_with_tls(
+                http_handler,
+                self.address.parse()?,
+                cert_path,
+                key_path,
+                self.tls_ca.as_deref(),
+            )
+            .await?;
+
+            host_builder = host_builder.with_http_handler(Arc::new(http_server));
 
             debug!("TLS configured - server will use HTTPS");
             "https"
         } else {
             debug!("No TLS configuration provided - server will use HTTP");
-            host_builder =
-                host_builder.with_plugin(Arc::new(HttpServer::new(self.address.parse()?)))?;
+            let http_server =
+                wash_runtime::host::http::HttpServer::new(http_handler, self.address.parse()?);
+            host_builder = host_builder.with_http_handler(Arc::new(http_server));
             "http"
         };
 
@@ -512,7 +515,6 @@ fn update_workload_component(workload: &mut Workload, bytes: Bytes) {
 /// checked bidirectionally against both imports and exports during plugin binding.
 ///
 /// For example:
-/// - A component that **exports** `wasi:http/incoming-handler` needs the HTTP server plugin
 /// - A component that **imports** `wasi:blobstore/blobstore` needs the blobstore plugin
 fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSet<WitInterface>> {
     use wasmtime::component::Component;
@@ -904,7 +906,7 @@ mod tests {
     fn test_extract_component_interfaces_with_version() {
         let wat = r#"
             (component
-                (import "wasi:http/incoming-handler@0.2.2" (instance))
+                (import "wasi:fake/interface@0.2.2" (instance))
             )
         "#;
         let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
@@ -917,8 +919,8 @@ mod tests {
 
         // Version parsing might not work perfectly, but interface should be extracted
         assert_eq!(interface.namespace, "wasi");
-        assert_eq!(interface.package, "http");
-        assert!(interface.interfaces.contains("incoming-handler"));
+        assert_eq!(interface.package, "fake");
+        assert!(interface.interfaces.contains("interface"));
     }
 
     #[test]
