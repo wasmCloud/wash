@@ -52,13 +52,17 @@ pub struct PullCommand {
     /// The path to write the pulled component to
     #[clap(name = "component_path", default_value = "component.wasm")]
     component_path: PathBuf,
+    /// Use HTTP or HTTPS protocol
+    #[clap(long = "insecure", default_value_t = true)]
+    insecure: bool,
 }
 
 impl PullCommand {
     /// Handle the OCI command
     #[instrument(level = "debug", skip_all, name = "oci")]
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
+        let mut oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
+        oci_config.insecure = self.insecure;
         let (c, digest) = pull_component(&self.reference, oci_config).await?;
 
         // Write the component to the specified output path
@@ -90,6 +94,9 @@ pub struct PushCommand {
     /// The path to the component to push
     #[clap(name = "component_path")]
     component_path: PathBuf,
+    /// Use HTTP or HTTPS protocol
+    #[clap(long = "insecure", default_value_t = true)]
+    insecure: bool,
 }
 
 impl PushCommand {
@@ -149,7 +156,8 @@ impl PushCommand {
             Utc::now().to_rfc3339(),
         );
 
-        let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
+        let mut oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
+        oci_config.insecure = self.insecure;
 
         let digest = push_component(
             &self.reference,
