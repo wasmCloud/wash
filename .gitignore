@@ -5,6 +5,8 @@ tests/output
 # Keep Wasm files for testing
 !tests/fixtures/*.wasm
 
+!crates/wash-runtime/tests/fixtures/*.wasm
+
 # Ignore IDE specific files
 .vscode
 

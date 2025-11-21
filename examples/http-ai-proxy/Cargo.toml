@@ -1,0 +1,16 @@
+[package]
+name = "http-ai-proxy"
+edition = "2021"
+version = "0.1.0"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = "1.0"
+futures = "0.3"
+url = "2.5"
+wit-bindgen = "0.38.0"
+wasmcloud-component = "0.2.0"

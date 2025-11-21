@@ -83,4 +83,7 @@ pbjson-build = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber = { workspace = true }
 reqwest = { workspace = true }
+hyper-util = { workspace = true, features = ["tokio", "client", "client-legacy", "http1"] }
+http-body-util = { workspace = true }
+test-log = { workspace = true }
 gag = "1.0"
