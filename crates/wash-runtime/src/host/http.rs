@@ -28,7 +28,6 @@ use hyper::server::conn::http1;
 use tokio::net::TcpListener;
 use tracing::{debug, error, info, warn};
 use wasmtime::component::InstancePre;
-use wasmtime::{AsContextMut, StoreContextMut};
 use wasmtime_wasi_http::{
     WasiHttpView,
     bindings::{ProxyPre, http::types::Scheme},
@@ -577,14 +576,26 @@ async fn invoke_component_handler(
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     // Create a new store for this request with plugin contexts
-    let mut store = workload_handle.new_store(component_id).await?;
+    let store = workload_handle.new_store(component_id).await?;
 
-    handle_component_request(store.as_context_mut(), instance_pre, req).await
+    // Pass ownership of the Store to handle_component_request, which will spawn a task
+    // that keeps the Store alive for the entire request lifetime. This is necessary for
+    // streaming responses where the component may continue writing body chunks after
+    // the handler returns. The Store contains the component's memory, WASI resources,
+    // and the response body stream handle - all of which must remain valid until the
+    // response is fully sent. Each concurrent request gets its own isolated Store.
+    handle_component_request(store, instance_pre, req).await
 }
 
-/// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)
-pub async fn handle_component_request<'a>(
-    mut store: StoreContextMut<'a, Ctx>,
+/// Handle a component request using WASI HTTP with streaming support
+///
+/// This function handles both streaming and non-streaming responses:
+/// - For non-streaming: Component sets full response, returns immediately
+/// - For streaming: Component sets headers, continues streaming body in background
+///
+/// The Store MUST be kept alive for the entire streaming duration.
+pub async fn handle_component_request(
+    mut store: wasmtime::Store<Ctx>,
     pre: InstancePre<Ctx>,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
@@ -593,29 +604,35 @@ pub async fn handle_component_request<'a>(
         Some(scheme) if scheme == &hyper::http::uri::Scheme::HTTP => Scheme::Http,
         Some(scheme) if scheme == &hyper::http::uri::Scheme::HTTPS => Scheme::Https,
         Some(scheme) => Scheme::Other(scheme.as_str().to_string()),
-        // Fallback to HTTP if no scheme is present
         None => Scheme::Http,
     };
     let req = store.data_mut().new_incoming_request(scheme, req)?;
     let out = store.data_mut().new_response_outparam(sender)?;
     let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
 
-    // Run the http request itself by instantiating and calling the component
-    let proxy = pre.instantiate_async(&mut store).await?;
+    // Spawn task that owns the store
+    tokio::spawn(async move {
+        let proxy = match pre.instantiate_async(&mut store).await {
+            Ok(proxy) => proxy,
+            Err(e) => {
+                error!(err = ?e, "failed to instantiate component");
+                return;
+            }
+        };
 
-    proxy
-        .wasi_http_incoming_handler()
-        .call_handle(&mut store, req, out)
-        .await?;
+        if let Err(e) = proxy
+            .wasi_http_incoming_handler()
+            .call_handle(&mut store, req, out)
+            .await
+        {
+            error!(err = ?e, "component handler error");
+        }
+    });
 
+    // Wait for the response to be set
     match receiver.await {
-        // If the client calls `response-outparam::set` then one of these
-        // methods will be called.
         Ok(Ok(resp)) => Ok(resp),
         Ok(Err(e)) => Err(e.into()),
-
-        // Otherwise the `sender` will get dropped along with the `Store`
-        // meaning that the oneshot will get disconnected
         Err(e) => {
             error!(err = ?e, "error receiving http response");
             Err(anyhow::anyhow!(
