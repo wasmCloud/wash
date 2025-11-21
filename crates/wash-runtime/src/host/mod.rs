@@ -624,6 +624,7 @@ impl Default for HostBuilder {
             friendly_name: Default::default(),
             labels: Default::default(),
             http_handler: Default::default(),
+            config: Default::default(),
         }
     }
 }
