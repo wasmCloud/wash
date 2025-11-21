@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::host::{Host, HostApi};
+use crate::host::{Host, HostApi, HostConfig};
 use crate::oci::{self, OciConfig};
 use crate::plugin::HostPlugin;
 use anyhow::Context as _;
@@ -149,7 +149,7 @@ pub async fn run_cluster_host(
                 }
                 // Handle API requests
                 Some(msg) = api_subscription.next() => {
-                    let response = handle_command(host.as_ref(), &msg).await;
+                    let response = handle_command(host.as_ref(), &msg, host.config()).await;
                     match response {
                         Ok(resp_bytes) => {
                             if let Some(reply_to) = msg.reply {
@@ -209,6 +209,7 @@ fn from_api<'de, T: serde::Deserialize<'de>>(bytes: &'de [u8]) -> Result<T, anyh
 async fn handle_command(
     host: &impl HostApi,
     msg: &async_nats::Message,
+    config: &HostConfig,
 ) -> Result<Vec<u8>, anyhow::Error> {
     let command = msg.subject.split('.').skip(3).collect::<Vec<_>>().join(".");
 
@@ -221,7 +222,7 @@ async fn handle_command(
         }
         "workload.start" => {
             let req: types::v2::WorkloadStartRequest = from_api(payload)?;
-            let res = workload_start(host, req).await?;
+            let res = workload_start(host, req, config).await?;
             to_api(&res)
         }
         "workload.stop" => {
@@ -258,6 +259,7 @@ async fn host_heartbeat(host: &impl HostApi) -> anyhow::Result<types::v2::HostHe
 async fn workload_start(
     host: &impl HostApi,
     req: types::v2::WorkloadStartRequest,
+    config: &HostConfig,
 ) -> anyhow::Result<types::v2::WorkloadStartResponse> {
     let Some(types::v2::Workload {
         namespace,
@@ -273,7 +275,8 @@ async fn workload_start(
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
-            let oci_config = image_pull_secret_to_oci_config(&component.image_pull_secret);
+            let mut oci_config = image_pull_secret_to_oci_config(&component.image_pull_secret);
+            oci_config.insecure = config.allow_oci_insecure;
             let bytes = match oci::pull_component(&component.image, oci_config).await {
                 Ok(bytes) => bytes,
                 Err(e) => {
