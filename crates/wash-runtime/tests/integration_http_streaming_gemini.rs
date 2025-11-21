@@ -57,12 +57,8 @@ async fn wasi_http_gemini_proxy() -> Result<()> {
             components: vec![Component {
                 bytes: bytes::Bytes::from_static(HTTP_STREAMING_GEMINI_WASM),
                 local_resources: LocalResources {
-                    memory_limit_mb: 512,
-                    cpu_limit: 2,
-                    config: HashMap::new(),
-                    environment: HashMap::new(),
-                    volume_mounts: vec![],
                     allowed_hosts: vec!["generativelanguage.googleapis.com".to_string()],
+                    ..Default::default()
                 },
                 pool_size: 1,
                 max_invocations: 100,
