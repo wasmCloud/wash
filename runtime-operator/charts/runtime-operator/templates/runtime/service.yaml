@@ -1,0 +1,32 @@
+{{- $top := . }}
+{{- range .Values.runtime.hostGroups }}
+{{- if and (.service) (.service.type) -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: hostgroup-{{ .name }}
+  namespace: {{ $top.Release.Namespace }}
+  labels:
+    wasmcloud.com/name: hostgroup
+    wasmcloud.com/hostgroup: {{ .name }}
+    {{- include "runtime-operator.labels" $top | nindent 4 }}
+spec:
+  selector:
+    wasmcloud.com/name: hostgroup
+    wasmcloud.com/hostgroup: {{ .name }}
+  type: {{ .service.type }}
+  ports: 
+    {{- if .http.enabled }}
+    - name: http
+      {{- with .http.port }}
+      port: {{ . }}
+      {{- end }}
+      {{- with .http.nodePort }}
+      nodePort: {{ . }}
+      {{- end }}
+      targetPort: http
+      protocol: TCP
+    {{- end }}
+---
+{{- end -}}
+{{- end }}

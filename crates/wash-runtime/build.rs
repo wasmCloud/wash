@@ -2,11 +2,29 @@ use std::env;
 use std::fs::{self};
 use std::path::PathBuf;
 
+fn workspace_dir() -> anyhow::Result<PathBuf> {
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
+    let mut current_path = PathBuf::from(manifest_dir);
+
+    // Search upwards for the workspace root
+    loop {
+        if current_path.join("Cargo.lock").exists() {
+            println!("cargo:rustc-env=WORKSPACE_ROOT={}", current_path.display());
+            return Ok(current_path);
+        }
+
+        if let Some(parent) = current_path.parent() {
+            current_path = parent.to_path_buf();
+        } else {
+            anyhow::bail!("Could not find workspace root")
+        }
+    }
+}
 fn main() {
     let out_dir = PathBuf::from(
         env::var("OUT_DIR").expect("failed to look up `OUT_DIR` from environment variables"),
     );
-    let workspace_dir = PathBuf::from(".");
+    let workspace_dir = workspace_dir().expect("failed to get workspace dir");
     let top_proto_dir = workspace_dir.join("proto");
     let proto_dir = top_proto_dir.join("wasmcloud/runtime/v2");
 

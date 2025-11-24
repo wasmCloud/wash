@@ -1,0 +1,69 @@
+global:
+  image:
+    # -- Globally override container image registry, e.g. "ghcr.io"
+    registry: ""
+    # -- Globally override container imagePullSecrets
+    pullSecrets: []
+  nameOverride: ""
+  fullnameOverride: ""
+
+# -- Values for installing a basic NATS Server with Ephemeral Storage. If you prefer to install NATS separately, set `enabled` to `false`.
+nats:
+  enabled: true
+  image:
+    registry: docker.io
+    repository: nats
+    pull_policy: Always
+    tag: "2.11.3-alpine"
+  serviceAccount:
+    # -- Specifies whether a service account should be created
+    create: true
+    # -- Annotations to add to the service account
+    annotations: {}
+
+operator:
+  image:
+    registry: ghcr.io
+    repository: wasmcloud/runtime-operator
+    pull_policy: Always
+    # Overrides the image tag whose default is the chart appVersion.
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 8443
+  # -- This section builds out the service account.
+  # See the [Kubernetes documentation](https://kubernetes.io/docs/concepts/security/service-accounts/).
+  serviceAccount:
+    # -- Specifies whether a service account should be created
+    create: true
+    # -- Annotations to add to the service account
+    annotations: {}
+
+runtime:
+  serviceAccount:
+    # -- Specifies whether a service account should be created
+    create: true
+    # -- Annotations to add to the service account
+    annotations: {}
+  image:
+    registry: ghcr.io
+    repository: wasmcloud/wash
+    pull_policy: Always
+    tag: "2.0.0-rc.3"
+  hostGroups:
+    - name: default
+      replicas: 1
+      service:
+        type: ClusterIP
+      webgpu:
+        enabled: false
+      http:
+        enabled: true
+        port: 80
+      resources:
+        requests:
+          memory: "64Mi"
+          cpu: "250m" # 0.25 CPU cores
+        limits:
+          memory: "512Mi"
+          cpu: "500m" # 0.5 CPU cores

@@ -1,0 +1,28 @@
+{{- if .Values.operator.serviceAccount.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "runtime-operator.fullname" . }}-metrics-reader
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+  annotations: {}
+rules:
+  - nonResourceURLs:
+      - /metrics
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "runtime-operator.fullname" . }}-metrics-auth
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+  annotations: {}
+rules:
+  - apiGroups: ["authentication.k8s.io"]
+    resources: ["tokenreviews"]
+    verbs: ["create"]
+  - apiGroups: ["authorization.k8s.io"]
+    resources: ["subjectaccessreviews"]
+    verbs: ["create"]
+{{- end }}

@@ -1,0 +1,61 @@
+{{- $registry := .Values.runtime.image.registry | default .Values.global.image.registry | default "docker.io" -}}
+{{- $top := . }}
+{{- range .Values.runtime.hostGroups }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hostgroup-{{ .name }}
+  namespace: {{ $top.Release.Namespace }}
+  labels:
+    wasmcloud.com/name: hostgroup
+    wasmcloud.com/hostgroup: {{ .name }}
+    {{- include "runtime-operator.labels" $top | nindent 4 }}
+spec:
+  replicas: {{ .replicas }}
+  selector:
+    matchLabels:
+      wasmcloud.com/name: hostgroup
+      wasmcloud.com/hostgroup: {{ .name }}
+  template:
+    metadata:
+      labels:
+        wasmcloud.com/name: hostgroup
+        wasmcloud.com/hostgroup: {{ .name }}
+        {{- include "runtime-operator.labels" $top | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "runtime-operator.serviceAccountName" $top }}-runtime
+      {{- include "runtime-operator.imagePullSecrets" $top | nindent 6 }}
+      containers:
+        - name: host
+          image: {{ printf "%s/%s" $registry $top.Values.runtime.image.repository }}:{{ $top.Values.runtime.image.tag | default $top.Chart.AppVersion }}
+          args:
+            - "host"
+            - "--host-group={{ .name }}"
+            - "--scheduler-nats-url=nats://nats:4222"
+            - "--data-nats-url=nats://nats:4222"
+            {{- if and (.http) (.http.enabled) }}
+            - "--http-addr=0.0.0.0:9191"
+            {{- end }}
+            {{- if and (.webgpu) (.webgpu.enabled) }}
+            - "--wasi-webgpu"
+            {{- end }}
+          imagePullPolicy: {{ $top.Values.runtime.image.pull_policy }}
+          {{- with .resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            {{- if and (.http) (.http.enabled) }}
+            - name: http
+              containerPort: 9191
+              protocol: TCP
+            {{- end }}
+          securityContext:
+            capabilities:
+              drop:
+                - NET_RAW
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 0
+---
+{{- end }}
