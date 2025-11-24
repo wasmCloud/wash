@@ -15,7 +15,8 @@ use tracing::info;
 use crate::{
     cli::CONFIG_FILE_NAME,
     component_build::{
-        BuildConfig, ProjectType, RustBuildConfig, TinyGoBuildConfig, TypeScriptBuildConfig,
+        BuildConfig, CustomBuildConfig, ProjectType, RustBuildConfig, TinyGoBuildConfig,
+        TypeScriptBuildConfig,
     },
     new::NewTemplate,
     wit::WitConfig,
@@ -220,6 +221,14 @@ where
             if let Ok(ts_config) = figment.extract::<TypeScriptBuildConfig>() {
                 config.build = Some(BuildConfig {
                     typescript: Some(ts_config),
+                    ..Default::default()
+                });
+            }
+        }
+        ProjectType::Custom => {
+            if let Ok(custom_config) = figment.extract::<CustomBuildConfig>() {
+                config.build = Some(BuildConfig {
+                    custom: Some(custom_config),
                     ..Default::default()
                 });
             }
