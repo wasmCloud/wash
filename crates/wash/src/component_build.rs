@@ -20,6 +20,10 @@ pub struct BuildConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub typescript: Option<TypeScriptBuildConfig>,
 
+    /// Custom build configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomBuildConfig>,
+
     /// Expected path to the built Wasm component artifact
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component_path: Option<PathBuf>,
@@ -35,6 +39,8 @@ pub enum ProjectType {
     Go,
     /// TypeScript/JavaScript project (package.json found)
     TypeScript,
+    /// Custom project with user-defined build steps
+    Custom,
     /// Unknown project type
     Unknown,
 }
@@ -311,4 +317,11 @@ fn default_ts_package_manager() -> String {
 
 fn default_ts_build_command() -> String {
     "build".to_string()
+}
+
+/// Custom build configuration with explicit defaults
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomBuildConfig {
+    /// Custom build command
+    pub command: Vec<String>,
 }

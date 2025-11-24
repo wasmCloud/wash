@@ -1,0 +1,35 @@
+{{- $registry := .Values.operator.image.registry | default .Values.global.image.registry | default "docker.io" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: runtime-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    wasmcloud.com/name: runtime-operator
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      wasmcloud.com/name: runtime-operator
+  template:
+    metadata:
+      labels:
+        wasmcloud.com/name: runtime-operator
+        {{- include "runtime-operator.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "runtime-operator.serviceAccountName" . }}
+      {{- include "runtime-operator.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: runtime-operator
+          image: {{ printf "%s/%s" $registry .Values.operator.image.repository }}:{{ .Values.operator.image.tag | default .Chart.AppVersion }}
+          args:
+            - "-nats-url=nats://nats:4222"
+          imagePullPolicy: {{ .Values.operator.image.pull_policy }}
+          securityContext:
+            capabilities:
+              drop:
+                - NET_RAW
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 0

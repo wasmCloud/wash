@@ -1,0 +1,38 @@
+{{- $registry := .Values.nats.image.registry | default .Values.global.image.registry | default "docker.io" -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nats
+  namespace: {{ .Release.Namespace }}
+  labels:
+    wasmcloud.com/name: nats
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      wasmcloud.com/name: nats
+  template:
+    metadata:
+      labels:
+        wasmcloud.com/name: nats
+        {{- include "runtime-operator.labels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "runtime-operator.serviceAccountName" . }}-nats
+      {{- include "runtime-operator.imagePullSecrets" . | nindent 6 }}
+      containers:
+        - name: nats
+          image: {{ printf "%s/%s" $registry .Values.nats.image.repository }}:{{ .Values.nats.image.tag | default "latest" }}
+          args:
+            - "-js"
+          imagePullPolicy: {{ .Values.nats.image.pull_policy }}
+          ports:
+            - name: nats
+              containerPort: 4222
+          securityContext:
+            capabilities:
+              drop:
+                - NET_RAW
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 0

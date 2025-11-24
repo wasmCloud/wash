@@ -1,0 +1,59 @@
+{{- if .Values.operator.serviceAccount.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "runtime-operator.fullname" . }}
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+  annotations: {}
+rules:
+  - apiGroups:
+    - runtime.wasmcloud.dev
+    resources:
+    - artifacts
+    - hosts
+    - workloads
+    - workloadreplicasets
+    - workloaddeployments
+    verbs:
+    - create
+    - delete
+    - get
+    - list
+    - patch
+    - update
+    - watch
+  - apiGroups:
+    - runtime.wasmcloud.dev
+    resources:
+    - artifacts/status
+    - hosts/status
+    - workloads/status
+    - workloadreplicasets/status
+    - workloaddeployments/status
+    verbs:
+    - get
+    - update
+    - patch
+  - apiGroups:
+    - ""
+    resources:
+    - configmaps
+    - secrets
+    - namespaces
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - ""
+    resources:
+    - events
+    verbs:
+    - create
+    - get
+    - list
+    - patch
+    - update
+    - watch
+{{- end }}

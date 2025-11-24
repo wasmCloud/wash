@@ -278,7 +278,13 @@ impl ComponentBuilder {
         }
 
         // Detect project language
-        let project_type = self.detect_project_type().await?;
+        let project_type = {
+            if let Some(_custom_config) = config.build.as_ref().and_then(|b| b.custom.as_ref()) {
+                ProjectType::Custom
+            } else {
+                self.detect_project_type().await?
+            }
+        };
         debug!(?project_type, "detected project type");
 
         // Check for required tools based on project type
@@ -304,6 +310,7 @@ impl ComponentBuilder {
             ProjectType::Rust => self.build_rust_component(config, args).await?,
             ProjectType::Go => self.build_tinygo_component(config, args).await?,
             ProjectType::TypeScript => self.build_typescript_component(config, args).await?,
+            ProjectType::Custom => self.build_custom_component(config, args).await?,
             ProjectType::Unknown => {
                 bail!("unknown project type. Expected to find Cargo.toml, go.mod, or package.json");
             }
@@ -398,6 +405,10 @@ impl ComponentBuilder {
                 if !self.npm_exists().await {
                     missing_tools.push("npm (Node.js package manager)");
                 }
+            }
+            ProjectType::Custom => {
+                // Custom projects must specify their own build commands,
+                // so we cannot check for specific tools here.
             }
             ProjectType::Unknown => {
                 bail!("cannot check tools for unknown project type");
@@ -1074,6 +1085,19 @@ impl ComponentBuilder {
                 "No .wasm file found in common locations: dist/, build/, out/, or project root. Specify --component-path to override this behavior.",
             )
         }
+    }
+
+    async fn build_custom_component(
+        &self,
+        config: &Config,
+        _args: Option<&[String]>,
+    ) -> anyhow::Result<PathBuf> {
+        let custom_config = config
+            .build
+            .as_ref()
+            .and_then(|b| b.custom.as_ref())
+            .context("custom build configuration is required for custom project type")?;
+        self.execute_custom_command(&custom_config.command).await
     }
 
     /// Execute a custom build command, completely overriding standard build logic

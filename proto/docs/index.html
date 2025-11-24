@@ -1,0 +1,1648 @@
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <title>Protocol Documentation</title>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" type="text/css" href="https://fonts.googleapis.com/css?family=Ubuntu:400,700,400italic"/>
+    <style>
+      body {
+        width: 60em;
+        margin: 1em auto;
+        color: #222;
+        font-family: "Ubuntu", sans-serif;
+        padding-bottom: 4em;
+      }
+
+      h1 {
+        font-weight: normal;
+        border-bottom: 1px solid #aaa;
+        padding-bottom: 0.5ex;
+      }
+
+      h2 {
+        border-bottom: 1px solid #aaa;
+        padding-bottom: 0.5ex;
+        margin: 1.5em 0;
+      }
+
+      h3 {
+        font-weight: normal;
+        border-bottom: 1px solid #aaa;
+        padding-bottom: 0.5ex;
+      }
+
+      a {
+        text-decoration: none;
+        color: #567e25;
+      }
+
+      table {
+        width: 100%;
+        font-size: 80%;
+        border-collapse: collapse;
+      }
+
+      thead {
+        font-weight: 700;
+        background-color: #dcdcdc;
+      }
+
+      tbody tr:nth-child(even) {
+        background-color: #fbfbfb;
+      }
+
+      td {
+        border: 1px solid #ccc;
+        padding: 0.5ex 2ex;
+      }
+
+      td p {
+        text-indent: 1em;
+        margin: 0;
+      }
+
+      td p:nth-child(1) {
+        text-indent: 0;  
+      }
+
+       
+      .field-table td:nth-child(1) {  
+        width: 10em;
+      }
+      .field-table td:nth-child(2) {  
+        width: 10em;
+      }
+      .field-table td:nth-child(3) {  
+        width: 6em;
+      }
+      .field-table td:nth-child(4) {  
+        width: auto;
+      }
+
+       
+      .extension-table td:nth-child(1) {  
+        width: 10em;
+      }
+      .extension-table td:nth-child(2) {  
+        width: 10em;
+      }
+      .extension-table td:nth-child(3) {  
+        width: 10em;
+      }
+      .extension-table td:nth-child(4) {  
+        width: 5em;
+      }
+      .extension-table td:nth-child(5) {  
+        width: auto;
+      }
+
+       
+      .enum-table td:nth-child(1) {  
+        width: 10em;
+      }
+      .enum-table td:nth-child(2) {  
+        width: 10em;
+      }
+      .enum-table td:nth-child(3) {  
+        width: auto;
+      }
+
+       
+      .scalar-value-types-table tr {
+        height: 3em;
+      }
+
+       
+      #toc-container ul {
+        list-style-type: none;
+        padding-left: 1em;
+        line-height: 180%;
+        margin: 0;
+      }
+      #toc > li > a {
+        font-weight: bold;
+      }
+
+       
+      .file-heading {
+        width: 100%;
+        display: table;
+        border-bottom: 1px solid #aaa;
+        margin: 4em 0 1.5em 0;
+      }
+      .file-heading h2 {
+        border: none;
+        display: table-cell;
+      }
+      .file-heading a {
+        text-align: right;
+        display: table-cell;
+      }
+
+       
+      .badge {
+        width: 1.6em;
+        height: 1.6em;
+        display: inline-block;
+
+        line-height: 1.6em;
+        text-align: center;
+        font-weight: bold;
+        font-size: 60%;
+
+        color: #89ba48;
+        background-color: #dff0c8;
+
+        margin: 0.5ex 1em 0.5ex -1em;
+        border: 1px solid #fbfbfb;
+        border-radius: 1ex;
+      }
+    </style>
+
+    
+    <link rel="stylesheet" type="text/css" href="stylesheet.css"/>
+  </head>
+
+  <body>
+
+    <h1 id="title">Protocol Documentation</h1>
+
+    <h2>Table of Contents</h2>
+
+    <div id="toc-container">
+      <ul id="toc">
+        
+          
+          <li>
+            <a href="#wasmcloud%2fruntime%2fv2%2fwit_interface.proto">wasmcloud/runtime/v2/wit_interface.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WitInterface"><span class="badge">M</span>WitInterface</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WitInterface.ConfigEntry"><span class="badge">M</span>WitInterface.ConfigEntry</a>
+                </li>
+              
+              
+              
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#wasmcloud%2fruntime%2fv2%2fhost_heartbeat.proto">wasmcloud/runtime/v2/host_heartbeat.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.HostHeartbeat"><span class="badge">M</span>HostHeartbeat</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.HostHeartbeat.LabelsEntry"><span class="badge">M</span>HostHeartbeat.LabelsEntry</a>
+                </li>
+              
+              
+              
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#wasmcloud%2fruntime%2fv2%2fhost_service.proto">wasmcloud/runtime/v2/host_service.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.HostHeartbeatRequest"><span class="badge">M</span>HostHeartbeatRequest</a>
+                </li>
+              
+              
+              
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.HostService"><span class="badge">S</span>HostService</a>
+                </li>
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#wasmcloud%2fruntime%2fv2%2fworkload.proto">wasmcloud/runtime/v2/workload.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.Component"><span class="badge">M</span>Component</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.EmptyDirVolume"><span class="badge">M</span>EmptyDirVolume</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.HostPathVolume"><span class="badge">M</span>HostPathVolume</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.ImagePullSecret"><span class="badge">M</span>ImagePullSecret</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.LocalResources"><span class="badge">M</span>LocalResources</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.LocalResources.ConfigEntry"><span class="badge">M</span>LocalResources.ConfigEntry</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.LocalResources.EnvironmentEntry"><span class="badge">M</span>LocalResources.EnvironmentEntry</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.Service"><span class="badge">M</span>Service</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.Volume"><span class="badge">M</span>Volume</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.VolumeMount"><span class="badge">M</span>VolumeMount</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WitWorld"><span class="badge">M</span>WitWorld</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.Workload"><span class="badge">M</span>Workload</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.Workload.AnnotationsEntry"><span class="badge">M</span>Workload.AnnotationsEntry</a>
+                </li>
+              
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadState"><span class="badge">E</span>WorkloadState</a>
+                </li>
+              
+              
+              
+            </ul>
+          </li>
+        
+          
+          <li>
+            <a href="#wasmcloud%2fruntime%2fv2%2fworkload_service.proto">wasmcloud/runtime/v2/workload_service.proto</a>
+            <ul>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadStartRequest"><span class="badge">M</span>WorkloadStartRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadStartResponse"><span class="badge">M</span>WorkloadStartResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadStatus"><span class="badge">M</span>WorkloadStatus</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadStatusRequest"><span class="badge">M</span>WorkloadStatusRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadStatusResponse"><span class="badge">M</span>WorkloadStatusResponse</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadStopRequest"><span class="badge">M</span>WorkloadStopRequest</a>
+                </li>
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadStopResponse"><span class="badge">M</span>WorkloadStopResponse</a>
+                </li>
+              
+              
+              
+              
+                <li>
+                  <a href="#wasmcloud.runtime.v2.WorkloadService"><span class="badge">S</span>WorkloadService</a>
+                </li>
+              
+            </ul>
+          </li>
+        
+        <li><a href="#scalar-value-types">Scalar Value Types</a></li>
+      </ul>
+    </div>
+
+    
+      
+      <div class="file-heading">
+        <h2 id="wasmcloud/runtime/v2/wit_interface.proto">wasmcloud/runtime/v2/wit_interface.proto</h2><a href="#title">Top</a>
+      </div>
+      <p></p>
+
+      
+        <h3 id="wasmcloud.runtime.v2.WitInterface">WitInterface</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>namespace</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>package</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>version</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>interfaces</td>
+                  <td><a href="#string">string</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>config</td>
+                  <td><a href="#wasmcloud.runtime.v2.WitInterface.ConfigEntry">WitInterface.ConfigEntry</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WitInterface.ConfigEntry">WitInterface.ConfigEntry</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>key</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>value</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+
+      
+
+      
+
+      
+    
+      
+      <div class="file-heading">
+        <h2 id="wasmcloud/runtime/v2/host_heartbeat.proto">wasmcloud/runtime/v2/host_heartbeat.proto</h2><a href="#title">Top</a>
+      </div>
+      <p></p>
+
+      
+        <h3 id="wasmcloud.runtime.v2.HostHeartbeat">HostHeartbeat</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>id</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>hostname</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>friendly_name</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>version</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>labels</td>
+                  <td><a href="#wasmcloud.runtime.v2.HostHeartbeat.LabelsEntry">HostHeartbeat.LabelsEntry</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>started_at</td>
+                  <td><a href="#google.protobuf.Timestamp">google.protobuf.Timestamp</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>os_arch</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>os_name</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>os_kernel</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>system_cpu_usage</td>
+                  <td><a href="#float">float</a></td>
+                  <td></td>
+                  <td><p>system cpu usage in percent </p></td>
+                </tr>
+              
+                <tr>
+                  <td>system_memory_total</td>
+                  <td><a href="#uint64">uint64</a></td>
+                  <td></td>
+                  <td><p>system total memory in bytes </p></td>
+                </tr>
+              
+                <tr>
+                  <td>system_memory_free</td>
+                  <td><a href="#uint64">uint64</a></td>
+                  <td></td>
+                  <td><p>system free memory in bytes </p></td>
+                </tr>
+              
+                <tr>
+                  <td>component_count</td>
+                  <td><a href="#uint64">uint64</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>workload_count</td>
+                  <td><a href="#uint64">uint64</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>imports</td>
+                  <td><a href="#wasmcloud.runtime.v2.WitInterface">WitInterface</a></td>
+                  <td>repeated</td>
+                  <td><p>new stuff </p></td>
+                </tr>
+              
+                <tr>
+                  <td>exports</td>
+                  <td><a href="#wasmcloud.runtime.v2.WitInterface">WitInterface</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.HostHeartbeat.LabelsEntry">HostHeartbeat.LabelsEntry</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>key</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>value</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+
+      
+
+      
+
+      
+    
+      
+      <div class="file-heading">
+        <h2 id="wasmcloud/runtime/v2/host_service.proto">wasmcloud/runtime/v2/host_service.proto</h2><a href="#title">Top</a>
+      </div>
+      <p></p>
+
+      
+        <h3 id="wasmcloud.runtime.v2.HostHeartbeatRequest">HostHeartbeatRequest</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>heartbeat</td>
+                  <td><a href="#wasmcloud.runtime.v2.HostHeartbeat">HostHeartbeat</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+
+      
+
+      
+
+      
+        <h3 id="wasmcloud.runtime.v2.HostService">HostService</h3>
+        <p>Methods called by the Wasm Host on Runtime Operator.</p>
+        <table class="enum-table">
+          <thead>
+            <tr><td>Method Name</td><td>Request Type</td><td>Response Type</td><td>Description</td></tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td>HostHeartbeat</td>
+                <td><a href="#wasmcloud.runtime.v2.HostHeartbeatRequest">HostHeartbeatRequest</a></td>
+                <td><a href="#google.protobuf.Empty">.google.protobuf.Empty</a></td>
+                <td><p>Periodic heartbeat
+This information is used by the Runtime Operator to monitor the health of the Wasm Host &amp; make placement decisions.</p></td>
+              </tr>
+            
+          </tbody>
+        </table>
+
+        
+    
+      
+      <div class="file-heading">
+        <h2 id="wasmcloud/runtime/v2/workload.proto">wasmcloud/runtime/v2/workload.proto</h2><a href="#title">Top</a>
+      </div>
+      <p></p>
+
+      
+        <h3 id="wasmcloud.runtime.v2.Component">Component</h3>
+        <p>Components are the building blocks of a Workload.</p><p>All their invocations happen over WIT Interfaces, and state is ephemeral.</p><p>While they can TCP connect outbound, they cannot accept inbound connections (fail bind call).</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>image</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>local_resources</td>
+                  <td><a href="#wasmcloud.runtime.v2.LocalResources">LocalResources</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>pool_size</td>
+                  <td><a href="#sint32">sint32</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>max_invocations</td>
+                  <td><a href="#sint32">sint32</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>image_pull_secret</td>
+                  <td><a href="#wasmcloud.runtime.v2.ImagePullSecret">ImagePullSecret</a></td>
+                  <td></td>
+                  <td><p>Optional credentials for pulling the image from a private registry </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.EmptyDirVolume">EmptyDirVolume</h3>
+        <p></p>
+
+        
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.HostPathVolume">HostPathVolume</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>local_path</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.ImagePullSecret">ImagePullSecret</h3>
+        <p>Credentials for pulling images from private OCI registries</p><p>⚠️ SECURITY NOTE:</p><p>Credentials are transmitted as plain text in protobuf messages.</p><p>Always use TLS/encryption for all network communication to protect these credentials.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>username</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>password</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.LocalResources">LocalResources</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>memory_limit_mb</td>
+                  <td><a href="#int32">int32</a></td>
+                  <td></td>
+                  <td><p>Memory in MiB </p></td>
+                </tr>
+              
+                <tr>
+                  <td>cpu_limit</td>
+                  <td><a href="#int32">int32</a></td>
+                  <td></td>
+                  <td><p>CPU in (no idea) </p></td>
+                </tr>
+              
+                <tr>
+                  <td>config</td>
+                  <td><a href="#wasmcloud.runtime.v2.LocalResources.ConfigEntry">LocalResources.ConfigEntry</a></td>
+                  <td>repeated</td>
+                  <td><p>A Generic key/value map for low level component configuration. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>environment</td>
+                  <td><a href="#wasmcloud.runtime.v2.LocalResources.EnvironmentEntry">LocalResources.EnvironmentEntry</a></td>
+                  <td>repeated</td>
+                  <td><p>Environment variables for the component, mapped to wasi:cli/env. </p></td>
+                </tr>
+              
+                <tr>
+                  <td>volume_mounts</td>
+                  <td><a href="#wasmcloud.runtime.v2.VolumeMount">VolumeMount</a></td>
+                  <td>repeated</td>
+                  <td><p>Volume mounts from the parent Workload </p></td>
+                </tr>
+              
+                <tr>
+                  <td>allowed_hosts</td>
+                  <td><a href="#string">string</a></td>
+                  <td>repeated</td>
+                  <td><p>Allowed Hosts for TCP Outbound connections. &#34;localhost&#34; is always allowed.
+Can contain wildcards &#34;*&#34; as any part of the hostname.Ex: &#34;*.wasmcloud.io&#34; but not &#34;som*thing.wasmcloud.io&#34;
+Note this controls socket connections but not DNS lookups.
+Upon a successful lookup, the host will allow outbound connections to the specified hosts. </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.LocalResources.ConfigEntry">LocalResources.ConfigEntry</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>key</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>value</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.LocalResources.EnvironmentEntry">LocalResources.EnvironmentEntry</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>key</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>value</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.Service">Service</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>image</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>local_resources</td>
+                  <td><a href="#wasmcloud.runtime.v2.LocalResources">LocalResources</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>max_restarts</td>
+                  <td><a href="#uint64">uint64</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>image_pull_secret</td>
+                  <td><a href="#wasmcloud.runtime.v2.ImagePullSecret">ImagePullSecret</a></td>
+                  <td></td>
+                  <td><p>Optional credentials for pulling the image from a private registry </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.Volume">Volume</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>name</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>host_path</td>
+                  <td><a href="#wasmcloud.runtime.v2.HostPathVolume">HostPathVolume</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>empty_dir</td>
+                  <td><a href="#wasmcloud.runtime.v2.EmptyDirVolume">EmptyDirVolume</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.VolumeMount">VolumeMount</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>name</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>mount_path</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>read_only</td>
+                  <td><a href="#bool">bool</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WitWorld">WitWorld</h3>
+        <p>Represents the WIT World (WebAssembly Interface Types)</p><p>World Resolution is the intersection of all Component 'root' interfaces with Host interfaces. It must overlap 100%.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>components</td>
+                  <td><a href="#wasmcloud.runtime.v2.Component">Component</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>host_interfaces</td>
+                  <td><a href="#wasmcloud.runtime.v2.WitInterface">WitInterface</a></td>
+                  <td>repeated</td>
+                  <td><p>Host interfaces that are available to the components.
+The &#39;config&#39; on each host_interface may carry Workload Specific configuration. </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.Workload">Workload</h3>
+        <p>Workloads are Components that when combined form a complete unit of execution (a.k.a: WIT World fully resolved).</p><p>Workloads also carry an extra Component ( Service ) that can interact with the fully resolved WIT World.</p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>namespace</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>name</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>annotations</td>
+                  <td><a href="#wasmcloud.runtime.v2.Workload.AnnotationsEntry">Workload.AnnotationsEntry</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>service</td>
+                  <td><a href="#wasmcloud.runtime.v2.Service">Service</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>wit_world</td>
+                  <td><a href="#wasmcloud.runtime.v2.WitWorld">WitWorld</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>volumes</td>
+                  <td><a href="#wasmcloud.runtime.v2.Volume">Volume</a></td>
+                  <td>repeated</td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.Workload.AnnotationsEntry">Workload.AnnotationsEntry</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>key</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>value</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadState">WorkloadState</h3>
+        <p></p>
+        <table class="enum-table">
+          <thead>
+            <tr><td>Name</td><td>Number</td><td>Description</td></tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td>WORKLOAD_STATE_UNSPECIFIED</td>
+                <td>0</td>
+                <td><p>Sentinel value, should not be used</p></td>
+              </tr>
+            
+              <tr>
+                <td>WORKLOAD_STATE_STARTING</td>
+                <td>1</td>
+                <td><p>Workload &#34;start&#34; received by the host and workload is starting.
+The workload_id is now in the host&#39;s internal state.
+The host might have not performed internal checks yet, resulting in
+the workload not being started and going into the &#34;error&#34; state.</p></td>
+              </tr>
+            
+              <tr>
+                <td>WORKLOAD_STATE_RUNNING</td>
+                <td>2</td>
+                <td><p>Workload passed checks and is considered running</p></td>
+              </tr>
+            
+              <tr>
+                <td>WORKLOAD_STATE_COMPLETED</td>
+                <td>3</td>
+                <td><p>Workload completed execution
+This indicates the workload executed to completion
+Useful for wasi:cli/run workloads</p></td>
+              </tr>
+            
+              <tr>
+                <td>WORKLOAD_STATE_STOPPING</td>
+                <td>4</td>
+                <td><p>Workload &#34;stop&#34; received and stopping
+The host continues to report the workload status
+until the workload is fully stopped.
+Then the host removes the workload from its internal state.</p></td>
+              </tr>
+            
+              <tr>
+                <td>WORKLOAD_STATE_ERROR</td>
+                <td>5</td>
+                <td><p>Workload failed to start or stopped due to an error</p></td>
+              </tr>
+            
+          </tbody>
+        </table>
+      
+
+      
+
+      
+    
+      
+      <div class="file-heading">
+        <h2 id="wasmcloud/runtime/v2/workload_service.proto">wasmcloud/runtime/v2/workload_service.proto</h2><a href="#title">Top</a>
+      </div>
+      <p></p>
+
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadStartRequest">WorkloadStartRequest</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>workload</td>
+                  <td><a href="#wasmcloud.runtime.v2.Workload">Workload</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadStartResponse">WorkloadStartResponse</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>workload_status</td>
+                  <td><a href="#wasmcloud.runtime.v2.WorkloadStatus">WorkloadStatus</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadStatus">WorkloadStatus</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>workload_id</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>workload_state</td>
+                  <td><a href="#wasmcloud.runtime.v2.WorkloadState">WorkloadState</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>message</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadStatusRequest">WorkloadStatusRequest</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>workload_id</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadStatusResponse">WorkloadStatusResponse</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>workload_status</td>
+                  <td><a href="#wasmcloud.runtime.v2.WorkloadStatus">WorkloadStatus</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadStopRequest">WorkloadStopRequest</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>workload_id</td>
+                  <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadStopResponse">WorkloadStopResponse</h3>
+        <p></p>
+
+        
+          <table class="field-table">
+            <thead>
+              <tr><td>Field</td><td>Type</td><td>Label</td><td>Description</td></tr>
+            </thead>
+            <tbody>
+              
+                <tr>
+                  <td>workload_status</td>
+                  <td><a href="#wasmcloud.runtime.v2.WorkloadStatus">WorkloadStatus</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+            </tbody>
+          </table>
+
+          
+
+        
+      
+
+      
+
+      
+
+      
+        <h3 id="wasmcloud.runtime.v2.WorkloadService">WorkloadService</h3>
+        <p>Methods called by the Runtime Operator on a given Wasm Host.</p>
+        <table class="enum-table">
+          <thead>
+            <tr><td>Method Name</td><td>Request Type</td><td>Response Type</td><td>Description</td></tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td>WorkloadStart</td>
+                <td><a href="#wasmcloud.runtime.v2.WorkloadStartRequest">WorkloadStartRequest</a></td>
+                <td><a href="#wasmcloud.runtime.v2.WorkloadStartResponse">WorkloadStartResponse</a></td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>WorkloadStatus</td>
+                <td><a href="#wasmcloud.runtime.v2.WorkloadStatusRequest">WorkloadStatusRequest</a></td>
+                <td><a href="#wasmcloud.runtime.v2.WorkloadStatusResponse">WorkloadStatusResponse</a></td>
+                <td><p></p></td>
+              </tr>
+            
+              <tr>
+                <td>WorkloadStop</td>
+                <td><a href="#wasmcloud.runtime.v2.WorkloadStopRequest">WorkloadStopRequest</a></td>
+                <td><a href="#wasmcloud.runtime.v2.WorkloadStopResponse">WorkloadStopResponse</a></td>
+                <td><p></p></td>
+              </tr>
+            
+          </tbody>
+        </table>
+
+        
+    
+
+    <h2 id="scalar-value-types">Scalar Value Types</h2>
+    <table class="scalar-value-types-table">
+      <thead>
+        <tr><td>.proto Type</td><td>Notes</td><td>C++</td><td>Java</td><td>Python</td><td>Go</td><td>C#</td><td>PHP</td><td>Ruby</td></tr>
+      </thead>
+      <tbody>
+        
+          <tr id="double">
+            <td>double</td>
+            <td></td>
+            <td>double</td>
+            <td>double</td>
+            <td>float</td>
+            <td>float64</td>
+            <td>double</td>
+            <td>float</td>
+            <td>Float</td>
+          </tr>
+        
+          <tr id="float">
+            <td>float</td>
+            <td></td>
+            <td>float</td>
+            <td>float</td>
+            <td>float</td>
+            <td>float32</td>
+            <td>float</td>
+            <td>float</td>
+            <td>Float</td>
+          </tr>
+        
+          <tr id="int32">
+            <td>int32</td>
+            <td>Uses variable-length encoding. Inefficient for encoding negative numbers – if your field is likely to have negative values, use sint32 instead.</td>
+            <td>int32</td>
+            <td>int</td>
+            <td>int</td>
+            <td>int32</td>
+            <td>int</td>
+            <td>integer</td>
+            <td>Bignum or Fixnum (as required)</td>
+          </tr>
+        
+          <tr id="int64">
+            <td>int64</td>
+            <td>Uses variable-length encoding. Inefficient for encoding negative numbers – if your field is likely to have negative values, use sint64 instead.</td>
+            <td>int64</td>
+            <td>long</td>
+            <td>int/long</td>
+            <td>int64</td>
+            <td>long</td>
+            <td>integer/string</td>
+            <td>Bignum</td>
+          </tr>
+        
+          <tr id="uint32">
+            <td>uint32</td>
+            <td>Uses variable-length encoding.</td>
+            <td>uint32</td>
+            <td>int</td>
+            <td>int/long</td>
+            <td>uint32</td>
+            <td>uint</td>
+            <td>integer</td>
+            <td>Bignum or Fixnum (as required)</td>
+          </tr>
+        
+          <tr id="uint64">
+            <td>uint64</td>
+            <td>Uses variable-length encoding.</td>
+            <td>uint64</td>
+            <td>long</td>
+            <td>int/long</td>
+            <td>uint64</td>
+            <td>ulong</td>
+            <td>integer/string</td>
+            <td>Bignum or Fixnum (as required)</td>
+          </tr>
+        
+          <tr id="sint32">
+            <td>sint32</td>
+            <td>Uses variable-length encoding. Signed int value. These more efficiently encode negative numbers than regular int32s.</td>
+            <td>int32</td>
+            <td>int</td>
+            <td>int</td>
+            <td>int32</td>
+            <td>int</td>
+            <td>integer</td>
+            <td>Bignum or Fixnum (as required)</td>
+          </tr>
+        
+          <tr id="sint64">
+            <td>sint64</td>
+            <td>Uses variable-length encoding. Signed int value. These more efficiently encode negative numbers than regular int64s.</td>
+            <td>int64</td>
+            <td>long</td>
+            <td>int/long</td>
+            <td>int64</td>
+            <td>long</td>
+            <td>integer/string</td>
+            <td>Bignum</td>
+          </tr>
+        
+          <tr id="fixed32">
+            <td>fixed32</td>
+            <td>Always four bytes. More efficient than uint32 if values are often greater than 2^28.</td>
+            <td>uint32</td>
+            <td>int</td>
+            <td>int</td>
+            <td>uint32</td>
+            <td>uint</td>
+            <td>integer</td>
+            <td>Bignum or Fixnum (as required)</td>
+          </tr>
+        
+          <tr id="fixed64">
+            <td>fixed64</td>
+            <td>Always eight bytes. More efficient than uint64 if values are often greater than 2^56.</td>
+            <td>uint64</td>
+            <td>long</td>
+            <td>int/long</td>
+            <td>uint64</td>
+            <td>ulong</td>
+            <td>integer/string</td>
+            <td>Bignum</td>
+          </tr>
+        
+          <tr id="sfixed32">
+            <td>sfixed32</td>
+            <td>Always four bytes.</td>
+            <td>int32</td>
+            <td>int</td>
+            <td>int</td>
+            <td>int32</td>
+            <td>int</td>
+            <td>integer</td>
+            <td>Bignum or Fixnum (as required)</td>
+          </tr>
+        
+          <tr id="sfixed64">
+            <td>sfixed64</td>
+            <td>Always eight bytes.</td>
+            <td>int64</td>
+            <td>long</td>
+            <td>int/long</td>
+            <td>int64</td>
+            <td>long</td>
+            <td>integer/string</td>
+            <td>Bignum</td>
+          </tr>
+        
+          <tr id="bool">
+            <td>bool</td>
+            <td></td>
+            <td>bool</td>
+            <td>boolean</td>
+            <td>boolean</td>
+            <td>bool</td>
+            <td>bool</td>
+            <td>boolean</td>
+            <td>TrueClass/FalseClass</td>
+          </tr>
+        
+          <tr id="string">
+            <td>string</td>
+            <td>A string must always contain UTF-8 encoded or 7-bit ASCII text.</td>
+            <td>string</td>
+            <td>String</td>
+            <td>str/unicode</td>
+            <td>string</td>
+            <td>string</td>
+            <td>string</td>
+            <td>String (UTF-8)</td>
+          </tr>
+        
+          <tr id="bytes">
+            <td>bytes</td>
+            <td>May contain any arbitrary sequence of bytes.</td>
+            <td>string</td>
+            <td>ByteString</td>
+            <td>str</td>
+            <td>[]byte</td>
+            <td>ByteString</td>
+            <td>string</td>
+            <td>String (ASCII-8BIT)</td>
+          </tr>
+        
+      </tbody>
+    </table>
+  </body>
+</html>
+
