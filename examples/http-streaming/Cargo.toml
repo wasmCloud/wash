@@ -1,5 +1,5 @@
 [package]
-name = "http-ai-proxy"
+name = "http-streaming"
 edition = "2021"
 version = "0.1.0"
 
@@ -9,7 +9,4 @@ version = "0.1.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-anyhow = "1.0"
-futures = "0.3"
-url = "2.5"
 wit-bindgen = "0.38.0"
