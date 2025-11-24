@@ -1,0 +1,20 @@
+apiVersion: runtime.wasmcloud.dev/v1alpha1
+kind: WorkloadDeployment
+metadata:
+  name: hello
+spec:
+  replicas: 1
+  template:
+    spec:
+      hostSelector:
+        hostgroup: public-ingress
+      hostInterfaces:
+        - namespace: wasi
+          package: http
+          interfaces:
+            - incoming-handler
+          config:
+            host: localhost
+      components:
+        - name: hello-world
+          image: ghcr.io/wasmcloud/components/http-hello-world-rust:0.1.0

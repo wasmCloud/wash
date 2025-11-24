@@ -1,0 +1,24 @@
+apiVersion: runtime.wasmcloud.dev/v1alpha1
+kind: Component
+metadata:
+  name: example
+spec:
+  cluster:
+    name: example
+    namespace: default
+  image: ghcr.io/wasmcloud/components/http-hello-world-rust:0.1.0
+  concurrency: 100
+  replicas: 1
+  exports:
+    - wit:
+        namespace: wasi
+        package: http
+        interfaces:
+          - incoming-handler
+      target:
+        provider:
+          name: http-server
+          namespace: default
+        configFrom:
+          - name: link-config
+            namespace: default
