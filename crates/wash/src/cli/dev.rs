@@ -109,6 +109,7 @@ impl CliCommand for DevCommand {
                 cert_path,
                 key_path,
                 dev_config.tls_ca_path.as_deref(),
+                None,
             )
             .await?;
 

@@ -160,10 +160,13 @@ fn main() {
     check_and_rebuild_fixtures(&workspace_dir, &tracked_examples)
         .expect("failed to check/rebuild fixtures");
 
+    println!("cargo:rerun-if-changed=tests/proto");
+    println!("cargo:rerun-if-changed=proto");
     let top_proto_dir = workspace_dir.join("proto");
     let proto_dir = top_proto_dir.join("wasmcloud/runtime/v2");
 
-    let proto_dir_files = fs::read_dir(proto_dir).expect("failed to list files in `proto_dir`");
+    // Compile Runtime API protos if directory exists
+    let proto_dir_files = fs::read_dir(&proto_dir).expect("failed to list files in `proto_dir`");
     let proto_files: Vec<PathBuf> = proto_dir_files
         .into_iter()
         .map(|file| file.expect("failed to read proto file").path())
@@ -176,14 +179,27 @@ fn main() {
         .file_descriptor_set_path(&descriptor_file)
         .extern_path(".google.protobuf", "::pbjson_types")
         .compile_protos(&proto_files, &[top_proto_dir])
-        .expect("failed to compile protos");
+        .expect("failed to compile Runtime API protos");
 
     // Generate serde bindings for the Runtime API
-    let descriptor_bytes = std::fs::read(descriptor_file).expect("failed to read descriptor file");
+    let descriptor_bytes = std::fs::read(&descriptor_file).expect("failed to read descriptor file");
 
     pbjson_build::Builder::new()
         .register_descriptors(&descriptor_bytes)
         .expect("failed to register descriptor")
         .build(&[".wasmcloud.runtime.v2"])
-        .expect("failed to build final protos");
+        .expect("failed to build Runtime API protos");
+
+    // Compile test proto files if they exist
+    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let test_proto_file = crate_dir.join("tests/proto/helloworld.proto");
+
+    println!("cargo:rerun-if-changed={}", test_proto_file.display());
+
+    tonic_prost_build::configure()
+        .build_client(false)
+        .build_server(true)
+        .build_transport(true)
+        .compile_protos(&[&test_proto_file], &[&crate_dir.join("tests/proto")])
+        .expect("failed to compile test protos");
 }

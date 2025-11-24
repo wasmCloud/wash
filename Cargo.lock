@@ -2399,9 +2399,9 @@ checksum = "135b12329e5e3ce057a9f972339ea52bc954fe1e9358ef27f95e89716fbc5424"
 
 [[package]]
 name = "hyper"
-version = "1.7.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb3aa54a13a0dfe7fbe3a59e0c76093041720fdc77b110cc0fc260fafb4dc51e"
+checksum = "2ab2d4f250c3d7b1c9fcdff1cece94ea4e2dfbec68614f7b87cb205f24ca9d11"
 dependencies = [
  "atomic-waker",
  "bytes",
@@ -2435,7 +2435,7 @@ dependencies = [
  "tokio",
  "tokio-rustls 0.26.2",
  "tower-service",
- "webpki-roots 1.0.2",
+ "webpki-roots 1.0.4",
 ]
 
 [[package]]
@@ -2453,9 +2453,9 @@ dependencies = [
 
 [[package]]
 name = "hyper-util"
-version = "0.1.16"
+version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8d9b05277c7e8da2c93a568989bb6207bef0112e8d17df7a6eda4a3cf143bc5e"
+checksum = "52e9a2a24dc5c6821e71a7030e1e14b7b632acac55c40e9d2e082c621261bb56"
 dependencies = [
  "base64 0.22.1",
  "bytes",
@@ -4572,7 +4572,7 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
- "webpki-roots 1.0.2",
+ "webpki-roots 1.0.4",
 ]
 
 [[package]]
@@ -6337,10 +6337,13 @@ dependencies = [
  "futures",
  "gag",
  "hostname",
+ "http-body-util",
  "hyper",
+ "hyper-util",
  "names",
  "oci-client 0.15.0",
  "oci-wasm 0.3.0",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-semantic-conventions",
  "opentelemetry_sdk",
@@ -6363,6 +6366,7 @@ dependencies = [
  "tonic",
  "tonic-prost",
  "tonic-prost-build",
+ "tower-service",
  "tracing",
  "tracing-subscriber",
  "uuid",
@@ -7198,14 +7202,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.2",
+ "webpki-roots 1.0.4",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.2"
+version = "1.0.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e8983c3ab33d6fb807cfcdad2491c4ea8cbc8ed839181c7dfd9c67c83e261b2"
+checksum = "b2878ef029c47c6e8cf779119f20fcf52bde7ad42a731b2a304bc221df17571e"
 dependencies = [
  "rustls-pki-types",
 ]

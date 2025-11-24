@@ -27,10 +27,16 @@ use std::{
 
 use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::ResolvedWorkload;
+use crate::host::transport::CompositeOutgoingHandler;
 use crate::wit::WitInterface;
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
+use hyper_util::rt::TokioIo;
+use rustls::{ServerConfig, pki_types::CertificateDer};
+use rustls_pemfile::{certs, private_key};
 use tokio::net::TcpListener;
+use tokio::sync::{RwLock, mpsc};
+use tokio_rustls::TlsAcceptor;
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
 use wasmtime::Store;
@@ -39,13 +45,7 @@ use wasmtime_wasi_http::{
     WasiHttpView,
     bindings::{ProxyPre, http::types::Scheme},
     body::HyperOutgoingBody,
-    io::TokioIo,
 };
-
-use rustls::{ServerConfig, pki_types::CertificateDer};
-use rustls_pemfile::{certs, private_key};
-use tokio::sync::{RwLock, mpsc};
-use tokio_rustls::TlsAcceptor;
 
 /// Trait defining the routing behavior for HTTP requests
 /// Allows for custom routing logic based on workload IDs and requests
@@ -303,6 +303,7 @@ pub struct HttpServer<T: Router> {
     workload_handles: WorkloadHandles,
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
+    outgoing: CompositeOutgoingHandler,
 }
 
 impl<T: Router> std::fmt::Debug for HttpServer<T> {
@@ -323,12 +324,22 @@ impl<T: Router> HttpServer<T> {
     /// # Returns
     /// A new `HttpServer` instance configured for HTTP connections.
     pub fn new(router: T, addr: SocketAddr) -> Self {
+        Self::with_outgoing_handler(router, addr, CompositeOutgoingHandler::default())
+    }
+
+    /// Creates a new HTTP server with custom outgoing handlers
+    pub fn with_outgoing_handler(
+        router: T,
+        addr: SocketAddr,
+        outgoing: CompositeOutgoingHandler,
+    ) -> Self {
         Self {
             router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: None,
+            outgoing,
         }
     }
 
@@ -352,6 +363,7 @@ impl<T: Router> HttpServer<T> {
         cert_path: &Path,
         key_path: &Path,
         ca_path: Option<&Path>,
+        outgoing: Option<CompositeOutgoingHandler>,
     ) -> anyhow::Result<Self> {
         let tls_config = load_tls_config(cert_path, key_path, ca_path).await?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
@@ -362,6 +374,7 @@ impl<T: Router> HttpServer<T> {
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
+            outgoing: outgoing.unwrap_or_default(),
         })
     }
 }
@@ -457,11 +470,8 @@ impl<T: Router> HostHandler for HttpServer<T> {
                 wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!("request not allowed: {}", e))
             })?;
 
-        // NOTE(lxf): Bring wasi-http code if needed
-        // Separate HTTP / GRPC handling
-        Ok(wasmtime_wasi_http::types::default_send_request(
-            request, config,
-        ))
+        // Route through composite handler
+        self.outgoing.send_request(request, config)
     }
 }
 
@@ -592,7 +602,6 @@ async fn handle_http_request<T: Router>(
             error_response(404)
         }
     };
-
     Ok(response)
 }
 

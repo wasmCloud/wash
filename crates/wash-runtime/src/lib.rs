@@ -1,6 +1,8 @@
 #![doc = include_str!("../README.md")]
 
 pub mod engine;
+#[cfg(feature = "grpc")]
+pub mod grpc;
 pub mod host;
 pub mod plugin;
 pub mod types;
