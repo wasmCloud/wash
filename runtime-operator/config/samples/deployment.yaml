@@ -6,15 +6,14 @@ spec:
   replicas: 1
   template:
     spec:
-      hostSelector:
-        hostgroup: public-ingress
       hostInterfaces:
         - namespace: wasi
           package: http
           interfaces:
             - incoming-handler
           config:
-            host: localhost
+            # public dns alias for 127.0.0.1
+            host: hello.localhost.direct:8000
       components:
         - name: hello-world
           image: ghcr.io/wasmcloud/components/http-hello-world-rust:0.1.0

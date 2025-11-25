@@ -178,6 +178,38 @@ wash is built with the following key principles:
 - **Extensible**: Plugin system allows integration with different platforms and workflows
 - **Developer Experience**: Hot-reload development loops and comprehensive tooling
 
+## Wash & Kubernetes
+
+Start kind cluster:
+
+```sh
+make kind-setup
+```
+
+Install chart with pre-configured values:
+
+```sh
+make helm-install
+```
+
+Wait for all pods to come online.
+
+Check if hosts registered correctly:
+
+```sh
+❯ kubectl get host
+NAME                    HOSTID                                 HOSTGROUP         READY   AGE
+near-jam-0148           a67300ea-558b-4bb7-b126-253e66d997ae   public-ingress    True    2m10s
+nonchalant-crown-3127   8cf2c415-409f-4dd8-b334-8a9dbb2d4aa4   default           True    2m10s
+obscene-thunder-6047    2f5aa990-c06a-4d1c-9dcf-edc4a8535fd5   private-ingress   True    2m9s
+```
+
+- `public-ingress`: Hostgroup with HTTP enabled and bound to localhost port 80, simulating a load-balancer
+- `private-ingress`: Hostgroup with HTTP enabled and cluster-only access, simulating an internal load-balancer ( Kubernetes Service Name `hostgroup-private-ingress` )
+- `default`: Hostgroup with no incoming HTTP, for `wasmcloud:messaging` handlers & Services
+
+In this setup, HTTP workloads usually go to `public-ingress`.
+
 ## Documentation
 
 - [WebAssembly Component Model](https://component-model.bytecodealliance.org/) - Learn about the component model

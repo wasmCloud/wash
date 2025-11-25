@@ -1,134 +1,73 @@
-### To Deploy locally
+# Runtime Operator
 
-Start kind cluster
+## Development
+
+You will need a local Kind cluster, NATS, and a Wash host.
+
+For NATS, use:
 
 ```sh
-go tool kind create cluster
+docker run --rm --name wasmcloud-nats -p 4222:4222 nats -js
 ```
 
-**Install the CRDs into the cluster:**
+For Wash Host, use:
+
+```sh
+wash host --http-addr 127.0.0.1:8000
+```
+
+or from the top git directory:
+
+```sh
+cargo run -- host --http-addr 127.0.0.1:8000
+```
+
+For local kind cluster, refer to [wash/README.md](../README.md).
+
+Install the CRDs into the cluster:
 
 ```sh
 make install
 ```
 
-**Run the Manager:**
+Run the Builder / Watcher:
 
 ```sh
 make devlog
 ```
 
-You can apply the samples (examples) from the config/sample:
+You can apply development samples from the config/sample:
 
 ```sh
-kubectl apply -k config/samples/dev
+kubectl apply -f config/samples
 ```
 
-### To Deploy on remote cluster
-
-**Build and push your image to the location specified by `IMG`:**
+Verify the Wash Host registered correctly with:
 
 ```sh
-make docker-build docker-push IMG=<some-registry>/operator:tag
+kubectl get host
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+Example:
 
-**Install the CRDs into the cluster:**
-
-```sh
-make install
+```
+❯ kubectl get host
+NAME               HOSTID                                 HOSTGROUP   READY   AGE
+exotic-toes-5866   14b0a1df-3f91-441c-b304-2aa56e9bef6e   default     True    52s
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+If you applied the samples, check if they deployed correctly:
 
-```sh
-make deploy IMG=<some-registry>/operator:tag
 ```
+❯ kubectl get workloaddeployment
+NAME     REPLICAS   READY
+blobby   1          True
+hello    1          True
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-> privileges or be logged in as admin.
+❯ curl -i hello.localhost.direct:8000
+HTTP/1.1 200 OK
+transfer-encoding: chunked
+date: Tue, 25 Nov 2025 15:30:32 GMT
 
-### To Uninstall
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
+Hello from Rust!
 ```
-
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-Or ...... delete the kind cluster.
-
-```sh
-kind delete cluster
-```
-
-## Project Distribution
-
-Following are the steps to build the installer and distribute this project to users.
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/operator:tag
-```
-
-NOTE: The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without
-its dependencies.
-
-2. Using the installer
-
-Users can just run kubectl apply -f <URL for YAML BUNDLE> to install the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/operator/<tag or branch>/dist/install.yaml
-```
-
-# FAQ
-
-## How to use Private Registry Image Pulls?
-
-Create a secret named `ghcr`:
-
-```sh
-kubectl create secret docker-registry ghcr --docker-server=https://ghcr.io --docker-username=<your-user> --docker-password=<your-token> --docker-email=<your-email>
-```
-
-then use it as imagePullSecret.
-
-## What permissions does the Operator need on Kubernetes Core Resources?
-
-Full RBAC definition [can be found here](./config/rbac/role.yaml)
-
-### CRUD Cluster Wide ( Create Update Delete on any deployable namespace )
-
-- apps
-  - Deployment
-  - Statefulset
-- core
-  - Service
-  - ServiceAccount
-  - ConfigMap
-  - Secret
-  - PersistentVolumeClaim
-  - Event
-
-### CRUD Operator namespace ( Create Update Delete specifically on `wasmcloud-system` )
-
-- coordination.k8s.io
-  - Lease
-
-### Create Only
-
-- authentication.k8s.io
-  - SubjectAccessReview
