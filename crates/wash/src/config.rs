@@ -18,7 +18,6 @@ use crate::{
         BuildConfig, CustomBuildConfig, ProjectType, RustBuildConfig, TinyGoBuildConfig,
         TypeScriptBuildConfig,
     },
-    new::NewTemplate,
     wit::WitConfig,
 };
 
@@ -36,72 +35,11 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<BuildConfig>,
 
-    /// Template configuration for new project creation (default: wasmCloud templates)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub templates: Vec<NewTemplate>,
-
     /// WIT dependency management configuration (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wit: Option<WitConfig>,
     // TODO(#15): Support dev config which can be overridden in local project config
     // e.g. for runtime config, http ports, etc
-}
-
-impl Config {
-    /// Create a new [Config] instance with default values and the list of wasmCloud templates
-    pub fn default_with_templates() -> Self {
-        Self {
-            templates: vec![
-                NewTemplate {
-                    name: "sample-wasi-http-rust".to_string(),
-                    description: Some(
-                        "An example wasi:http server component written in Rust".to_string(),
-                    ),
-                    repository: "https://github.com/bytecodealliance/sample-wasi-http-rust"
-                        .to_string(),
-                    subfolder: None,
-                    language: crate::new::TemplateLanguage::Rust,
-                    git_ref: None,
-                },
-                NewTemplate {
-                    name: "sample-wasi-http-js".to_string(),
-                    description: Some(
-                        "An example wasi:http server component written in JavaScript".to_string(),
-                    ),
-                    repository: "https://github.com/bytecodealliance/sample-wasi-http-js"
-                        .to_string(),
-                    subfolder: None,
-                    language: crate::new::TemplateLanguage::TypeScript,
-                    git_ref: None,
-                },
-                NewTemplate {
-                    name: "http-hello-world".to_string(),
-                    description: Some("A simple HTTP hello world component".to_string()),
-                    repository: "https://github.com/wasmcloud/wasmcloud".to_string(),
-                    subfolder: Some("examples/rust/components/http-hello-world".to_string()),
-                    language: crate::new::TemplateLanguage::Rust,
-                    git_ref: None,
-                },
-                NewTemplate {
-                    name: "http-hello-world".to_string(),
-                    description: Some("A simple HTTP hello world component".to_string()),
-                    repository: "https://github.com/wasmcloud/wasmcloud".to_string(),
-                    subfolder: Some("examples/tinygo/components/http-hello-world".to_string()),
-                    language: crate::new::TemplateLanguage::TinyGo,
-                    git_ref: None,
-                },
-                NewTemplate {
-                    name: "http-hello-world".to_string(),
-                    description: Some("A simple HTTP hello world component".to_string()),
-                    repository: "https://github.com/wasmcloud/typescript".to_string(),
-                    subfolder: Some("examples/components/http-hello-world".to_string()),
-                    language: crate::new::TemplateLanguage::TypeScript,
-                    git_ref: None,
-                },
-            ],
-            ..Default::default()
-        }
-    }
 }
 
 /// Load configuration with hierarchical merging
@@ -255,11 +193,7 @@ pub fn local_config_path(project_dir: &Path) -> PathBuf {
 
 /// Generate a default configuration file with all explicit defaults
 /// This is useful for `wash config init` command
-pub async fn generate_default_config(
-    path: &Path,
-    force: bool,
-    include_templates: bool,
-) -> Result<()> {
+pub async fn generate_default_config(path: &Path, force: bool) -> Result<()> {
     // Don't overwrite existing config unless force is specified
     if path.exists() && !force {
         bail!(
@@ -268,12 +202,7 @@ pub async fn generate_default_config(
         );
     }
 
-    let default_config = if include_templates {
-        Config::default_with_templates()
-    } else {
-        Config::default()
-    };
-    save_config(&default_config, path).await?;
+    save_config(&Config::default(), path).await?;
 
     info!(config_path = %path.display(), "Generated default configuration");
     Ok(())

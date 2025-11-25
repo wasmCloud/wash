@@ -40,8 +40,7 @@ impl CliCommand for ConfigCommand {
                     )
                 };
 
-                // Global configuration should include templates, but local shouldn't by default
-                generate_default_config(&config_path, *force, *global)
+                generate_default_config(&config_path, *force)
                     .await
                     .context("failed to initialize config")?;
 
