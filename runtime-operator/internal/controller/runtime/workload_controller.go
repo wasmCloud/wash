@@ -240,7 +240,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 		},
 	}
 
-	client := NewWorkloadClient(r.Bus, workload.Status.HostID)
+	client := NewWashHostClient(r.Bus, workload.Status.HostID)
 	resp, err := client.Start(ctx, req)
 	if err != nil {
 		return err
@@ -257,7 +257,7 @@ func (r *WorkloadReconciler) reconcileSync(ctx context.Context, workload *runtim
 		return condition.ErrStatusUnknown(fmt.Errorf("workload is not placed yet"))
 	}
 
-	client := NewWorkloadClient(r.Bus, workload.Status.HostID)
+	client := NewWashHostClient(r.Bus, workload.Status.HostID)
 	req := &runtimev2.WorkloadStatusRequest{
 		WorkloadId: workload.Status.WorkloadID,
 	}
@@ -288,7 +288,7 @@ func (r *WorkloadReconciler) finalize(ctx context.Context, workload *runtimev1al
 		return nil
 	}
 
-	client := NewWorkloadClient(r.Bus, workload.Status.HostID)
+	client := NewWashHostClient(r.Bus, workload.Status.HostID)
 	req := &runtimev2.WorkloadStopRequest{
 		WorkloadId: workload.Status.WorkloadID,
 	}

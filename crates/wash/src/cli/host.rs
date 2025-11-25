@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
 use clap::Args;
@@ -34,6 +34,14 @@ pub struct HostCommand {
     #[cfg(not(target_os = "windows"))]
     #[clap(long = "wasi-webgpu", default_value_t = false)]
     pub wasi_webgpu: bool,
+
+    /// Allow insecure OCI Registries
+    #[clap(long = "allow-insecure-registries", default_value_t = false)]
+    pub allow_insecure_registries: bool,
+
+    /// Timeout for pulling artifacts from OCI registries
+    #[clap(long = "registry-pull-timeout", value_parser = humantime::parse_duration, default_value = "30s")]
+    pub registry_pull_timeout: Duration,
 }
 
 impl CliCommand for HostCommand {
@@ -49,7 +57,13 @@ impl CliCommand for HostCommand {
                 .context("failed to connect to NATS")?;
         let data_nats_client = Arc::new(data_nats_client);
 
+        let host_config = wash_runtime::host::HostConfig {
+            allow_oci_insecure: self.allow_insecure_registries,
+            oci_pull_timeout: Some(self.registry_pull_timeout),
+        };
+
         let mut cluster_host_builder = wash_runtime::washlet::ClusterHostBuilder::default()
+            .with_host_config(host_config)
             .with_nats_client(Arc::new(scheduler_nats_client))
             .with_host_group(self.host_group.clone())
             .with_plugin(Arc::new(
