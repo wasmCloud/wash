@@ -291,8 +291,7 @@ async fn workload_start(
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
-            let mut oci_config =
-                image_pull_secret_to_oci_config(config, &component.image_pull_secret);
+            let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
             let bytes = match oci::pull_component(&component.image, oci_config).await {
                 Ok(bytes) => bytes,
                 Err(e) => {
