@@ -472,7 +472,7 @@ impl CliContext {
                 ?config_path,
                 "config file not found, creating with defaults"
             );
-            generate_default_config(&config_path, false, true).await?;
+            generate_default_config(&config_path, false).await?;
         }
 
         // Load the configuration using the hierarchical configuration system
