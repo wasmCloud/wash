@@ -134,6 +134,14 @@ pub async fn run_cluster_host(
     let host_id = host.id().to_string();
     let host = host.clone();
 
+    info!(
+        host_id=?host_id,
+        friendly_name=?host.friendly_name(),
+        host_name=?host.hostname(),
+        labels=?host.labels(),
+        version=?host.version(),
+        "Host started");
+
     let task = tokio::task::spawn(async move {
         let host_subject = host_subject(host_id.as_ref());
 
