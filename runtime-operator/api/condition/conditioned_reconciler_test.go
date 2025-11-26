@@ -388,7 +388,8 @@ func TestConditionedReconciler(t *testing.T) {
 			kubeClient := fake.NewClientBuilder().
 				WithInterceptorFuncs(interceptor).
 				WithScheme(scheme).
-				WithObjects(&tc.obj).Build()
+				WithObjects(&tc.obj).
+				WithStatusSubresource(&tc.obj).Build()
 
 			finalizerFunc := func(ctx context.Context, obj *conditionedResource) error {
 				if tc.emitFinalizerError {
