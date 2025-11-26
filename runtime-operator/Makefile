@@ -70,7 +70,7 @@ test: manifests generate fmt vet envtest ## Run tests.
 # - CERT_MANAGER_INSTALL_SKIP=true
 .PHONY: test-e2e
 test-e2e: manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
-	@go tool kind get clusters | grep -q 'kind' || { \
+	@kind get clusters | grep -q 'kind' || { \
 		echo "No Kind cluster is running. Please start a Kind cluster before running the e2e tests."; \
 		exit 1; \
 	}
@@ -96,7 +96,7 @@ run: manifests generate fmt vet ## Run a controller from your host.
 
 .PHONY: devlog
 devlog:
-	$(MAKE) run 2>&1 | jq -R -r ". as \$$line | try fromjson catch \$$line"
+	go tool air 2>&1 | jq -R -r ". as \$$line | try fromjson catch \$$line"
 
 .PHONY: runtime-operator
 runtime-operator:
@@ -216,28 +216,3 @@ mv $(1) $(1)-$(3) ;\
 ln -sf $(1)-$(3) $(1)
 endef
 
-# Helm
-.PHONY: helm-build
-helm-build:
-	helm dependency build charts/runtime-operator
-
-.PHONY: helm-render
-helm-render:
-	helm template -n example-ns example-name charts/runtime-operator
-
-.PHONY: helm-install
-helm-install:
-	helm upgrade --install --create-namespace -n wasmcloud-system -f charts/runtime-operator/values.local.yaml operator-dev charts/runtime-operator
-
-.PHONY: helm-uninstall
-helm-uninstall:
-	helm delete -n wasmcloud-system --ignore-not-found --cascade foreground operator-dev
-
-# Local Dev
-.PHONY: kind-setup
-kind-setup:
-	go tool kind create cluster --name wasmcloud --config "kind-config.yaml"
-
-.PHONY: kind-nuke
-kind-nuke:
-	go tool kind delete cluster --name wasmcloud

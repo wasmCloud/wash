@@ -1,59 +1,12 @@
-//! Configuration and metadata for new wash templates
+//! Functions for creating new projects from git repositories
 
 use std::path::Path;
 
 use anyhow::{Context as _, bail};
-use serde::{Deserialize, Serialize};
 use tokio::process::Command;
 use tracing::{debug, error, info, instrument};
 
 use crate::cli::CliContext;
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub enum TemplateLanguage {
-    #[default]
-    Rust,
-    TinyGo,
-    TypeScript,
-    Other(String),
-}
-
-#[derive(Default, Debug, Clone, Serialize, Deserialize)]
-pub struct NewTemplate {
-    pub name: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    pub repository: String,
-    pub subfolder: Option<String>,
-    /// Git reference (branch, tag, or commit hash) to use when cloning the template repository.
-    /// If not specified, the default branch of the repository will be used.
-    #[serde(default, rename = "ref")]
-    pub git_ref: Option<String>,
-    pub language: TemplateLanguage,
-}
-
-/// Process template based on source type
-#[instrument(level = "debug", skip_all)]
-pub async fn new_project_from_template(
-    ctx: &CliContext,
-    template: &NewTemplate,
-    output_dir: &Path,
-) -> anyhow::Result<()> {
-    // TODO(GFI#2): Support local paths
-
-    clone_template(
-        &template.repository,
-        output_dir,
-        template.git_ref.as_deref(),
-    )
-    .await?;
-
-    if let Some(subfolder) = &template.subfolder {
-        extract_subfolder(ctx, output_dir, subfolder).await?;
-    }
-
-    Ok(())
-}
 
 /// Extract a specific subfolder from the cloned template
 #[instrument(level = "debug", skip_all)]
@@ -65,7 +18,7 @@ pub(crate) async fn extract_subfolder(
     let subfolder_path = output_dir.join(subfolder);
 
     if tokio::fs::metadata(&subfolder_path).await.is_err() {
-        bail!("Subfolder '{subfolder}' does not exist in cloned template");
+        bail!("Subfolder '{subfolder}' does not exist in cloned repository");
     }
 
     let metadata = tokio::fs::metadata(&subfolder_path)
@@ -98,27 +51,26 @@ pub(crate) async fn extract_subfolder(
     Ok(())
 }
 
-/// Clone a template from a git repository or copy from a local path
+/// Clone a repository from a git URL
 ///
 /// NOTE: This requires the `git` command to be available in the system PATH. This should
 /// already be checked by the doctor command.
 #[instrument(level = "debug", skip_all)]
 pub(crate) async fn clone_template(
-    template: &str,
+    url: &str,
     output_dir: &Path,
     git_ref: Option<&str>,
 ) -> anyhow::Result<()> {
     debug!(
-        template,
+        url,
         output_dir = %output_dir.display(),
-        "cloning template",
+        "cloning repository",
     );
 
-    // Handle remote git repository
-    info!(template, "cloning git repository");
+    info!(url, "cloning git repository");
 
     let mut cmd = Command::new("git");
-    let mut args = vec!["clone".to_string(), template.to_string()];
+    let mut args = vec!["clone".to_string(), url.to_string()];
 
     // Add branch/tag reference if specified
     if let Some(git_ref) = git_ref {
@@ -141,12 +93,12 @@ pub(crate) async fn clone_template(
         bail!("Git clone failed: {stderr}");
     }
 
-    info!(output_dir = %output_dir.display(), "Successfully cloned template");
+    info!(output_dir = %output_dir.display(), "Successfully cloned repository");
 
     // Remove .git directory to avoid confusion
     let git_dir = output_dir.join(".git");
     if git_dir.exists() {
-        debug!("Removing .git directory from cloned template");
+        debug!("Removing .git directory from cloned repository");
         tokio::fs::remove_dir_all(&git_dir)
             .await
             .context("Failed to remove .git directory")?;
