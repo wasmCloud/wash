@@ -12,6 +12,8 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
+// HostRoundtripTimeout is the max timeout for host RPC calls.
+// Callers can set lower context timeouts as needed.
 const HostRoundtripTimeout = 1 * time.Minute
 
 func NewWashHostClient(bus wasmbus.Bus, hostID string) *WashHostClient {

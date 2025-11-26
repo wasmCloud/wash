@@ -305,5 +305,16 @@ func resolveArtifacts(ctx context.Context, kubeClient client.Client, namespace s
 		tpl.Spec.Components[i] = comp
 	}
 
+	if tpl.Spec.Service != nil {
+		if strings.HasPrefix(tpl.Spec.Service.Image, "artifact://") {
+			artifactName := strings.TrimPrefix(tpl.Spec.Service.Image, "artifact://")
+			artifact, ok := artifactMap[artifactName]
+			if !ok {
+				return fmt.Errorf("artifact %s not found in deployment spec", artifactName)
+			}
+			tpl.Spec.Service.Image = artifact.Status.ArtifactURL
+		}
+	}
+
 	return nil
 }

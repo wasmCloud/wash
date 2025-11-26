@@ -237,13 +237,21 @@ func (r *WorkloadReplicaSetReconciler) cleanupUnhealthyWorkloads(ctx context.Con
 			continue
 		}
 
+		// catches workloads that are still syncing
+		// they might have not been placed or sync failing. in most cases host is down/gone.
+
 		syncStatus := workload.Status.GetCondition(runtimev1alpha1.WorkloadConditionSync)
-		// catches unknown & true sync status
-		if syncStatus.Status != condition.ConditionFalse {
+		if syncStatus.Status == condition.ConditionTrue {
 			continue
 		}
+
+		// this was the first failure, give it some time to recover
+		if syncStatus.LastTransitionTime.IsZero() {
+			continue
+		}
+
 		// If the workload has failed recently, give it some time to recover
-		if syncStatus.LastProbeTime.Time.Add(workloadReplicaSetReplicaGracePeriod).After(time.Now()) {
+		if syncStatus.LastTransitionTime.Time.Add(workloadReplicaSetReplicaGracePeriod).After(time.Now()) {
 			continue
 		}
 		// At this point, the workload is not ready, has failed, and has not recovered within the grace period
