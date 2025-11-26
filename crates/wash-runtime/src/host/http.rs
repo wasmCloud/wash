@@ -187,10 +187,7 @@ impl Router for DevRouter {
     ) -> anyhow::Result<String> {
         let lock = self.last_workload_id.try_lock()?;
         match &*lock {
-            Some(id) => {
-                tracing::info!(workload_id = %id, "incoming request");
-                Ok(id.clone())
-            }
+            Some(id) => Ok(id.clone()),
             None => anyhow::bail!("no workload available to route request"),
         }
     }
@@ -353,7 +350,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
         *shutdown_tx_clone.write().await = Some(shutdown_tx);
 
         let listener = TcpListener::bind(addr).await?;
-        debug!(addr = ?addr, "HTTP server listening");
+        info!(addr = ?addr, "HTTP server listening");
         // Start the HTTP server, any incoming requests call Host::handle and then it's routed
         // to the workload based on host header.
         let handler = self.router.clone();
