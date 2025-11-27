@@ -11,6 +11,7 @@ use opentelemetry_sdk::resource::{Resource, ResourceBuilder};
 use opentelemetry_semantic_conventions::resource;
 use sysinfo::System;
 use tokio::sync::oneshot;
+use tracing::{debug, info};
 
 pub mod plugins;
 
@@ -132,6 +133,14 @@ pub async fn run_cluster_host(
     let heartbeat_interval = cluster_host.heartbeat_interval;
     let host_id = host.id().to_string();
     let host = host.clone();
+
+    info!(
+        host_id=?host_id,
+        friendly_name=?host.friendly_name(),
+        host_name=?host.hostname(),
+        labels=?host.labels(),
+        version=?host.version(),
+        "Host started");
 
     let task = tokio::task::spawn(async move {
         let host_subject = host_subject(host_id.as_ref());
@@ -288,6 +297,7 @@ async fn workload_start(
     else {
         anyhow::bail!("workload is required");
     };
+
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
@@ -372,6 +382,12 @@ async fn workload_start(
         },
     };
 
+    info!(
+        worload_id=?request.workload_id,
+        namespace=?request.workload.namespace,
+        name=?request.workload.name,
+        "Starting workload");
+
     Ok(host.workload_start(request).await?.into())
 }
 
@@ -379,6 +395,10 @@ async fn workload_stop(
     host: &impl HostApi,
     req: types::v2::WorkloadStopRequest,
 ) -> anyhow::Result<types::v2::WorkloadStopResponse> {
+    info!(
+        worload_id=?req.workload_id,
+        "Stopping workload");
+
     host.workload_stop(req.into()).await.map(|resp| resp.into())
 }
 
@@ -386,6 +406,10 @@ async fn workload_status(
     host: &impl HostApi,
     req: types::v2::WorkloadStatusRequest,
 ) -> anyhow::Result<types::v2::WorkloadStatusResponse> {
+    debug!(
+        worload_id=?req.workload_id,
+        "Fetching workload status");
+
     host.workload_status(req.into())
         .await
         .map(|resp| resp.into())
@@ -416,7 +440,7 @@ pub fn resource_builder() -> ResourceBuilder {
     Resource::builder()
         .with_attribute(KeyValue::new(
             resource::SERVICE_NAME.to_string(),
-            "control-host",
+            "wash-host",
         ))
         .with_attribute(KeyValue::new(
             resource::SERVICE_INSTANCE_ID.to_string(),

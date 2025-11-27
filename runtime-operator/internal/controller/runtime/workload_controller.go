@@ -18,7 +18,10 @@ import (
 )
 
 const (
-	workloadReconcileInterval     = 1 * time.Minute
+	workloadReconcileInterval     = 30 * time.Second
+	workloadStartTimeout          = 60 * time.Second
+	workloadStatusTimeout         = 5 * time.Second
+	workloadStopTimeout           = 30 * time.Second
 	workloadFinalizerName         = "runtime.wasmcloud.dev/workload-finalizer"
 	workloadSchedulableHostsIndex = "spec.isSchedulable"
 )
@@ -241,6 +244,9 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 	}
 
 	client := NewWashHostClient(r.Bus, workload.Status.HostID)
+	ctx, cancel := context.WithTimeout(ctx, workloadStartTimeout)
+	defer cancel()
+
 	resp, err := client.Start(ctx, req)
 	if err != nil {
 		return err
@@ -261,6 +267,9 @@ func (r *WorkloadReconciler) reconcileSync(ctx context.Context, workload *runtim
 	req := &runtimev2.WorkloadStatusRequest{
 		WorkloadId: workload.Status.WorkloadID,
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, workloadStatusTimeout)
+	defer cancel()
 
 	resp, err := client.Status(ctx, req)
 	if err != nil {
@@ -292,6 +301,9 @@ func (r *WorkloadReconciler) finalize(ctx context.Context, workload *runtimev1al
 	req := &runtimev2.WorkloadStopRequest{
 		WorkloadId: workload.Status.WorkloadID,
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, workloadStopTimeout)
+	defer cancel()
 
 	_, err := client.Stop(ctx, req)
 	if err != nil {

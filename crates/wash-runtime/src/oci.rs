@@ -42,7 +42,7 @@ use std::{
     path::PathBuf,
     time::Duration,
 };
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 #[allow(deprecated)]
 #[deprecated = "old media type used before Wasm WG standardization"]
@@ -168,7 +168,6 @@ impl CacheManager {
 
     /// Read cached artifact, returning (component_data, digest)
     async fn read_cached(&self, reference: &str) -> Result<(Vec<u8>, String)> {
-        info!(reference = %reference, "reading cached artifact instead of pulling");
         let component_path = self.get_component_path(reference);
         let digest_path = self.get_digest_path(reference);
 
@@ -321,8 +320,6 @@ impl CredentialResolver {
 /// ```
 #[instrument(skip(config), fields(reference = %reference))]
 pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u8>, String)> {
-    info!(reference = %reference, "Pulling component");
-
     // Parse OCI reference
     let reference_parsed = Reference::try_from(reference)
         .with_context(|| format!("invalid OCI reference: {reference}"))?;
@@ -411,7 +408,6 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
             .with_context(|| "failed to cache component")?;
     }
 
-    info!(size = component_data.len(), digest = %digest, "Successfully pulled component");
     Ok((component_data, digest))
 }
 
@@ -463,12 +459,6 @@ pub async fn push_component(
     config: OciConfig,
     annotations: Option<HashMap<String, String>>,
 ) -> Result<String> {
-    info!(
-        reference = %reference,
-        size = component_data.len(),
-        "pushing component"
-    );
-
     // Parse OCI reference
     let reference_parsed = Reference::try_from(reference)
         .with_context(|| format!("invalid OCI reference: {reference}"))?;
@@ -581,7 +571,6 @@ pub async fn push_component(
             .with_context(|| "failed to cache pushed component")?;
     }
 
-    info!(digest = %digest, "successfully pushed component");
     Ok(digest)
 }
 

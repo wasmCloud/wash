@@ -419,11 +419,11 @@ impl ResolvedWorkload {
                     if let Err(e) = instance.wasi_cli_run().call_run(&mut store).await {
                         warn!(err = %e, retries = max_restarts, "service execution failed");
                         if max_restarts == 0 {
-                            info!("max restarts reached, service will not be restarted");
+                            warn!("max restarts reached, service will not be restarted");
                             break;
                         }
                     } else {
-                        info!("service executed successfully");
+                        info!("service exited successfully");
                         break;
                     }
                     max_restarts = max_restarts.saturating_sub(1);

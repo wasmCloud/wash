@@ -166,6 +166,7 @@ type ReconcilerContext struct {
 
 const ctxKeyReconcilerContext = ctxKey("reconciler-context")
 
+// GetReconcilerContext retrieves the ReconcilerContext from the context.
 func GetReconcilerContext(ctx context.Context) *ReconcilerContext {
 	if v, ok := ctx.Value(ctxKeyReconcilerContext).(*ReconcilerContext); ok {
 		return v
@@ -177,6 +178,11 @@ func GetReconcilerContext(ctx context.Context) *ReconcilerContext {
 // ForceStatusUpdate forces a full "Status" update, regardless if conditions have changed.
 func ForceStatusUpdate(ctx context.Context) {
 	GetReconcilerContext(ctx).ForceUpdate = true
+}
+
+// ForceRequeue forces an immediate requeue, regardless if status has changed.
+func ForceRequeue(ctx context.Context) {
+	GetReconcilerContext(ctx).ForceRequeue = true
 }
 
 // Reconcile reconciles the object with the given request.
@@ -203,6 +209,8 @@ func (r *ConditionedReconciler[T]) Reconcile(ctx context.Context, req reconcile.
 		}
 	}
 
+	originalObject := obj.DeepCopyObject().(T)
+
 	reconcilerCtx := &ReconcilerContext{
 		ReconcileInterval: r.interval,
 	}
@@ -226,7 +234,6 @@ func (r *ConditionedReconciler[T]) Reconcile(ctx context.Context, req reconcile.
 
 		condErr := condEntry.fn(condCtx, obj)
 		if condErr != nil {
-			reconcilerCtx.ForceRequeue = true
 			if errors.Is(condErr, errStatusUnknown) {
 				conditions.SetConditions(UnknownCondition(condEntry.condition, "Reconcile", condErr.Error()))
 			} else if errors.Is(condErr, errNoop) {
@@ -255,7 +262,7 @@ func (r *ConditionedReconciler[T]) Reconcile(ctx context.Context, req reconcile.
 	}
 
 	if reconcilerCtx.ForceUpdate {
-		if err := r.client.Status().Update(ctx, obj); err != nil {
+		if err := r.client.Status().Patch(ctx, obj, client.MergeFrom(originalObject)); err != nil {
 			return reconcile.Result{}, err
 		}
 	}
@@ -272,7 +279,7 @@ func (r *ConditionedReconciler[T]) Reconcile(ctx context.Context, req reconcile.
 	}
 
 	if reconcilerCtx.ForceRequeue {
-		return reconcile.Result{Requeue: true}, nil
+		return reconcile.Result{RequeueAfter: time.Second}, nil
 	}
 
 	return reconcile.Result{RequeueAfter: reconcilerCtx.ReconcileInterval}, nil

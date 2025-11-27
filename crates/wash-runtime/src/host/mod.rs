@@ -278,6 +278,30 @@ impl Host {
         &self.id
     }
 
+    /// Get the system hostname for this host.
+    ///
+    /// # Returns
+    /// The host's system hostname string.
+    pub fn hostname(&self) -> &str {
+        &self.hostname
+    }
+
+    /// Get all labels assigned to this host.
+    ///
+    /// # Returns
+    /// A reference to the host's labels map.
+    pub fn labels(&self) -> &HashMap<String, String> {
+        &self.labels
+    }
+
+    /// Get the version of this host.
+    ///
+    /// # Returns
+    /// The host's version string.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
     /// Get host config
     ///
     /// # Returns

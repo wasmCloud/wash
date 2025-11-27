@@ -21,6 +21,7 @@ import (
 )
 
 const (
+	hostHeartbeatTimeout  = 5 * time.Second
 	hostReconcileInterval = 1 * time.Minute
 )
 
@@ -43,7 +44,7 @@ func (r *HostReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.
 func (r *HostReconciler) reconcileReporting(ctx context.Context, host *runtimev1alpha1.Host) error {
 	client := NewWashHostClient(r.Bus, host.HostID)
 
-	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, hostHeartbeatTimeout)
 	defer cancel()
 
 	heartbeat, err := client.Heartbeat(ctx)

@@ -349,6 +349,12 @@ fn initialize_tracing(
         // Enable dynamic filtering from `RUST_LOG`, fallback to "info", but always set wasm_pkg_client=error
         let env_filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(log_level.as_str()))
+            // async_nats prints out on connect
+            .add_directive(
+                "async_nats=error"
+                    .parse()
+                    .expect("failed to parse async_nats directive"),
+            )
             // wasm_pkg_client/core are a little verbose so we set them to error level in non-verbose mode
             .add_directive(
                 "wasm_pkg_client=error"

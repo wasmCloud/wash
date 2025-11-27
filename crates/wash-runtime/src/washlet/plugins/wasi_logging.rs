@@ -153,13 +153,6 @@ impl HostPlugin for TracingLogging {
             |ctx| ctx,
         )?;
 
-        tracing::info!(
-            "TracingLoggingPlugin bound to component {} of workload {} in namespace {}",
-            component.id(),
-            component.workload_name(),
-            component.workload_namespace()
-        );
-
         self.components.write().await.insert(
             component.id().to_string(),
             ComponentInfo {
