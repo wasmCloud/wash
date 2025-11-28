@@ -17,7 +17,7 @@ async fn main(request: Request<Body>) -> anyhow::Result<Response<Body>> {
     let numbers = path
         .replace("/", "")
         .split(",")
-        .filter_map(|s| s.parse::<u32>().ok())
+        .filter_map(|s| s.trim().parse::<u32>().ok())
         .collect::<Vec<u32>>();
 
     // if no numbers are provided, return a bad request response
