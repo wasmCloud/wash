@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
 use clap::Args;
@@ -21,6 +21,18 @@ pub struct HostCommand {
     /// NATS URL for Data Plane communications
     #[clap(long = "data-nats-url", default_value = "nats://localhost:4222")]
     pub data_nats_url: String,
+
+    /// Path to TLS CA certificate file for NATS connection
+    #[clap(long = "nats-tls-ca")]
+    pub nats_tls_ca: Option<PathBuf>,
+
+    /// Enable TLS handshake first mode for NATS connection
+    #[clap(long = "nats-tls-first", default_value_t = false)]
+    pub nats_tls_first: bool,
+
+    /// Path to NATS credentials file
+    #[clap(long = "nats-creds")]
+    pub nats_creds: Option<PathBuf>,
 
     /// The host name to assign to the host
     #[clap(long = "host-name")]
@@ -46,13 +58,20 @@ pub struct HostCommand {
 
 impl CliCommand for HostCommand {
     async fn handle(&self, _ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+        let nats_options = Some(wash_runtime::washlet::NatsConnectionOptions {
+            tls_ca: self.nats_tls_ca.clone(),
+            tls_first: self.nats_tls_first,
+            credentials: self.nats_creds.clone(),
+            ..Default::default()
+        });
+
         let scheduler_nats_client =
-            wash_runtime::washlet::connect_nats(self.scheduler_nats_url.clone(), None)
+            wash_runtime::washlet::connect_nats(self.scheduler_nats_url.clone(), nats_options.clone())
                 .await
                 .context("failed to connect to NATS Scheduler URL")?;
 
         let data_nats_client =
-            wash_runtime::washlet::connect_nats(self.data_nats_url.clone(), None)
+            wash_runtime::washlet::connect_nats(self.data_nats_url.clone(), nats_options)
                 .await
                 .context("failed to connect to NATS")?;
         let data_nats_client = Arc::new(data_nats_client);
