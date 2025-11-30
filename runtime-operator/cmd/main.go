@@ -126,10 +126,18 @@ func main() {
 	}
 
 	if natsCreds != "" {
+		if _, err := os.Stat(natsCreds); os.IsNotExist(err) {
+			setupLog.Error(err, "NATS credentials file does not exist", "path", natsCreds)
+			os.Exit(1)
+		}
 		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.UserCredentials(natsCreds))
 	}
 
 	if natsTlsCa != "" {
+		if _, err := os.Stat(natsTlsCa); os.IsNotExist(err) {
+			setupLog.Error(err, "NATS TLS CA certificate file does not exist", "path", natsTlsCa)
+			os.Exit(1)
+		}
 		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.RootCAs(natsTlsCa))
 	}
 
