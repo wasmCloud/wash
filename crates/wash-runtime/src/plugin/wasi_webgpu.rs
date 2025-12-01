@@ -60,8 +60,8 @@ struct UiThreadSpawner;
 impl wasi_webgpu_wasmtime::MainThreadSpawner for UiThreadSpawner {
     async fn spawn<F, T>(&self, f: F) -> T
     where
-        F: FnOnce() -> T + Send + Sync + 'static,
-        T: Send + Sync + 'static,
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
     {
         f()
     }
