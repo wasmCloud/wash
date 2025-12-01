@@ -21,13 +21,32 @@ pub struct WasiWebGpu {
 
 impl Default for WasiWebGpu {
     fn default() -> Self {
+        let (backends, backend_options) = if cfg!(feature = "wasi-webgpu") {
+            (
+                wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::all(),
+                wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions::default(),
+            )
+        } else if cfg!(feature = "wasi-webgpu-noop") {
+            (
+                wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::NOOP,
+                wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions {
+                    noop: wasi_webgpu_wasmtime::reexports::wgpu_types::NoopBackendOptions {
+                        enable: true,
+                    },
+                    ..Default::default()
+                },
+            )
+        } else {
+            unreachable!("wasi-webgpu or wasi-webgpu-noop feature must be enabled");
+        };
+
         Self {
             gpu: Arc::new(wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global::new(
                 "webgpu",
                 &wasi_webgpu_wasmtime::reexports::wgpu_types::InstanceDescriptor {
-                    backends: wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::all(),
+                    backends,
+                    backend_options,
                     flags: wasi_webgpu_wasmtime::reexports::wgpu_types::InstanceFlags::from_build_config(),
-                    backend_options: wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions::default(),
                     memory_budget_thresholds: Default::default(),
                 },
             )),

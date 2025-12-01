@@ -20,6 +20,7 @@ wasi-logging = []
 wasi-blobstore = []
 wasi-keyvalue = []
 wasi-webgpu = ["dep:wasi-webgpu-wasmtime", "dep:wasi-graphics-context-wasmtime"]
+wasi-webgpu-noop = ["dep:wasi-webgpu-wasmtime", "dep:wasi-graphics-context-wasmtime"]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -64,8 +65,8 @@ opentelemetry-semantic-conventions = { workspace = true, features = [
     "semconv_experimental",
 ] }
 opentelemetry_sdk = { workspace = true }
-wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "c9d0bf73f8db26acda2f658ad705878e2b4c3a95", optional = true }
-wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "c9d0bf73f8db26acda2f658ad705878e2b4c3a95", optional = true }
+wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "fffd275ad1abb23817c720309570059d8304c61a", optional = true }
+wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "fffd275ad1abb23817c720309570059d8304c61a", optional = true }
 
 # OCI dependencies (optional, behind 'oci' feature)
 docker_credential = { workspace = true, optional = true }
