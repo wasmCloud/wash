@@ -82,6 +82,7 @@ The crate supports the following cargo features:
 - `wasi-logging` (default): Logging interface
 - `wasi-blobstore` (default): Blob storage interface
 - `wasi-keyvalue` (default): Key-value storage interface
+- `wasi-webgpu` WebGPU interface
 - `oci`: OCI registry integration for pulling components
 
 ### Architecture
