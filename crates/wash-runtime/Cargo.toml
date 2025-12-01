@@ -20,7 +20,6 @@ wasi-logging = []
 wasi-blobstore = []
 wasi-keyvalue = []
 wasi-webgpu = ["dep:wasi-webgpu-wasmtime", "dep:wasi-graphics-context-wasmtime"]
-wasi-webgpu-noop = ["dep:wasi-webgpu-wasmtime", "dep:wasi-graphics-context-wasmtime"]
 
 [dependencies]
 anyhow = { workspace = true }
