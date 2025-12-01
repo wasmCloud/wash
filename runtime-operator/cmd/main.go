@@ -61,6 +61,8 @@ func main() {
 		metricsAddr                 string
 		natsUrl                     string
 		natsCreds                   string
+		natsTlsCa                   string
+		natsTlsFirst                bool
 		enableLeaderElection        bool
 		probeAddr                   string
 		secureMetrics               bool
@@ -76,6 +78,8 @@ func main() {
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8082", "The address the probe endpoint binds to.")
 	flag.StringVar(&natsCreds, "nats-creds", "", "Path to NATS credentials file.")
 	flag.StringVar(&natsUrl, "nats-url", wasmbus.NatsDefaultURL, "The nats server address to connect to.")
+	flag.StringVar(&natsTlsCa, "nats-tls-ca", "", "Path to TLS CA certificate file for NATS connection.")
+	flag.BoolVar(&natsTlsFirst, "nats-tls-first", false, "Enable TLS handshake first mode for NATS connection.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
 			"Enabling this will ensure there is only one active controller manager.")
@@ -122,7 +126,23 @@ func main() {
 	}
 
 	if natsCreds != "" {
+		if _, err := os.Stat(natsCreds); os.IsNotExist(err) {
+			setupLog.Error(err, "NATS credentials file does not exist", "path", natsCreds)
+			os.Exit(1)
+		}
 		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.UserCredentials(natsCreds))
+	}
+
+	if natsTlsCa != "" {
+		if _, err := os.Stat(natsTlsCa); os.IsNotExist(err) {
+			setupLog.Error(err, "NATS TLS CA certificate file does not exist", "path", natsTlsCa)
+			os.Exit(1)
+		}
+		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.RootCAs(natsTlsCa))
+	}
+
+	if natsTlsFirst {
+		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.TLSHandshakeFirst())
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled

@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -191,14 +192,59 @@ pub async fn run_cluster_host(
     })
 }
 
+/// Configuration options for NATS connections
+#[derive(Debug, Clone, Default)]
+pub struct NatsConnectionOptions {
+    /// Request timeout for NATS operations
+    pub request_timeout: Option<Duration>,
+    /// Path to TLS CA certificate file for NATS connection
+    pub tls_ca: Option<PathBuf>,
+    /// Enable TLS handshake first mode for NATS connection
+    pub tls_first: bool,
+    /// Path to NATS credentials file
+    pub credentials: Option<PathBuf>,
+}
+
 pub async fn connect_nats(
     addr: impl async_nats::ToServerAddrs,
-    request_timeout: Option<Duration>,
+    options: Option<NatsConnectionOptions>,
 ) -> Result<async_nats::Client, anyhow::Error> {
+    let options = options.unwrap_or_default();
+
+    // Install the default crypto provider for rustls when using TLS options.
+    // This must be done before any TLS-related operations.
+    // We use ring for consistency with other dependencies in the workspace.
+    // It's safe to call multiple times - it will only install once.
+    if options.tls_ca.is_some() || options.tls_first {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+
     let mut opts = async_nats::ConnectOptions::new();
-    if let Some(timeout) = request_timeout {
+    if let Some(timeout) = options.request_timeout {
         opts = opts.request_timeout(Some(timeout));
-    };
+    }
+    if let Some(tls_ca) = options.tls_ca {
+        anyhow::ensure!(
+            tls_ca.exists(),
+            "NATS TLS CA certificate file does not exist: {}",
+            tls_ca.display()
+        );
+        opts = opts.add_root_certificates(tls_ca);
+    }
+    if options.tls_first {
+        opts = opts.tls_first();
+    }
+    if let Some(credentials) = options.credentials {
+        anyhow::ensure!(
+            credentials.exists(),
+            "NATS credentials file does not exist: {}",
+            credentials.display()
+        );
+        opts = opts
+            .credentials_file(&credentials)
+            .await
+            .context("failed to load NATS credentials")?;
+    }
     opts.connect(addr)
         .await
         .context("failed to connect to NATS")
@@ -611,8 +657,6 @@ impl From<crate::types::WorkloadStatus> for types::v2::WorkloadStatus {
 
 #[cfg(test)]
 mod tests {
-    use crate::host;
-
     use super::*;
 
     #[tokio::test]
