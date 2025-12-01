@@ -210,6 +210,15 @@ pub async fn connect_nats(
     options: Option<NatsConnectionOptions>,
 ) -> Result<async_nats::Client, anyhow::Error> {
     let options = options.unwrap_or_default();
+
+    // Install the default crypto provider for rustls when using TLS options.
+    // This must be done before any TLS-related operations.
+    // We use ring for consistency with other dependencies in the workspace.
+    // It's safe to call multiple times - it will only install once.
+    if options.tls_ca.is_some() || options.tls_first {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+
     let mut opts = async_nats::ConnectOptions::new();
     if let Some(timeout) = options.request_timeout {
         opts = opts.request_timeout(Some(timeout));
