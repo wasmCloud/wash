@@ -8,7 +8,7 @@
 //!
 //! Note: This is a basic integration test that verifies plugin loading and host functionality.
 //! Full component binding and request routing would require proper WIT interface configuration.
-#![cfg(any(feature = "wasi-webgpu", feature = "wasi-webgpu-noop"))]
+#![cfg(feature = "wasi-webgpu")]
 
 use anyhow::{Context, Result};
 use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
@@ -23,7 +23,7 @@ use wash_runtime::{
         HostApi, HostBuilder,
         http::{DevRouter, HttpServer},
     },
-    plugin::wasi_webgpu::WasiWebGpu,
+    plugin::wasi_webgpu::{WasiWebGpu, WasiWebGpuBackend},
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
 };
@@ -51,7 +51,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
     let host = HostBuilder::new()
         .with_engine(engine.clone())
         .with_http_handler(Arc::new(http_plugin))
-        .with_plugin(Arc::new(WasiWebGpu::default()))?
+        .with_plugin(Arc::new(WasiWebGpu::new(WasiWebGpuBackend::Noop)))?
         .build()?;
 
     println!("Created host with HTTP and webgpu plugins");
@@ -185,13 +185,6 @@ async fn test_http_webgpu_integration() -> Result<()> {
 }
 
 fn expected_gpu_response(numbers: &[u32]) -> Vec<u32> {
-    if cfg!(feature = "wasi-webgpu") {
-        // shader should double all numbers
-        numbers.iter().map(|n| n * 2).collect::<Vec<u32>>()
-    } else if cfg!(feature = "wasi-webgpu-noop") {
-        // no-op would not change the numbers
-        numbers.to_vec()
-    } else {
-        unreachable!("wasi-webgpu or wasi-webgpu-noop feature must be enabled");
-    }
+    // no-op backend does not change the numbers
+    numbers.to_vec()
 }

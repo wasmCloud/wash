@@ -38,7 +38,7 @@ pub mod wasi_keyvalue;
 #[cfg(feature = "wasi-logging")]
 pub mod wasi_logging;
 
-#[cfg(any(feature = "wasi-webgpu", feature = "wasi-webgpu-noop"))]
+#[cfg(feature = "wasi-webgpu")]
 pub mod wasi_webgpu;
 
 /// The [`HostPlugin`] trait provides an interface for implementing built-in plugins for the host.

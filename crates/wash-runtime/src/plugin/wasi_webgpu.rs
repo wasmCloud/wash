@@ -19,15 +19,22 @@ pub struct WasiWebGpu {
     pub gpu: Arc<wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global>,
 }
 
-impl Default for WasiWebGpu {
-    fn default() -> Self {
-        let (backends, backend_options) = if cfg!(feature = "wasi-webgpu") {
-            (
+/// Backend options for the WasiWebGpu plugin
+pub enum WasiWebGpuBackend {
+    /// Backend with all available features
+    All,
+    /// Noop backend for testing purposes. It does not perform any real GPU operations.
+    Noop,
+}
+
+impl WasiWebGpu {
+    pub fn new(backend: WasiWebGpuBackend) -> Self {
+        let (backends, backend_options) = match backend {
+            WasiWebGpuBackend::All => (
                 wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::all(),
                 wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions::default(),
-            )
-        } else if cfg!(feature = "wasi-webgpu-noop") {
-            (
+            ),
+            WasiWebGpuBackend::Noop => (
                 wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::NOOP,
                 wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions {
                     noop: wasi_webgpu_wasmtime::reexports::wgpu_types::NoopBackendOptions {
@@ -35,9 +42,7 @@ impl Default for WasiWebGpu {
                     },
                     ..Default::default()
                 },
-            )
-        } else {
-            unreachable!("wasi-webgpu or wasi-webgpu-noop feature must be enabled");
+            ),
         };
 
         Self {
@@ -51,6 +56,12 @@ impl Default for WasiWebGpu {
                 },
             )),
         }
+    }
+}
+
+impl Default for WasiWebGpu {
+    fn default() -> Self {
+        Self::new(WasiWebGpuBackend::All)
     }
 }
 
