@@ -409,7 +409,11 @@ impl ResolvedWorkload {
             // This will always be present since we just checked above, but we need this structure
             // to only borrow the service metadata
             let mut store = if let Some(service) = self.service.as_ref() {
-                self.new_store_from_metadata(&service.metadata).await?
+                let mut wasi_ctx_builder = WasiCtxBuilder::new();
+                // TODO(lxf): lockdown to workload virtual ip
+                wasi_ctx_builder.socket_addr_check(|_addr, _use| Box::pin(async { true }));
+                self.new_store_from_metadata(&service.metadata, Some(wasi_ctx_builder))
+                    .await?
             } else {
                 bail!("service unexpectedly missing during execution");
             };
@@ -849,18 +853,37 @@ impl ResolvedWorkload {
         let component = components
             .get(component_id)
             .context("component ID not found in workload")?;
-        self.new_store_from_metadata(&component.metadata).await
+
+        let mut wasi_ctx_builder = WasiCtxBuilder::new();
+        // Components cannot bind to sockets, only services can
+        // TODO(lxf): lockdown to workload virtual ip
+        wasi_ctx_builder.socket_addr_check(|_addr, network_use| {
+            Box::pin(async move {
+                !matches!(
+                    network_use,
+                    wasmtime_wasi::sockets::SocketAddrUse::TcpBind
+                        | wasmtime_wasi::sockets::SocketAddrUse::UdpBind
+                )
+            })
+        });
+        self.new_store_from_metadata(&component.metadata, Some(wasi_ctx_builder))
+            .await
     }
 
     /// Creates a new wasmtime Store from the given workload metadata.
     pub async fn new_store_from_metadata(
         &self,
         metadata: &WorkloadMetadata,
+        wasi_ctx_builder: Option<WasiCtxBuilder>,
     ) -> anyhow::Result<wasmtime::Store<Ctx>> {
         let components = self.components.read().await;
 
         // TODO: Consider stderr/stdout buffering + logging
-        let mut wasi_ctx_builder = WasiCtxBuilder::new();
+        let mut wasi_ctx_builder = if let Some(builder) = wasi_ctx_builder {
+            builder
+        } else {
+            WasiCtxBuilder::new()
+        };
         wasi_ctx_builder
             .envs(
                 metadata
@@ -871,6 +894,7 @@ impl ResolvedWorkload {
                     .collect::<Vec<_>>()
                     .as_slice(),
             )
+            .allow_ip_name_lookup(true)
             .inherit_stdout()
             .inherit_stderr();
 
