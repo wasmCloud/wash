@@ -505,12 +505,50 @@ impl ResolvedWorkload {
 
     /// This function plugs a components imports with the exports of other components
     /// that are already loaded in the plugin system.
+    ///
+    /// Components are processed in topological order based on their inter-component
+    /// dependencies. This ensures that when a component imports from another component,
+    /// the exporting component has already had its imports resolved and can be
+    /// pre-instantiated.
     async fn resolve_workload_imports(
         &mut self,
         interface_map: &HashMap<String, Arc<str>>,
     ) -> anyhow::Result<()> {
-        let component_ids: Vec<Arc<str>> = self.components.read().await.keys().cloned().collect();
-        for component_id in component_ids {
+        // Build a dependency graph: for each component, track which other components it imports from
+        let mut dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
+
+        {
+            let components = self.components.read().await;
+            for (component_id, component) in components.iter() {
+                let mut deps = HashSet::new();
+                let ty = component.metadata.component.component_type();
+                for (import_name, import_item) in ty.imports(component.metadata.component.engine())
+                {
+                    if matches!(import_item, ComponentItem::ComponentInstance(_))
+                        && let Some(exporter_id) = interface_map.get(import_name)
+                        && exporter_id != component_id
+                    {
+                        // This import is provided by another component in the workload
+                        deps.insert(exporter_id.clone());
+                    }
+                }
+                dependencies.insert(component_id.clone(), deps);
+            }
+        }
+
+        // Topologically sort components: components with no dependencies (or dependencies
+        // already processed) come first. This ensures that when we process a component
+        // that imports from another component, the exporter has already been resolved.
+        let sorted_component_ids = topological_sort_components(&dependencies).context(
+            "failed to determine component processing order - possible circular dependency",
+        )?;
+
+        trace!(
+            order = ?sorted_component_ids.iter().map(|id| id.as_ref()).collect::<Vec<_>>(),
+            "processing components in topological order"
+        );
+
+        for component_id in sorted_component_ids {
             // In order to have mutable access to both the workload component and components that need
             // to be instantiated as "plugins" during linking, we remove and re-add the component to the list.
             let mut workload_component = {
@@ -1408,6 +1446,84 @@ impl UnresolvedWorkload {
     }
 }
 
+/// Performs a topological sort on components based on their inter-component dependencies.
+///
+/// This function uses Kahn's algorithm to produce an ordering where components
+/// that export interfaces are processed before components that import those interfaces.
+/// This ensures that when linking components, the exporting component's linker has
+/// already been fully configured before it needs to be pre-instantiated.
+///
+/// # Arguments
+/// * `dependencies` - A map from component ID to the set of component IDs it depends on
+///   (i.e., components whose exports it imports)
+///
+/// # Returns
+/// A vector of component IDs in topological order (dependencies first), or an error
+/// if a circular dependency is detected.
+fn topological_sort_components(
+    dependencies: &HashMap<Arc<str>, HashSet<Arc<str>>>,
+) -> anyhow::Result<Vec<Arc<str>>> {
+    // Build in-degree map: count how many dependencies each component has
+    // (only counting dependencies on other components within this workload)
+    let mut in_degree: HashMap<Arc<str>, usize> = HashMap::new();
+
+    for (component_id, deps) in dependencies {
+        // Initialize entry for this component
+        in_degree.entry(component_id.clone()).or_insert(0);
+
+        // Count only dependencies that are part of this workload
+        let dep_count = deps
+            .iter()
+            .filter(|d| dependencies.contains_key(*d))
+            .count();
+        *in_degree.get_mut(component_id).unwrap() = dep_count;
+    }
+
+    // Start with components that have no dependencies (in-degree == 0)
+    // Sort for deterministic ordering
+    let mut queue: Vec<Arc<str>> = in_degree
+        .iter()
+        .filter(|&(_, degree)| *degree == 0)
+        .map(|(id, _)| id.clone())
+        .collect();
+    queue.sort();
+
+    let mut result = Vec::with_capacity(dependencies.len());
+
+    while let Some(component_id) = queue.pop() {
+        result.push(component_id.clone());
+
+        // Find components that depend on this one and decrease their in-degree
+        for (other_id, deps) in dependencies {
+            if deps.contains(&component_id)
+                && let Some(degree) = in_degree.get_mut(other_id)
+            {
+                *degree = degree.saturating_sub(1);
+                if *degree == 0 && !result.contains(other_id) {
+                    queue.push(other_id.clone());
+                    // Re-sort to maintain determinism
+                    queue.sort();
+                }
+            }
+        }
+    }
+
+    // Check for circular dependencies
+    if result.len() != dependencies.len() {
+        let unprocessed: Vec<_> = dependencies
+            .keys()
+            .filter(|id| !result.contains(id))
+            .map(|id| id.as_ref())
+            .collect();
+        bail!(
+            "circular dependency detected among components: {:?}",
+            unprocessed
+        );
+    }
+
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1837,5 +1953,108 @@ mod tests {
         assert!(!world.includes_bidirectional(&interface4));
         // Show the difference between includes and includes_bidirectional
         assert!(!world.includes(&interface3));
+    }
+
+    /// Tests topological sort with a chain dependency: A -> B -> C
+    /// Expected order: C, B, A (or any valid topological order)
+    #[test]
+    fn test_topological_sort_chain() {
+        let a: Arc<str> = Arc::from("component-a");
+        let b: Arc<str> = Arc::from("component-b");
+        let c: Arc<str> = Arc::from("component-c");
+
+        // A depends on B, B depends on C
+        let mut dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
+        dependencies.insert(a.clone(), HashSet::from([b.clone()]));
+        dependencies.insert(b.clone(), HashSet::from([c.clone()]));
+        dependencies.insert(c.clone(), HashSet::new());
+
+        let result = topological_sort_components(&dependencies).unwrap();
+
+        // C should come before B, and B should come before A
+        let c_pos = result.iter().position(|x| x == &c).unwrap();
+        let b_pos = result.iter().position(|x| x == &b).unwrap();
+        let a_pos = result.iter().position(|x| x == &a).unwrap();
+
+        assert!(
+            c_pos < b_pos,
+            "C should be processed before B: C at {c_pos}, B at {b_pos}"
+        );
+        assert!(
+            b_pos < a_pos,
+            "B should be processed before A: B at {b_pos}, A at {a_pos}"
+        );
+    }
+
+    /// Tests topological sort with no dependencies
+    #[test]
+    fn test_topological_sort_no_dependencies() {
+        let a: Arc<str> = Arc::from("component-a");
+        let b: Arc<str> = Arc::from("component-b");
+        let c: Arc<str> = Arc::from("component-c");
+
+        let mut dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
+        dependencies.insert(a.clone(), HashSet::new());
+        dependencies.insert(b.clone(), HashSet::new());
+        dependencies.insert(c.clone(), HashSet::new());
+
+        let result = topological_sort_components(&dependencies).unwrap();
+
+        // All components should be present
+        assert_eq!(result.len(), 3);
+        assert!(result.contains(&a));
+        assert!(result.contains(&b));
+        assert!(result.contains(&c));
+    }
+
+    /// Tests topological sort with diamond dependency: A -> B, A -> C, B -> D, C -> D
+    #[test]
+    fn test_topological_sort_diamond() {
+        let a: Arc<str> = Arc::from("component-a");
+        let b: Arc<str> = Arc::from("component-b");
+        let c: Arc<str> = Arc::from("component-c");
+        let d: Arc<str> = Arc::from("component-d");
+
+        // A depends on B and C, both B and C depend on D
+        let mut dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
+        dependencies.insert(a.clone(), HashSet::from([b.clone(), c.clone()]));
+        dependencies.insert(b.clone(), HashSet::from([d.clone()]));
+        dependencies.insert(c.clone(), HashSet::from([d.clone()]));
+        dependencies.insert(d.clone(), HashSet::new());
+
+        let result = topological_sort_components(&dependencies).unwrap();
+
+        let a_pos = result.iter().position(|x| x == &a).unwrap();
+        let b_pos = result.iter().position(|x| x == &b).unwrap();
+        let c_pos = result.iter().position(|x| x == &c).unwrap();
+        let d_pos = result.iter().position(|x| x == &d).unwrap();
+
+        // D should come before B and C
+        assert!(d_pos < b_pos, "D should be processed before B");
+        assert!(d_pos < c_pos, "D should be processed before C");
+        // B and C should come before A
+        assert!(b_pos < a_pos, "B should be processed before A");
+        assert!(c_pos < a_pos, "C should be processed before A");
+    }
+
+    /// Tests topological sort with circular dependency detection
+    #[test]
+    fn test_topological_sort_circular_dependency() {
+        let a: Arc<str> = Arc::from("component-a");
+        let b: Arc<str> = Arc::from("component-b");
+        let c: Arc<str> = Arc::from("component-c");
+
+        // Circular: A -> B -> C -> A
+        let mut dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
+        dependencies.insert(a.clone(), HashSet::from([b.clone()]));
+        dependencies.insert(b.clone(), HashSet::from([c.clone()]));
+        dependencies.insert(c.clone(), HashSet::from([a.clone()]));
+
+        let result = topological_sort_components(&dependencies);
+        assert!(
+            result.is_err(),
+            "Should detect circular dependency: {:?}",
+            result
+        );
     }
 }
