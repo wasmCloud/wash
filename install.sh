@@ -7,6 +7,7 @@
 # Environment variables:
 # - GITHUB_TOKEN: GitHub personal access token (optional, for higher API rate limits)
 # - INSTALL_DIR: Directory to install wash binary (default: current directory)
+# - WASH_VERSION: Specific version to install (default: latest). Can also be set via --version flag.
 
 set -euo pipefail
 
@@ -22,7 +23,7 @@ REPO="wasmcloud/wash"
 INSTALL_DIR="${INSTALL_DIR:-$(pwd)}"
 TMP_DIR="/tmp/wash-install-$$"
 VERIFY_SIGNATURE=false
-VERSION=""
+VERSION="${WASH_VERSION:-}"
 
 # Helper functions
 log_info() {
@@ -117,6 +118,8 @@ get_release_by_version() {
 
     # Normalize version format - wash releases use 'wash-v' prefix
     if [[ ! "$version" =~ ^wash-v ]]; then
+        # Remove any leading 'wash-' prefix if present (without the 'v')
+        version="${version#wash-}"
         # Remove any leading 'v' if present
         version="${version#v}"
         # Add 'wash-v' prefix
