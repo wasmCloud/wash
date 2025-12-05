@@ -611,7 +611,6 @@ impl From<crate::types::WorkloadStatus> for types::v2::WorkloadStatus {
 
 #[cfg(test)]
 mod tests {
-    use crate::host;
 
     use super::*;
 

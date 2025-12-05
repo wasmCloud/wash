@@ -19,19 +19,49 @@ pub struct WasiWebGpu {
     pub gpu: Arc<wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global>,
 }
 
-impl Default for WasiWebGpu {
-    fn default() -> Self {
+/// Backend options for the WasiWebGpu plugin
+pub enum WasiWebGpuBackend {
+    /// Backend with all available features
+    All,
+    /// Noop backend for testing purposes. It does not perform any real GPU operations.
+    Noop,
+}
+
+impl WasiWebGpu {
+    pub fn new(backend: WasiWebGpuBackend) -> Self {
+        let (backends, backend_options) = match backend {
+            WasiWebGpuBackend::All => (
+                wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::all(),
+                wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions::default(),
+            ),
+            WasiWebGpuBackend::Noop => (
+                wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::NOOP,
+                wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions {
+                    noop: wasi_webgpu_wasmtime::reexports::wgpu_types::NoopBackendOptions {
+                        enable: true,
+                    },
+                    ..Default::default()
+                },
+            ),
+        };
+
         Self {
             gpu: Arc::new(wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global::new(
                 "webgpu",
                 &wasi_webgpu_wasmtime::reexports::wgpu_types::InstanceDescriptor {
-                    backends: wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::all(),
+                    backends,
+                    backend_options,
                     flags: wasi_webgpu_wasmtime::reexports::wgpu_types::InstanceFlags::from_build_config(),
-                    backend_options: wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions::default(),
                     memory_budget_thresholds: Default::default(),
                 },
             )),
         }
+    }
+}
+
+impl Default for WasiWebGpu {
+    fn default() -> Self {
+        Self::new(WasiWebGpuBackend::All)
     }
 }
 
@@ -41,8 +71,8 @@ struct UiThreadSpawner;
 impl wasi_webgpu_wasmtime::MainThreadSpawner for UiThreadSpawner {
     async fn spawn<F, T>(&self, f: F) -> T
     where
-        F: FnOnce() -> T + Send + Sync + 'static,
-        T: Send + Sync + 'static,
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
     {
         f()
     }

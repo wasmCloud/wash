@@ -6448,7 +6448,7 @@ checksum = "ccf3ec651a847eb01de73ccad15eb7d99f80485de043efb2f370cd654f4ea44b"
 [[package]]
 name = "wasi-graphics-context-wasmtime"
 version = "0.1.0"
-source = "git+https://github.com/wasi-gfx/wasi-gfx-runtime.git?rev=c9d0bf73f8db26acda2f658ad705878e2b4c3a95#c9d0bf73f8db26acda2f658ad705878e2b4c3a95"
+source = "git+https://github.com/wasi-gfx/wasi-gfx-runtime.git?rev=fffd275ad1abb23817c720309570059d8304c61a#fffd275ad1abb23817c720309570059d8304c61a"
 dependencies = [
  "raw-window-handle",
  "wasmtime",
@@ -6459,7 +6459,7 @@ dependencies = [
 [[package]]
 name = "wasi-webgpu-wasmtime"
 version = "0.1.0"
-source = "git+https://github.com/wasi-gfx/wasi-gfx-runtime.git?rev=c9d0bf73f8db26acda2f658ad705878e2b4c3a95#c9d0bf73f8db26acda2f658ad705878e2b4c3a95"
+source = "git+https://github.com/wasi-gfx/wasi-gfx-runtime.git?rev=fffd275ad1abb23817c720309570059d8304c61a#fffd275ad1abb23817c720309570059d8304c61a"
 dependencies = [
  "callback-future",
  "futures",
