@@ -324,26 +324,6 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
     let reference_parsed = Reference::try_from(reference)
         .with_context(|| format!("invalid OCI reference: {reference}"))?;
 
-    // Initialize cache manager
-    let cache_manager = config
-        .cache_dir
-        .as_ref()
-        .map(|dir| CacheManager::new(dir.clone()));
-    if let Some(cache_manager) = &cache_manager {
-        // Check cache first
-        if cache_manager.is_cached(reference).await {
-            debug!("Found cached artifact");
-            let (component_data, digest) = cache_manager.read_cached(reference).await?;
-            return Ok((component_data, digest));
-        }
-    }
-
-    // Setup credential resolver
-    let credential_resolver = CredentialResolver::new(config.credentials);
-    let auth = credential_resolver
-        .resolve_credentials(reference_parsed.registry())
-        .await;
-
     // Configure OCI client
     let client_config = ClientConfig {
         protocol: if config.insecure {
@@ -355,6 +335,35 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
     };
 
     let client = Client::new(client_config);
+
+    // Setup credential resolver
+    let credential_resolver = CredentialResolver::new(config.credentials);
+    let auth = credential_resolver
+        .resolve_credentials(reference_parsed.registry())
+        .await;
+
+    // Initialize cache manager
+    let cache_manager = config
+        .cache_dir
+        .as_ref()
+        .map(|dir| CacheManager::new(dir.clone()));
+    if let Some(cache_manager) = &cache_manager {
+        // Check cache first
+        if cache_manager.is_cached(reference).await {
+            debug!("Found cached artifact");
+            let (component_data, digest) = cache_manager.read_cached(reference).await?;
+
+            let fetched_digest = client
+                .fetch_manifest_digest(&reference_parsed, &auth)
+                .await?;
+
+            if digest == fetched_digest {
+                return Ok((component_data, digest));
+            }
+
+            debug!("Cached artifact expired; pulling new component version");
+        }
+    }
 
     // Pull the component using oci-client
     let pull_future = client.pull(
