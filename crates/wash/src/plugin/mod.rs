@@ -30,7 +30,10 @@ use wash_runtime::{
     host::HostApi,
     oci::{OciConfig, pull_component},
     plugin::HostPlugin,
-    types::{Component, LocalResources, Workload, WorkloadStartRequest, WorkloadState},
+    types::{
+        Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
+        WorkloadStartRequest, WorkloadState,
+    },
     wit::{WitInterface, WitWorld},
 };
 use wasmtime::component::HasSelf;
@@ -47,8 +50,6 @@ const PLUGINS_FS_DIR: &str = "fs";
 pub struct PluginManager {
     /// All registered plugins
     plugins: Arc<RwLock<Vec<Arc<PluginComponent>>>>,
-    /// Optional directory where plugins can store data
-    data_dir: Option<PathBuf>,
     /// A map of configuration from workload id to key-value pairs
     runtime_config: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
     /// Whether to skip confirmation prompts for host exec operations
@@ -60,7 +61,6 @@ impl PluginManager {
     pub fn new(skip_confirmation: bool) -> Self {
         Self {
             plugins: Arc::default(),
-            data_dir: None,
             runtime_config: Arc::default(),
             skip_confirmation,
         }
@@ -104,6 +104,15 @@ impl PluginManager {
                 .await
                 .with_context(|| format!("failed to read plugin file: {}", path.display()))?;
 
+            let fs_path = plugins_dir
+                .join(PLUGINS_FS_DIR)
+                .join(sanitize_plugin_name(plugin_name));
+
+            // Ensure the filesystem root directory exists
+            tokio::fs::create_dir_all(&fs_path)
+                .await
+                .context("failed to create plugin filesystem root directory")?;
+
             let workload = Workload {
                 namespace: "plugins".to_string(),
                 name: plugin_name.to_string(),
@@ -111,7 +120,14 @@ impl PluginManager {
                 service: None,
                 components: vec![Component {
                     bytes: plugin.into(),
-                    local_resources: LocalResources::default(),
+                    local_resources: LocalResources {
+                        volume_mounts: vec![VolumeMount {
+                            name: "plugin".to_string(),
+                            mount_path: "/plugin_data".to_string(),
+                            read_only: false,
+                        }],
+                        ..Default::default()
+                    },
                     pool_size: 1,
                     max_invocations: 1,
                 }],
@@ -119,7 +135,13 @@ impl PluginManager {
                     WitInterface::from("wasmcloud:wash/types@0.0.2"),
                     WitInterface::from("wasi:config/store@0.2.0-rc.1"),
                 ],
-                volumes: vec![],
+
+                volumes: vec![Volume {
+                    name: "plugin".to_string(),
+                    volume_type: VolumeType::HostPath(HostPathVolume {
+                        local_path: fs_path.to_string_lossy().to_string(),
+                    }),
+                }],
             };
 
             let res = ctx
@@ -272,13 +294,7 @@ impl HostPlugin for PluginManager {
         debug!("installing plugin");
         // TODO: what's the best way to do this? maybe a label
         let skip_confirmation = false;
-        let plugin = PluginComponent::new(
-            workload,
-            component_id,
-            self.data_dir.as_ref(),
-            skip_confirmation,
-        )
-        .await?;
+        let plugin = PluginComponent::new(workload, component_id, skip_confirmation).await?;
 
         self.plugins.write().await.push(Arc::new(plugin));
 
@@ -294,8 +310,6 @@ pub struct PluginComponent {
     pub id: String,
     pub workload: ResolvedWorkload,
     pub metadata: Metadata,
-    /// A read/write allowed directory for the component to use as its filesystem root
-    pub wasi_fs_root: Option<PathBuf>,
     /// Whether or not to skip confirmation prompts for host exec operations
     pub(crate) skip_confirmation: bool,
 }
@@ -304,7 +318,6 @@ impl std::fmt::Debug for PluginComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PluginComponent")
             .field("metadata", &self.metadata)
-            .field("wasi_fs_root", &self.wasi_fs_root)
             .finish()
     }
 }
@@ -313,7 +326,6 @@ impl PluginComponent {
     pub async fn new(
         workload: &ResolvedWorkload,
         component_id: &str,
-        data_dir: Option<impl AsRef<Path>>,
         skip_confirmation: bool,
     ) -> anyhow::Result<Self> {
         let pre = workload.instantiate_pre(component_id).await?;
@@ -330,26 +342,10 @@ impl PluginComponent {
             .context("failed to create plugin host bindings")?;
         let metadata = plugin.wasmcloud_wash_plugin().call_info(&mut store).await?;
 
-        // Determine the filesystem root based on the plugin name
-        let wasi_fs_root = data_dir.map(|dir| {
-            dir.as_ref()
-                .join(PLUGINS_DIR)
-                .join(PLUGINS_FS_DIR)
-                .join(sanitize_plugin_name(&metadata.name))
-        });
-
-        if let Some(ref fs_root) = wasi_fs_root {
-            // Ensure the filesystem root directory exists
-            tokio::fs::create_dir_all(fs_root)
-                .await
-                .context("failed to create plugin filesystem root directory")?;
-        }
-
         Ok(Self {
             id: component_id.to_owned(),
             workload: workload.to_owned(),
             metadata,
-            wasi_fs_root,
             skip_confirmation,
         })
     }
