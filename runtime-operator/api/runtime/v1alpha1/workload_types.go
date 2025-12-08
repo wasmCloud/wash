@@ -44,6 +44,9 @@ type VolumeMount struct {
 	// MountPath is the path within the component where the volume should be mounted.
 	// +kubebuilder:validation:Required
 	MountPath string `json:"mountPath"`
+	// ReadOnly indicates whether the volume should be mounted as read-only.
+	// +kubebuilder:validation:Optional
+	ReadOnly bool `json:"readOnly,omitempty"`
 }
 
 type ConfigLayer struct {

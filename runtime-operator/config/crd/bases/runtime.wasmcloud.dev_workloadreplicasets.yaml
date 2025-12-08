@@ -171,6 +171,10 @@ spec:
                                           Volume defined in the WorkloadSpec.Volumes
                                           field.
                                         type: string
+                                      readOnly:
+                                        description: ReadOnly indicates whether the
+                                          volume should be mounted as read-only.
+                                        type: boolean
                                     required:
                                     - mountPath
                                     - name
@@ -370,6 +374,10 @@ spec:
                                       description: Name must match the Name of a Volume
                                         defined in the WorkloadSpec.Volumes field.
                                       type: string
+                                    readOnly:
+                                      description: ReadOnly indicates whether the
+                                        volume should be mounted as read-only.
+                                      type: boolean
                                   required:
                                   - mountPath
                                   - name

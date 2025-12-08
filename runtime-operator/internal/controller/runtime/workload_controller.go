@@ -127,7 +127,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 		return nil
 	}
 
-	volumes := make([]*runtimev2.Volume, len(workload.Spec.Volumes))
+	volumes := make([]*runtimev2.Volume, 0, len(workload.Spec.Volumes))
 	for _, v := range workload.Spec.Volumes {
 		vol := &runtimev2.Volume{
 			Name: v.Name,
@@ -178,6 +178,20 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 				}
 				localResources.Environment = localEnvironment
 			}
+
+			if c.LocalResources.VolumeMounts != nil {
+				localResources.VolumeMounts = make([]*runtimev2.VolumeMount, 0, len(c.LocalResources.VolumeMounts))
+				for _, vm := range c.LocalResources.VolumeMounts {
+					volumeMount := &runtimev2.VolumeMount{
+						Name:      vm.Name,
+						MountPath: vm.MountPath,
+					}
+					if vm.ReadOnly {
+						volumeMount.ReadOnly = true
+					}
+					localResources.VolumeMounts = append(localResources.VolumeMounts, volumeMount)
+				}
+			}
 		}
 
 		var imagePullSecret *runtimev2.ImagePullSecret = nil
@@ -212,6 +226,20 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 					return fmt.Errorf("materializing local resources config for service: %w", err)
 				}
 				localResources.Environment = localEnvironment
+			}
+
+			if s.LocalResources.VolumeMounts != nil {
+				localResources.VolumeMounts = make([]*runtimev2.VolumeMount, 0, len(s.LocalResources.VolumeMounts))
+				for _, vm := range s.LocalResources.VolumeMounts {
+					volumeMount := &runtimev2.VolumeMount{
+						Name:      vm.Name,
+						MountPath: vm.MountPath,
+					}
+					if vm.ReadOnly {
+						volumeMount.ReadOnly = true
+					}
+					localResources.VolumeMounts = append(localResources.VolumeMounts, volumeMount)
+				}
 			}
 		}
 
