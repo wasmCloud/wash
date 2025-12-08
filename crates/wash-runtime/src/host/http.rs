@@ -214,6 +214,19 @@ pub trait HostHandler: Send + Sync + 'static {
         request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
         config: wasmtime_wasi_http::types::OutgoingRequestConfig,
     ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse>;
+
+    /// Number of distinct write calls to the outgoing body's output-stream
+    /// that the implementation will buffer.
+    /// Default: 1.
+    fn outgoing_body_buffer_chunks(&self) -> Option<usize> {
+        None
+    }
+
+    /// Maximum size allowed in a write call to the outgoing body's output-stream.
+    /// Default: 1024 * 1024.
+    fn outgoing_body_chunk_size(&self) -> Option<usize> {
+        None
+    }
 }
 
 impl std::fmt::Debug for dyn HostHandler {
