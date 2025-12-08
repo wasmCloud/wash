@@ -21,7 +21,7 @@ use wash_runtime::{
     engine::Engine,
     host::{
         HostApi, HostBuilder,
-        http::{DevRouter, HttpServer},
+        http::{DevRouter, HttpServer, HttpServerConfig},
     },
     plugin::wasi_webgpu::{WasiWebGpu, WasiWebGpuBackend},
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
