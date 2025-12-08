@@ -19,7 +19,7 @@ use wash_runtime::{
     engine::Engine,
     host::{
         HostApi, HostBuilder,
-        http::{DevRouter, HttpServer},
+        http::{DevRouter, HttpServer, HttpServerConfig},
     },
     plugin::{
         wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
@@ -46,7 +46,7 @@ async fn test_http_counter_integration() -> Result<()> {
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(http_handler, addr, HttpServerConfig::default());
 
     // Create blobstore plugin for storing HTTP responses
     let blobstore_plugin = WasiBlobstore::new(None);
@@ -395,7 +395,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(http_handler, addr, HttpServerConfig::default());
     let blobstore_plugin = WasiBlobstore::new(None);
     let keyvalue_plugin = WasiKeyvalue::new();
     let logging_plugin = WasiLogging {};
@@ -592,7 +592,11 @@ async fn test_http_counter_plugin_isolation() -> Result<()> {
     // First host
     let host1 = HostBuilder::new()
         .with_engine(engine1)
-        .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr1)))
+        .with_http_handler(Arc::new(HttpServer::new(
+            DevRouter::default(),
+            addr1,
+            HttpServerConfig::default(),
+        )))
         .with_plugin(Arc::new(WasiBlobstore::new(None)))?
         .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
@@ -601,7 +605,11 @@ async fn test_http_counter_plugin_isolation() -> Result<()> {
     // Second host
     let host2 = HostBuilder::new()
         .with_engine(engine2)
-        .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr2)))
+        .with_http_handler(Arc::new(HttpServer::new(
+            DevRouter::default(),
+            addr2,
+            HttpServerConfig::default(),
+        )))
         .with_plugin(Arc::new(WasiBlobstore::new(None)))?
         .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?

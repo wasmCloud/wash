@@ -18,7 +18,7 @@ use wash_runtime::{
     engine::Engine,
     host::{
         HostApi, HostBuilder,
-        http::{DevRouter, HttpServer},
+        http::{DevRouter, HttpServer, HttpServerConfig},
     },
     plugin::{
         wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
@@ -45,7 +45,7 @@ async fn test_http_keyvalue_counter_integration() -> Result<()> {
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(http_handler, addr, HttpServerConfig::default());
 
     // Create keyvalue plugin
     let keyvalue_plugin = WasiKeyvalue::new();
@@ -324,7 +324,7 @@ async fn test_keyvalue_counter_concurrent_access() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(DevRouter::default(), addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), addr, HttpServerConfig::default());
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
     let config_plugin = WasiConfig::default();
@@ -505,7 +505,7 @@ async fn test_keyvalue_error_handling() -> Result<()> {
     let engine = Engine::builder().build()?;
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(DevRouter::default(), addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), addr, HttpServerConfig::default());
     let keyvalue_plugin = WasiKeyvalue::new();
     let blobstore_plugin = WasiBlobstore::new(None);
     let config_plugin = WasiConfig::default();

@@ -20,7 +20,7 @@ use wash_runtime::{
     engine::Engine,
     host::{
         HostApi, HostBuilder,
-        http::{DevRouter, HttpServer},
+        http::{DevRouter, HttpServer, HttpServerConfig},
     },
     plugin::wasi_blobstore::WasiBlobstore,
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
@@ -44,7 +44,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(http_handler, addr, HttpServerConfig::default());
 
     // Create blobstore plugin
     let blobstore_plugin = WasiBlobstore::new(None);
@@ -207,7 +207,7 @@ async fn test_plugin_lifecycle() -> Result<()> {
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(http_handler, addr, HttpServerConfig::default());
 
     let host = HostBuilder::new()
         .with_engine(engine)

@@ -276,6 +276,25 @@ impl HostHandler for NullServer {
 pub type WorkloadHandles =
     Arc<RwLock<HashMap<String, (ResolvedWorkload, InstancePre<Ctx>, String)>>>;
 
+/// Configuration for the HTTP server
+#[derive(Clone, Debug, Default)]
+pub struct HttpServerConfig {
+    pub outgoing_body_buffer_chunks: Option<usize>,
+    pub outgoing_body_chunk_size: Option<usize>,
+}
+
+impl HttpServerConfig {
+    pub fn with_outgoing_body_buffer_chunks(&mut self, chunks: usize) -> &mut Self {
+        self.outgoing_body_buffer_chunks = Some(chunks);
+        self
+    }
+
+    pub fn with_outgoing_body_chunk_size(&mut self, size: usize) -> &mut Self {
+        self.outgoing_body_chunk_size = Some(size);
+        self
+    }
+}
+
 /// HTTP server plugin that handles incoming HTTP requests for WebAssembly components.
 ///
 /// This plugin implements the `wasi:http/incoming-handler` interface and routes
@@ -287,6 +306,7 @@ pub struct HttpServer<T: Router> {
     workload_handles: WorkloadHandles,
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
+    config: HttpServerConfig,
 }
 
 impl<T: Router> std::fmt::Debug for HttpServer<T> {
@@ -306,13 +326,14 @@ impl<T: Router> HttpServer<T> {
     ///
     /// # Returns
     /// A new `HttpServer` instance configured for HTTP connections.
-    pub fn new(router: T, addr: SocketAddr) -> Self {
+    pub fn new(router: T, addr: SocketAddr, config: HttpServerConfig) -> Self {
         Self {
             router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: None,
+            config,
         }
     }
 
@@ -336,6 +357,7 @@ impl<T: Router> HttpServer<T> {
         cert_path: &Path,
         key_path: &Path,
         ca_path: Option<&Path>,
+        config: HttpServerConfig,
     ) -> anyhow::Result<Self> {
         let tls_config = load_tls_config(cert_path, key_path, ca_path).await?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
@@ -346,6 +368,7 @@ impl<T: Router> HttpServer<T> {
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
+            config,
         })
     }
 }
@@ -446,6 +469,14 @@ impl<T: Router> HostHandler for HttpServer<T> {
         Ok(wasmtime_wasi_http::types::default_send_request(
             request, config,
         ))
+    }
+
+    fn outgoing_body_buffer_chunks(&self) -> Option<usize> {
+        self.config.outgoing_body_buffer_chunks
+    }
+
+    fn outgoing_body_chunk_size(&self) -> Option<usize> {
+        self.config.outgoing_body_chunk_size
     }
 }
 

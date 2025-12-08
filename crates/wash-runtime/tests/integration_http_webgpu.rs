@@ -45,7 +45,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(http_handler, addr, HttpServerConfig::default());
 
     // Build host with plugins following the existing pattern from lib.rs test
     let host = HostBuilder::new()
