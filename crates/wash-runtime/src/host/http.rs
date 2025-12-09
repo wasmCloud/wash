@@ -26,9 +26,10 @@ use crate::wit::WitInterface;
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
 use tokio::net::TcpListener;
+use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
+use wasmtime::Store;
 use wasmtime::component::InstancePre;
-use wasmtime::{AsContextMut, StoreContextMut};
 use wasmtime_wasi_http::{
     WasiHttpView,
     bindings::{ProxyPre, http::types::Scheme},
@@ -574,14 +575,14 @@ async fn invoke_component_handler(
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     // Create a new store for this request with plugin contexts
-    let mut store = workload_handle.new_store(component_id).await?;
+    let store = workload_handle.new_store(component_id).await?;
 
-    handle_component_request(store.as_context_mut(), instance_pre, req).await
+    handle_component_request(store, instance_pre, req).await
 }
 
 /// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)
-pub async fn handle_component_request<'a>(
-    mut store: StoreContextMut<'a, Ctx>,
+pub async fn handle_component_request(
+    mut store: Store<Ctx>,
     pre: InstancePre<Ctx>,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
@@ -597,13 +598,20 @@ pub async fn handle_component_request<'a>(
     let out = store.data_mut().new_response_outparam(sender)?;
     let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
 
-    // Run the http request itself by instantiating and calling the component
-    let proxy = pre.instantiate_async(&mut store).await?;
+    // Run the http request itself in a separate task so the task can
+    // optionally continue to execute beyond after the initial
+    // headers/response code are sent.
+    let task: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
+        // Run the http request itself by instantiating and calling the component
+        let proxy = pre.instantiate_async(&mut store).await?;
 
-    proxy
-        .wasi_http_incoming_handler()
-        .call_handle(&mut store, req, out)
-        .await?;
+        proxy
+            .wasi_http_incoming_handler()
+            .call_handle(&mut store, req, out)
+            .await?;
+
+        Ok(())
+    });
 
     match receiver.await {
         // If the client calls `response-outparam::set` then one of these
@@ -614,10 +622,17 @@ pub async fn handle_component_request<'a>(
         // Otherwise the `sender` will get dropped along with the `Store`
         // meaning that the oneshot will get disconnected
         Err(e) => {
-            error!(err = ?e, "error receiving http response");
-            Err(anyhow::anyhow!(
-                "oneshot channel closed but no response was sent"
-            ))
+            if let Err(task_error) = task.await {
+                error!(err = ?task_error, "error receiving http response");
+                Err(anyhow::anyhow!(
+                    "error receiving http response: {task_error}"
+                ))
+            } else {
+                error!(err = ?e, "error receiving http response");
+                Err(anyhow::anyhow!(
+                    "oneshot channel closed but no response was sent"
+                ))
+            }
         }
     }
 }
