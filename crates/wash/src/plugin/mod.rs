@@ -292,9 +292,7 @@ impl HostPlugin for PluginManager {
         component_id: &str,
     ) -> anyhow::Result<()> {
         debug!("installing plugin");
-        // TODO: what's the best way to do this? maybe a label
-        let skip_confirmation = false;
-        let plugin = PluginComponent::new(workload, component_id, skip_confirmation).await?;
+        let plugin = PluginComponent::new(workload, component_id, self.skip_confirmation).await?;
 
         self.plugins.write().await.push(Arc::new(plugin));
 
