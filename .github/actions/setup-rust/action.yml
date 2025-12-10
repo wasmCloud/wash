@@ -4,7 +4,7 @@ inputs:
   rust-toolchain:
     description: "Rust toolchain"
     required: false
-    default: "1.90"
+    default: "stable"
   rust-targets:
     description: "Comma separated list of additional targets"
     required: false
