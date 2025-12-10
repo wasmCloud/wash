@@ -1,4 +1,10 @@
+operator:
+  image:
+    tag: canary
+
 runtime:
+  image:
+    tag: canary-v2
   hostGroups:
     - name: public-ingress
       replicas: 1
