@@ -154,7 +154,7 @@ jobs:
           - target: x86_64-apple-darwin
             buildCommand: cargo build
             artifact: wash-x86_64-apple-darwin
-            runner: macos-latest
+            runner: macos-15-intel
             bin: wash
           - target: aarch64-apple-darwin
             buildCommand: cargo build
