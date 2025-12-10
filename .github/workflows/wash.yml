@@ -43,24 +43,24 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: "22"
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:
           go-version: "^1.25.0"
           cache: false
       - name: Setup TinyGo
-        uses: acifani/setup-tinygo@v2
+        uses: acifani/setup-tinygo@b2ba42b249c7d3efdfe94166ec0f48b3191404f7 # v2.0.0
         with:
           tinygo-version: "0.39.0"
       - name: Setup wasm-tools
-        uses: bytecodealliance/actions/wasm-tools/setup@v1
+        uses: bytecodealliance/actions/wasm-tools/setup@d742827944dcb656569399571a8a45261b5089f6 # v1.1.0
         with:
           version: "1.223.1"
       - name: Setup protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@f4d5893b897028ff5739576ea0409746887fa536 # v3.0.0
         with:
           version: "29.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -83,7 +83,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@f4d5893b897028ff5739576ea0409746887fa536 # v3.0.0
         with:
           version: "29.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -181,7 +181,7 @@ jobs:
           rust-targets: "${{ matrix.target }}"
 
       - name: Setup protoc
-        uses: arduino/setup-protoc@v3
+        uses: arduino/setup-protoc@f4d5893b897028ff5739576ea0409746887fa536 # v3.0.0
         with:
           version: "29.x"
           repo-token: ${{ secrets.GITHUB_TOKEN }}
@@ -192,10 +192,11 @@ jobs:
           cp target/${{ matrix.target }}/release/${{ matrix.bin }} ${{ matrix.artifact }}
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}
+          if-no-files-found: error
 
   upload-release-assets:
     needs: release
@@ -210,17 +211,18 @@ jobs:
         with:
           persist-credentials: false
       - name: Download all artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6.0.0
         with:
           path: ./artifacts
+          pattern: wash-*
 
       - name: Generate build provenance attestations
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
         with:
           subject-path: "./artifacts/*/wash*"
 
       - name: Create GitHub Release and upload binaries
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           name: ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
