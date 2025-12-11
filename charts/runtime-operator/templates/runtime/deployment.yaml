@@ -28,8 +28,14 @@ spec:
       containers:
         - name: host
           image: {{ printf "%s/%s" $registry $top.Values.runtime.image.repository }}:{{ $top.Values.runtime.image.tag | default $top.Chart.AppVersion }}
+          env:
+            - name: WASMCLOUD_HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           args:
             - "host"
+            - "--host-name=$(WASMCLOUD_HOST_IP)"
             - "--host-group={{ .name }}"
             - "--scheduler-nats-url=nats://nats:4222"
             - "--data-nats-url=nats://nats:4222"

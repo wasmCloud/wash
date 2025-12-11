@@ -2,43 +2,29 @@ operator:
   image:
     tag: canary
 
+gateway:
+  enabled: true
+  image:
+    registry: ttl.sh
+    repository: lxfontes/runtime-gateway
+    tag: canary
+  service:
+    type: NodePort
+    nodePort: 30950
+
 runtime:
   image:
     tag: canary-v2
   hostGroups:
-    - name: public-ingress
-      replicas: 1
+    - name: default
+      replicas: 3
       service:
-        type: NodePort
+        type: ClusterIP
       webgpu:
         enabled: true
       http:
         enabled: true
         port: 80
-        nodePort: 30950
-      resources:
-        requests:
-          memory: "64Mi"
-          cpu: "250m" # 0.25 CPU cores
-        limits:
-          memory: "512Mi"
-          cpu: "500m" # 0.5 CPU cores
-    - name: private-ingress
-      replicas: 1
-      service:
-        type: ClusterIP
-      http:
-        enabled: true
-        port: 80
-      resources:
-        requests:
-          memory: "64Mi"
-          cpu: "250m" # 0.25 CPU cores
-        limits:
-          memory: "512Mi"
-          cpu: "500m" # 0.5 CPU cores
-    - name: default
-      replicas: 1
       resources:
         requests:
           memory: "64Mi"

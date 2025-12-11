@@ -39,10 +39,10 @@ var _ HostRegistry = (*HostTracker)(nil)
 var _ WorkloadRegistry = (*HostTracker)(nil)
 
 type HostTracker struct {
-	once sync.Once
+	// where to send requests that have no registered workloads
+	Fallback Fallback
+
 	lock sync.RWMutex
-	// internal fallback endpoint, for when no workloads are registered
-	fallbackEndpoint string
 	// HostID to "hostname:port"
 	hosts map[string]string
 	// hostname to WorkloadID
@@ -52,40 +52,15 @@ type HostTracker struct {
 }
 
 func (ht *HostTracker) SetupWithManager(ctx context.Context, manager ctrl.Manager) error {
-	ht.once.Do(func() {
-		ht.hosts = make(map[string]string)
-		ht.hostnames = make(map[string]sets.Set[string])
-		ht.workloads = make(map[string]string)
-	})
 	return manager.Add(ht)
 }
 
 func (ht *HostTracker) Start(ctx context.Context) error {
-	internalMux := http.NewServeMux()
-
-	internalMux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Connection", "close")
-		http.Error(w, "No backend available", http.StatusServiceUnavailable)
-	})
-
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
-	}
-
-	ht.fallbackEndpoint = listener.Addr().String()
-	log := ctrl.LoggerFrom(ctx).WithName("host-tracker")
-	log.Info("HostTracker internal fallback endpoint", "endpoint", ht.fallbackEndpoint)
-
-	internalServer := &http.Server{
-		Handler: internalMux,
-	}
-	go func() {
-		<-ctx.Done()
-		_ = internalServer.Close()
-	}()
-
-	return internalServer.Serve(listener)
+	ht.hosts = make(map[string]string)
+	ht.hostnames = make(map[string]sets.Set[string])
+	ht.workloads = make(map[string]string)
+	<-ctx.Done()
+	return nil
 }
 
 func (ht *HostTracker) Resolve(ctx context.Context, req *http.Request) LookupResult {
@@ -93,29 +68,44 @@ func (ht *HostTracker) Resolve(ctx context.Context, req *http.Request) LookupRes
 	defer ht.lock.RUnlock()
 
 	workloads, ok := ht.hostnames[req.Host]
-	if !ok || len(workloads) == 0 {
+	if !ok {
+		scheme, endpoint := ht.Fallback.InvalidHostname(req.Host)
 		return LookupResult{
-			Hostname: ht.fallbackEndpoint,
-			Scheme:   "http",
+			Hostname: endpoint,
+			Scheme:   scheme,
+		}
+	}
+
+	if workloads.Len() == 0 {
+		scheme, endpoint := ht.Fallback.NoWorkloads(req.Host)
+		return LookupResult{
+			Hostname: endpoint,
+			Scheme:   scheme,
 		}
 	}
 
 	// pick a random workload
 	workloadID := workloads.UnsortedList()[0]
 
+	// find the host for the workload
+	// (should always exist if the workload exists)
 	hostID, ok := ht.workloads[workloadID]
 	if !ok {
+		scheme, endpoint := ht.Fallback.NoWorkloads(req.Host)
 		return LookupResult{
-			Hostname: ht.fallbackEndpoint,
-			Scheme:   "http",
+			Hostname: endpoint,
+			Scheme:   scheme,
 		}
 	}
 
+	// find the hostname:port for the host
+	// (should always exist if the host is healthy)
 	hostname, ok := ht.hosts[hostID]
 	if !ok {
+		scheme, endpoint := ht.Fallback.NoWorkloads(req.Host)
 		return LookupResult{
-			Hostname: ht.fallbackEndpoint,
-			Scheme:   "http",
+			Hostname: endpoint,
+			Scheme:   scheme,
 		}
 	}
 

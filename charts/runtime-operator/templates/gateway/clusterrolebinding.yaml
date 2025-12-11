@@ -1,0 +1,19 @@
+{{- if .Values.gateway.enabled -}}
+{{- if .Values.gateway.serviceAccount.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "runtime-operator.fullname" . }}-gateway
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+  annotations: {}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "runtime-operator.fullname" . }}-gateway
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "runtime-operator.serviceAccountName" . }}-gateway
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- end }}
