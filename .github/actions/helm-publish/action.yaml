@@ -1,0 +1,88 @@
+name: helm-publish
+description: Publish a Helm chart to a registry
+
+inputs:
+  chart-name:
+    required: true
+    description: The name of the chart to publish
+  chart-version:
+    required: false
+    description: The version of the chart to publish
+  chart-app-version:
+    required: false
+    description: The appVersion to set in the chart
+  helm-version:
+    default: "v3.16.4"
+    description: The version of Helm to use
+    required: false
+  helmfile-version:
+    default: "v0.169.2"
+    description: The version of Helmfile to use
+    required: false
+  registry:
+    required: true
+    description: The registry to publish the chart to
+  registry-username:
+    required: true
+    description: The username to use for the registry
+  registry-password:
+    required: true
+    description: The password to use for the registry
+  registry-namespace:
+    required: true
+    description: The namespace of the chart to publish
+
+runs:
+  using: "composite"
+  steps:
+      - name: Set up Helm
+        uses: azure/setup-helm@b9e51907a09c216f16ebe8536097933489208112 # v4.3.0
+        with:
+          version: ${{ inputs.helm-version }}
+
+      - name: Login to ${{ inputs.registry }}
+        uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.registry-username }}
+          password: ${{ inputs.registry-password }}
+
+      - name: Update dependencies with Helmfile
+        uses: helmfile/helmfile-action@6f21d94fa797f5dfbc92b9db62c6832ac6639a88 # v2.0.5
+        with:
+          helmfile-args: deps
+          helmfile-version: ${{ inputs.helmfile-version }}
+          helmfile-workdirectory: ${{ format('charts/{0}', inputs.chart-name) }}
+          helm-version: ${{ inputs.helm-version }}
+          helm-plugins: >
+            https://github.com/databus23/helm-diff@v3.1.3
+
+      - name: Package
+        if: inputs.chart-app-version != '' && inputs.chart-version != ''
+        shell: bash
+        env:
+          CHART_PATH: ${{ format('charts/{0}', inputs.chart-name)}}
+        run: |
+          helm package --app-version "${{ inputs.chart-app-version }}" --version "${{ inputs.chart-version }}" ${{ env.CHART_PATH }} -d .helm-charts
+
+      - name: Use Git version
+        if: inputs.chart-app-version == '' && inputs.chart-version == ''
+        shell: bash
+        env:
+          CHART_PATH: ${{ format('charts/{0}', inputs.chart-name)}}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "VERSION=${VERSION}"
+          helm package --app-version "$VERSION" --version "$VERSION" ${{ env.CHART_PATH }} -d .helm-charts
+
+      - name: Publish
+        shell: bash
+        env:
+          CHART_REMOTE: ${{ format('oci://{0}/{1}', inputs.registry, inputs.registry-namespace) }}
+        run: |
+          for chart in .helm-charts/*; do
+            if [ -z "${chart:-}" ]; then
+              break
+            fi
+            helm push "${chart}" "${{ env.CHART_REMOTE }}"
+          done

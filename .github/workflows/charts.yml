@@ -1,0 +1,62 @@
+name: charts
+on:
+  push:
+    branches:
+      - "main"
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "charts/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: ./.github/actions/setup-go
+      - name: Render
+        run: make helm-render
+
+  canary:
+    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'canary')
+    needs: [test]
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: ./.github/actions/helm-publish
+        with:
+          chart-name: runtime-operator
+          chart-version: v2-canary
+          chart-app-version: canary
+          registry: ghcr.io
+          registry-username: ricochet
+          registry-password: ${{ secrets.WASMCLOUD_PACKAGES_PAT }}
+          registry-namespace: wasmcloud/charts
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test]
+    permissions:
+      contents: write
+      packages: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: ./.github/actions/helm-publish
+        with:
+          chart-name: runtime-operator
+          registry: ghcr.io
+          registry-username: ricochet
+          registry-password: ${{ secrets.WASMCLOUD_PACKAGES_PAT }}
+          registry-namespace: wasmcloud/charts
