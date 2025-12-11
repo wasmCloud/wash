@@ -188,7 +188,7 @@ where
 
 /// Get the local project configuration file path
 pub fn local_config_path(project_dir: &Path) -> PathBuf {
-    project_dir.join(".wash").join(CONFIG_FILE_NAME)
+    project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME)
 }
 
 /// Generate a default configuration file with all explicit defaults
