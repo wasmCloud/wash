@@ -3,6 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use anyhow::Context as _;
 use clap::Args;
 use tracing::info;
+use wash_runtime::host::http::HttpServerConfig;
 #[cfg(not(target_os = "windows"))]
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 
@@ -95,7 +96,11 @@ impl CliCommand for HostCommand {
         if let Some(addr) = self.http_addr {
             let http_router = wash_runtime::host::http::DynamicRouter::default();
             cluster_host_builder = cluster_host_builder.with_http_handler(Arc::new(
-                wash_runtime::host::http::HttpServer::new(http_router, addr),
+                wash_runtime::host::http::HttpServer::new(
+                    http_router,
+                    addr,
+                    HttpServerConfig::default(),
+                ),
             ));
         }
 

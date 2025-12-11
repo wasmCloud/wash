@@ -21,7 +21,7 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(not(target_os = "windows"))]
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
-    host::{Host, HostApi},
+    host::{Host, HostApi, http::HttpServerConfig},
     plugin::{wasi_config::WasiConfig, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
@@ -225,6 +225,7 @@ impl CliCommand for DevCommand {
                 cert_path,
                 key_path,
                 self.tls_ca.as_deref(),
+                HttpServerConfig::default(),
             )
             .await?;
 
@@ -234,8 +235,11 @@ impl CliCommand for DevCommand {
             "https"
         } else {
             debug!("No TLS configuration provided - server will use HTTP");
-            let http_server =
-                wash_runtime::host::http::HttpServer::new(http_handler, self.address.parse()?);
+            let http_server = wash_runtime::host::http::HttpServer::new(
+                http_handler,
+                self.address.parse()?,
+                HttpServerConfig::default(),
+            );
             host_builder = host_builder.with_http_handler(Arc::new(http_server));
             "http"
         };

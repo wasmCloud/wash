@@ -99,6 +99,20 @@ impl WasiHttpView for Ctx {
             ))),
         }
     }
+
+    fn outgoing_body_buffer_chunks(&mut self) -> usize {
+        self.http_handler
+            .as_ref()
+            .and_then(|handler| handler.outgoing_body_buffer_chunks())
+            .unwrap_or(wasmtime_wasi_http::DEFAULT_OUTGOING_BODY_BUFFER_CHUNKS)
+    }
+
+    fn outgoing_body_chunk_size(&mut self) -> usize {
+        self.http_handler
+            .as_ref()
+            .and_then(|handler| handler.outgoing_body_chunk_size())
+            .unwrap_or(wasmtime_wasi_http::DEFAULT_OUTGOING_BODY_CHUNK_SIZE)
+    }
 }
 
 /// Helper struct to build a [`Ctx`] with a builder pattern

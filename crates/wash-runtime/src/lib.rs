@@ -20,7 +20,7 @@ mod test {
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    use crate::host::http::HttpServer;
+    use crate::host::http::{HttpServer, HttpServerConfig};
     use crate::plugin::wasi_config::WasiConfig;
     use crate::{
         host::HostApi,
@@ -33,7 +33,11 @@ mod test {
     async fn can_run_engine() -> anyhow::Result<()> {
         let engine = Engine::builder().build()?;
         let http_handler = crate::host::http::DevRouter::default();
-        let http_plugin = HttpServer::new(http_handler, "127.0.0.1:8080".parse()?);
+        let http_plugin = HttpServer::new(
+            http_handler,
+            "127.0.0.1:8080".parse()?,
+            HttpServerConfig::default(),
+        );
         let wasi_config_plugin = WasiConfig::default();
 
         let host = HostBuilder::new()

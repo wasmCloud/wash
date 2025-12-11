@@ -17,7 +17,7 @@ use wash_runtime::{
     engine::Engine,
     host::{
         HostApi, HostBuilder,
-        http::{DevRouter, HttpServer},
+        http::{DevRouter, HttpServer, HttpServerConfig},
     },
     plugin::{wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging},
     types::{
@@ -50,7 +50,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     // Create HTTP server plugin on a dynamically allocated port
     let port = find_available_port().await?;
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(DevRouter::default(), addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), addr, HttpServerConfig::default());
 
     // Create keyvalue plugin for counter persistence (still using built-in)
     let keyvalue_plugin = WasiKeyvalue::new();
@@ -391,7 +391,11 @@ async fn test_component_resolution_with_multiple_providers() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr)))
+        .with_http_handler(Arc::new(HttpServer::new(
+            DevRouter::default(),
+            addr,
+            HttpServerConfig::default(),
+        )))
         .with_plugin(Arc::new(WasiKeyvalue::new()))?
         .with_plugin(Arc::new(WasiLogging {}))?
         .build()?;
