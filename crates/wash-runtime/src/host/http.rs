@@ -18,7 +18,12 @@
 //! 4. Managing the request/response lifecycle through WASI-HTTP
 //! ```
 
-use std::{collections::HashMap, net::SocketAddr, path::Path, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+    path::Path,
+    sync::Arc,
+};
 
 use crate::engine::ctx::Ctx;
 use crate::engine::workload::ResolvedWorkload;
@@ -76,7 +81,8 @@ pub trait Router: Send + Sync + 'static {
 /// Router that routes requests by 'Host' header, configured via WitInterface config
 #[derive(Default)]
 pub struct DynamicRouter {
-    host_to_workload: tokio::sync::RwLock<HashMap<String, String>>,
+    host_to_workload: tokio::sync::RwLock<HashMap<String, HashSet<String>>>,
+    workload_to_host: tokio::sync::RwLock<HashMap<String, String>>,
 }
 
 /// Implementation of Router that maps Host headers to workload IDs
@@ -103,15 +109,31 @@ impl Router for DynamicRouter {
             .cloned()
             .context("No host header found")?;
 
-        let mut lock = self.host_to_workload.write().await;
-        lock.insert(host_header, resolved_handle.id().to_string());
+        {
+            let mut lock = self.workload_to_host.write().await;
+            lock.insert(resolved_handle.id().to_string(), host_header.clone());
+        }
+
+        {
+            let mut lock = self.host_to_workload.write().await;
+            let entry = lock.entry(host_header.clone()).or_insert_with(HashSet::new);
+            entry.insert(resolved_handle.id().to_string());
+        }
 
         Ok(())
     }
 
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()> {
-        let mut lock = self.host_to_workload.write().await;
-        lock.retain(|_host, wid| wid != workload_id);
+        let mut lock = self.workload_to_host.write().await;
+        if let Some(host_header) = lock.remove(workload_id) {
+            let mut host_lock = self.host_to_workload.write().await;
+            if let Some(workload_set) = host_lock.get_mut(&host_header) {
+                workload_set.remove(workload_id);
+                if workload_set.is_empty() {
+                    host_lock.remove(&host_header);
+                }
+            }
+        }
         Ok(())
     }
 
@@ -136,9 +158,15 @@ impl Router for DynamicRouter {
                 .get(hyper::header::HOST)
                 .and_then(|h| h.to_str().ok())
                 .context("no Host header in request")?;
-            let Some(workload_id) = lock.get(workload_host) else {
+            let Some(workload_set) = lock.get(workload_host) else {
                 anyhow::bail!("no workload bound to host header: {}", workload_host);
             };
+
+            let workload_id = workload_set
+                .iter()
+                .next()
+                .context("no workload IDs found for host header")?;
+
             Ok(workload_id.clone())
         })
     }
