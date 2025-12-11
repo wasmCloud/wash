@@ -22,6 +22,12 @@ inputs:
   registry:
     required: true
     description: The registry to publish the chart to
+  registry-username:
+    required: true
+    description: The username to use for the registry
+  registry-password:
+    required: true
+    description: The password to use for the registry
   registry-namespace:
     required: true
     description: The namespace of the chart to publish
@@ -37,12 +43,9 @@ runs:
       - name: Login to ${{ inputs.registry }}
         uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
         with:
-          registry: ghcr.io
-          username: ricochet
-          password: ${{ secrets.WASMCLOUD_PACKAGES_PAT }}
-          # registry: ${{ inputs.registry }}
-          # username: ${{ github.actor }}
-          # password: ${{ github.token }}
+          registry: ${{ inputs.registry }}
+          username: ${{ inputs.registry-username }}
+          password: ${{ inputs.registry-password }}
 
       - name: Update dependencies with Helmfile
         uses: helmfile/helmfile-action@6f21d94fa797f5dfbc92b9db62c6832ac6639a88 # v2.0.5
