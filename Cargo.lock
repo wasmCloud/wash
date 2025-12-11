@@ -1771,6 +1771,7 @@ dependencies = [
  "pear",
  "serde",
  "serde_json",
+ "serde_yaml",
  "uncased",
  "version_check",
 ]
@@ -5127,6 +5128,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml_ng"
+version = "0.9.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd24347956e682cf958c95e82deb9914cad4010d3efc035d579f81f4c426038c"
+dependencies = [
+ "indexmap 2.11.0",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6276,6 +6290,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "serde_yaml_ng",
  "tar",
  "tempfile",
  "tokio",

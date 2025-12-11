@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use figment::{
     Figment,
-    providers::{Env, Format, Json},
+    providers::{Env, Format, Yaml},
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
@@ -26,11 +26,14 @@ pub const PROJECT_CONFIG_DIR: &str = ".wash";
 /// Main wash configuration structure with hierarchical merging support and explicit defaults
 ///
 /// The "global" [Config] is stored under the user's XDG_CONFIG_HOME directory
-/// (typically `~/.config/wash/config.json`), while the "local" project configuration
-/// is stored in the project's `.wash/config.json` file. This allows for both reasonable
+/// (typically `~/.config/wash/config.yaml`), while the "local" project configuration
+/// is stored in the project's `.wash/config.yaml` file. This allows for both reasonable
 /// global defaults and project-specific overrides.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Version of the configuration schema (default: current Cargo package version)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// Build configuration for different project types (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<BuildConfig>,
@@ -42,11 +45,21 @@ pub struct Config {
     // e.g. for runtime config, http ports, etc
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            build: None,
+            wit: None,
+        }
+    }
+}
+
 /// Load configuration with hierarchical merging
 /// Order of precedence (lowest to highest):
 /// 1. Default values
-/// 2. Global config (~/.wash/config.json)
-/// 3. Local project config (.wash/config.json)
+/// 2. Global config (~/.wash/config.yaml)
+/// 3. Local project config (.wash/config.yaml)
 /// 4. Environment variables (WASH_ prefix)
 /// 5. Command line arguments
 ///
@@ -67,14 +80,14 @@ where
 
     // Global config file
     if global_config_path.exists() {
-        figment = figment.merge(Json::file(global_config_path));
+        figment = figment.merge(Yaml::file(global_config_path));
     }
 
     // Local project config
     if let Some(project_dir) = project_dir {
         let local_config_path = project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME);
         if local_config_path.exists() {
-            figment = figment.merge(Json::file(local_config_path));
+            figment = figment.merge(Yaml::file(local_config_path));
         }
     }
 
@@ -106,9 +119,10 @@ pub async fn save_config(config: &Config, path: &Path) -> Result<()> {
         })?;
     }
 
-    let json = serde_json::to_string_pretty(config).context("Failed to serialize configuration")?;
+    let yaml_config =
+        serde_yaml_ng::to_string(config).context("Failed to serialize configuration")?;
 
-    tokio::fs::write(path, json)
+    tokio::fs::write(path, yaml_config)
         .await
         .with_context(|| format!("failed to write config file: {}", path.display()))?;
 
@@ -125,7 +139,7 @@ where
     T: Serialize,
 {
     let config_dir = project_dir.join(".wash");
-    let config_path = config_dir.join("config.json");
+    let config_path = config_dir.join(CONFIG_FILE_NAME);
 
     // Don't overwrite existing config
     if config_path.exists() {

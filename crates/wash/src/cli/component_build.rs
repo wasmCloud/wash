@@ -18,7 +18,7 @@ use crate::component_build::ProjectType;
 use crate::plugin::bindings::wasmcloud::wash::types::HookType;
 use crate::wit::WitConfig;
 use crate::{
-    cli::{CliCommand, CliContext, CommandOutput},
+    cli::{CONFIG_FILE_NAME, CliCommand, CliContext, CommandOutput},
     config::{Config, generate_project_config, load_config, save_config},
     wit::{CommonPackageArgs, WkgFetcher, load_lock_file},
 };
@@ -30,7 +30,7 @@ pub struct ComponentBuildCommand {
     #[clap(name = "project-path", default_value = ".")]
     project_path: PathBuf,
 
-    /// Path to a configuration file in a location other than PROJECT_DIR/.wash/config.json
+    /// Path to a configuration file in a location other than PROJECT_DIR/.wash/config.yaml
     #[clap(name = "config", long = "config")]
     build_config: Option<PathBuf>,
 
@@ -744,7 +744,7 @@ impl ComponentBuilder {
 
             // Add WIT world - this is required for TinyGo builds when WIT is present
             let Some(wit_world) = &tinygo_config.wit_world else {
-                // Generate project config to ensure .wash/config.json exists with placeholder
+                // Generate project config to ensure .wash/config.yaml exists with placeholder
                 let mut config_with_placeholder = config.clone();
                 let component_path_relative = PathBuf::from("build/output.wasm");
 
@@ -765,7 +765,7 @@ impl ComponentBuilder {
 
                 // Write config with placeholder
                 let config_dir = self.project_path.join(".wash");
-                let config_path = config_dir.join("config.json");
+                let config_path = config_dir.join(CONFIG_FILE_NAME);
                 tokio::fs::create_dir_all(&config_dir)
                     .await
                     .context("failed to create .wash directory")?;

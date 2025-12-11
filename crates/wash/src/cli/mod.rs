@@ -48,7 +48,7 @@ pub mod plugin;
 pub mod update;
 pub mod wit;
 
-pub const CONFIG_FILE_NAME: &str = "config.json";
+pub const CONFIG_FILE_NAME: &str = "config.yaml";
 
 /// A trait that defines the interface for all CLI commands
 pub trait CliCommand {

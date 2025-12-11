@@ -78,7 +78,7 @@ impl CliCommand for ConfigCommand {
                     .await
                     .context("failed to load config")?;
                 Ok(CommandOutput::ok(
-                    serde_json::to_string_pretty(&config).context("failed to serialize config")?,
+                    serde_yaml_ng::to_string(&config).context("failed to serialize config")?,
                     Some(serde_json::to_value(&config).context("failed to serialize config")?),
                 ))
             }

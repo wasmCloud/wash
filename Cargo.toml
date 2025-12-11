@@ -41,7 +41,7 @@ clap-markdown = { workspace = true }
 ctrlc = { workspace = true }
 dialoguer = { workspace = true, features = ["editor", "password", "zeroize", "fuzzy-select", "fuzzy-matcher"] }
 etcetera = { workspace = true }
-figment = { workspace = true, features = ["json", "env"] }
+figment = { workspace = true, features = ["json", "env", "yaml"] }
 flate2 = { workspace = true, features = ["rust_backend"] }
 humantime = { workspace = true }
 indicatif = { workspace = true }
@@ -50,6 +50,7 @@ reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
+serde_yaml_ng = { workspace = true }
 tar = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
@@ -119,6 +120,7 @@ names = { version = "0.14", default-features = false }
 semver = { version = "1.0.26", default-features = false }
 serde = { version = "1.0.219", default-features = false }
 serde_json = { version = "1.0.140", default-features = false }
+serde_yaml_ng = { version = "0.9", default-features = false }
 sha2 = { version = "0.10.8", default-features = false }
 sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 tar = { version = "0.4", default-features = false }
