@@ -32,7 +32,7 @@ func (h *HTTPGateway) Start(ctx context.Context) error {
 		},
 		Addr:              h.BindAddr,
 		Handler:           h.Proxy,
-		IdleTimeout:       120 * time.Second,
+		IdleTimeout:       0,
 		ReadTimeout:       0,
 		WriteTimeout:      0,
 		ReadHeaderTimeout: 10 * time.Second,

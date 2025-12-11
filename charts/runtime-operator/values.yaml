@@ -39,6 +39,25 @@ operator:
     # -- Annotations to add to the service account
     annotations: {}
 
+gateway:
+  enabled: true
+  # -- Fallback endpoint when no workloads are available. Example: "http://notfound.svc.cluster.local"
+  fallbackEndpoint: ""
+  image:
+    registry: ghcr.io
+    repository: wasmcloud/runtime-gateway
+    pull_policy: Always
+  service:
+    type: ClusterIP
+    port: 80
+    # -- Only used if service type is NodePort
+    nodePort: null
+  serviceAccount:
+    # -- Specifies whether a service account should be created
+    create: true
+    # -- Annotations to add to the service account
+    annotations: {}
+
 runtime:
   serviceAccount:
     # -- Specifies whether a service account should be created

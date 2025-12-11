@@ -13,7 +13,7 @@ spec:
             - incoming-handler
           config:
             # public dns alias for 127.0.0.1
-            host: hello.localhost.direct:8000
+            host: hello.localhost.direct
       components:
         - name: hello-world
           image: ghcr.io/wasmcloud/components/http-hello-world-rust:0.1.0

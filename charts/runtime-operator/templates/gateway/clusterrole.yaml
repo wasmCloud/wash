@@ -1,0 +1,28 @@
+{{- if .Values.gateway.enabled -}}
+{{- if .Values.gateway.serviceAccount.create -}}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "runtime-operator.fullname" . }}-gateway
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+  annotations: {}
+rules:
+  - apiGroups:
+    - runtime.wasmcloud.dev
+    resources:
+    - hosts
+    - workloads
+    verbs:
+    - get
+    - list
+    - watch
+  - apiGroups:
+    - runtime.wasmcloud.dev
+    resources:
+    - hosts/status
+    - workloads/status
+    verbs:
+    - get
+{{- end }}
+{{- end }}

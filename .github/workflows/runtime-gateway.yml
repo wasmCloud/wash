@@ -1,0 +1,71 @@
+name: runtime-gateway
+on:
+  push:
+    branches:
+      - "main"
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "runtime-gateway/**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    permissions:
+      # Required: allow read access to the content for analysis.
+      contents: read
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: ./.github/actions/setup-go
+      - uses: ./.github/actions/lint-go
+        with:
+          working-directory: runtime-gateway
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: ./.github/actions/setup-go
+      - name: Build
+        working-directory: runtime-gateway
+        run: go build -v ./
+
+  canary:
+    if: github.ref == 'refs/heads/main' || contains(github.event.pull_request.labels.*.name, 'canary')
+    needs: [lint, test]
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/docker-build-push.yml
+    secrets: inherit
+    with:
+      working-directory: runtime-gateway
+      file: runtime-gateway/Dockerfile
+      image: ghcr.io/wasmcloud/runtime-gateway
+      push: true
+      tags: |
+        type=raw,value=canary
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test]
+    permissions:
+      contents: write
+      packages: write
+    uses: ./.github/workflows/docker-build-push.yml
+    secrets: inherit
+    with:
+      working-directory: runtime-gateway
+      file: runtime-gateway/Dockerfile
+      image: ghcr.io/wasmcloud/runtime-gateway
+      push: true
+      tags: |
+        type=semver,pattern={{version}},value=${{ github.ref_name }}

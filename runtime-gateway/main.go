@@ -4,6 +4,7 @@ import (
 	"flag"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"os"
 	"time"
 
@@ -32,12 +33,14 @@ func init() {
 
 func main() {
 	var (
-		devMode  bool
-		bindAddr string
+		devMode          bool
+		bindAddr         string
+		fallbackEndpoint string
 	)
 
 	flag.BoolVar(&devMode, "dev-mode", false, "Enable development mode logging")
 	flag.StringVar(&bindAddr, "bind-addr", ":8000", "Address to bind the HTTP gateway to")
+	flag.StringVar(&fallbackEndpoint, "fallback-endpoint", "", "Proxy Requests are routed to this endpoint when no workloads are found. Example: 'http://notfound.svc.cluster.local")
 	flag.Parse()
 
 	opts := zap.Options{
@@ -79,7 +82,32 @@ func main() {
 		os.Exit(1)
 	}
 
-	tracker := &HostTracker{}
+	var fallback Fallback
+	if fallbackEndpoint == "" {
+		internalFallback := &FallbackServer{
+			BindAddr: "127.0.0.1:0",
+		}
+		if err := internalFallback.SetupWithManager(ctx, manager); err != nil {
+			setupLog.Error(err, "could not add FallbackServer to manager")
+			os.Exit(1)
+		}
+		fallback = internalFallback
+	} else {
+		fallbackURL, err := url.Parse(fallbackEndpoint)
+		if err != nil {
+			setupLog.Error(err, "could not parse fallback endpoint URL")
+			os.Exit(1)
+		}
+		externalFallback := &ExternalFallback{
+			Scheme:   fallbackURL.Scheme,
+			Endpoint: fallbackURL.Host,
+		}
+		fallback = externalFallback
+	}
+
+	tracker := &HostTracker{
+		Fallback: fallback,
+	}
 	if err := tracker.SetupWithManager(ctx, manager); err != nil {
 		setupLog.Error(err, "could not add HostTracker to manager")
 		os.Exit(1)
@@ -90,8 +118,8 @@ func main() {
 		Resolver: tracker,
 		Proxy: &httputil.ReverseProxy{
 			Transport: &http.Transport{
-				MaxIdleConns:        5000,
-				MaxIdleConnsPerHost: 1000,
+				MaxIdleConns:        0,
+				MaxIdleConnsPerHost: 100,
 				IdleConnTimeout:     90 * time.Second,
 			},
 		},
