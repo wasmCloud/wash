@@ -5,8 +5,6 @@ operator:
 gateway:
   enabled: true
   image:
-    registry: ttl.sh
-    repository: lxfontes/runtime-gateway
     tag: canary
   service:
     type: NodePort
