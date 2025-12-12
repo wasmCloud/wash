@@ -33,6 +33,7 @@ async fn test_add_fetch_clean_workflow() -> Result<()> {
 
     let ctx = CliContext::builder()
         .non_interactive(true)
+        .project_dir(temp.path().to_path_buf())
         .build()
         .await
         .context("failed to create CLI context")?;
@@ -49,7 +50,6 @@ async fn test_add_fetch_clean_workflow() -> Result<()> {
     // 1. Add a dependency (must specify full interface path) - with timeout
     let add_cmd = WitCommand::Add {
         package: "wasi:logging/logging@0.1.0-draft".to_string(),
-        wit_dir: None,
     };
     let result = timeout(Duration::from_secs(60), add_cmd.handle(&ctx))
         .await
@@ -65,10 +65,7 @@ async fn test_add_fetch_clean_workflow() -> Result<()> {
     );
 
     // 2. Fetch dependencies (creates lock file and wit/deps/) - with timeout
-    let fetch_cmd = WitCommand::Fetch {
-        wit_dir: None,
-        clean: false,
-    };
+    let fetch_cmd = WitCommand::Fetch { clean: false };
     let result = timeout(Duration::from_secs(60), fetch_cmd.handle(&ctx))
         .await
         .context("fetch command timed out after 60s")?
@@ -85,7 +82,7 @@ async fn test_add_fetch_clean_workflow() -> Result<()> {
     assert!(wit_dir.join("deps").exists(), "wit/deps/ should be created");
 
     // 3. Clean dependencies
-    let clean_cmd = WitCommand::Clean { wit_dir: None };
+    let clean_cmd = WitCommand::Clean {};
     let result = clean_cmd
         .handle(&ctx)
         .await
@@ -123,6 +120,7 @@ world example {
 
     let ctx = CliContext::builder()
         .non_interactive(true)
+        .project_dir(temp.path().to_path_buf())
         .build()
         .await
         .context("failed to create CLI context")?;
@@ -134,10 +132,7 @@ world example {
     });
 
     // Fetch to create initial lock file (with timeout)
-    let fetch_cmd = WitCommand::Fetch {
-        wit_dir: None,
-        clean: false,
-    };
+    let fetch_cmd = WitCommand::Fetch { clean: false };
     timeout(Duration::from_secs(60), fetch_cmd.handle(&ctx))
         .await
         .context("fetch timed out after 60s")?
@@ -148,7 +143,6 @@ world example {
     // Selective update of one package (with timeout)
     let update_cmd = WitCommand::Update {
         package: Some("wasi:logging".to_string()),
-        wit_dir: None,
     };
     let result = timeout(Duration::from_secs(60), update_cmd.handle(&ctx))
         .await
@@ -164,10 +158,7 @@ world example {
     let _ = lock_after;
 
     // Full update (with timeout)
-    let update_all_cmd = WitCommand::Update {
-        package: None,
-        wit_dir: None,
-    };
+    let update_all_cmd = WitCommand::Update { package: None };
     let result = timeout(Duration::from_secs(60), update_all_cmd.handle(&ctx))
         .await
         .context("full update timed out after 60s")?
@@ -194,6 +185,7 @@ world example {
 
     let ctx = CliContext::builder()
         .non_interactive(true)
+        .project_dir(temp.path().to_path_buf())
         .build()
         .await
         .context("failed to create CLI context")?;
@@ -207,7 +199,6 @@ world example {
     // Remove one dependency - pass wit_dir explicitly to avoid relying on current directory
     let remove_cmd = WitCommand::Remove {
         package: "wasi:logging/logging".to_string(),
-        wit_dir: Some(wit_dir.clone()),
     };
     let result = remove_cmd
         .handle(&ctx)
@@ -250,6 +241,7 @@ world example {
 
     let ctx = CliContext::builder()
         .non_interactive(true)
+        .project_dir(temp.path().to_path_buf())
         .build()
         .await
         .context("failed to create CLI context")?;
@@ -261,20 +253,14 @@ world example {
     });
 
     // Fetch dependencies first (with timeout)
-    let fetch_cmd = WitCommand::Fetch {
-        wit_dir: None,
-        clean: false,
-    };
+    let fetch_cmd = WitCommand::Fetch { clean: false };
     timeout(Duration::from_secs(60), fetch_cmd.handle(&ctx))
         .await
         .context("fetch timed out after 60s")?
         .context("fetch before build failed")?;
 
     // Build with default output (project root) - with timeout
-    let build_cmd = WitCommand::Build {
-        wit_dir: None,
-        output_file: None,
-    };
+    let build_cmd = WitCommand::Build { output_file: None };
     let result = timeout(Duration::from_secs(60), build_cmd.handle(&ctx))
         .await
         .context("build command timed out after 60s")?
@@ -303,7 +289,6 @@ world example {
     fs::create_dir_all(custom_output.parent().unwrap())?;
 
     let build_custom_cmd = WitCommand::Build {
-        wit_dir: None,
         output_file: Some(custom_output.clone()),
     };
     let result = timeout(Duration::from_secs(60), build_custom_cmd.handle(&ctx))
@@ -336,6 +321,7 @@ async fn test_error_missing_world_wit() -> Result<()> {
 
     let ctx = CliContext::builder()
         .non_interactive(true)
+        .project_dir(temp.path().to_path_buf())
         .build()
         .await
         .context("failed to create CLI context")?;
@@ -350,7 +336,6 @@ async fn test_error_missing_world_wit() -> Result<()> {
     // Pass wit_dir explicitly to avoid relying on current directory
     let add_cmd = WitCommand::Add {
         package: "wasi:logging/logging@0.1.0-draft".to_string(),
-        wit_dir: Some(wit_dir),
     };
     let result = add_cmd
         .handle(&ctx)
