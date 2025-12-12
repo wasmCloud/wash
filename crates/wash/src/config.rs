@@ -7,21 +7,19 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use figment::{
     Figment,
-    providers::{Env, Format, Yaml},
+    providers::{Env, Format, Json, Toml, Yaml},
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::{
-    cli::CONFIG_FILE_NAME,
+    cli::{CONFIG_DIR_NAME, CONFIG_FILE_NAME, VALID_CONFIG_FILES},
     component_build::{
         BuildConfig, CustomBuildConfig, ProjectType, RustBuildConfig, TinyGoBuildConfig,
         TypeScriptBuildConfig,
     },
     wit::WitConfig,
 };
-
-pub const PROJECT_CONFIG_DIR: &str = ".wash";
 
 /// Main wash configuration structure with hierarchical merging support and explicit defaults
 ///
@@ -55,6 +53,18 @@ impl Default for Config {
     }
 }
 
+impl Config {
+    /// Get the WIT directory from the configuration, defaulting to "./wit" if not set
+    pub fn wit_dir(&self) -> PathBuf {
+        if let Some(wit_config) = &self.wit
+            && let Some(wit_dir) = &wit_config.wit_dir
+        {
+            return wit_dir.clone();
+        }
+        PathBuf::from("wit")
+    }
+}
+
 /// Load configuration with hierarchical merging
 /// Order of precedence (lowest to highest):
 /// 1. Default values
@@ -80,14 +90,14 @@ where
 
     // Global config file
     if global_config_path.exists() {
-        figment = figment.merge(Yaml::file(global_config_path));
+        figment = figment.merge(load_config_file(global_config_path)?);
     }
 
     // Local project config
     if let Some(project_dir) = project_dir {
-        let local_config_path = project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME);
-        if local_config_path.exists() {
-            figment = figment.merge(Yaml::file(local_config_path));
+        let project_config_path = locate_project_config(project_dir);
+        if project_config_path.exists() {
+            figment = figment.merge(load_config_file(&project_config_path)?);
         }
     }
 
@@ -105,6 +115,55 @@ where
     figment
         .extract()
         .context("Failed to load wash configuration")
+}
+
+pub fn locate_project_config(project_dir: &Path) -> PathBuf {
+    for file_name in VALID_CONFIG_FILES.iter() {
+        let config_path = project_dir.join(CONFIG_DIR_NAME).join(file_name);
+        if config_path.exists() {
+            return config_path;
+        }
+    }
+
+    project_dir.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME)
+}
+
+pub fn locate_user_config(dot_dir: &Path) -> PathBuf {
+    for file_name in VALID_CONFIG_FILES.iter() {
+        let config_path = dot_dir.join(file_name);
+        if config_path.exists() {
+            return config_path;
+        }
+    }
+
+    dot_dir.join(CONFIG_FILE_NAME)
+}
+
+fn load_config_file(file_path: &Path) -> Result<Figment> {
+    let mut figment = Figment::new();
+
+    match file_path.extension().and_then(|s| s.to_str()) {
+        Some("yaml") | Some("yml") => {
+            figment = figment.merge(Yaml::file_exact(file_path));
+        }
+        Some("json") => {
+            figment = figment.merge(Json::file_exact(file_path));
+        }
+        Some("toml") => {
+            figment = figment.merge(Toml::file_exact(file_path));
+        }
+        Some(ext) => {
+            bail!("Unsupported global config file extension: {}", ext);
+        }
+        None => {
+            bail!(
+                "Global config file has no extension: {}",
+                file_path.display()
+            );
+        }
+    }
+
+    Ok(figment)
 }
 
 /// Save configuration to specified path
@@ -138,8 +197,7 @@ pub async fn generate_project_config<T>(
 where
     T: Serialize,
 {
-    let config_dir = project_dir.join(".wash");
-    let config_path = config_dir.join(CONFIG_FILE_NAME);
+    let config_path = local_config_path(project_dir);
 
     // Don't overwrite existing config
     if config_path.exists() {

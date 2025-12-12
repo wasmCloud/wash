@@ -1772,6 +1772,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "toml",
  "uncased",
  "version_check",
 ]

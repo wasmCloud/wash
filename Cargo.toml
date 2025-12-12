@@ -41,7 +41,7 @@ clap-markdown = { workspace = true }
 ctrlc = { workspace = true }
 dialoguer = { workspace = true, features = ["editor", "password", "zeroize", "fuzzy-select", "fuzzy-matcher"] }
 etcetera = { workspace = true }
-figment = { workspace = true, features = ["json", "env", "yaml"] }
+figment = { workspace = true, features = ["json", "env", "yaml", "toml"] }
 flate2 = { workspace = true, features = ["rust_backend"] }
 humantime = { workspace = true }
 indicatif = { workspace = true }

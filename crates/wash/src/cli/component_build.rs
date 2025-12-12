@@ -14,26 +14,18 @@ use std::io::IsTerminal;
 use tokio::{fs, process::Command};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-use crate::component_build::ProjectType;
 use crate::plugin::bindings::wasmcloud::wash::types::HookType;
 use crate::wit::WitConfig;
 use crate::{
-    cli::{CONFIG_FILE_NAME, CliCommand, CliContext, CommandOutput},
-    config::{Config, generate_project_config, load_config, save_config},
+    cli::{CliCommand, CliContext, CommandOutput},
+    config::{Config, generate_project_config, save_config},
     wit::{CommonPackageArgs, WkgFetcher, load_lock_file},
 };
+use crate::{component_build::ProjectType, config::local_config_path};
 
 /// CLI command for building components
 #[derive(Debug, Clone, Args, Serialize)]
 pub struct ComponentBuildCommand {
-    /// Path to the project directory
-    #[clap(name = "project-path", default_value = ".")]
-    project_path: PathBuf,
-
-    /// Path to a configuration file in a location other than PROJECT_DIR/.wash/config.yaml
-    #[clap(name = "config", long = "config")]
-    build_config: Option<PathBuf>,
-
     /// The expected path to the built Wasm component artifact
     #[clap(long = "component-path")]
     component_path: Option<PathBuf>,
@@ -57,7 +49,7 @@ impl CliCommand for ComponentBuildCommand {
     #[instrument(level = "debug", skip(self, ctx), name = "component_build")]
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         // Load configuration with CLI arguments override
-        let mut config = load_config(&ctx.config_path(), Some(&self.project_path), None::<Config>)?;
+        let mut config = ctx.load_config(None::<Config>)?;
         // Ensure the CLI argument takes precedence
         if let Some(wit) = config.wit.as_mut() {
             wit.skip_fetch = self.skip_fetch;
@@ -67,7 +59,7 @@ impl CliCommand for ComponentBuildCommand {
                 ..Default::default()
             })
         }
-        let result = build_component(&self.project_path, ctx, &config, Some(&self.args)).await?;
+        let result = build_component(ctx.project_dir(), ctx, &config, Some(&self.args)).await?;
 
         Ok(CommandOutput::ok(
             format!(
@@ -77,7 +69,7 @@ impl CliCommand for ComponentBuildCommand {
             Some(serde_json::json!({
                 "component_path": result.component_path,
                 "project_type": result.project_type,
-                "project_path": self.project_path,
+                "project_path": result.project_path,
             })),
         ))
     }
@@ -764,11 +756,7 @@ impl ComponentBuilder {
                 }
 
                 // Write config with placeholder
-                let config_dir = self.project_path.join(".wash");
-                let config_path = config_dir.join(CONFIG_FILE_NAME);
-                tokio::fs::create_dir_all(&config_dir)
-                    .await
-                    .context("failed to create .wash directory")?;
+                let config_path = local_config_path(&self.project_path);
                 save_config(&config_with_placeholder, &config_path).await?;
 
                 bail!(

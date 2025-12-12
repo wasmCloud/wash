@@ -272,9 +272,9 @@ impl HostPlugin for PluginManager {
         {
             bail!("component tried to bind to plugin host with unsupported interface: {interface}");
         }
-        info!(
-            "PluginManager binding to component with interfaces {}",
-            component.local_resources().cpu_limit
+        debug!(
+            "PluginManager binding to component with interfaces {:?}",
+            interfaces
         );
 
         // Add the types interface (provides runner, context, etc. to components that import wasmcloud:wash/types)

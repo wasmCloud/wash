@@ -43,10 +43,6 @@ use crate::{
 
 #[derive(Debug, Clone, Args)]
 pub struct DevCommand {
-    /// The path to the project directory
-    #[clap(name = "project-dir", default_value = ".")]
-    pub project_dir: PathBuf,
-
     /// The path to the built Wasm file to be used in development
     #[clap(long = "component-path")]
     pub component_path: Option<PathBuf>,
@@ -84,11 +80,12 @@ pub struct DevCommand {
 
 impl CliCommand for DevCommand {
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        info!(path = ?self.project_dir, "starting development session for project");
+        let project_dir = ctx.project_dir();
+        info!(path = ?project_dir, "starting development session for project");
 
         let config = load_config(
-            &ctx.config_path(),
-            Some(self.project_dir.as_path()),
+            &ctx.user_config_path(),
+            Some(&project_dir),
             // Override the component path with the one provided in the command line
             Some(Config {
                 build: Some(BuildConfig {
@@ -100,20 +97,8 @@ impl CliCommand for DevCommand {
         )
         .context("failed to load config for development")?;
 
-        // Validate project directory
-        ensure!(
-            self.project_dir.exists(),
-            "Project directory does not exist: {}",
-            self.project_dir.display()
-        );
-        ensure!(
-            self.project_dir.is_dir(),
-            "Project path is not a directory: {}",
-            self.project_dir.display()
-        );
-
         // Check for required tools (e.g., wasmCloud, WIT)
-        let project_context = detect_project_context(&self.project_dir)
+        let project_context = detect_project_context(&project_dir)
             .await
             .context("failed to detect project context")?;
         let (issues, recommendations) = check_project_specific_tools(&project_context)
@@ -137,7 +122,7 @@ impl CliCommand for DevCommand {
             debug!("no recommendations found for project tools");
         }
 
-        let component_path = match build_component(&self.project_dir, ctx, &config, None).await {
+        let component_path = match build_component(&project_dir, ctx, &config, None).await {
             // Edge case where the build was successful, but the component path in the config is different
             // than the one returned by the build process.
             Ok(build_result)
@@ -282,14 +267,15 @@ impl CliCommand for DevCommand {
         let mut last_build_time = SystemTime::now();
 
         // Canonicalize project root once to ensure consistent path comparisons
-        let canonical_project_root = self.project_dir.canonicalize().with_context(|| {
+        // It should be already canonicalized, but just in case
+        let canonical_project_root = project_dir.canonicalize().with_context(|| {
             format!(
                 "failed to canonicalize project directory: {}",
-                self.project_dir.display()
+                project_dir.display()
             )
         })?;
         debug!(
-            original = ?self.project_dir.display(),
+            original = ?project_dir.display(),
             canonical = ?canonical_project_root.display(),
             "canonicalized project root for file watching"
         );
@@ -312,7 +298,7 @@ impl CliCommand for DevCommand {
         let ignore_paths_notify = ignore_paths.clone();
 
         let canonical_project_root_notify = canonical_project_root.clone();
-        debug!(path = ?self.project_dir.display(), "setting up watcher");
+        debug!(path = ?project_dir.display(), "setting up watcher");
 
         // Watch for changes and rebuild/deploy as needed
         let mut watcher = notify::recommended_watcher(move |res: _| match res {
@@ -386,7 +372,7 @@ impl CliCommand for DevCommand {
                     info!("rebuilding component after file changed ...");
 
                     // Check if WIT-related files have changed since the last build
-                    let wit_changed = wit_files_changed(&self.project_dir, last_build_time);
+                    let wit_changed = wit_files_changed(&project_dir, last_build_time);
 
                     // Create a modified config with skip_fetch set based on WIT file changes
                     let mut rebuild_config = config.clone();
@@ -405,7 +391,7 @@ impl CliCommand for DevCommand {
                     }
 
                     let rebuild_result = build_component(
-                        &self.project_dir,
+                        project_dir,
                         ctx,
                         &rebuild_config,
                         None,
