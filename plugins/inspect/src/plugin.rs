@@ -34,7 +34,7 @@ fn is_project_directory(path: &str) -> anyhow::Result<bool> {
         "go.mod",
         "package.json",
         "wasmcloud.toml",
-        ".wash/config.json",
+        ".wash/config.yaml",
     ];
 
     for file in &project_files {
@@ -204,7 +204,7 @@ impl crate::bindings::exports::wasmcloud::wash::plugin::Guest for crate::Compone
                         }
                         Ok(false) => {
                             return Err(format!(
-                                "Directory {} does not appear to be a project (no Cargo.toml, go.mod, package.json, or .wash/config.json found)",
+                                "Directory {} does not appear to be a project (no Cargo.toml, go.mod, package.json, or .wash/config.yaml found)",
                                 component_path
                             ));
                         }

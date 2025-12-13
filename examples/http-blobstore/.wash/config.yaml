@@ -1,0 +1,4 @@
+build:
+  rust:
+    target: wasm32-wasip2
+    release: true

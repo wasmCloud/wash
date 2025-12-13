@@ -121,9 +121,6 @@ use crate::{
 pub enum WitCommand {
     /// Fetch WIT dependencies (reads from wit/world.wit imports)
     Fetch {
-        #[clap(long, help = "Path to the WIT directory")]
-        wit_dir: Option<PathBuf>,
-
         #[clap(long, help = "Remove existing dependencies before fetching")]
         clean: bool,
     },
@@ -134,40 +131,25 @@ pub enum WitCommand {
             help = "Specific package to update (e.g., wasi:http). If not specified, updates all packages"
         )]
         package: Option<String>,
-
-        #[clap(long, help = "Path to the WIT directory")]
-        wit_dir: Option<PathBuf>,
     },
 
     /// Add a new WIT dependency
     Add {
         #[clap(help = "Package to add (e.g., wasi:keyvalue or wasi:keyvalue@0.2.0-draft)")]
         package: String,
-
-        #[clap(long, help = "Path to the WIT directory")]
-        wit_dir: Option<PathBuf>,
     },
 
     /// Remove a WIT dependency
     Remove {
         #[clap(help = "Package to remove (e.g., wasi:keyvalue)")]
         package: String,
-
-        #[clap(long, help = "Path to the WIT directory")]
-        wit_dir: Option<PathBuf>,
     },
 
     /// Remove fetched dependencies (wit/deps/)
-    Clean {
-        #[clap(long, help = "Path to the WIT directory")]
-        wit_dir: Option<PathBuf>,
-    },
+    Clean {},
 
     /// Build a WIT package into a Wasm binary
     Build {
-        #[clap(long, help = "Path to the WIT directory")]
-        wit_dir: Option<PathBuf>,
-
         #[clap(
             long = "output-file",
             help = "Output file path for the built Wasm package"
@@ -179,31 +161,19 @@ pub enum WitCommand {
 impl CliCommand for WitCommand {
     #[instrument(level = "debug", skip_all, name = "wit")]
     async fn handle(&self, ctx: &CliContext) -> Result<CommandOutput> {
+        let config = ctx.load_config(None::<Config>)?;
+
         match self {
-            WitCommand::Fetch { wit_dir, clean } => {
-                handle_fetch(ctx, wit_dir.as_deref(), *clean).await
+            WitCommand::Fetch { clean } => handle_fetch(ctx, &config, *clean).await,
+            WitCommand::Update { package } => handle_update(ctx, package.as_deref(), &config).await,
+            WitCommand::Add { package } => handle_add(ctx, package, &config).await,
+            WitCommand::Remove { package } => handle_remove(ctx, package, &config).await,
+            WitCommand::Clean {} => handle_clean(ctx, &config).await,
+            WitCommand::Build { output_file } => {
+                handle_build(ctx, &config, output_file.as_deref()).await
             }
-            WitCommand::Update { package, wit_dir } => {
-                handle_update(ctx, package.as_deref(), wit_dir.as_deref()).await
-            }
-            WitCommand::Add { package, wit_dir } => {
-                handle_add(ctx, package, wit_dir.as_deref()).await
-            }
-            WitCommand::Remove { package, wit_dir } => {
-                handle_remove(ctx, package, wit_dir.as_deref()).await
-            }
-            WitCommand::Clean { wit_dir } => handle_clean(ctx, wit_dir.as_deref()).await,
-            WitCommand::Build {
-                wit_dir,
-                output_file,
-            } => handle_build(ctx, wit_dir.as_deref(), output_file.as_deref()).await,
         }
     }
-}
-
-/// Get the project directory (current working directory)
-fn get_project_dir() -> Result<PathBuf> {
-    std::env::current_dir().context("failed to get current directory")
 }
 
 /// Validate a WIT package reference follows the convention: namespace:package/interface
@@ -293,47 +263,11 @@ async fn find_world_wit_file(wit_dir: &std::path::Path) -> Result<std::path::Pat
     )
 }
 
-/// Get the WIT directory, either from the override or from config or default to wit/
-async fn get_wit_dir(
-    ctx: &CliContext,
-    wit_dir_override: Option<&std::path::Path>,
-) -> Result<PathBuf> {
-    let project_dir = get_project_dir()?;
-
-    let wit_dir = if let Some(dir) = wit_dir_override {
-        // If absolute path, use it directly; otherwise join with project dir
-        if dir.is_absolute() {
-            dir.to_path_buf()
-        } else {
-            project_dir.join(dir)
-        }
-    } else {
-        // Try to load from config, otherwise use default "wit" directory
-        let config = load_config(&ctx.config_path(), Some(&project_dir), None::<Config>).ok();
-        let wit_dir_from_config = config
-            .as_ref()
-            .and_then(|c| c.wit.as_ref())
-            .and_then(|w| w.wit_dir.as_ref());
-
-        match wit_dir_from_config {
-            Some(dir) => project_dir.join(dir),
-            None => project_dir.join("wit"),
-        }
-    };
-
-    Ok(wit_dir)
-}
-
 /// Handle `wash wit fetch`
 #[instrument(level = "debug", skip(ctx))]
-async fn handle_fetch(
-    ctx: &CliContext,
-    wit_dir_override: Option<&std::path::Path>,
-    clean: bool,
-) -> Result<CommandOutput> {
-    let project_dir = get_project_dir()?;
-    let wit_dir = get_wit_dir(ctx, wit_dir_override).await?;
-
+async fn handle_fetch(ctx: &CliContext, config: &Config, clean: bool) -> Result<CommandOutput> {
+    let project_dir = ctx.project_dir();
+    let wit_dir = config.wit_dir();
     // Check if WIT directory exists
     if !wit_dir.exists() {
         return Ok(CommandOutput::error(
@@ -372,7 +306,7 @@ async fn handle_fetch(
     let mut fetcher = WkgFetcher::from_common(&args, wkg_config).await?;
 
     // Apply WIT source overrides from config if present
-    let config = load_config(&ctx.config_path(), Some(&project_dir), None::<Config>).ok();
+    let config = load_config(&ctx.user_config_path(), Some(project_dir), None::<Config>).ok();
     if let Some(config) = config
         && let Some(wit_config) = &config.wit
         && !wit_config.sources.is_empty()
@@ -411,10 +345,10 @@ async fn handle_fetch(
 async fn handle_update(
     ctx: &CliContext,
     package: Option<&str>,
-    wit_dir_override: Option<&std::path::Path>,
+    config: &Config,
 ) -> Result<CommandOutput> {
-    let project_dir = get_project_dir()?;
-    let wit_dir = get_wit_dir(ctx, wit_dir_override).await?;
+    let project_dir = ctx.project_dir();
+    let wit_dir = config.wit_dir();
 
     if !wit_dir.exists() {
         return Ok(CommandOutput::error(
@@ -436,7 +370,6 @@ async fn handle_update(
 
     // For update, we need to clear the lock file (or specific package entries) to force re-resolution
     let lock_file_path = project_dir.join("wkg.lock");
-    let legacy_lock_file_path = project_dir.join(".wash").join("wasmcloud.lock");
 
     if let Some(package_name) = package {
         // Selective package update: remove only the specified package from lock file
@@ -483,7 +416,7 @@ async fn handle_update(
         );
 
         // Now fetch to re-resolve just this package
-        handle_fetch(ctx, Some(&wit_dir), false).await?;
+        handle_fetch(ctx, config, false).await?;
 
         Ok(CommandOutput::ok(
             format!("Updated package: {}", package_name),
@@ -501,14 +434,9 @@ async fn handle_update(
                 .await
                 .context("failed to remove lock file")?;
         }
-        if legacy_lock_file_path.exists() {
-            tokio::fs::remove_file(&legacy_lock_file_path)
-                .await
-                .context("failed to remove legacy lock file")?;
-        }
 
         // Now fetch with the cleared lock file, which will resolve to latest versions
-        handle_fetch(ctx, Some(&wit_dir), false).await?;
+        handle_fetch(ctx, config, false).await?;
 
         Ok(CommandOutput::ok(
             "All WIT dependencies updated successfully".to_string(),
@@ -521,12 +449,8 @@ async fn handle_update(
 
 /// Handle `wash wit add`
 #[instrument(level = "debug", skip(ctx))]
-async fn handle_add(
-    ctx: &CliContext,
-    package: &str,
-    wit_dir_override: Option<&std::path::Path>,
-) -> Result<CommandOutput> {
-    let wit_dir = get_wit_dir(ctx, wit_dir_override).await?;
+async fn handle_add(ctx: &CliContext, package: &str, config: &Config) -> Result<CommandOutput> {
+    let wit_dir = config.wit_dir();
 
     if !wit_dir.exists() {
         return Ok(CommandOutput::error(
@@ -664,7 +588,7 @@ async fn handle_add(
     info!("Added {package} to world.wit");
 
     // Now fetch the newly added dependency
-    handle_fetch(ctx, Some(&wit_dir), false).await?;
+    handle_fetch(ctx, config, false).await?;
 
     Ok(CommandOutput::ok(
         format!("Added WIT dependency: {package}"),
@@ -676,13 +600,9 @@ async fn handle_add(
 }
 
 /// Handle `wash wit remove`
-#[instrument(level = "debug", skip(ctx))]
-async fn handle_remove(
-    ctx: &CliContext,
-    package: &str,
-    wit_dir_override: Option<&std::path::Path>,
-) -> Result<CommandOutput> {
-    let wit_dir = get_wit_dir(ctx, wit_dir_override).await?;
+#[instrument(level = "debug", skip(_ctx, config))]
+async fn handle_remove(_ctx: &CliContext, package: &str, config: &Config) -> Result<CommandOutput> {
+    let wit_dir = config.wit_dir();
 
     if !wit_dir.exists() {
         return Ok(CommandOutput::error(
@@ -775,12 +695,9 @@ async fn handle_remove(
 }
 
 /// Handle `wash wit clean`
-#[instrument(level = "debug", skip(ctx))]
-async fn handle_clean(
-    ctx: &CliContext,
-    wit_dir_override: Option<&std::path::Path>,
-) -> Result<CommandOutput> {
-    let wit_dir = get_wit_dir(ctx, wit_dir_override).await?;
+#[instrument(level = "debug", skip(_ctx, config))]
+async fn handle_clean(_ctx: &CliContext, config: &Config) -> Result<CommandOutput> {
+    let wit_dir = config.wit_dir();
 
     if !wit_dir.exists() {
         return Ok(CommandOutput::error(
@@ -820,14 +737,14 @@ async fn handle_clean(
 }
 
 /// Handle `wash wit build`
-#[instrument(level = "debug", skip(ctx))]
+#[instrument(level = "debug", skip(ctx, config))]
 async fn handle_build(
     ctx: &CliContext,
-    wit_dir_override: Option<&std::path::Path>,
+    config: &Config,
     output_override: Option<&std::path::Path>,
 ) -> Result<CommandOutput> {
-    let project_dir = get_project_dir()?;
-    let wit_dir = get_wit_dir(ctx, wit_dir_override).await?;
+    let project_dir = ctx.project_dir();
+    let wit_dir = config.wit_dir();
 
     if !wit_dir.exists() {
         return Ok(CommandOutput::error(
@@ -935,13 +852,6 @@ world example {
         .expect("failed to write world.wit");
 
         (temp_dir, project_dir, wit_dir)
-    }
-
-    #[test]
-    fn test_get_project_dir() {
-        let result = get_project_dir();
-        assert!(result.is_ok());
-        assert!(result.unwrap().is_absolute());
     }
 
     #[tokio::test]
