@@ -85,7 +85,7 @@ impl CliCommand for DevCommand {
 
         let config = load_config(
             &ctx.user_config_path(),
-            Some(&project_dir),
+            Some(project_dir),
             // Override the component path with the one provided in the command line
             Some(Config {
                 build: Some(BuildConfig {
@@ -98,7 +98,7 @@ impl CliCommand for DevCommand {
         .context("failed to load config for development")?;
 
         // Check for required tools (e.g., wasmCloud, WIT)
-        let project_context = detect_project_context(&project_dir)
+        let project_context = detect_project_context(project_dir)
             .await
             .context("failed to detect project context")?;
         let (issues, recommendations) = check_project_specific_tools(&project_context)
@@ -122,7 +122,7 @@ impl CliCommand for DevCommand {
             debug!("no recommendations found for project tools");
         }
 
-        let component_path = match build_component(&project_dir, ctx, &config, None).await {
+        let component_path = match build_component(project_dir, ctx, &config, None).await {
             // Edge case where the build was successful, but the component path in the config is different
             // than the one returned by the build process.
             Ok(build_result)
@@ -372,7 +372,7 @@ impl CliCommand for DevCommand {
                     info!("rebuilding component after file changed ...");
 
                     // Check if WIT-related files have changed since the last build
-                    let wit_changed = wit_files_changed(&project_dir, last_build_time);
+                    let wit_changed = wit_files_changed(project_dir, last_build_time);
 
                     // Create a modified config with skip_fetch set based on WIT file changes
                     let mut rebuild_config = config.clone();

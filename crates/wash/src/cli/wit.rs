@@ -306,7 +306,7 @@ async fn handle_fetch(ctx: &CliContext, config: &Config, clean: bool) -> Result<
     let mut fetcher = WkgFetcher::from_common(&args, wkg_config).await?;
 
     // Apply WIT source overrides from config if present
-    let config = load_config(&ctx.user_config_path(), Some(&project_dir), None::<Config>).ok();
+    let config = load_config(&ctx.user_config_path(), Some(project_dir), None::<Config>).ok();
     if let Some(config) = config
         && let Some(wit_config) = &config.wit
         && !wit_config.sources.is_empty()
@@ -416,7 +416,7 @@ async fn handle_update(
         );
 
         // Now fetch to re-resolve just this package
-        handle_fetch(ctx, &config, false).await?;
+        handle_fetch(ctx, config, false).await?;
 
         Ok(CommandOutput::ok(
             format!("Updated package: {}", package_name),
@@ -436,7 +436,7 @@ async fn handle_update(
         }
 
         // Now fetch with the cleared lock file, which will resolve to latest versions
-        handle_fetch(ctx, &config, false).await?;
+        handle_fetch(ctx, config, false).await?;
 
         Ok(CommandOutput::ok(
             "All WIT dependencies updated successfully".to_string(),
@@ -588,7 +588,7 @@ async fn handle_add(ctx: &CliContext, package: &str, config: &Config) -> Result<
     info!("Added {package} to world.wit");
 
     // Now fetch the newly added dependency
-    handle_fetch(ctx, &config, false).await?;
+    handle_fetch(ctx, config, false).await?;
 
     Ok(CommandOutput::ok(
         format!("Added WIT dependency: {package}"),
