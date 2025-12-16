@@ -11,6 +11,7 @@ use opentelemetry_sdk::resource::{Resource, ResourceBuilder};
 use opentelemetry_semantic_conventions::resource;
 use sysinfo::System;
 use tokio::sync::oneshot;
+use tokio::task::JoinSet;
 use tracing::{debug, info};
 
 pub mod plugins;
@@ -299,35 +300,16 @@ async fn workload_start(
     };
 
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
-        let mut pulled_components = Vec::with_capacity(wit_world.components.len());
+        let mut pull_jobs = JoinSet::new();
         for component in &wit_world.components {
-            let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
-            let bytes = match oci::pull_component(&component.image, oci_config).await {
-                Ok(bytes) => bytes,
-                Err(e) => {
-                    return Ok(types::v2::WorkloadStartResponse {
-                        workload_status: Some(types::v2::WorkloadStatus {
-                            workload_id: "".into(),
-                            workload_state: types::v2::WorkloadState::Error.into(),
-                            message: format!(
-                                "failed to pull component image {}: {}",
-                                component.image, e
-                            ),
-                        }),
-                    });
-                }
-            };
-            pulled_components.push(crate::types::Component {
-                bytes: bytes.0.into(),
-                local_resources: component
-                    .local_resources
-                    .clone()
-                    .map(Into::into)
-                    .unwrap_or_default(),
-                pool_size: component.pool_size,
-                max_invocations: component.max_invocations,
-            })
+            pull_jobs.spawn(pull_component(config.clone(), component.clone()));
         }
+
+        let pulled_components = match pull_jobs.join_all().await.into_iter().collect() {
+            Err(e) => return Ok(e),
+            Ok(pulled_components) => pulled_components
+        };
+
         (
             pulled_components,
             wit_world
@@ -389,6 +371,36 @@ async fn workload_start(
         "Starting workload");
 
     Ok(host.workload_start(request).await?.into())
+}
+
+async fn pull_component(config: HostConfig, component: types::v2::Component) -> Result<crate::types::Component, types::v2::WorkloadStartResponse> {
+    let oci_config = image_pull_secret_to_oci_config(&config, &component.image_pull_secret);
+    let bytes = match oci::pull_component(&component.image, oci_config).await {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            return Err(types::v2::WorkloadStartResponse {
+                workload_status: Some(types::v2::WorkloadStatus {
+                    workload_id: "".into(),
+                    workload_state: types::v2::WorkloadState::Error.into(),
+                    message: format!(
+                        "failed to pull component image {}: {}",
+                        component.image, e
+                    ),
+                }),
+            });
+        }
+    };
+
+    Ok(crate::types::Component {
+        bytes: bytes.0.into(),
+        local_resources: component
+            .local_resources
+            .clone()
+            .map(Into::into)
+            .unwrap_or_default(),
+        pool_size: component.pool_size,
+        max_invocations: component.max_invocations,
+    })
 }
 
 async fn workload_stop(
