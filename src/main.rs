@@ -9,7 +9,7 @@ use tracing::{Level, error, info, instrument, trace, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 use wash::cli::{
-    CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
+    CONFIG_DIR_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
     plugin::ComponentPluginCommand,
 };
 
@@ -61,21 +61,14 @@ struct Cli {
     non_interactive: bool,
 
     #[clap(
-        long = "profile",
-        help = "Select a named profile from the configuration. Default profile is 'default'",
+        long = "user-config",
+        help = "Path to user configuration file.",
         global = true
     )]
-    profile: Option<String>,
-
-    #[clap(
-        long = "config",
-        help = "Path to global configuration file.",
-        global = true
-    )]
-    config: Option<PathBuf>,
+    user_config: Option<PathBuf>,
 
     /// Path to the project directory
-    #[clap(long = "project-path", default_value = ".")]
+    #[clap(short = 'C', default_value = find_project_root().into_os_string())]
     project_path: PathBuf,
 
     #[clap(subcommand)]
@@ -255,7 +248,7 @@ async fn main() {
         .project_dir(project_absolute_path);
 
     // Load custom config if provided, otherwise will default to XDG config path
-    if let Some(config_path) = global_args.config {
+    if let Some(config_path) = global_args.user_config {
         if !config_path.exists() {
             exit_with_output(
                 &mut stderr,
@@ -467,4 +460,26 @@ fn exit_with_output(stdout: &mut impl std::io::Write, output: CommandOutput) -> 
     } else {
         std::process::exit(1);
     }
+}
+
+fn find_project_root() -> PathBuf {
+    let fallback = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut current_dir = match fallback.canonicalize() {
+        Ok(dir) => dir,
+        Err(_) => return fallback,
+    };
+
+    loop {
+        if current_dir.join(CONFIG_DIR_NAME).exists() {
+            return current_dir;
+        }
+
+        if let Some(parent) = current_dir.parent() {
+            current_dir = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+
+    fallback
 }
