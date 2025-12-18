@@ -244,21 +244,6 @@ async fn main() {
         }
     };
 
-    // Change working directory to project path
-    if let Err(e) = std::env::set_current_dir(&project_absolute_path) {
-        exit_with_output(
-            &mut stderr,
-            CommandOutput::error(
-                format!(
-                    "failed to change working directory to {:?}: {}",
-                    global_args.project_path, e
-                ),
-                None,
-            )
-            .with_output_kind(global_args.output),
-        );
-    }
-
     // ************* WARNING *************
     // From now on relative paths will be relative to the project path
     // ***********************************

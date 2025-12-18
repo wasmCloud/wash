@@ -411,6 +411,9 @@ impl CliContextBuilder {
             None => std::env::current_dir()?,
         };
 
+        // Change working directory to project path
+        std::env::set_current_dir(&project_dir).context("failed to open project directory")?;
+
         let ctx = CliContext {
             app_strategy,
             host,

@@ -126,8 +126,8 @@ impl CliCommand for DoctorCommand {
             ),
             format!(
                 "  Project Config path: {} {}",
-                config_path.display(),
-                if config_path.exists() {
+                project_config.display(),
+                if project_config.exists() {
                     "✅"
                 } else {
                     "🟨 not found"
