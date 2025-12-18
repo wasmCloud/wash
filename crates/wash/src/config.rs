@@ -2,7 +2,10 @@
 //! wash configuration, including loading, saving, and merging configurations
 //! with explicit defaults.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 use figment::{
@@ -11,6 +14,7 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use wash_runtime::wit::WitInterface;
 
 use crate::{
     cli::{CONFIG_DIR_NAME, CONFIG_FILE_NAME, VALID_CONFIG_FILES},
@@ -36,6 +40,10 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<BuildConfig>,
 
+    /// Wash dev configuration (default: empty/optional)
+    #[serde(default)]
+    pub dev: DevConfig,
+
     /// WIT dependency management configuration (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wit: Option<WitConfig>,
@@ -48,6 +56,7 @@ impl Default for Config {
         Config {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             build: None,
+            dev: DevConfig::default(),
             wit: None,
         }
     }
@@ -62,6 +71,68 @@ impl Config {
             return wit_dir.clone();
         }
         PathBuf::from("wit")
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevVolume {
+    // Host path to mount
+    pub host_path: PathBuf,
+    // Guest path inside the dev environment
+    pub guest_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevConfig {
+    /// Address for the dev server to bind to (default: "0.0.0:8000")
+    pub address: String,
+
+    /// Whether the component under development should be treated as a service
+    #[serde(default)]
+    pub service: bool,
+    /// Optional path to a wasm component to be used as a service
+    pub service_path: Option<PathBuf>,
+
+    /// Additional components to load alongside the main component
+    #[serde(default)]
+    pub components: Vec<PathBuf>,
+
+    /// Volumes to mount into the dev environment
+    #[serde(default)]
+    pub volumes: Vec<DevVolume>,
+
+    /// Host interfaces configuration
+    #[serde(default)]
+    pub host_interfaces: Vec<WitInterface>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_cert_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_key_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_ca_path: Option<PathBuf>,
+
+    #[serde(default)]
+    pub wasi_config: HashMap<String, String>,
+    #[serde(default)]
+    pub wasi_webgpu: bool,
+}
+
+impl Default for DevConfig {
+    fn default() -> Self {
+        DevConfig {
+            address: "0.0.0.0:8000".to_string(),
+            service: false,
+            service_path: None,
+            volumes: Vec::new(),
+            components: Vec::new(),
+            tls_cert_path: None,
+            tls_key_path: None,
+            tls_ca_path: None,
+            wasi_config: HashMap::new(),
+            host_interfaces: Vec::new(),
+            wasi_webgpu: false,
+        }
     }
 }
 
