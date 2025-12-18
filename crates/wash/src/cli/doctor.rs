@@ -9,11 +9,7 @@ use tracing::{debug, instrument, trace};
 use which::which;
 
 #[derive(Debug, Clone, Args)]
-pub struct DoctorCommand {
-    /// Directory to check for project context (defaults to current directory)
-    #[clap(name = "project-path", default_value = ".")]
-    project_path: Option<PathBuf>,
-}
+pub struct DoctorCommand {}
 
 /// Represents the detected project context
 #[derive(Debug, Clone)]
@@ -36,16 +32,14 @@ impl CliCommand for DoctorCommand {
         let data_dir = ctx.data_dir();
         let cache_dir = ctx.cache_dir();
         let config_dir = ctx.config_dir();
-        let config_path = ctx.config_path();
+        let config_path = ctx.user_config_path();
 
         // Determine the directory to check for project context
-        let check_dir = self
-            .project_path
-            .clone()
-            .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+        let project_dir = ctx.project_dir();
+        let project_config = ctx.project_config_path();
 
-        trace!(directory = ?check_dir, "detecting project context");
-        let project_context = detect_project_context(&check_dir).await?;
+        trace!(directory = ?project_dir, "detecting project context");
+        let project_context = detect_project_context(project_dir).await?;
         debug!(context = ?project_context, "detected project context");
 
         // Check for issues to provide recommendations
@@ -66,8 +60,12 @@ impl CliCommand for DoctorCommand {
             recommendations.push("• Config directory will be created automatically when needed");
         }
         if !config_path.exists() {
-            issues.push("Config file not found");
-            recommendations.push("• Run 'wash config init' to create a default configuration");
+            recommendations
+                .push("• (Optional) 'wash config init --global' to create a default configuration");
+        }
+        if !project_config.exists() {
+            recommendations
+                .push("• (Optional) 'wash config init' to create a default project configuration");
         }
 
         // Check required binaries
@@ -91,7 +89,7 @@ impl CliCommand for DoctorCommand {
         let mut output_lines = vec![
             "Configuration directories:".to_string(),
             format!(
-                "  Data dir:      {} {}",
+                "  Data dir: {} {}",
                 data_dir.display(),
                 if data_dir.exists() {
                     "✅"
@@ -100,7 +98,7 @@ impl CliCommand for DoctorCommand {
                 }
             ),
             format!(
-                "  Cache dir:     {} {}",
+                "  Cache dir: {} {}",
                 cache_dir.display(),
                 if cache_dir.exists() {
                     "✅"
@@ -109,7 +107,7 @@ impl CliCommand for DoctorCommand {
                 }
             ),
             format!(
-                "  Config dir:    {} {}",
+                "  Config dir: {} {}",
                 config_dir.display(),
                 if config_dir.exists() {
                     "✅"
@@ -118,9 +116,18 @@ impl CliCommand for DoctorCommand {
                 }
             ),
             format!(
-                "  Config path:   {} {}",
+                "  User Config path: {} {}",
                 config_path.display(),
                 if config_path.exists() {
+                    "✅"
+                } else {
+                    "🟨 not found"
+                }
+            ),
+            format!(
+                "  Project Config path: {} {}",
+                project_config.display(),
+                if project_config.exists() {
                     "✅"
                 } else {
                     "🟨 not found"

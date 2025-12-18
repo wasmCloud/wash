@@ -7,13 +7,13 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use figment::{
     Figment,
-    providers::{Env, Format, Json},
+    providers::{Env, Format, Json, Toml, Yaml},
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
 
 use crate::{
-    cli::CONFIG_FILE_NAME,
+    cli::{CONFIG_DIR_NAME, CONFIG_FILE_NAME, VALID_CONFIG_FILES},
     component_build::{
         BuildConfig, CustomBuildConfig, ProjectType, RustBuildConfig, TinyGoBuildConfig,
         TypeScriptBuildConfig,
@@ -21,16 +21,17 @@ use crate::{
     wit::WitConfig,
 };
 
-pub const PROJECT_CONFIG_DIR: &str = ".wash";
-
 /// Main wash configuration structure with hierarchical merging support and explicit defaults
 ///
 /// The "global" [Config] is stored under the user's XDG_CONFIG_HOME directory
-/// (typically `~/.config/wash/config.json`), while the "local" project configuration
-/// is stored in the project's `.wash/config.json` file. This allows for both reasonable
+/// (typically `~/.config/wash/config.yaml`), while the "local" project configuration
+/// is stored in the project's `.wash/config.yaml` file. This allows for both reasonable
 /// global defaults and project-specific overrides.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
+    /// Version of the configuration schema (default: current Cargo package version)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
     /// Build configuration for different project types (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<BuildConfig>,
@@ -42,11 +43,33 @@ pub struct Config {
     // e.g. for runtime config, http ports, etc
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            build: None,
+            wit: None,
+        }
+    }
+}
+
+impl Config {
+    /// Get the WIT directory from the configuration, defaulting to "./wit" if not set
+    pub fn wit_dir(&self) -> PathBuf {
+        if let Some(wit_config) = &self.wit
+            && let Some(wit_dir) = &wit_config.wit_dir
+        {
+            return wit_dir.clone();
+        }
+        PathBuf::from("wit")
+    }
+}
+
 /// Load configuration with hierarchical merging
 /// Order of precedence (lowest to highest):
 /// 1. Default values
-/// 2. Global config (~/.wash/config.json)
-/// 3. Local project config (.wash/config.json)
+/// 2. Global config (~/.wash/config.yaml)
+/// 3. Local project config (.wash/config.yaml)
 /// 4. Environment variables (WASH_ prefix)
 /// 5. Command line arguments
 ///
@@ -67,14 +90,14 @@ where
 
     // Global config file
     if global_config_path.exists() {
-        figment = figment.merge(Json::file(global_config_path));
+        figment = figment.merge(load_config_file(global_config_path)?);
     }
 
     // Local project config
     if let Some(project_dir) = project_dir {
-        let local_config_path = project_dir.join(PROJECT_CONFIG_DIR).join(CONFIG_FILE_NAME);
-        if local_config_path.exists() {
-            figment = figment.merge(Json::file(local_config_path));
+        let project_config_path = locate_project_config(project_dir);
+        if project_config_path.exists() {
+            figment = figment.merge(load_config_file(&project_config_path)?);
         }
     }
 
@@ -94,6 +117,55 @@ where
         .context("Failed to load wash configuration")
 }
 
+pub fn locate_project_config(project_dir: &Path) -> PathBuf {
+    for file_name in VALID_CONFIG_FILES.iter() {
+        let config_path = project_dir.join(CONFIG_DIR_NAME).join(file_name);
+        if config_path.exists() {
+            return config_path;
+        }
+    }
+
+    project_dir.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME)
+}
+
+pub fn locate_user_config(dot_dir: &Path) -> PathBuf {
+    for file_name in VALID_CONFIG_FILES.iter() {
+        let config_path = dot_dir.join(file_name);
+        if config_path.exists() {
+            return config_path;
+        }
+    }
+
+    dot_dir.join(CONFIG_FILE_NAME)
+}
+
+fn load_config_file(file_path: &Path) -> Result<Figment> {
+    let mut figment = Figment::new();
+
+    match file_path.extension().and_then(|s| s.to_str()) {
+        Some("yaml") | Some("yml") => {
+            figment = figment.merge(Yaml::file_exact(file_path));
+        }
+        Some("json") => {
+            figment = figment.merge(Json::file_exact(file_path));
+        }
+        Some("toml") => {
+            figment = figment.merge(Toml::file_exact(file_path));
+        }
+        Some(ext) => {
+            bail!("Unsupported global config file extension: {}", ext);
+        }
+        None => {
+            bail!(
+                "Global config file has no extension: {}",
+                file_path.display()
+            );
+        }
+    }
+
+    Ok(figment)
+}
+
 /// Save configuration to specified path
 pub async fn save_config(config: &Config, path: &Path) -> Result<()> {
     // Ensure directory exists
@@ -106,9 +178,10 @@ pub async fn save_config(config: &Config, path: &Path) -> Result<()> {
         })?;
     }
 
-    let json = serde_json::to_string_pretty(config).context("Failed to serialize configuration")?;
+    let yaml_config =
+        serde_yaml_ng::to_string(config).context("Failed to serialize configuration")?;
 
-    tokio::fs::write(path, json)
+    tokio::fs::write(path, yaml_config)
         .await
         .with_context(|| format!("failed to write config file: {}", path.display()))?;
 
@@ -124,8 +197,7 @@ pub async fn generate_project_config<T>(
 where
     T: Serialize,
 {
-    let config_dir = project_dir.join(".wash");
-    let config_path = config_dir.join("config.json");
+    let config_path = local_config_path(project_dir);
 
     // Don't overwrite existing config
     if config_path.exists() {
@@ -188,7 +260,7 @@ where
 
 /// Get the local project configuration file path
 pub fn local_config_path(project_dir: &Path) -> PathBuf {
-    project_dir.join(".wash").join(CONFIG_FILE_NAME)
+    project_dir.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME)
 }
 
 /// Generate a default configuration file with all explicit defaults

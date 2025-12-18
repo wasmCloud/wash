@@ -1,4 +1,7 @@
-use std::io::{BufWriter, IsTerminal};
+use std::{
+    io::{BufWriter, IsTerminal},
+    path::PathBuf,
+};
 
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::generate;
@@ -6,7 +9,7 @@ use tracing::{Level, error, info, instrument, trace, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 use wash::cli::{
-    CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
+    CONFIG_DIR_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
     plugin::ComponentPluginCommand,
 };
 
@@ -16,8 +19,7 @@ use wash::cli::{
     about,
     version,
     arg_required_else_help = true,
-    disable_help_subcommand = true,
-    subcommand_required = true,
+    allow_external_subcommands = true,
     subcommand_value_name = "COMMAND|PLUGIN",
     color = clap::ColorChoice::Auto
 )]
@@ -57,6 +59,17 @@ struct Cli {
         global = true
     )]
     non_interactive: bool,
+
+    #[clap(
+        long = "user-config",
+        help = "Path to user configuration file.",
+        global = true
+    )]
+    user_config: Option<PathBuf>,
+
+    /// Path to the project directory
+    #[clap(short = 'C', default_value = find_project_root().into_os_string())]
+    project_path: PathBuf,
 
     #[clap(subcommand)]
     command: Option<WashCliCommand>,
@@ -177,20 +190,77 @@ impl CliCommand for WashCliCommand {
 
 #[tokio::main]
 async fn main() {
-    let mut wash_cmd = Cli::command();
+    let global_parser = Cli::command_for_update()
+        .arg_required_else_help(false)
+        .subcommand_required(false)
+        .disable_help_flag(true)
+        .disable_help_subcommand(true)
+        .ignore_errors(true)
+        .get_matches();
+    let global_args = Cli::from_arg_matches(&global_parser).unwrap_or_else(|e| e.exit());
 
     // Check for --non-interactive flag before parsing (to avoid requiring plugin commands to be registered)
-    let non_interactive_flag = std::env::args().any(|arg| arg == "--non-interactive");
+    let non_interactive_flag = global_args.non_interactive;
 
     // Auto-detect non-interactive mode if stdin is not a TTY or flag is set
     let non_interactive = non_interactive_flag || !std::io::stdin().is_terminal();
 
+    // Initialize tracing as early as possible, with the specified log level
+    let (mut stdout, mut stderr) = initialize_tracing(global_args.log_level, global_args.verbose);
+
+    // Check if project path exists
+    if !global_args.project_path.exists() {
+        exit_with_output(
+            &mut stderr,
+            CommandOutput::error(
+                format!("{:?} does not exist", global_args.project_path),
+                None,
+            )
+            .with_output_kind(global_args.output),
+        );
+    }
+
+    let project_absolute_path = match std::fs::canonicalize(&global_args.project_path) {
+        Ok(path) => path,
+        Err(e) => {
+            exit_with_output(
+                &mut stderr,
+                CommandOutput::error(
+                    format!(
+                        "failed to canonicalize project path {:?}: {}",
+                        global_args.project_path, e
+                    ),
+                    None,
+                )
+                .with_output_kind(global_args.output),
+            );
+        }
+    };
+
+    // ************* WARNING *************
+    // From now on relative paths will be relative to the project path
+    // ***********************************
+
+    let mut wash_cmd = Cli::command();
     // Create global context with output kind and directory paths
-    let ctx = match CliContext::builder()
+    let mut ctx_builder = CliContext::builder()
         .non_interactive(non_interactive)
-        .build()
-        .await
-    {
+        .project_dir(project_absolute_path);
+
+    // Load custom config if provided, otherwise will default to XDG config path
+    if let Some(config_path) = global_args.user_config {
+        if !config_path.exists() {
+            exit_with_output(
+                &mut stderr,
+                CommandOutput::error(format!("{config_path:?} does not exist"), None)
+                    .with_output_kind(global_args.output),
+            );
+        }
+
+        ctx_builder = ctx_builder.config(config_path)
+    }
+
+    let ctx = match ctx_builder.build().await {
         Ok(ctx) => {
             // Register plugin commands
             let plugins = ctx.plugin_manager().get_commands().await;
@@ -208,16 +278,15 @@ async fn main() {
         Err(e) => {
             error!(error = ?e, "failed to infer global context");
             // In the rare case that this fails, we'll parse and initialize the CLI here to output properly.
-            let cli = Cli::parse();
-            let (mut stdout, _stderr) = initialize_tracing(cli.log_level, cli.verbose);
             exit_with_output(
                 &mut stdout,
-                CommandOutput::error(format!("{e:?}"), None).with_output_kind(cli.output),
+                CommandOutput::error(format!("{e:?}"), None).with_output_kind(global_args.output),
             );
         }
     };
     trace!(ctx = ?ctx, "inferred global context");
 
+    let help_cmd = wash_cmd.clone();
     let matches = wash_cmd.get_matches();
     let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
 
@@ -225,27 +294,24 @@ async fn main() {
 
     // Implements clap_markdown for markdown generation of command line documentation. Most straightforward way to invoke is probably `wash app get --help-markdown > help.md`
     if cli.help_markdown {
-        clap_markdown::print_help_markdown::<Cli>();
+        let help_output = clap_markdown::help_markdown_command(&help_cmd);
+        println!("{help_output}");
         std::process::exit(0);
-    };
+    }
 
-    // Initialize tracing with the specified log level
-    let (stdout, _stderr) = initialize_tracing(cli.log_level, cli.verbose);
     // Use a buffered writer to prevent broken pipe errors
     let mut stdout_buf = BufWriter::new(stdout);
 
     // Recommend a new version of wash if available
-    if !non_interactive &&
-        ctx
-        .check_new_version()
-        .await
-        .is_ok_and(|new_version| new_version)
-        // Don't show the update message if the user is updating
-        && !matches!(cli.command, Some(WashCliCommand::Update(_)))
-    {
-        info!(
-            "a new version of wash is available! Update to the latest version with `wash update`"
-        );
+    // Don't show the update message if the user is updating
+    if !non_interactive && !matches!(cli.command, Some(WashCliCommand::Update(_))) {
+        match ctx.check_new_version().await {
+            Ok(version) => info!(
+                new_version = %version,
+                "a new version of wash is available! Update to the latest version with `wash update`"
+            ),
+            Err(e) => trace!(error = ?e, "version check"),
+        }
     }
 
     // Since some interactive commands may hide the cursor, we need to ensure it is shown again on exit
@@ -289,9 +355,9 @@ async fn main() {
             .unwrap_or_else(|e| {
                 // NOTE: This format!() invocation specifically outputs the anyhow backtrace, which is why
                 // it's used over a `.to_string()` call.
-                CommandOutput::error(format!("{e:?}"), None).with_output_kind(cli.output)
+                CommandOutput::error(format!("{e:?}"), None).with_output_kind(global_args.output)
             })
-            .with_output_kind(cli.output),
+            .with_output_kind(global_args.output),
     )
 }
 
@@ -394,4 +460,26 @@ fn exit_with_output(stdout: &mut impl std::io::Write, output: CommandOutput) -> 
     } else {
         std::process::exit(1);
     }
+}
+
+fn find_project_root() -> PathBuf {
+    let fallback = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut current_dir = match fallback.canonicalize() {
+        Ok(dir) => dir,
+        Err(_) => return fallback,
+    };
+
+    loop {
+        if current_dir.join(CONFIG_DIR_NAME).exists() {
+            return current_dir;
+        }
+
+        if let Some(parent) = current_dir.parent() {
+            current_dir = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+
+    fallback
 }

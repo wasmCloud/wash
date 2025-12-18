@@ -20,7 +20,6 @@ use wasm_pkg_client::{
 use wasm_pkg_core::{lock::LockFile, wit::OutputType};
 
 /// The default name of the lock file for wasmCloud projects
-pub const LOCK_FILE_NAME: &str = "wasmcloud.lock";
 pub const WKG_LOCK_FILE_NAME: &str = "wkg.lock";
 
 /// Configuration for WIT dependency management
@@ -536,15 +535,11 @@ pub async fn load_lock_file(project_dir: impl AsRef<Path>) -> Result<LockFile> {
     let project_dir = project_dir.as_ref();
 
     let wkg_lock_file_path = project_dir.join(WKG_LOCK_FILE_NAME);
-    let project_lock_file_path = project_dir.join(".wash").join(LOCK_FILE_NAME);
 
     let lock_file_path = if wkg_lock_file_path.exists() {
         // If the wkg.lock file exists, we prefer to use it
         debug!(path = %wkg_lock_file_path.display(), "found wkg.lock file, using it");
         Some(&wkg_lock_file_path)
-    } else if project_lock_file_path.exists() {
-        debug!(path = %project_lock_file_path.display(), "found .wash/wasmcloud.lock file, using it");
-        Some(&project_lock_file_path)
     } else {
         None
     };

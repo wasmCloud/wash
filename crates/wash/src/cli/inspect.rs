@@ -50,7 +50,7 @@ impl CliCommand for InspectCommand {
                     "go.mod",
                     "package.json",
                     "wasmcloud.toml",
-                    ".wash/config.json",
+                    ".wash/config.yaml",
                 ];
                 let is_project = project_files.iter().any(|file| path.join(file).exists());
 
@@ -78,7 +78,7 @@ impl CliCommand for InspectCommand {
                         .context("Failed to read built component file")?
                 } else {
                     return Err(anyhow::anyhow!(
-                        "Directory '{}' does not appear to be a project (no Cargo.toml, go.mod, package.json, wasmcloud.toml, or .wash/config.json found)",
+                        "Directory '{}' does not appear to be a project (no Cargo.toml, go.mod, package.json, wasmcloud.toml, or .wash/config.yaml found)",
                         component_reference
                     ));
                 }

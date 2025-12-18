@@ -30,7 +30,9 @@ use wash_runtime::{
 use crate::{
     CARGO_PKG_VERSION,
     cli::update::fetch_latest_release_public,
-    config::{Config, generate_default_config, load_config},
+    config::{
+        Config, generate_default_config, load_config, locate_project_config, locate_user_config,
+    },
     plugin::{PluginComponent, PluginManager, bindings::wasmcloud::wash::types::HookType},
 };
 
@@ -48,7 +50,11 @@ pub mod plugin;
 pub mod update;
 pub mod wit;
 
-pub const CONFIG_FILE_NAME: &str = "config.json";
+pub const CONFIG_FILE_NAME: &str = "config.yaml";
+pub const CONFIG_DIR_NAME: &str = ".wash";
+
+pub const VALID_CONFIG_FILES: [&str; 4] =
+    ["config.yaml", "config.yml", "config.json", "config.toml"];
 
 /// A trait that defines the interface for all CLI commands
 pub trait CliCommand {
@@ -296,6 +302,10 @@ pub struct CliContext {
     /// A wasmCloud host instance used for executing plugins
     host: Arc<Host>,
     plugin_manager: Arc<PluginManager>,
+    // path to global config. Usually inside XDG config dir
+    config: Option<PathBuf>,
+    // path to project dir. Usually current working dir
+    project_dir: PathBuf,
 }
 
 impl Deref for CliContext {
@@ -310,11 +320,23 @@ impl Deref for CliContext {
 #[derive(Default)]
 pub struct CliContextBuilder {
     non_interactive: bool,
+    config: Option<PathBuf>,
+    project_dir: Option<PathBuf>,
 }
 
 impl CliContextBuilder {
     pub fn non_interactive(mut self, non_interactive: bool) -> Self {
         self.non_interactive = non_interactive;
+        self
+    }
+
+    pub fn config(mut self, config: PathBuf) -> Self {
+        self.config = Some(config);
+        self
+    }
+
+    pub fn project_dir(mut self, project_dir: PathBuf) -> Self {
+        self.project_dir = Some(project_dir);
         self
     }
 
@@ -384,9 +406,19 @@ impl CliContextBuilder {
             .start()
             .await?;
 
+        let project_dir = match &self.project_dir {
+            Some(dir) => dir.clone(),
+            None => std::env::current_dir()?,
+        };
+
+        // Change working directory to project path
+        std::env::set_current_dir(&project_dir).context("failed to open project directory")?;
+
         let ctx = CliContext {
             app_strategy,
             host,
+            project_dir,
+            config: self.config,
             plugin_manager: plugin_manager.clone(),
         };
 
@@ -409,62 +441,102 @@ impl CliContext {
     }
 
     #[instrument(level = "debug", skip(self))]
-    pub async fn check_new_version(&self) -> anyhow::Result<bool> {
+    pub async fn check_new_version(&self) -> anyhow::Result<semver::Version> {
         debug!("checking for new version of wash");
 
-        let new_version_available = self.app_strategy.in_cache_dir("new_version_available.txt");
-        if new_version_available.exists() {
+        let cached_version_file = self.app_strategy.in_cache_dir("new_version_available.txt");
+
+        // Check cached version first
+        // Cache it for 24 hours
+        if cached_version_file.exists() {
             trace!(
-                ?new_version_available,
+                ?cached_version_file,
                 "found new_version_available.txt in cache directory"
             );
-            let contents = tokio::fs::read_to_string(&new_version_available)
+            let metadata = tokio::fs::metadata(&cached_version_file)
                 .await
-                .context("failed to read new_version_available.txt")?;
-            if let (Ok(new_ver), Ok(cur_ver)) = (
-                semver::Version::parse(contents.trim()),
-                semver::Version::parse(CARGO_PKG_VERSION),
-            ) && new_ver > cur_ver
-            {
-                return Ok(true);
-            }
-        }
+                .context("failed to get metadata for cached version file")?;
 
-        if let Ok(release) = fetch_latest_release_public().await {
-            trace!(?release, "fetched latest release from GitHub");
-            let tagged_version = release
-                .tag_name
-                .strip_prefix("wash-v")
-                .unwrap_or(&release.tag_name);
-
-            debug!(ver = ?tagged_version, "determined tagged version");
-            if let Ok(new_ver) = semver::Version::parse(tagged_version)
-                && let Ok(cur_ver) = semver::Version::parse(CARGO_PKG_VERSION)
+            if let Ok(modified) = metadata.modified()
+                && let Ok(elapsed) = modified.elapsed()
+                && elapsed.as_secs() < 86400
             {
-                debug!(cur_ver = ?cur_ver, new_ver = ?new_ver, "comparing versions");
-                if new_ver > cur_ver {
-                    // Write the new version to the cache file
-                    tokio::fs::write(&new_version_available, tagged_version)
-                        .await
-                        .context("failed to write new version to cache file")?;
-                    return Ok(true);
+                let contents = tokio::fs::read_to_string(&cached_version_file)
+                    .await
+                    .context("failed to read new_version_available.txt")?;
+                if let (Ok(new_ver), Ok(cur_ver)) = (
+                    semver::Version::parse(contents.trim()),
+                    semver::Version::parse(CARGO_PKG_VERSION),
+                ) && new_ver > cur_ver
+                {
+                    return Ok(new_ver);
                 }
             }
-        } else {
-            debug!("failed to check for latest release, continuing without update check");
+
+            return Err(anyhow::anyhow!(
+                "no new version available (cached version is up to date)"
+            ));
         }
 
-        Ok(false)
+        match fetch_latest_release_public().await {
+            Ok(release) => {
+                trace!(?release, "fetched latest release from GitHub");
+                let tagged_version = release
+                    .tag_name
+                    .strip_prefix("wash-v")
+                    .unwrap_or(&release.tag_name);
+
+                debug!(ver = ?tagged_version, "determined tagged version");
+                if let Ok(new_ver) = semver::Version::parse(tagged_version)
+                    && let Ok(cur_ver) = semver::Version::parse(CARGO_PKG_VERSION)
+                {
+                    // Write the new version to the cache file
+                    tokio::fs::write(&cached_version_file, tagged_version)
+                        .await
+                        .context("failed to write new version to cache file")?;
+
+                    debug!(cur_ver = ?cur_ver, new_ver = ?new_ver, "comparing versions");
+                    if new_ver > cur_ver {
+                        return Ok(new_ver);
+                    }
+                }
+                Err(anyhow::anyhow!("no new version available"))
+            }
+            Err(e) => Err(e),
+        }
     }
 
-    pub fn config_path(&self) -> std::path::PathBuf {
-        self.app_strategy.in_config_dir(CONFIG_FILE_NAME)
+    pub fn user_config_path(&self) -> std::path::PathBuf {
+        if let Some(config) = &self.config {
+            return config.clone();
+        }
+
+        locate_user_config(&self.config_dir())
+    }
+
+    pub fn project_dir(&self) -> &PathBuf {
+        &self.project_dir
+    }
+
+    pub fn project_config_path(&self) -> PathBuf {
+        locate_project_config(self.project_dir())
+    }
+
+    pub fn load_config<T>(&self, overrides: Option<T>) -> anyhow::Result<Config>
+    where
+        T: Serialize + Into<Config>,
+    {
+        load_config(
+            &self.user_config_path(),
+            Some(self.project_dir()),
+            overrides,
+        )
     }
 
     /// Fetches the wash configuration from the config file located in the XDG config directory,
     /// creating it with default values if it does not exist.
     pub async fn ensure_config(&self, project_dir: Option<&Path>) -> anyhow::Result<Config> {
-        let config_path = self.config_path();
+        let config_path = self.user_config_path();
 
         // Check if the config file exists, if not create it with defaults
         if !config_path.exists() {
@@ -476,7 +548,7 @@ impl CliContext {
         }
 
         // Load the configuration using the hierarchical configuration system
-        load_config(&self.config_path(), project_dir, None::<Config>)
+        load_config(&self.user_config_path(), project_dir, None::<Config>)
     }
 
     /// Convenience method to quickly instantiate a [`PluginComponent`] from bytes, generally
