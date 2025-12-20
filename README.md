@@ -68,13 +68,13 @@ Note: This quickstart requires the [Rust toolchain](https://www.rust-lang.org/to
 3. **Build your component:**
 
    ```bash
-   wash build ./http-hello-world
+   wash -C ./http-hello-world build
    ```
 
 4. **Start a development loop**
 
    ```bash
-   wash dev ./http-hello-world
+   wash -C ./http-hello-world dev
    ```
 
 5. **Keep wash updated:**
