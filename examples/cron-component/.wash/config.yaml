@@ -2,3 +2,7 @@ build:
   rust:
     target: wasm32-wasip2
     release: true
+
+dev:
+  # We need a service to call the cron component.
+  service_path: ../cron-service/target/wasm32-wasip2/release/cron_service.wasm

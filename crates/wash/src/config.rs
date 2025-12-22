@@ -2,10 +2,7 @@
 //! wash configuration, including loading, saving, and merging configurations
 //! with explicit defaults.
 
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-};
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use figment::{
@@ -41,8 +38,8 @@ pub struct Config {
     pub build: Option<BuildConfig>,
 
     /// Wash dev configuration (default: empty/optional)
-    #[serde(default)]
-    pub dev: DevConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev: Option<DevConfig>,
 
     /// WIT dependency management configuration (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,7 +53,7 @@ impl Default for Config {
         Config {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             build: None,
-            dev: DevConfig::default(),
+            dev: None,
             wit: None,
         }
     }
@@ -72,6 +69,14 @@ impl Config {
         }
         PathBuf::from("wit")
     }
+
+    /// Get the development configuration, defaulting to [DevConfig::default()] if not set
+    pub fn dev(&self) -> DevConfig {
+        match &self.dev {
+            Some(dev) => dev.clone(),
+            None => DevConfig::default(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -82,10 +87,11 @@ pub struct DevVolume {
     pub guest_path: PathBuf,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DevConfig {
     /// Address for the dev server to bind to (default: "0.0.0:8000")
-    pub address: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
 
     /// Whether the component under development should be treated as a service
     #[serde(default)]
@@ -113,27 +119,7 @@ pub struct DevConfig {
     pub tls_ca_path: Option<PathBuf>,
 
     #[serde(default)]
-    pub wasi_config: HashMap<String, String>,
-    #[serde(default)]
     pub wasi_webgpu: bool,
-}
-
-impl Default for DevConfig {
-    fn default() -> Self {
-        DevConfig {
-            address: "0.0.0.0:8000".to_string(),
-            service: false,
-            service_path: None,
-            volumes: Vec::new(),
-            components: Vec::new(),
-            tls_cert_path: None,
-            tls_key_path: None,
-            tls_ca_path: None,
-            wasi_config: HashMap::new(),
-            host_interfaces: Vec::new(),
-            wasi_webgpu: false,
-        }
-    }
 }
 
 /// Load configuration with hierarchical merging
