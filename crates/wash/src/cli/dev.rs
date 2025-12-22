@@ -199,8 +199,8 @@ impl CliCommand for DevCommand {
         // Build and start the host
         let host = host_builder.build()?.start().await?;
 
-        // Workload structure
-        let mut workload = create_workload(&config, wasm_bytes.into())?;
+        // First run
+        let workload = create_workload(&config, wasm_bytes.into())?;
         // Running workload ID for reloads
         let mut workload_id = reload_component(host.clone(), &workload, None).await?;
 
@@ -349,7 +349,8 @@ impl CliCommand for DevCommand {
                                 .await
                                 .context("failed to read component file")?;
 
-                            update_workload_component(&mut workload, wasm_bytes.into());
+
+                            let workload = create_workload(&config, wasm_bytes.into())?;
 
                             workload_id = reload_component(
                                 host.clone(),
@@ -412,13 +413,6 @@ impl CliCommand for DevCommand {
             "Development command executed successfully".to_string(),
             None,
         ))
-    }
-}
-
-/// Update the bytes of the development component in the workload
-fn update_workload_component(workload: &mut Workload, bytes: Bytes) {
-    if let Some(component) = workload.components.get_mut(0) {
-        component.bytes = bytes;
     }
 }
 

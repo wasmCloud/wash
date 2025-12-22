@@ -9,11 +9,3 @@ dev:
   # Loads a sample cron task
   components:
     - ../cron-component/target/wasm32-wasip2/release/cron_component.wasm
-  host_interfaces:
-    - namespace: wasi
-      package: config
-      interfaces:
-        - runtime
-      config:
-        some-key: some-value
-
