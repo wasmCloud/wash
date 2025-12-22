@@ -2,3 +2,18 @@ build:
   rust:
     target: wasm32-wasip2
     release: true
+
+dev:
+  # We are developing a service, so tell Wash to treat it as such.
+  service: true
+  # Loads a sample cron task
+  components:
+    - ../cron-component/target/wasm32-wasip2/release/cron_component.wasm
+  host_interfaces:
+    - namespace: wasi
+      package: config
+      interfaces:
+        - runtime
+      config:
+        some-key: some-value
+
