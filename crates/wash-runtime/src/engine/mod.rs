@@ -39,14 +39,13 @@
 //! # }
 //! ```
 
-use anyhow::{Context, bail};
-use wasmtime::PoolingAllocationConfig;
-use wasmtime::component::{Component, Linker};
-
 use crate::engine::ctx::Ctx;
 use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent, WorkloadService};
 use crate::types::{EmptyDirVolume, HostPathVolume, VolumeType, Workload};
-use std::path::PathBuf;
+use anyhow::{Context, bail};
+use std::{path::PathBuf, sync::Arc};
+use wasmtime::PoolingAllocationConfig;
+use wasmtime::component::{Component, HasData, Linker, ResourceTable};
 
 pub mod ctx;
 mod value;
@@ -144,9 +143,18 @@ impl Engine {
             validated_volumes.insert(v.name.clone(), host_path);
         }
 
+        let loopback = Arc::default();
+
         // Iniitalize service
         let service = if let Some(svc) = service {
-            match self.initialize_service(id.as_ref(), &name, &namespace, svc, &validated_volumes) {
+            match self.initialize_service(
+                id.as_ref(),
+                &name,
+                &namespace,
+                svc,
+                &validated_volumes,
+                Arc::clone(&loopback),
+            ) {
                 Ok(handle) => {
                     tracing::debug!("successfully initialized service component");
                     Some(handle)
@@ -169,6 +177,7 @@ impl Engine {
                 &namespace,
                 component,
                 &validated_volumes,
+                Arc::clone(&loopback),
             ) {
                 Ok(handle) => {
                     tracing::debug!("successfully initialized workload component");
@@ -198,6 +207,7 @@ impl Engine {
         workload_namespace: impl AsRef<str>,
         service: crate::types::Service,
         validated_volumes: &std::collections::HashMap<String, PathBuf>,
+        loopback: Arc<std::sync::Mutex<wasmtime_wasi_wash::sockets::loopback::Network>>,
     ) -> anyhow::Result<WorkloadService> {
         // Create a wasmtime component from the bytes
         let wasmtime_component = Component::new(&self.inner, service.bytes)
@@ -206,15 +216,8 @@ impl Engine {
         // Create a linker for this component
         let mut linker: Linker<Ctx> = Linker::new(&self.inner);
 
-        // Add WASI@0.2 interfaces to the linker
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker)
-            .context("failed to add WASI to linker")?;
-
-        // Add HTTP interfaces to the linker if feature is enabled and component uses them
-        if uses_wasi_http(&wasmtime_component) {
-            wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)
-                .context("failed to add wasi:http/types to linker")?;
-        }
+        // Add WASI interfaces to the linker
+        add_wasi_to_linker(&mut linker, &wasmtime_component)?;
 
         // Build volume mounts for this component by looking up validated volumes
         let mut component_volume_mounts = Vec::new();
@@ -239,6 +242,7 @@ impl Engine {
             component_volume_mounts,
             service.local_resources,
             service.max_restarts,
+            loopback,
         ))
     }
 
@@ -251,6 +255,7 @@ impl Engine {
         workload_namespace: impl AsRef<str>,
         component: crate::types::Component,
         validated_volumes: &std::collections::HashMap<String, PathBuf>,
+        loopback: Arc<std::sync::Mutex<wasmtime_wasi_wash::sockets::loopback::Network>>,
     ) -> anyhow::Result<WorkloadComponent> {
         // Create a wasmtime component from the bytes
         let wasmtime_component = Component::new(&self.inner, component.bytes)
@@ -259,15 +264,8 @@ impl Engine {
         // Create a linker for this component
         let mut linker: Linker<Ctx> = Linker::new(&self.inner);
 
-        // Add WASI@0.2 interfaces to the linker
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker)
-            .context("failed to add WASI to linker")?;
-
-        // Add HTTP interfaces to the linker
-        if uses_wasi_http(&wasmtime_component) {
-            wasmtime_wasi_http::add_only_http_to_linker_async(&mut linker)
-                .context("failed to add wasi:http/types to linker")?;
-        }
+        // Add WASI interfaces to the linker
+        add_wasi_to_linker(&mut linker, &wasmtime_component)?;
 
         // Build volume mounts for this component by looking up validated volumes
         let mut component_volume_mounts = Vec::new();
@@ -291,6 +289,7 @@ impl Engine {
             linker,
             component_volume_mounts,
             component.local_resources,
+            loopback,
             // TODO: implement pooling and instance limits
             // component.pool_size,
             // component.max_invocations,
@@ -367,6 +366,135 @@ impl EngineBuilder {
         let inner = wasmtime::Engine::new(&self.config)?;
         Ok(Engine { inner })
     }
+}
+
+/// Add WASI interfaces to a linker, including wasi:http if the component uses it
+#[inline]
+fn add_wasi_to_linker(linker: &mut Linker<Ctx>, component: &Component) -> anyhow::Result<()> {
+    use wasmtime_wasi::WasiView;
+    use wasmtime_wasi::cli::{WasiCli, WasiCliView as _};
+    use wasmtime_wasi::clocks::{WasiClocks, WasiClocksView as _};
+    use wasmtime_wasi::filesystem::{WasiFilesystem, WasiFilesystemView as _};
+    use wasmtime_wasi::random::{WasiRandom, WasiRandomView as _};
+    use wasmtime_wasi_wash::sockets::{WasiSockets, WasiSocketsView as _};
+
+    // Marker struct for wasi:io interfaces
+    struct HasIo;
+    impl HasData for HasIo {
+        type Data<'a> = &'a mut ResourceTable;
+    }
+
+    // Add wasi:io interfaces (async)
+    wasmtime_wasi_io::bindings::wasi::io::error::add_to_linker::<Ctx, HasIo>(linker, |t| {
+        t.ctx().table
+    })?;
+    wasmtime_wasi_io::bindings::wasi::io::poll::add_to_linker::<Ctx, HasIo>(linker, |t| {
+        t.ctx().table
+    })?;
+    wasmtime_wasi_io::bindings::wasi::io::streams::add_to_linker::<Ctx, HasIo>(linker, |t| {
+        t.ctx().table
+    })?;
+
+    // Add non-blocking WASI interfaces
+    wasmtime_wasi::p2::bindings::cli::exit::add_to_linker::<Ctx, WasiCli>(
+        linker,
+        &Default::default(),
+        Ctx::cli,
+    )?;
+    wasmtime_wasi::p2::bindings::cli::environment::add_to_linker::<Ctx, WasiCli>(linker, Ctx::cli)?;
+    wasmtime_wasi::p2::bindings::cli::stdin::add_to_linker::<Ctx, WasiCli>(linker, Ctx::cli)?;
+    wasmtime_wasi::p2::bindings::cli::stdout::add_to_linker::<Ctx, WasiCli>(linker, Ctx::cli)?;
+    wasmtime_wasi::p2::bindings::cli::stderr::add_to_linker::<Ctx, WasiCli>(linker, Ctx::cli)?;
+    wasmtime_wasi::p2::bindings::cli::terminal_input::add_to_linker::<Ctx, WasiCli>(
+        linker,
+        Ctx::cli,
+    )?;
+    wasmtime_wasi::p2::bindings::cli::terminal_output::add_to_linker::<Ctx, WasiCli>(
+        linker,
+        Ctx::cli,
+    )?;
+    wasmtime_wasi::p2::bindings::cli::terminal_stdin::add_to_linker::<Ctx, WasiCli>(
+        linker,
+        Ctx::cli,
+    )?;
+    wasmtime_wasi::p2::bindings::cli::terminal_stdout::add_to_linker::<Ctx, WasiCli>(
+        linker,
+        Ctx::cli,
+    )?;
+    wasmtime_wasi::p2::bindings::cli::terminal_stderr::add_to_linker::<Ctx, WasiCli>(
+        linker,
+        Ctx::cli,
+    )?;
+
+    wasmtime_wasi::p2::bindings::clocks::wall_clock::add_to_linker::<Ctx, WasiClocks>(
+        linker,
+        Ctx::clocks,
+    )?;
+    wasmtime_wasi::p2::bindings::clocks::monotonic_clock::add_to_linker::<Ctx, WasiClocks>(
+        linker,
+        Ctx::clocks,
+    )?;
+
+    wasmtime_wasi::p2::bindings::filesystem::preopens::add_to_linker::<Ctx, WasiFilesystem>(
+        linker,
+        Ctx::filesystem,
+    )?;
+    wasmtime_wasi::p2::bindings::filesystem::types::add_to_linker::<Ctx, WasiFilesystem>(
+        linker,
+        Ctx::filesystem,
+    )?;
+
+    wasmtime_wasi::p2::bindings::random::random::add_to_linker::<Ctx, WasiRandom>(
+        linker,
+        Ctx::random,
+    )?;
+    wasmtime_wasi::p2::bindings::random::insecure::add_to_linker::<Ctx, WasiRandom>(
+        linker,
+        Ctx::random,
+    )?;
+    wasmtime_wasi::p2::bindings::random::insecure_seed::add_to_linker::<Ctx, WasiRandom>(
+        linker,
+        Ctx::random,
+    )?;
+
+    wasmtime_wasi_wash::p2::bindings::sockets::tcp_create_socket::add_to_linker::<Ctx, WasiSockets>(
+        linker,
+        Ctx::sockets,
+    )?;
+    wasmtime_wasi_wash::p2::bindings::sockets::udp_create_socket::add_to_linker::<Ctx, WasiSockets>(
+        linker,
+        Ctx::sockets,
+    )?;
+    wasmtime_wasi_wash::p2::bindings::sockets::instance_network::add_to_linker::<Ctx, WasiSockets>(
+        linker,
+        Ctx::sockets,
+    )?;
+    wasmtime_wasi_wash::p2::bindings::sockets::network::add_to_linker::<Ctx, WasiSockets>(
+        linker,
+        &Default::default(),
+        Ctx::sockets,
+    )?;
+    wasmtime_wasi_wash::p2::bindings::sockets::ip_name_lookup::add_to_linker::<Ctx, WasiSockets>(
+        linker,
+        Ctx::sockets,
+    )?;
+
+    wasmtime_wasi_wash::p2::bindings::sockets::tcp::add_to_linker::<Ctx, WasiSockets>(
+        linker,
+        Ctx::sockets,
+    )?;
+    wasmtime_wasi_wash::p2::bindings::sockets::udp::add_to_linker::<Ctx, WasiSockets>(
+        linker,
+        Ctx::sockets,
+    )?;
+
+    // Add HTTP interfaces to the linker if component uses them
+    if uses_wasi_http(component) {
+        wasmtime_wasi_http::add_only_http_to_linker_async(linker)
+            .context("failed to add wasi:http/types to linker")?;
+    }
+
+    Ok(())
 }
 
 /// Helper function to determine if a component uses wasi:http interfaces
