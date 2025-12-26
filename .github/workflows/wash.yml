@@ -121,7 +121,7 @@ jobs:
           cargo clippy --workspace --exclude wasmtime-wasi -- -D warnings
       - name: Check for unused dependencies
         run: |
-          cargo machete
+          cargo machete crates
 
   canary:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
