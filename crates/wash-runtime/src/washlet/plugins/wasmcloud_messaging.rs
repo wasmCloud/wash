@@ -89,7 +89,7 @@ impl Host for Ctx {
 
         let subject = msg.subject;
 
-        if let Some(reply_to) = reply_to {
+        if let Some(reply_to) = msg.reply_to {
             plugin
                 .client
                 .publish_with_reply(subject, reply_to, msg.body.into())
