@@ -1,6 +1,7 @@
 use std::env;
 use std::fs::{self};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 fn workspace_dir() -> anyhow::Result<PathBuf> {
     let manifest_dir = env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set");
@@ -20,11 +21,132 @@ fn workspace_dir() -> anyhow::Result<PathBuf> {
         }
     }
 }
+
+fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
+    let examples_dir = workspace_dir.join("examples");
+    let fixtures_dir = workspace_dir.join("crates/wash-runtime/tests/fixtures");
+
+    // Create fixtures directory if it doesn't exist
+    fs::create_dir_all(&fixtures_dir)?;
+
+    if !examples_dir.exists() {
+        println!("No examples dir found at {}", examples_dir.display());
+        return Ok(());
+    }
+
+    let include_list = [
+        "http-counter",
+        "cron-service",
+        "cron-component",
+        "http-blobstore",
+        "http-webgpu",
+    ];
+
+    // Iterate through example directories
+    for entry in fs::read_dir(&examples_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        if !path.is_dir() {
+            continue;
+        }
+
+        let cargo_toml = path.join("Cargo.toml");
+        if !cargo_toml.exists() {
+            continue;
+        }
+
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Invalid directory name"))?;
+
+        // Check if name is in include list
+        if !include_list.contains(&name) {
+            continue;
+        }
+
+        println!("cargo:warning=Building example: {}", name);
+
+        // Build the example
+        let status = Command::new("cargo")
+            .args(["build", "--target", "wasm32-wasip2", "--release"])
+            .current_dir(&path)
+            .status();
+
+        match status {
+            Ok(s) if s.success() => {
+                // Copy wasm artifacts
+                let artifact_dir = path.join("target/wasm32-wasip2/release");
+                if artifact_dir.exists() {
+                    for wasm_entry in fs::read_dir(&artifact_dir)? {
+                        let wasm_entry = wasm_entry?;
+                        let wasm_path = wasm_entry.path();
+
+                        if wasm_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
+                            let dest = fixtures_dir.join(wasm_path.file_name().unwrap());
+                            fs::copy(&wasm_path, &dest)?;
+                        }
+                    }
+                }
+            }
+            Ok(_) => {
+                eprintln!("Failed to build {}", name);
+                continue;
+            }
+            Err(e) => {
+                eprintln!("Failed to execute cargo for {}: {}", name, e);
+                continue;
+            }
+        }
+    }
+
+    println!("cargo:warning=Finished building fixtures.");
+    Ok(())
+}
+
+fn check_and_rebuild_fixtures(workspace_dir: &Path) -> anyhow::Result<()> {
+    let examples_dir = workspace_dir.join("examples");
+    let fixtures_dir = workspace_dir.join("crates/wash-runtime/tests/fixtures");
+
+    // Tell cargo to rerun this build script if examples change
+    if examples_dir.exists() {
+        println!("cargo:rerun-if-changed={}", examples_dir.display());
+
+        // Track specific example directories we care about
+        let tracked_examples = [
+            "http-counter",
+            "cron-service",
+            "cron-component",
+            "http-blobstore",
+            "http-webgpu",
+        ];
+        for example in tracked_examples {
+            let example_dir = examples_dir.join(example);
+            if example_dir.exists() {
+                println!("cargo:rerun-if-changed={}", example_dir.display());
+            }
+        }
+    }
+
+    // Also rerun if fixtures themselves are missing/changed
+    println!("cargo:rerun-if-changed={}", fixtures_dir.display());
+
+    println!("cargo:warning=Rebuilding test fixtures from examples...");
+    build_fixtures_rust(workspace_dir)?;
+
+    Ok(())
+}
+
 fn main() {
     let out_dir = PathBuf::from(
         env::var("OUT_DIR").expect("failed to look up `OUT_DIR` from environment variables"),
     );
     let workspace_dir = workspace_dir().expect("failed to get workspace dir");
+
+    // Rebuild fixtures if examples changed
+    check_and_rebuild_fixtures(&workspace_dir).expect("failed to check/rebuild fixtures");
+
     let top_proto_dir = workspace_dir.join("proto");
     let proto_dir = top_proto_dir.join("wasmcloud/runtime/v2");
 
