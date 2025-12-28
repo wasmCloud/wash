@@ -88,7 +88,6 @@ impl Host for Ctx {
         };
 
         let subject = msg.subject;
-        let reply_to = msg.reply_to;
 
         if let Some(reply_to) = reply_to {
             plugin
