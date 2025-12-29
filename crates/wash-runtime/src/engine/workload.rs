@@ -55,6 +55,8 @@ pub struct WorkloadMetadata {
     local_resources: LocalResources,
     /// The plugins available to this component
     plugins: Option<HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>>,
+    /// Workload loopback
+    loopback: Arc<std::sync::Mutex<wasmtime_wasi_wash::sockets::loopback::Network>>,
 }
 
 impl WorkloadMetadata {
@@ -228,6 +230,7 @@ impl WorkloadService {
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
         local_resources: LocalResources,
         max_restarts: u64,
+        loopback: Arc<std::sync::Mutex<wasmtime_wasi_wash::sockets::loopback::Network>>,
     ) -> Self {
         Self {
             metadata: WorkloadMetadata {
@@ -240,6 +243,7 @@ impl WorkloadService {
                 volume_mounts,
                 local_resources,
                 plugins: None,
+                loopback,
             },
             handle: None,
             max_restarts,
@@ -279,6 +283,7 @@ pub struct WorkloadComponent {
 impl WorkloadComponent {
     /// Create a new [`WorkloadComponent`] with the given workload ID,
     /// wasmtime [`Component`], [`Linker`], volume mounts, and instance limits.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         workload_id: impl Into<Arc<str>>,
         workload_name: impl Into<Arc<str>>,
@@ -287,6 +292,7 @@ impl WorkloadComponent {
         linker: Linker<Ctx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
         local_resources: LocalResources,
+        loopback: Arc<std::sync::Mutex<wasmtime_wasi_wash::sockets::loopback::Network>>,
     ) -> Self {
         Self {
             metadata: WorkloadMetadata {
@@ -299,6 +305,7 @@ impl WorkloadComponent {
                 volume_mounts,
                 local_resources,
                 plugins: None,
+                loopback,
             },
             // TODO: Implement pooling and instance limits
             pool_size: 0,
@@ -409,7 +416,8 @@ impl ResolvedWorkload {
             // This will always be present since we just checked above, but we need this structure
             // to only borrow the service metadata
             let mut store = if let Some(service) = self.service.as_ref() {
-                self.new_store_from_metadata(&service.metadata).await?
+                self.new_store_from_metadata(&service.metadata, true)
+                    .await?
             } else {
                 bail!("service unexpectedly missing during execution");
             };
@@ -887,13 +895,15 @@ impl ResolvedWorkload {
         let component = components
             .get(component_id)
             .context("component ID not found in workload")?;
-        self.new_store_from_metadata(&component.metadata).await
+        self.new_store_from_metadata(&component.metadata, false)
+            .await
     }
 
     /// Creates a new wasmtime Store from the given workload metadata.
     pub async fn new_store_from_metadata(
         &self,
         metadata: &WorkloadMetadata,
+        is_service: bool,
     ) -> anyhow::Result<wasmtime::Store<Ctx>> {
         let components = self.components.read().await;
 
@@ -928,8 +938,12 @@ impl ResolvedWorkload {
         }
 
         let mut ctx_builder = Ctx::builder(metadata.workload_id(), metadata.id())
+            .with_loopback(Arc::clone(&metadata.loopback))
             .with_http_handler(self.http_handler.clone())
             .with_wasi_ctx(wasi_ctx_builder.build());
+        if is_service {
+            ctx_builder = ctx_builder.enable_socket_bind();
+        }
 
         if let Some(plugins) = &metadata.plugins {
             ctx_builder = ctx_builder.with_plugins(plugins.clone());
@@ -1675,6 +1689,7 @@ mod tests {
             linker,
             Vec::new(),
             local_resources,
+            Arc::default(),
         )
     }
 

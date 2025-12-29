@@ -39,8 +39,9 @@ tokio = { workspace = true, features = ["sync", "net", "macros"] }
 tracing = { workspace = true }
 wasmtime = { workspace = true, features = ["component-model", "cranelift", "pooling-allocator"] }
 wasmtime-wasi = { workspace = true }
-wasmtime-wasi-io = { workspace = true }
 wasmtime-wasi-http = { workspace = true, features = ["default-send-request"] }
+wasmtime-wasi-io = { workspace = true }
+wasmtime-wasi-wash = { workspace = true }
 rustls = { workspace = true, features = ["std", "tls12"] }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
