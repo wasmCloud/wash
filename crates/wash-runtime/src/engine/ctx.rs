@@ -121,55 +121,32 @@ pub struct CtxBuilder {
     wasi_wash: wasmtime_wasi_wash::WasiCtxBuilder,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
+    allow_tcp_bind: bool,
 }
 
 impl CtxBuilder {
     pub fn new(workload_id: impl Into<Arc<str>>, component_id: impl Into<Arc<str>>) -> Self {
-        let mut wasi_wash = wasmtime_wasi_wash::WasiCtxBuilder::default();
-        wasi_wash.socket_addr_check(|addr, reason| {
-            Box::pin(async move {
-                use wasmtime_wasi_wash::sockets::SocketAddrUse;
-                match reason {
-                    SocketAddrUse::TcpBind | SocketAddrUse::UdpBind => false,
-                    SocketAddrUse::TcpConnect => true,
-                    SocketAddrUse::UdpConnect | SocketAddrUse::UdpOutgoingDatagram => {
-                        // TODO: Enable once loopback UDP is supported
-                        !addr.ip().is_loopback()
-                    }
-                }
-            })
-        });
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             component_id: component_id.into(),
             workload_id: workload_id.into(),
             ctx: None,
-            wasi_wash,
+            wasi_wash: wasmtime_wasi_wash::WasiCtxBuilder::default(),
             http_handler: None,
             plugins: HashMap::new(),
+            allow_tcp_bind: false,
         }
     }
 
+    /// Set a custom [WasiCtx], note that socket configuration will be ignored
     pub fn with_wasi_ctx(mut self, ctx: WasiCtx) -> Self {
         self.ctx = Some(ctx);
         self
     }
 
-    pub fn enable_socket_bind(mut self) -> Self {
-        self.wasi_wash.socket_addr_check(|addr, reason| {
-            Box::pin(async move {
-                use wasmtime_wasi_wash::sockets::SocketAddrUse;
-                match reason {
-                    SocketAddrUse::TcpBind | SocketAddrUse::TcpConnect => true,
-                    SocketAddrUse::UdpBind
-                    | SocketAddrUse::UdpConnect
-                    | SocketAddrUse::UdpOutgoingDatagram => {
-                        // TODO: Enable once loopback UDP is supported
-                        !addr.ip().is_loopback()
-                    }
-                }
-            })
-        });
+    /// Allow TCP bind on loopback and unspecified IPs
+    pub fn allow_tcp_bind(mut self) -> Self {
+        self.allow_tcp_bind = true;
         self
     }
 
@@ -209,6 +186,25 @@ impl CtxBuilder {
                 .args(&["main.wasm"])
                 .inherit_stderr()
                 .build()
+        });
+
+        self.wasi_wash.socket_addr_check(move |addr, reason| {
+            Box::pin(async move {
+                use wasmtime_wasi_wash::sockets::SocketAddrUse;
+                match reason {
+                    SocketAddrUse::TcpBind if self.allow_tcp_bind => {
+                        addr.ip().is_loopback() || addr.ip().is_unspecified()
+                    }
+                    SocketAddrUse::TcpBind => false,
+                    SocketAddrUse::UdpBind => {
+                        // NOTE: Outbound UDP requires an explicit bind in `wasi:sockets`
+                        addr.ip().is_loopback() || addr.ip().is_unspecified()
+                    }
+                    SocketAddrUse::TcpConnect
+                    | SocketAddrUse::UdpConnect
+                    | SocketAddrUse::UdpOutgoingDatagram => true,
+                }
+            })
         });
 
         Ctx {

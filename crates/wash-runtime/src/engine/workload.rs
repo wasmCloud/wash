@@ -942,7 +942,7 @@ impl ResolvedWorkload {
             .with_http_handler(self.http_handler.clone())
             .with_wasi_ctx(wasi_ctx_builder.build());
         if is_service {
-            ctx_builder = ctx_builder.enable_socket_bind();
+            ctx_builder = ctx_builder.allow_tcp_bind();
         }
 
         if let Some(plugins) = &metadata.plugins {
