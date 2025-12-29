@@ -87,11 +87,22 @@ impl Host for Ctx {
             return Ok(Err("plugin not available".to_string()));
         };
 
-        plugin
-            .client
-            .publish(msg.subject, msg.body.into())
-            .await
-            .context("failed to send message")?;
+        let subject = msg.subject;
+
+        if let Some(reply_to) = msg.reply_to {
+            plugin
+                .client
+                .publish_with_reply(subject, reply_to, msg.body.into())
+                .await
+                .context("failed to send message")?;
+        } else {
+            plugin
+                .client
+                .publish(subject, msg.body.into())
+                .await
+                .context("failed to send message")?;
+        }
+
         Ok(Ok(()))
     }
 }
