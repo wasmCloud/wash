@@ -20,6 +20,8 @@ use std::{
     fmt::Display,
 };
 
+use serde::{Deserialize, Serialize};
+
 /// A collection of WIT interfaces representing a world definition.
 ///
 /// A WIT world describes the imports and exports that a component or
@@ -141,7 +143,7 @@ impl WitWorld {
 /// - `wasi:http` - Just namespace and package
 /// - `wasi:http/incoming-handler` - With a single interface
 /// - `wasi:http/incoming-handler,outgoing-handler@0.2.0` - Multiple interfaces with version
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WitInterface {
     /// The namespace of the interface (e.g., "wasi")
     pub namespace: String,
