@@ -130,12 +130,11 @@ impl CtxBuilder {
             Box::pin(async move {
                 use wasmtime_wasi_wash::sockets::SocketAddrUse;
                 match reason {
-                    SocketAddrUse::TcpBind | SocketAddrUse::UdpBind => false,
-                    SocketAddrUse::TcpConnect => true,
-                    SocketAddrUse::UdpConnect | SocketAddrUse::UdpOutgoingDatagram => {
-                        // TODO: Enable once loopback UDP is supported
-                        !addr.ip().is_loopback()
-                    }
+                    SocketAddrUse::TcpBind => false,
+                    SocketAddrUse::UdpBind => addr.ip().is_loopback() || addr.ip().is_unspecified(),
+                    SocketAddrUse::TcpConnect
+                    | SocketAddrUse::UdpConnect
+                    | SocketAddrUse::UdpOutgoingDatagram => true,
                 }
             })
         });
@@ -156,20 +155,8 @@ impl CtxBuilder {
     }
 
     pub fn enable_socket_bind(mut self) -> Self {
-        self.wasi_wash.socket_addr_check(|addr, reason| {
-            Box::pin(async move {
-                use wasmtime_wasi_wash::sockets::SocketAddrUse;
-                match reason {
-                    SocketAddrUse::TcpBind | SocketAddrUse::TcpConnect => true,
-                    SocketAddrUse::UdpBind
-                    | SocketAddrUse::UdpConnect
-                    | SocketAddrUse::UdpOutgoingDatagram => {
-                        // TODO: Enable once loopback UDP is supported
-                        !addr.ip().is_loopback()
-                    }
-                }
-            })
-        });
+        self.wasi_wash
+            .socket_addr_check(|_, _| Box::pin(async move { true }));
         self
     }
 
