@@ -25,7 +25,7 @@ use tokio::sync::RwLock;
 use wasmtime::component::HasSelf;
 
 use crate::{
-    engine::{ctx::Ctx, workload::WorkloadComponent},
+    engine::{ctx::SharedCtx, workload::WorkloadComponent},
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -54,17 +54,17 @@ pub struct WasiConfig {
     config: Arc<RwLock<ConfigMap>>,
 }
 
-impl Host for Ctx {
+impl Host for SharedCtx {
     async fn get(
         &mut self,
         key: String,
     ) -> anyhow::Result<Result<Option<String>, bindings::wasi::config::store::Error>> {
-        let Some(plugin) = self.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
+        let Some(plugin) = self.active_ctx.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
             return Ok(Ok(None));
         };
         let config_guard = plugin.config.read().await;
         config_guard
-            .get(&*self.component_id)
+            .get(&*self.active_ctx.component_id)
             .and_then(|map| map.get(&key).cloned())
             .map_or(Ok(Ok(None)), |v| Ok(Ok(Some(v))))
     }
@@ -72,12 +72,12 @@ impl Host for Ctx {
     async fn get_all(
         &mut self,
     ) -> anyhow::Result<Result<Vec<(String, String)>, bindings::wasi::config::store::Error>> {
-        let Some(plugin) = self.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
+        let Some(plugin) = self.active_ctx.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
             return Ok(Ok(vec![]));
         };
         let config_guard = plugin.config.read().await;
         let entries = config_guard
-            .get(&*self.component_id)
+            .get(&*self.active_ctx.component_id)
             .map(|map| map.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
             .unwrap_or_default();
         Ok(Ok(entries))
@@ -114,7 +114,7 @@ impl HostPlugin for WasiConfig {
         };
 
         // Add `wasi:config/store` to the workload's linker
-        bindings::wasi::config::store::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasi::config::store::add_to_linker::<_, HasSelf<SharedCtx>>(
             component_handle.linker(),
             |ctx| ctx,
         )?;

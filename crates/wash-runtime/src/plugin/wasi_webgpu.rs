@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::Arc};
 const WASI_WEBGPU_ID: &str = "wasi-webgpu";
 
 use crate::{
-    engine::{ctx::Ctx, workload::WorkloadComponent},
+    engine::{ctx::SharedCtx, workload::WorkloadComponent},
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -65,7 +65,7 @@ impl Default for WasiWebGpu {
     }
 }
 
-impl wasi_graphics_context_wasmtime::WasiGraphicsContextView for Ctx {}
+impl wasi_graphics_context_wasmtime::WasiGraphicsContextView for SharedCtx {}
 
 struct UiThreadSpawner;
 impl wasi_webgpu_wasmtime::MainThreadSpawner for UiThreadSpawner {

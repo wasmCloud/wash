@@ -33,7 +33,7 @@ use wasmtime::component::HasSelf;
 const WASI_LOGGING_ID: &str = "wasi-logging";
 
 use crate::{
-    engine::{ctx::Ctx, workload::WorkloadComponent},
+    engine::{ctx::SharedCtx, workload::WorkloadComponent},
     plugin::{HostPlugin, wasi_logging::bindings::wasi::logging::logging::Level},
     wit::{WitInterface, WitWorld},
 };
@@ -52,15 +52,15 @@ mod bindings {
 /// processed and routed by the host's logging system.
 pub struct WasiLogging;
 
-impl bindings::wasi::logging::logging::Host for Ctx {
+impl bindings::wasi::logging::logging::Host for SharedCtx {
     async fn log(&mut self, level: Level, context: String, message: String) -> anyhow::Result<()> {
         match level {
-            Level::Critical => tracing::error!(id = &self.id, context, "{message}"),
-            Level::Error => tracing::error!(id = &self.id, context, "{message}"),
-            Level::Warn => tracing::warn!(id = &self.id, context, "{message}"),
-            Level::Info => tracing::info!(id = &self.id, context, "{message}"),
-            Level::Debug => tracing::debug!(id = &self.id, context, "{message}"),
-            Level::Trace => tracing::trace!(id = &self.id, context, "{message}"),
+            Level::Critical => tracing::error!(id = &self.active_ctx.id, context, "{message}"),
+            Level::Error => tracing::error!(id = &self.active_ctx.id, context, "{message}"),
+            Level::Warn => tracing::warn!(id = &self.active_ctx.id, context, "{message}"),
+            Level::Info => tracing::info!(id = &self.active_ctx.id, context, "{message}"),
+            Level::Debug => tracing::debug!(id = &self.active_ctx.id, context, "{message}"),
+            Level::Trace => tracing::trace!(id = &self.active_ctx.id, context, "{message}"),
         }
         Ok(())
     }
@@ -101,7 +101,7 @@ impl HostPlugin for WasiLogging {
         }
 
         // Add `wasi:logging/logging` to the workload's linker
-        bindings::wasi::logging::logging::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasi::logging::logging::add_to_linker::<_, HasSelf<SharedCtx>>(
             workload_handle.linker(),
             |ctx| ctx,
         )?;

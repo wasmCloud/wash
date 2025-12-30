@@ -6,9 +6,9 @@ use tracing::trace;
 use wasmtime::component::Val;
 use wasmtime::{AsContextMut, StoreContextMut};
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 
-pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Result<Val> {
+pub(crate) fn lower(store: &mut StoreContextMut<SharedCtx>, v: &Val) -> anyhow::Result<Val> {
     match v {
         &Val::Bool(v) => Ok(Val::Bool(v)),
         &Val::S8(v) => Ok(Val::S8(v)),
@@ -90,8 +90,8 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
                 )
             {
                 trace!("lowering output stream");
-                let stream = store.data_mut().table.delete(res)?;
-                let resource = store.data_mut().table.push(stream)?;
+                let stream = store.data_mut().active_ctx.table.delete(res)?;
+                let resource = store.data_mut().active_ctx.table.push(stream)?;
                 Ok(Val::Resource(
                     resource.try_into_resource_any(store.as_context_mut())?,
                 ))
@@ -105,6 +105,7 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
                     Ok(Val::Resource(
                         store
                             .data_mut()
+                            .active_ctx
                             .table
                             .delete(res)
                             .context("owned resource not in table")?,
@@ -114,6 +115,7 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
                     Ok(Val::Resource(
                         store
                             .data_mut()
+                            .active_ctx
                             .table
                             .get(&res)
                             .context("borrowed resource not in table")
@@ -126,7 +128,7 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
     }
 }
 
-pub(crate) fn lift(store: &mut StoreContextMut<'_, Ctx>, v: Val) -> anyhow::Result<Val> {
+pub(crate) fn lift(store: &mut StoreContextMut<SharedCtx>, v: Val) -> anyhow::Result<Val> {
     match v {
         Val::Bool(v) => Ok(Val::Bool(v)),
         Val::S8(v) => Ok(Val::S8(v)),
@@ -208,8 +210,8 @@ pub(crate) fn lift(store: &mut StoreContextMut<'_, Ctx>, v: Val) -> anyhow::Resu
                 )
             {
                 trace!("lifting output stream");
-                let stream = store.data_mut().table.delete(res)?;
-                let resource = store.data_mut().table.push(stream)?;
+                let stream = store.data_mut().active_ctx.table.delete(res)?;
+                let resource = store.data_mut().active_ctx.table.push(stream)?;
 
                 Ok(Val::Resource(
                     resource.try_into_resource_any(store.as_context_mut())?,
@@ -220,8 +222,8 @@ pub(crate) fn lift(store: &mut StoreContextMut<'_, Ctx>, v: Val) -> anyhow::Resu
                 )
             {
                 trace!("lifting input stream");
-                let stream = store.data_mut().table.delete(res)?;
-                let resource = store.data_mut().table.push(stream)?;
+                let stream = store.data_mut().active_ctx.table.delete(res)?;
+                let resource = store.data_mut().active_ctx.table.push(stream)?;
 
                 Ok(Val::Resource(
                     resource.try_into_resource_any(store.as_context_mut())?,
@@ -229,7 +231,7 @@ pub(crate) fn lift(store: &mut StoreContextMut<'_, Ctx>, v: Val) -> anyhow::Resu
             } else {
                 trace!(resource = ?any, "lifting resource");
                 // Resource lifting logic: push the resource into the store's table and return a new Val::Resource
-                let res = store.data_mut().table.push(any)?;
+                let res = store.data_mut().active_ctx.table.push(any)?;
                 Ok(Val::Resource(
                     res.try_into_resource_any(store.as_context_mut())?,
                 ))

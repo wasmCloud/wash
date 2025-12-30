@@ -10,7 +10,7 @@ use std::sync::Arc;
 use bytes::{Buf, Bytes};
 
 const PLUGIN_KEYVALUE_ID: &str = "wasi-keyvalue";
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
@@ -77,12 +77,15 @@ impl WasiKeyvalue {
 }
 
 // Implementation for the store interface
-impl bindings::wasi::keyvalue::store::Host for Ctx {
+impl bindings::wasi::keyvalue::store::Host for SharedCtx {
     async fn open(
         &mut self,
         identifier: String,
     ) -> anyhow::Result<Result<Resource<BucketHandle>, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -104,26 +107,29 @@ impl bindings::wasi::keyvalue::store::Host for Ctx {
 
         let bucket = BucketHandle { kv };
 
-        let resource = self.table.push(bucket)?;
+        let resource = self.active_ctx.table.push(bucket)?;
         Ok(Ok(resource))
     }
 }
 
 // Resource host trait implementations for bucket
-impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
+impl bindings::wasi::keyvalue::store::HostBucket for SharedCtx {
     async fn get(
         &mut self,
         bucket: Resource<BucketHandle>,
         key: String,
     ) -> anyhow::Result<Result<Option<Vec<u8>>, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("get");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         let entry = match bucket_handle.kv.get(key).await {
             Ok(entry) => entry,
@@ -145,14 +151,17 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
         key: String,
         value: Vec<u8>,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("get");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         match bucket_handle.kv.put(key, value.into()).await {
             Ok(_) => Ok(Ok(())),
@@ -168,14 +177,17 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
         bucket: Resource<BucketHandle>,
         key: String,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("delete");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         match bucket_handle.kv.delete(key).await {
             Ok(_) => Ok(Ok(())),
@@ -191,14 +203,17 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
         bucket: Resource<BucketHandle>,
         key: String,
     ) -> anyhow::Result<Result<bool, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("exists");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         match bucket_handle.kv.get(key).await {
             Ok(Some(_)) => Ok(Ok(true)),
@@ -215,14 +230,17 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
         bucket: Resource<BucketHandle>,
         cursor: Option<u64>,
     ) -> anyhow::Result<Result<KeyResponse, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("list_keys");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         let keys_iter = match bucket_handle.kv.keys().await {
             Ok(i) => i,
@@ -258,31 +276,34 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
     async fn drop(&mut self, rep: Resource<BucketHandle>) -> anyhow::Result<()> {
         tracing::debug!(
-            workload_id = self.id,
+            workload_id = self.active_ctx.id,
             resource_id = ?rep,
             "Dropping bucket resource"
         );
-        self.table.delete(rep)?;
+        self.active_ctx.table.delete(rep)?;
         Ok(())
     }
 }
 
 // Implementation for the atomics interface
-impl bindings::wasi::keyvalue::atomics::Host for Ctx {
+impl bindings::wasi::keyvalue::atomics::Host for SharedCtx {
     async fn increment(
         &mut self,
         bucket: Resource<BucketHandle>,
         key: String,
         delta: u64,
     ) -> anyhow::Result<Result<u64, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("increment");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         let (entry_revision, entry_value) = match bucket_handle.kv.entry(&key).await {
             Ok(Some(mut e)) => {
@@ -329,20 +350,23 @@ impl bindings::wasi::keyvalue::atomics::Host for Ctx {
 }
 
 // Implementation for the batch interface
-impl bindings::wasi::keyvalue::batch::Host for Ctx {
+impl bindings::wasi::keyvalue::batch::Host for SharedCtx {
     async fn get_many(
         &mut self,
         bucket: Resource<BucketHandle>,
         keys: Vec<String>,
     ) -> anyhow::Result<Result<Vec<Option<(String, Vec<u8>)>>, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("get_many");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         let values = futures::stream::FuturesOrdered::from_iter(keys.iter().map(|key| async {
             match bucket_handle.kv.get(key.clone()).await {
@@ -374,14 +398,17 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
         bucket: Resource<BucketHandle>,
         key_values: Vec<(String, Vec<u8>)>,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("set_many");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         let values = futures::stream::FuturesOrdered::from_iter(key_values.iter().map(
             |(key, value)| async {
@@ -416,14 +443,17 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
         bucket: Resource<BucketHandle>,
         keys: Vec<String>,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID)
+        else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
         };
         plugin.record_operation("delete_many");
 
-        let bucket_handle = self.table.get(&bucket)?;
+        let bucket_handle = self.active_ctx.table.get(&bucket)?;
 
         let values = futures::stream::FuturesOrdered::from_iter(keys.iter().map(|key| async {
             match bucket_handle.kv.delete(key.clone()).await {
@@ -485,9 +515,11 @@ impl HostPlugin for WasiKeyvalue {
         );
         let linker = component.linker();
 
-        bindings::wasi::keyvalue::store::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::atomics::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::batch::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::store::add_to_linker::<_, HasSelf<SharedCtx>>(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::atomics::add_to_linker::<_, HasSelf<SharedCtx>>(linker, |ctx| {
+            ctx
+        })?;
+        bindings::wasi::keyvalue::batch::add_to_linker::<_, HasSelf<SharedCtx>>(linker, |ctx| ctx)?;
 
         let id = component.id();
         tracing::debug!(
