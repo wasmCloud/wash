@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::washlet::plugins::WorkloadTracker;
@@ -122,16 +122,22 @@ impl WasiBlobstore {
 }
 
 // Implementation for the main blobstore interface
-impl bindings::wasi::blobstore::blobstore::Host for Ctx {
+impl bindings::wasi::blobstore::blobstore::Host for SharedCtx {
     async fn create_container(
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<Resource<ContainerData>, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let _workload_permit = match plugin.workload_permit(&self.workload_id, &name, true).await {
+        let _workload_permit = match plugin
+            .workload_permit(&self.active_ctx.workload_id, &name, true)
+            .await
+        {
             Some(token) => token,
             None => {
                 return Ok(Err("unauthorized".to_string()));
@@ -157,7 +163,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
             store,
         };
 
-        let resource = self.table.push(container_data)?;
+        let resource = self.active_ctx.table.push(container_data)?;
         Ok(Ok(resource))
     }
 
@@ -165,12 +171,15 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<Resource<ContainerData>, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
         let _workload_permit = match plugin
-            .workload_permit(&self.workload_id, &name, false)
+            .workload_permit(&self.active_ctx.workload_id, &name, false)
             .await
         {
             Some(token) => token,
@@ -191,7 +200,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
             store,
         };
 
-        let resource = self.table.push(container_data)?;
+        let resource = self.active_ctx.table.push(container_data)?;
         Ok(Ok(resource))
     }
 
@@ -199,11 +208,17 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let _workload_permit = match plugin.workload_permit(&self.workload_id, &name, true).await {
+        let _workload_permit = match plugin
+            .workload_permit(&self.active_ctx.workload_id, &name, true)
+            .await
+        {
             Some(token) => token,
             None => {
                 return Ok(Err("unauthorized".to_string()));
@@ -221,11 +236,17 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<bool, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let _workload_permit = match plugin.workload_permit(&self.workload_id, &name, true).await {
+        let _workload_permit = match plugin
+            .workload_permit(&self.active_ctx.workload_id, &name, true)
+            .await
+        {
             Some(token) => token,
             None => {
                 return Ok(Err("unauthorized".to_string()));
@@ -243,12 +264,15 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         src: ObjectId,
         dest: ObjectId,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
         let _read_permit = match plugin
-            .workload_permit(&self.workload_id, &src.container, false)
+            .workload_permit(&self.active_ctx.workload_id, &src.container, false)
             .await
         {
             Some(token) => token,
@@ -258,7 +282,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         };
 
         let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &dest.container, true)
+            .workload_permit(&self.active_ctx.workload_id, &dest.container, true)
             .await
         {
             Some(token) => token,
@@ -297,13 +321,16 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         src: ObjectId,
         dest: ObjectId,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
         // requires an extra write permit on the src container to delete the object after copy
         let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &src.container, true)
+            .workload_permit(&self.active_ctx.workload_id, &src.container, true)
             .await
         {
             Some(token) => token,
@@ -330,12 +357,12 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::container::HostContainer for Ctx {
+impl bindings::wasi::blobstore::container::HostContainer for SharedCtx {
     async fn name(
         &mut self,
         container: Resource<ContainerData>,
     ) -> anyhow::Result<Result<String, ContainerError>> {
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
         Ok(Ok(container_data.name.clone()))
     }
 
@@ -343,7 +370,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         &mut self,
         container: Resource<ContainerData>,
     ) -> anyhow::Result<Result<ContainerMetadata, ContainerError>> {
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
 
         Ok(Ok(ContainerMetadata {
             name: container_data.name.clone(),
@@ -358,7 +385,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         start: u64,
         end: u64,
     ) -> anyhow::Result<Result<Resource<IncomingValueHandle>, ContainerError>> {
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
 
         let object = match container_data.store.get(name.as_str()).await {
             Ok(obj) => obj,
@@ -373,6 +400,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         };
 
         let resource = self
+            .active_ctx
             .table
             .push(IncomingValueHandle { object, start, end })?;
 
@@ -385,13 +413,16 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         name: ObjectName,
         data: Resource<OutgoingValueHandle>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let container_data = self.table.get(&container).cloned()?;
+        let container_data = self.active_ctx.table.get(&container).cloned()?;
         let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
+            .workload_permit(&self.active_ctx.workload_id, &container_data.name, true)
             .await
         {
             Some(token) => token,
@@ -402,7 +433,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         // prepare the write operation
         // it actually happens on 'finish'
-        let handle = self.table.get_mut(&data)?;
+        let handle = self.active_ctx.table.get_mut(&data)?;
         handle.container = Some(container_data);
         handle.object_name = Some(name.as_str().to_string());
 
@@ -413,7 +444,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         &mut self,
         container: Resource<ContainerData>,
     ) -> anyhow::Result<Result<Resource<StreamObjectNamesHandle>, ContainerError>> {
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
 
         let list_names = match container_data.store.list().await {
             Ok(names) => names,
@@ -425,7 +456,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
             }
         };
 
-        let resource = self.table.push(StreamObjectNamesHandle {
+        let resource = self.active_ctx.table.push(StreamObjectNamesHandle {
             objects: list_names,
             position: 0,
         })?;
@@ -438,13 +469,16 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         container: Resource<ContainerData>,
         name: ObjectName,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
         let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
+            .workload_permit(&self.active_ctx.workload_id, &container_data.name, true)
             .await
         {
             Some(token) => token,
@@ -464,13 +498,16 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         container: Resource<ContainerData>,
         names: Vec<ObjectName>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
         let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
+            .workload_permit(&self.active_ctx.workload_id, &container_data.name, true)
             .await
         {
             Some(token) => token,
@@ -493,7 +530,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         container: Resource<ContainerData>,
         name: ObjectName,
     ) -> anyhow::Result<Result<bool, ContainerError>> {
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
         match container_data.store.info(name.as_str()).await {
             Ok(_) => Ok(Ok(true)),
             Err(_) => Ok(Ok(false)),
@@ -505,7 +542,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         container: Resource<ContainerData>,
         name: ObjectName,
     ) -> anyhow::Result<Result<ObjectMetadata, ContainerError>> {
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
         match container_data.store.info(name.as_str()).await {
             Ok(info) => Ok(Ok(ObjectMetadata {
                 name: info.name,
@@ -521,13 +558,16 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         &mut self,
         container: Resource<ContainerData>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID)
+        else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let container_data = self.table.get(&container)?;
+        let container_data = self.active_ctx.table.get(&container)?;
         let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
+            .workload_permit(&self.active_ctx.workload_id, &container_data.name, true)
             .await
         {
             Some(token) => token,
@@ -571,23 +611,23 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
     async fn drop(&mut self, rep: Resource<ContainerData>) -> anyhow::Result<()> {
         // Container resource cleanup - resource table handles this automatically
         tracing::debug!(
-            workload_id = self.workload_id.as_ref(),
-            component_id = self.component_id.as_ref(),
+            workload_id = self.active_ctx.workload_id.as_ref(),
+            component_id = self.active_ctx.component_id.as_ref(),
             resource_id = ?rep,
             "Dropping container resource"
         );
-        self.table.delete(rep)?;
+        self.active_ctx.table.delete(rep)?;
         Ok(())
     }
 }
 
-impl bindings::wasi::blobstore::container::HostStreamObjectNames for Ctx {
+impl bindings::wasi::blobstore::container::HostStreamObjectNames for SharedCtx {
     async fn read_stream_object_names(
         &mut self,
         stream: Resource<StreamObjectNamesHandle>,
         len: u64,
     ) -> anyhow::Result<Result<(Vec<ObjectName>, bool), ContainerError>> {
-        let stream_handle = self.table.get_mut(&stream)?;
+        let stream_handle = self.active_ctx.table.get_mut(&stream)?;
 
         let mut objects = Vec::<ObjectName>::new();
         for _ in 0..len {
@@ -612,7 +652,7 @@ impl bindings::wasi::blobstore::container::HostStreamObjectNames for Ctx {
         stream: Resource<StreamObjectNamesHandle>,
         num: u64,
     ) -> anyhow::Result<Result<(u64, bool), ContainerError>> {
-        let stream_handle = self.table.get_mut(&stream)?;
+        let stream_handle = self.active_ctx.table.get_mut(&stream)?;
 
         for i in 0..num {
             match stream_handle.objects.next().await {
@@ -632,17 +672,17 @@ impl bindings::wasi::blobstore::container::HostStreamObjectNames for Ctx {
     async fn drop(&mut self, rep: Resource<StreamObjectNamesHandle>) -> anyhow::Result<()> {
         // StreamObjectNames resource cleanup
         tracing::debug!(
-            workload_id = self.workload_id.as_ref(),
-            component_id = self.component_id.as_ref(),
+            workload_id = self.active_ctx.workload_id.as_ref(),
+            component_id = self.active_ctx.component_id.as_ref(),
             resource_id = ?rep,
             "Dropping StreamObjectNames resource"
         );
-        self.table.delete(rep)?;
+        self.active_ctx.table.delete(rep)?;
         Ok(())
     }
 }
 
-impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
+impl bindings::wasi::blobstore::types::HostOutgoingValue for SharedCtx {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<OutgoingValueHandle>> {
         let temp_file = tempfile::Builder::new()
             .tempfile()
@@ -654,7 +694,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
             object_name: None,
         };
 
-        let resource = self.table.push(handle)?;
+        let resource = self.active_ctx.table.push(handle)?;
         Ok(resource)
     }
 
@@ -662,7 +702,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         &mut self,
         outgoing_value: Resource<OutgoingValueHandle>,
     ) -> anyhow::Result<Result<Resource<bindings::wasi::io0_2_1::streams::OutputStream>, ()>> {
-        let handle = self.table.get_mut(&outgoing_value)?;
+        let handle = self.active_ctx.table.get_mut(&outgoing_value)?;
 
         let file_wrapper = tokio::fs::File::from_std(handle.temp_file.reopen()?);
         let stream = AsyncWriteStream::new(8192, file_wrapper);
@@ -671,7 +711,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         // read in finish()
         let boxed: Box<dyn OutputStream> = Box::new(stream);
 
-        let resource = self.table.push(boxed)?;
+        let resource = self.active_ctx.table.push(boxed)?;
         Ok(Ok(resource))
     }
 
@@ -679,7 +719,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         &mut self,
         outgoing_value: Resource<OutgoingValueHandle>,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let handle = self.table.delete(outgoing_value)?;
+        let handle = self.active_ctx.table.delete(outgoing_value)?;
         let container_data = match handle.container {
             Some(data) => data,
             None => {
@@ -715,17 +755,17 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
     }
 
     async fn drop(&mut self, rep: Resource<OutgoingValueHandle>) -> anyhow::Result<()> {
-        self.table.delete(rep)?;
+        self.active_ctx.table.delete(rep)?;
         Ok(())
     }
 }
 
-impl bindings::wasi::blobstore::types::HostIncomingValue for Ctx {
+impl bindings::wasi::blobstore::types::HostIncomingValue for SharedCtx {
     async fn incoming_value_consume_sync(
         &mut self,
         incoming_value: Resource<IncomingValueHandle>,
     ) -> anyhow::Result<Result<Vec<u8>, BlobstoreError>> {
-        let mut data = self.table.delete(incoming_value)?;
+        let mut data = self.active_ctx.table.delete(incoming_value)?;
         let mut buf = Vec::new();
 
         match data.object.read(&mut buf).await {
@@ -740,35 +780,35 @@ impl bindings::wasi::blobstore::types::HostIncomingValue for Ctx {
     ) -> anyhow::Result<
         Result<Resource<bindings::wasi::blobstore::types::IncomingValueAsyncBody>, BlobstoreError>,
     > {
-        let data = self.table.delete(incoming_value)?;
+        let data = self.active_ctx.table.delete(incoming_value)?;
 
         let stream: Box<dyn InputStream> = Box::new(AsyncReadStream::new(data.object));
-        let stream = self.table.push(stream)?;
+        let stream = self.active_ctx.table.push(stream)?;
 
         Ok(Ok(stream))
     }
 
     async fn size(&mut self, incoming_value: Resource<IncomingValueHandle>) -> anyhow::Result<u64> {
-        let data = self.table.get(&incoming_value)?;
+        let data = self.active_ctx.table.get(&incoming_value)?;
         Ok(data.object.info().size as u64)
     }
 
     async fn drop(&mut self, rep: Resource<IncomingValueHandle>) -> anyhow::Result<()> {
         tracing::debug!(
-            workload_id = self.workload_id.as_ref(),
+            workload_id = self.active_ctx.workload_id.as_ref(),
             resource_id = ?rep,
             "Dropping IncomingValue resource"
         );
-        self.table.delete(rep)?;
+        self.active_ctx.table.delete(rep)?;
         Ok(())
     }
 }
 
 // Implement the main types Host trait that combines all resource types
-impl bindings::wasi::blobstore::types::Host for Ctx {}
+impl bindings::wasi::blobstore::types::Host for SharedCtx {}
 
 // Implement the main container Host trait that combines all resource types
-impl bindings::wasi::blobstore::container::Host for Ctx {}
+impl bindings::wasi::blobstore::container::Host for SharedCtx {}
 
 #[async_trait::async_trait]
 impl HostPlugin for WasiBlobstore {
@@ -803,9 +843,17 @@ impl HostPlugin for WasiBlobstore {
         );
         let linker = component_handle.linker();
 
-        bindings::wasi::blobstore::blobstore::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::container::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::types::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::blobstore::add_to_linker::<_, HasSelf<SharedCtx>>(
+            linker,
+            |ctx| ctx,
+        )?;
+        bindings::wasi::blobstore::container::add_to_linker::<_, HasSelf<SharedCtx>>(
+            linker,
+            |ctx| ctx,
+        )?;
+        bindings::wasi::blobstore::types::add_to_linker::<_, HasSelf<SharedCtx>>(linker, |ctx| {
+            ctx
+        })?;
 
         Ok(())
     }

@@ -12,6 +12,37 @@ use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 use crate::plugin::HostPlugin;
 
+/// Shared context
+pub struct SharedCtx {
+    /// Current active context
+    pub active_ctx: Ctx,
+    /// Contexts for linked components
+    pub contexts: HashMap<Arc<str>, Ctx>,
+}
+
+impl SharedCtx {
+    pub fn new(context: Ctx) -> Self {
+        Self {
+            active_ctx: context,
+            contexts: Default::default(),
+        }
+    }
+
+    pub fn set_active_ctx(&mut self, id: &Arc<str>) -> anyhow::Result<()> {
+        if id == &self.active_ctx.component_id {
+            return Ok(());
+        }
+
+        if let Some(ctx) = self.contexts.remove(id) {
+            let old_ctx = std::mem::replace(&mut self.active_ctx, ctx);
+            self.contexts.insert(old_ctx.component_id.clone(), old_ctx);
+            Ok(())
+        } else {
+            Err(anyhow::anyhow!("Context for component {id} not found"))
+        }
+    }
+}
+
 /// The context for a component store and linker, providing access to implementations of:
 /// - wasi@0.2 interfaces
 /// - wasi:http@0.2 interfaces
@@ -62,29 +93,29 @@ impl std::fmt::Debug for Ctx {
 }
 
 // TODO(#103): Do some cleverness to pull up the WasiCtx based on what component is actively executing
-impl WasiView for Ctx {
+impl WasiView for SharedCtx {
     fn ctx(&mut self) -> WasiCtxView<'_> {
         WasiCtxView {
-            ctx: &mut self.ctx,
-            table: &mut self.table,
+            ctx: &mut self.active_ctx.ctx,
+            table: &mut self.active_ctx.table,
         }
     }
 }
 
-impl wasmtime_wasi_io::IoView for Ctx {
+impl wasmtime_wasi_io::IoView for SharedCtx {
     fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
-        &mut self.table
+        &mut self.active_ctx.table
     }
 }
 
 // Implement WasiHttpView for wasi:http@0.2
-impl WasiHttpView for Ctx {
+impl WasiHttpView for SharedCtx {
     fn ctx(&mut self) -> &mut WasiHttpCtx {
-        &mut self.http
+        &mut self.active_ctx.http
     }
 
     fn table(&mut self) -> &mut ResourceTable {
-        &mut self.table
+        &mut self.active_ctx.table
     }
 
     fn send_request(
@@ -92,8 +123,10 @@ impl WasiHttpView for Ctx {
         request: hyper::Request<wasmtime_wasi_http::body::HyperOutgoingBody>,
         config: wasmtime_wasi_http::types::OutgoingRequestConfig,
     ) -> wasmtime_wasi_http::HttpResult<wasmtime_wasi_http::types::HostFutureIncomingResponse> {
-        match &self.http_handler {
-            Some(handler) => handler.outgoing_request(&self.workload_id, request, config),
+        match &self.active_ctx.http_handler {
+            Some(handler) => {
+                handler.outgoing_request(&self.active_ctx.workload_id, request, config)
+            }
             None => Err(wasmtime_wasi_http::HttpError::trap(anyhow::anyhow!(
                 "http client not available"
             ))),

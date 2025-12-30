@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::Arc};
 const WASI_WEBGPU_ID: &str = "wasi-webgpu";
 
 use crate::{
-    engine::{ctx::Ctx, workload::WorkloadComponent},
+    engine::{ctx::SharedCtx, workload::WorkloadComponent},
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -65,7 +65,7 @@ impl Default for WasiWebGpu {
     }
 }
 
-impl wasi_graphics_context_wasmtime::WasiGraphicsContextView for Ctx {}
+impl wasi_graphics_context_wasmtime::WasiGraphicsContextView for SharedCtx {}
 
 struct UiThreadSpawner;
 impl wasi_webgpu_wasmtime::MainThreadSpawner for UiThreadSpawner {
@@ -78,9 +78,12 @@ impl wasi_webgpu_wasmtime::MainThreadSpawner for UiThreadSpawner {
     }
 }
 
-impl wasi_webgpu_wasmtime::WasiWebGpuView for Ctx {
+impl wasi_webgpu_wasmtime::WasiWebGpuView for SharedCtx {
     fn instance(&self) -> Arc<wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global> {
-        let plugin = self.get_plugin::<WasiWebGpu>(WASI_WEBGPU_ID).unwrap();
+        let plugin = self
+            .active_ctx
+            .get_plugin::<WasiWebGpu>(WASI_WEBGPU_ID)
+            .unwrap();
         Arc::clone(&plugin.gpu)
     }
 

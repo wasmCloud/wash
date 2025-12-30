@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::{ResolvedWorkload, WorkloadComponent};
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
@@ -47,7 +47,7 @@ impl WasmcloudMessaging {
     }
 }
 
-impl Host for Ctx {
+impl Host for SharedCtx {
     #[instrument(level = "debug", skip_all, fields(subject = %subject, timeout_ms))]
     async fn request(
         &mut self,
@@ -55,7 +55,10 @@ impl Host for Ctx {
         body: Vec<u8>,
         timeout_ms: u32,
     ) -> anyhow::Result<Result<types::BrokerMessage, String>> {
-        let Some(plugin) = self.get_plugin::<WasmcloudMessaging>(PLUGIN_MESSAGING_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasmcloudMessaging>(PLUGIN_MESSAGING_ID)
+        else {
             return Ok(Err("plugin not available".to_string()));
         };
 
@@ -83,7 +86,10 @@ impl Host for Ctx {
 
     #[instrument(level = "debug", skip_all, fields(subject = %msg.subject, reply_to = %msg.reply_to.as_deref().unwrap_or("<none>")))]
     async fn publish(&mut self, msg: types::BrokerMessage) -> anyhow::Result<Result<(), String>> {
-        let Some(plugin) = self.get_plugin::<WasmcloudMessaging>(PLUGIN_MESSAGING_ID) else {
+        let Some(plugin) = self
+            .active_ctx
+            .get_plugin::<WasmcloudMessaging>(PLUGIN_MESSAGING_ID)
+        else {
             return Ok(Err("plugin not available".to_string()));
         };
 
@@ -107,7 +113,7 @@ impl Host for Ctx {
     }
 }
 
-impl types::Host for Ctx {}
+impl types::Host for SharedCtx {}
 
 #[async_trait::async_trait]
 impl HostPlugin for WasmcloudMessaging {
@@ -137,11 +143,11 @@ impl HostPlugin for WasmcloudMessaging {
             return Ok(());
         };
 
-        bindings::wasmcloud::messaging::types::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasmcloud::messaging::types::add_to_linker::<_, HasSelf<SharedCtx>>(
             component_handle.linker(),
             |ctx| ctx,
         )?;
-        bindings::wasmcloud::messaging::consumer::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasmcloud::messaging::consumer::add_to_linker::<_, HasSelf<SharedCtx>>(
             component_handle.linker(),
             |ctx| ctx,
         )?;

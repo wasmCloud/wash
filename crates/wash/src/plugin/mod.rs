@@ -24,7 +24,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 use wash_runtime::{
     engine::{
-        ctx::Ctx,
+        ctx::SharedCtx,
         workload::{ResolvedWorkload, WorkloadComponent},
     },
     host::HostApi,
@@ -278,7 +278,7 @@ impl HostPlugin for PluginManager {
         );
 
         // Add the types interface (provides runner, context, etc. to components that import wasmcloud:wash/types)
-        bindings::wasmcloud::wash::types::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasmcloud::wash::types::add_to_linker::<_, HasSelf<SharedCtx>>(
             component.linker(),
             |ctx| ctx,
         )?;
@@ -389,14 +389,14 @@ impl PluginComponent {
             self.skip_confirmation,
         );
 
-        let initialize_runner = store.data_mut().table.push(runner.clone())?;
+        let initialize_runner = store.data_mut().active_ctx.table.push(runner.clone())?;
         plugin
             .wasmcloud_wash_plugin()
             .call_initialize(&mut store, initialize_runner)
             .await?
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        let hook_runner = store.data_mut().table.push(runner)?;
+        let hook_runner = store.data_mut().active_ctx.table.push(runner)?;
         // Call the hook with the provided runner
         plugin
             .wasmcloud_wash_plugin()
@@ -425,14 +425,14 @@ impl PluginComponent {
             self.skip_confirmation,
         );
 
-        let initialize_runner = store.data_mut().table.push(runner.clone())?;
+        let initialize_runner = store.data_mut().active_ctx.table.push(runner.clone())?;
         plugin
             .wasmcloud_wash_plugin()
             .call_initialize(&mut store, initialize_runner)
             .await?
             .map_err(|e| anyhow::anyhow!(e))?;
 
-        let command_runner = store.data_mut().table.push(runner)?;
+        let command_runner = store.data_mut().active_ctx.table.push(runner)?;
 
         // Call the hook with the provided runner
         plugin
