@@ -594,6 +594,10 @@ impl HostApi for Host {
                 "Workload stopped successfully".to_string(),
             )
         } else {
+            warn!(
+                "Tried to stop non existing workload: {}",
+                request.workload_id
+            );
             (WorkloadState::Unspecified, "Workload not found".to_string())
         };
 
