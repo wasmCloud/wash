@@ -287,6 +287,7 @@ async fn workload_start(
     config: &HostConfig,
 ) -> anyhow::Result<types::v2::WorkloadStartResponse> {
     let Some(types::v2::Workload {
+        workload_id,
         namespace,
         name,
         annotations,
@@ -370,7 +371,7 @@ async fn workload_start(
     let volumes = volumes.into_iter().map(Into::into).collect();
 
     let request = crate::types::WorkloadStartRequest {
-        workload_id: uuid::Uuid::new_v4().to_string(),
+        workload_id: workload_id,
         workload: crate::types::Workload {
             namespace,
             name,
@@ -388,7 +389,16 @@ async fn workload_start(
         name=?request.workload.name,
         "Starting workload");
 
-    Ok(host.workload_start(request).await?.into())
+    match host.workload_start(request).await {
+        Ok(resp) => Ok(resp.into()),
+        Err(e) => Ok(types::v2::WorkloadStartResponse {
+            workload_status: Some(types::v2::WorkloadStatus {
+                workload_id: "".into(),
+                workload_state: types::v2::WorkloadState::Error.into(),
+                message: format!("failed to start workload: {}", e),
+            }),
+        }),
+    }
 }
 
 async fn workload_stop(

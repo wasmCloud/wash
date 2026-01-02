@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context as _, bail, ensure};
 use tokio::{sync::RwLock, task::JoinHandle, time::timeout};
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
@@ -713,7 +713,16 @@ impl ResolvedWorkload {
 
                                                 let func = instance
                                                     .get_func(&mut store, func_idx)
-                                                    .context("function not found")?;
+                                                    .context("function not found");
+
+                                                let func = match func {
+                                                    Ok(func) => func,
+                                                    Err(e) => {
+                                                        error!("Error in gettin func: {:?}", e);
+                                                        return Err(e);
+                                                    }
+                                                };
+
                                                 trace!(
                                                     name = %import_name,
                                                     fn_name = %export_name,
@@ -821,7 +830,6 @@ impl ResolvedWorkload {
                                     );
                                     continue;
                                 }
-
                                 trace!(name = import_name, resource = export_name, ty = ?resource_ty, "linking resource import");
 
                                 linker_instance

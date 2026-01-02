@@ -262,6 +262,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 
 	req := &runtimev2.WorkloadStartRequest{
 		Workload: &runtimev2.Workload{
+			WorkloadId:  string(workload.UID),
 			Namespace:   workload.Namespace,
 			Name:        workload.Name,
 			Annotations: workload.GetAnnotations(),
@@ -275,13 +276,13 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 	ctx, cancel := context.WithTimeout(ctx, workloadStartTimeout)
 	defer cancel()
 
-	resp, err := client.Start(ctx, req)
+	_, err := client.Start(ctx, req)
 	if err != nil {
 		return err
 	}
 
 	// Set the WorkloadID in the status
-	workload.Status.WorkloadID = resp.WorkloadStatus.WorkloadId
+	workload.Status.WorkloadID = string(workload.UID)
 	condition.ForceStatusUpdate(ctx)
 	return condition.ErrSkipReconciliation()
 }
@@ -320,14 +321,9 @@ func (r *WorkloadReconciler) reconcileReady(_ context.Context, workload *runtime
 }
 
 func (r *WorkloadReconciler) finalize(ctx context.Context, workload *runtimev1alpha1.Workload) error {
-	if !workload.Status.AllTrue(runtimev1alpha1.WorkloadConditionPlacement) {
-		// nothing to do, the workload was never placed
-		return nil
-	}
-
 	client := NewWashHostClient(r.Bus, workload.Status.HostID)
 	req := &runtimev2.WorkloadStopRequest{
-		WorkloadId: workload.Status.WorkloadID,
+		WorkloadId: string(workload.UID),
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, workloadStopTimeout)
