@@ -85,6 +85,7 @@ async fn test_http_counter_integration() -> Result<()> {
             annotations: HashMap::new(),
             service: None,
             components: vec![Component {
+                name: None,
                 bytes: bytes::Bytes::from_static(HTTP_COUNTER_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -425,6 +426,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
             annotations: HashMap::new(),
             service: None,
             components: vec![Component {
+                name: None,
                 bytes: bytes::Bytes::from_static(HTTP_COUNTER_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 128,

@@ -242,6 +242,84 @@ impl Engine {
         ))
     }
 
+    /// Initialize specific components from a workload spec by their names.
+    /// This is used for component-specific restart/update operations.
+    ///
+    /// Components are matched by name between the provided spec and the names requested.
+    /// This ensures that even if the spec has components in a different order, the correct
+    /// components are initialized.
+    ///
+    /// # Arguments
+    /// * `workload_id` - The workload identifier
+    /// * `workload` - The full workload specification
+    /// * `component_names` - Names of components to initialize from the workload spec
+    ///
+    /// # Returns
+    /// A vector of (component_name, WorkloadComponent) tuples for the initialized components
+    pub fn initialize_components_by_name(
+        &self,
+        workload_id: impl AsRef<str>,
+        workload: &Workload,
+        component_names: &[String],
+    ) -> anyhow::Result<Vec<(String, WorkloadComponent)>> {
+        // Process and validate volumes first
+        let mut validated_volumes = std::collections::HashMap::new();
+
+        for v in &workload.volumes {
+            let host_path = match &v.volume_type {
+                VolumeType::HostPath(HostPathVolume { local_path }) => {
+                    let path = PathBuf::from(local_path);
+                    if !path.is_dir() {
+                        anyhow::bail!(
+                            "HostPath volume '{local_path}' does not exist or is not a directory",
+                        );
+                    }
+                    path
+                }
+                VolumeType::EmptyDir(EmptyDirVolume {}) => {
+                    let temp_dir = tempfile::tempdir()
+                        .context("failed to create temp dir for empty dir volume")?;
+                    tracing::debug!(path = ?temp_dir.path(), "created temp dir for empty dir volume");
+                    temp_dir.keep()
+                }
+            };
+
+            validated_volumes.insert(v.name.clone(), host_path);
+        }
+
+        // Build a map from component name to component in the spec
+        let spec_components_by_name: std::collections::HashMap<&str, &crate::types::Component> =
+            workload
+                .components
+                .iter()
+                .filter_map(|c| c.name.as_deref().map(|name| (name, c)))
+                .collect();
+
+        // Initialize only the specified components by name
+        let mut initialized_components = Vec::new();
+        for name in component_names {
+            let component = spec_components_by_name.get(name.as_str()).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "component '{}' not found in workload spec (available: {:?})",
+                    name,
+                    spec_components_by_name.keys().collect::<Vec<_>>()
+                )
+            })?;
+
+            let workload_component = self.initialize_workload_component(
+                workload_id.as_ref(),
+                &workload.name,
+                &workload.namespace,
+                (*component).clone(),
+                &validated_volumes,
+            )?;
+
+            initialized_components.push((name.clone(), workload_component));
+        }
+
+        Ok(initialized_components)
+    }
+
     /// Initialize a component that is a part of a workload, add wasi@0.2 interfaces (and
     /// wasi:http if the `http` feature is enabled) to the linker.
     fn initialize_workload_component(
@@ -287,6 +365,7 @@ impl Engine {
             workload_id.as_ref(),
             workload_name.as_ref(),
             workload_namespace.as_ref(),
+            component.name.clone(),
             wasmtime_component,
             linker,
             component_volume_mounts,

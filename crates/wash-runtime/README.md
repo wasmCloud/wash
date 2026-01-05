@@ -65,6 +65,7 @@ async fn main() -> anyhow::Result<()> {
             host_interfaces: vec![],
             volumes: vec![],
         },
+        component_ids: None,
     };
 
     host.workload_start(req).await?;

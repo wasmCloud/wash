@@ -622,6 +622,7 @@ fn create_workload(
 
     let mut components = Vec::with_capacity(dev_register_components.len() + 1);
     components.push(Component {
+        name: None,
         bytes,
         local_resources: LocalResources {
             volume_mounts: vec![VolumeMount {
@@ -635,6 +636,7 @@ fn create_workload(
         max_invocations: -1,
     });
     components.extend(dev_register_components.into_iter().map(|bytes| Component {
+        name: None,
         bytes,
         // TODO: Must have the root, but can't isolate rn
         // local_resources: LocalResources {

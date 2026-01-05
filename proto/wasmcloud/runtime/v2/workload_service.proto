@@ -7,6 +7,7 @@ import "wasmcloud/runtime/v2/workload.proto";
 //  Methods called by the Runtime Operator on a given Wasm Host.
 service WorkloadService {
   rpc WorkloadStart(WorkloadStartRequest) returns (WorkloadStartResponse);
+  rpc WorkloadUpdate(WorkloadUpdateRequest) returns (WorkloadUpdateResponse);
   rpc WorkloadStatus(WorkloadStatusRequest) returns (WorkloadStatusResponse);
   rpc WorkloadStop(WorkloadStopRequest) returns (WorkloadStopResponse);
 }
@@ -58,5 +59,19 @@ message WorkloadStopRequest {
 }
 
 message WorkloadStopResponse {
+  WorkloadStatus workload_status = 1;
+}
+
+// Request to update specific components in a running workload.
+// Components are matched by name - each component in the workload spec must have
+// a name that corresponds to a running component in the workload.
+message WorkloadUpdateRequest {
+  string workload_id = 1;
+  // The workload spec containing updated component definitions.
+  // Components are matched by name to identify which running components to update.
+  Workload workload = 2;
+}
+
+message WorkloadUpdateResponse {
   WorkloadStatus workload_status = 1;
 }

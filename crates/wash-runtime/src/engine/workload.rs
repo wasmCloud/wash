@@ -45,6 +45,8 @@ pub struct WorkloadMetadata {
     workload_name: Arc<str>,
     /// The namespace of the workload this component belongs to
     workload_namespace: Arc<str>,
+    /// Optional user-provided name for this component (from spec)
+    component_name: Option<String>,
     /// The actual wasmtime [`Component`] that can be instantiated
     component: Component,
     /// The wasmtime [`Linker`] used to instantiate the component
@@ -76,6 +78,11 @@ impl WorkloadMetadata {
     /// Returns the namespace of the workload this component belongs to.
     pub fn workload_namespace(&self) -> &str {
         &self.workload_namespace
+    }
+
+    /// Returns the optional user-provided name for this component.
+    pub fn component_name(&self) -> Option<&str> {
+        self.component_name.as_deref()
     }
 
     /// Returns a reference to the wasmtime engine used to compile this component.
@@ -235,6 +242,7 @@ impl WorkloadService {
                 workload_id: workload_id.into(),
                 workload_name: workload_name.into(),
                 workload_namespace: workload_namespace.into(),
+                component_name: None, // Services don't have names yet
                 component,
                 linker,
                 volume_mounts,
@@ -285,6 +293,7 @@ impl WorkloadComponent {
         workload_id: impl Into<Arc<str>>,
         workload_name: impl Into<Arc<str>>,
         workload_namespace: impl Into<Arc<str>>,
+        component_name: Option<String>,
         component: Component,
         linker: Linker<Ctx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
@@ -296,6 +305,7 @@ impl WorkloadComponent {
                 workload_id: workload_id.into(),
                 workload_name: workload_name.into(),
                 workload_namespace: workload_namespace.into(),
+                component_name,
                 component,
                 linker,
                 volume_mounts,
@@ -478,6 +488,119 @@ impl ResolvedWorkload {
 
     pub fn host_interfaces(&self) -> &Vec<WitInterface> {
         &self.host_interfaces
+    }
+
+    /// Bind a single component to plugins and add/replace it in the resolved workload.
+    /// This is used for component-specific restart operations.
+    ///
+    /// # Arguments
+    /// * `component` - The initialized WorkloadComponent to bind and add
+    /// * `target_component_id` - The component ID to use (for replacing existing components)
+    /// * `plugins` - Available host plugins for binding
+    ///
+    /// # Returns
+    /// The component ID that was bound
+    pub async fn bind_and_add_component(
+        &self,
+        mut component: WorkloadComponent,
+        target_component_id: String,
+        plugins: &HashMap<&'static str, Arc<dyn HostPlugin + 'static>>,
+        host_interfaces: &[WitInterface],
+    ) -> anyhow::Result<String> {
+        // Override the component ID to match the target (for replacement)
+        component.metadata.id = Arc::from(target_component_id.as_str());
+
+        // Determine which interfaces this component needs
+        let world = component.world();
+        let http_iface = WitInterface::from("wasi:http/incoming-handler,outgoing-handler");
+        let required_interfaces: HashSet<WitInterface> = host_interfaces
+            .iter()
+            .filter(|wit_interface| !http_iface.contains(wit_interface))
+            .filter(|wit_interface| world.includes_bidirectional(wit_interface))
+            .cloned()
+            .collect();
+
+        if required_interfaces.is_empty() {
+            // No plugins needed, just add the component
+            // Set component state to Running first
+            component
+                .set_state(crate::types::ComponentState::Running)
+                .await;
+
+            self.components
+                .write()
+                .await
+                .insert(Arc::from(target_component_id.as_str()), component);
+            return Ok(target_component_id);
+        }
+
+        // Bind to matching plugins
+        for (_plugin_id, plugin) in plugins.iter() {
+            let plugin_world = plugin.world();
+            let plugin_matched_interfaces: HashSet<WitInterface> = required_interfaces
+                .iter()
+                .filter(|interface| plugin_world.includes_bidirectional(interface))
+                .cloned()
+                .collect();
+
+            if plugin_matched_interfaces.is_empty() {
+                continue;
+            }
+
+            // Note: We skip on_workload_bind for individual component restarts
+            // as the workload is already bound. We only need on_component_bind.
+
+            // Bind plugin to component
+            let matching_interfaces: HashSet<WitInterface> = plugin_matched_interfaces
+                .iter()
+                .filter(|interface| world.includes_bidirectional(interface))
+                .cloned()
+                .collect();
+
+            if !matching_interfaces.is_empty() {
+                if let Err(e) = plugin
+                    .on_component_bind(&mut component, matching_interfaces.clone())
+                    .await
+                {
+                    warn!(
+                        plugin_id = plugin.id(),
+                        component_id = target_component_id,
+                        error = ?e,
+                        "failed to bind component to plugin during component restart"
+                    );
+                    bail!(e);
+                }
+
+                component.add_plugin(plugin.id(), plugin.clone());
+            }
+
+            // Notify plugin of resolution
+            if let Err(e) = plugin
+                .on_workload_resolved(self, &target_component_id)
+                .await
+            {
+                warn!(
+                    plugin_id = plugin.id(),
+                    component_id = target_component_id,
+                    error = ?e,
+                    "failed to notify plugin of resolved workload during component restart"
+                );
+                bail!(e);
+            }
+        }
+
+        // Set component state to Running
+        component
+            .set_state(crate::types::ComponentState::Running)
+            .await;
+
+        // Add/replace the component in the workload
+        self.components
+            .write()
+            .await
+            .insert(Arc::from(target_component_id.as_str()), component);
+
+        Ok(target_component_id)
     }
 
     async fn link_components(&mut self) -> anyhow::Result<()> {
@@ -1697,6 +1820,7 @@ mod tests {
             format!("workload-{id}"),
             format!("test-workload-{id}"),
             "test-namespace".to_string(),
+            None, // No component name for test components
             component,
             linker,
             Vec::new(),

@@ -250,6 +250,11 @@ async fn handle_command(
             let res = workload_stop(host, req).await?;
             to_api(&res)
         }
+        "workload.update" => {
+            let req: types::v2::WorkloadUpdateRequest = from_api(payload)?;
+            let res = workload_update(host, req, config).await?;
+            to_api(&res)
+        }
         "workload.status" => {
             let req: types::v2::WorkloadStatusRequest = from_api(payload)?;
             let res = workload_status(host, req).await?;
@@ -319,6 +324,11 @@ async fn workload_start(
                 }
             };
             pulled_components.push(crate::types::Component {
+                name: if component.name.is_empty() {
+                    None
+                } else {
+                    Some(component.name.clone())
+                },
                 bytes: bytes.0.into(),
                 local_resources: component
                     .local_resources
@@ -407,6 +417,125 @@ async fn workload_stop(
         "Stopping workload");
 
     host.workload_stop(req.into()).await.map(|resp| resp.into())
+}
+
+async fn workload_update(
+    host: &impl HostApi,
+    req: types::v2::WorkloadUpdateRequest,
+    config: &HostConfig,
+) -> anyhow::Result<types::v2::WorkloadUpdateResponse> {
+    let Some(types::v2::Workload {
+        namespace,
+        name,
+        annotations,
+        service,
+        wit_world,
+        volumes,
+    }) = req.workload
+    else {
+        anyhow::bail!("workload is required for update");
+    };
+
+    // Pull and convert components from the update spec
+    let (components, host_interfaces) = if let Some(wit_world) = wit_world {
+        let mut pulled_components = Vec::with_capacity(wit_world.components.len());
+        for component in &wit_world.components {
+            let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
+            let bytes = match oci::pull_component(&component.image, oci_config).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return Ok(types::v2::WorkloadUpdateResponse {
+                        workload_status: Some(types::v2::WorkloadStatus {
+                            workload_id: req.workload_id,
+                            workload_state: types::v2::WorkloadState::Error.into(),
+                            message: format!(
+                                "failed to pull component image {}: {}",
+                                component.image, e
+                            ),
+                            components: Vec::new(),
+                        }),
+                    });
+                }
+            };
+            pulled_components.push(crate::types::Component {
+                name: if component.name.is_empty() {
+                    None
+                } else {
+                    Some(component.name.clone())
+                },
+                bytes: bytes.0.into(),
+                local_resources: component
+                    .local_resources
+                    .clone()
+                    .map(Into::into)
+                    .unwrap_or_default(),
+                pool_size: component.pool_size,
+                max_invocations: component.max_invocations,
+            })
+        }
+        (
+            pulled_components,
+            wit_world
+                .host_interfaces
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        )
+    } else {
+        (vec![], vec![])
+    };
+
+    // Service handling for update (if provided)
+    let service = if let Some(service) = service {
+        let oci_config = image_pull_secret_to_oci_config(config, &service.image_pull_secret);
+        let bytes = match oci::pull_component(&service.image, oci_config).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Ok(types::v2::WorkloadUpdateResponse {
+                    workload_status: Some(types::v2::WorkloadStatus {
+                        workload_id: req.workload_id,
+                        workload_state: types::v2::WorkloadState::Error.into(),
+                        message: format!("failed to pull service image {}: {}", service.image, e),
+                        components: Vec::new(),
+                    }),
+                });
+            }
+        };
+        Some(crate::types::Service {
+            bytes: bytes.0.into(),
+            local_resources: service
+                .local_resources
+                .clone()
+                .map(Into::into)
+                .unwrap_or_default(),
+            max_restarts: service.max_restarts,
+        })
+    } else {
+        None
+    };
+
+    let volumes = volumes.into_iter().map(Into::into).collect();
+
+    let request = crate::types::WorkloadUpdateRequest {
+        workload_id: req.workload_id.clone(),
+        workload: crate::types::Workload {
+            namespace,
+            name,
+            annotations,
+            service,
+            components,
+            host_interfaces,
+            volumes,
+        },
+    };
+
+    info!(
+        workload_id=?request.workload_id,
+        namespace=?request.workload.namespace,
+        name=?request.workload.name,
+        "Updating workload components");
+
+    Ok(host.workload_update(request).await?.into())
 }
 
 async fn workload_status(
@@ -598,6 +727,14 @@ impl From<crate::types::WorkloadStartResponse> for types::v2::WorkloadStartRespo
 impl From<crate::types::WorkloadStopResponse> for types::v2::WorkloadStopResponse {
     fn from(resp: crate::types::WorkloadStopResponse) -> Self {
         types::v2::WorkloadStopResponse {
+            workload_status: Some(resp.workload_status.into()),
+        }
+    }
+}
+
+impl From<crate::types::WorkloadUpdateResponse> for types::v2::WorkloadUpdateResponse {
+    fn from(resp: crate::types::WorkloadUpdateResponse) -> Self {
+        types::v2::WorkloadUpdateResponse {
             workload_status: Some(resp.workload_status.into()),
         }
     }

@@ -505,59 +505,92 @@ impl HostApi for Host {
                     "restarting specific components in workload"
                 );
 
-                // For component start, we need to:
-                // 1. Check if components are Stopped (restart with new spec) or Running (update)
-                // 2. For Running components: unbind, re-initialize, replace
-                // 3. For Stopped components: re-initialize and start
+                // Build maps: component_name → component_id and component_id → component_name
+                let (name_to_id, id_to_name): (HashMap<String, String>, HashMap<String, String>) = {
+                    let components_arc = resolved_workload.components();
+                    let components = components_arc.read().await;
+                    let mut name_to_id = HashMap::new();
+                    let mut id_to_name = HashMap::new();
+                    for (id, component) in components.iter() {
+                        if let Some(name) = component.metadata().component_name() {
+                            name_to_id.insert(name.to_string(), id.to_string());
+                            id_to_name.insert(id.to_string(), name.to_string());
+                        }
+                    }
+                    (name_to_id, id_to_name)
+                };
+
+                // Resolve component_ids (which can be names OR IDs) to component names
+                // We need names to look up in the new spec
+                let mut component_names_to_restart = Vec::new();
+                let mut name_to_original_id: HashMap<String, String> = HashMap::new();
+
+                for component_id_or_name in component_ids {
+                    // Check if it's a name (exists in name_to_id)
+                    if let Some(id) = name_to_id.get(component_id_or_name) {
+                        component_names_to_restart.push(component_id_or_name.clone());
+                        name_to_original_id.insert(component_id_or_name.clone(), id.clone());
+                    }
+                    // Check if it's an ID (exists in id_to_name)
+                    else if let Some(name) = id_to_name.get(component_id_or_name) {
+                        component_names_to_restart.push(name.clone());
+                        name_to_original_id.insert(name.clone(), component_id_or_name.clone());
+                    } else {
+                        warn!(
+                            workload_id = request.workload_id,
+                            component_id_or_name,
+                            "component not found by ID or name, skipping restart"
+                        );
+                    }
+                }
+
+                if component_names_to_restart.is_empty() {
+                    bail!("no valid components found to restart");
+                }
 
                 let components_arc = resolved_workload.components();
 
-                // Determine which components need unbinding (Running components being updated)
-                let components_to_unbind = {
-                    let components = components_arc.read().await;
-                    let mut to_unbind = Vec::new();
-                    for component_id in component_ids.iter() {
-                        if let Some(component) = components.get(component_id.as_str()) {
-                            let state = component.get_state().await;
-                            if matches!(state, crate::types::ComponentState::Running) {
-                                to_unbind.push(component_id.clone());
-                            }
-                        }
-                    }
-                    to_unbind
-                };
-
-                // Unbind only the Running components that are being updated
+                // Mark components as Reconciling and unbind Running components
                 {
                     let components = components_arc.read().await;
-                    for component_id in components_to_unbind.iter() {
+                    for name in component_names_to_restart.iter() {
+                        let component_id = name_to_original_id.get(name).unwrap();
                         if let Some(component) = components.get(component_id.as_str()) {
-                            // Unbind plugins for this specific component
-                            if let Some(plugins) = component.plugins() {
-                                for (plugin_id, plugin) in plugins.iter() {
-                                    let world = component.world();
-                                    let plugin_world = plugin.world();
-                                    let bound_interfaces = world
-                                        .imports
-                                        .iter()
-                                        .filter(|import| plugin_world.imports.contains(import))
-                                        .cloned()
-                                        .collect::<std::collections::HashSet<_>>();
+                            let state = component.get_state().await;
 
-                                    if let Err(e) = plugin
-                                        .on_workload_unbind(
-                                            resolved_workload.id(),
-                                            bound_interfaces,
-                                        )
-                                        .await
-                                    {
-                                        warn!(
-                                            plugin_id,
-                                            component_id,
-                                            workload_id = request.workload_id,
-                                            error = ?e,
-                                            "failed to unbind plugin from component during update"
-                                        );
+                            // Set to Reconciling
+                            component
+                                .set_state(crate::types::ComponentState::Reconciling)
+                                .await;
+
+                            // Unbind plugins if component is Running
+                            if matches!(state, crate::types::ComponentState::Running) {
+                                if let Some(plugins) = component.plugins() {
+                                    for (plugin_id, plugin) in plugins.iter() {
+                                        let world = component.world();
+                                        let plugin_world = plugin.world();
+                                        let bound_interfaces = world
+                                            .imports
+                                            .iter()
+                                            .filter(|import| plugin_world.imports.contains(import))
+                                            .cloned()
+                                            .collect::<std::collections::HashSet<_>>();
+
+                                        if let Err(e) = plugin
+                                            .on_workload_unbind(
+                                                resolved_workload.id(),
+                                                bound_interfaces,
+                                            )
+                                            .await
+                                        {
+                                            warn!(
+                                                plugin_id,
+                                                component_id,
+                                                workload_id = request.workload_id,
+                                                error = ?e,
+                                                "failed to unbind plugin from component during restart"
+                                            );
+                                        }
                                     }
                                 }
                             }
@@ -565,38 +598,68 @@ impl HostApi for Host {
                     }
                 }
 
-                // Re-initialize the specified components from the workload spec
-                let unresolved_workload = self
-                    .engine
-                    .initialize_workload(&request.workload_id, request.workload)?;
+                // Initialize the specific components from the NEW spec by name
+                // This correctly matches components regardless of their order in the spec
+                let new_components = self.engine.initialize_components_by_name(
+                    &request.workload_id,
+                    &request.workload,
+                    &component_names_to_restart,
+                )?;
 
-                let newly_resolved = unresolved_workload
-                    .resolve(Some(&self.plugins), self.http_handler.clone())
-                    .await?;
+                // Bind each new component to plugins and add to workload
+                let mut restarted_component_ids = Vec::new();
+                for (component_name, new_component) in new_components {
+                    // Get the original component ID for this name
+                    let original_component_id = name_to_original_id
+                        .get(&component_name)
+                        .cloned()
+                        .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "internal error: no original component ID for name '{}'",
+                            component_name
+                        )
+                    })?;
 
-                // Replace the specified components in the existing workload
-                let new_components_arc = newly_resolved.components();
-                {
-                    let mut components = components_arc.write().await;
-                    let new_components = new_components_arc.read().await;
-                    for component_id in component_ids {
-                        if let Some(new_component) = new_components.get(component_id.as_str()) {
-                            // Component state is already Running from resolve()
-                            components
-                                .insert(Arc::from(component_id.as_str()), new_component.clone());
+                    match resolved_workload
+                        .bind_and_add_component(
+                            new_component,
+                            original_component_id.clone(),
+                            &self.plugins,
+                            resolved_workload.host_interfaces(),
+                        )
+                        .await
+                    {
+                        Ok(_) => {
+                            restarted_component_ids.push(original_component_id.clone());
                             debug!(
                                 workload_id = request.workload_id,
-                                component_id, "component restarted successfully"
+                                component_id = original_component_id,
+                                component_name,
+                                "component restarted successfully"
                             );
+                        }
+                        Err(e) => {
+                            warn!(
+                                workload_id = request.workload_id,
+                                component_id = original_component_id,
+                                component_name,
+                                error = ?e,
+                                "failed to restart component"
+                            );
+                            // Set component to Error state
+                            if let Some(component) = components_arc
+                                .read()
+                                .await
+                                .get(original_component_id.as_str())
+                            {
+                                component
+                                    .set_state(crate::types::ComponentState::Error)
+                                    .await;
+                            }
+                            bail!(e);
                         }
                     }
                 }
-
-                // Update the workload in the host
-                self.workloads.write().await.insert(
-                    request.workload_id.clone(),
-                    HostWorkload::Running(resolved_workload),
-                );
 
                 // Collect component info after restart
                 let components = {
@@ -605,7 +668,7 @@ impl HostApi for Host {
                     for (id, component) in components.iter() {
                         component_infos.push(crate::types::ComponentInfo {
                             component_id: id.to_string(),
-                            name: None,
+                            name: component.metadata().component_name().map(|s| s.to_string()),
                             state: component.get_state().await,
                             message: None,
                         });
@@ -617,13 +680,16 @@ impl HostApi for Host {
                     workload_status: WorkloadStatus {
                         workload_id: request.workload_id,
                         workload_state: WorkloadState::Running,
-                        message: format!("Components {:?} restarted successfully", component_ids),
+                        message: format!(
+                            "components {:?} restarted successfully",
+                            restarted_component_ids
+                        ),
                         components,
                     },
                 });
             } else {
                 bail!(
-                    "Cannot restart specific components: workload is not running or does not exist"
+                    "cannot restart specific components: workload is not running or does not exist"
                 )
             }
         } else {
@@ -662,7 +728,7 @@ impl HostApi for Host {
                     // Component state is already Running from resolve()
                     component_infos.push(crate::types::ComponentInfo {
                         component_id: id.to_string(),
-                        name: None,
+                        name: component.metadata().component_name().map(|s| s.to_string()),
                         state: component.get_state().await,
                         message: None,
                     });
@@ -694,8 +760,80 @@ impl HostApi for Host {
         &self,
         request: WorkloadUpdateRequest,
     ) -> anyhow::Result<WorkloadUpdateResponse> {
-        todo!()
-        // TODO: for an update, a workload stop and start with the component_ids filter should do the trick.
+        // Deduce which components to update from the workload spec names
+        // Each component in the spec must have a name that matches a running component
+
+        // First, get the running workload to build name → id mapping
+        let existing_workload = self
+            .workloads
+            .read()
+            .await
+            .get(&request.workload_id)
+            .cloned();
+
+        let component_names_to_update: Vec<String> = match &existing_workload {
+            Some(HostWorkload::Running(resolved_workload)) => {
+                // Build name → id map from running components
+                let components_arc = resolved_workload.components();
+                let components = components_arc.read().await;
+                let mut name_to_id: HashMap<String, String> = HashMap::new();
+                for (id, component) in components.iter() {
+                    if let Some(name) = component.metadata().component_name() {
+                        name_to_id.insert(name.to_string(), id.to_string());
+                    }
+                }
+                drop(components);
+
+                // Now match components from the update spec by name
+                let mut names_to_update = Vec::new();
+                for spec_component in &request.workload.components {
+                    match &spec_component.name {
+                        Some(name) => {
+                            if name_to_id.contains_key(name) {
+                                names_to_update.push(name.clone());
+                            } else {
+                                bail!(
+                                    "component '{}' in update spec not found in running workload",
+                                    name
+                                );
+                            }
+                        }
+                        None => {
+                            bail!(
+                                "all components in update spec must have a name to identify which component to update"
+                            );
+                        }
+                    }
+                }
+                names_to_update
+            }
+            Some(_) => {
+                bail!("cannot update workload: workload is not in Running state");
+            }
+            None => {
+                bail!(
+                    "cannot update workload: workload '{}' not found",
+                    request.workload_id
+                );
+            }
+        };
+
+        if component_names_to_update.is_empty() {
+            bail!("no components to update: workload spec is empty");
+        }
+
+        // Use workload_start with the deduced component names
+        let start_request = WorkloadStartRequest {
+            workload_id: request.workload_id,
+            workload: request.workload,
+            component_ids: Some(component_names_to_update),
+        };
+
+        let start_response = self.workload_start(start_request).await?;
+
+        Ok(WorkloadUpdateResponse {
+            workload_status: start_response.workload_status,
+        })
     }
 
     async fn workload_status(
@@ -711,7 +849,7 @@ impl HostApi for Host {
                 for (id, component) in components.iter() {
                     component_infos.push(crate::types::ComponentInfo {
                         component_id: id.to_string(),
-                        name: None,
+                        name: component.metadata().component_name().map(|s| s.to_string()),
                         state: component.get_state().await,
                         message: None,
                     });
@@ -822,7 +960,7 @@ impl HostApi for Host {
                 for (id, component) in components.iter() {
                     all_components.push(crate::types::ComponentInfo {
                         component_id: id.to_string(),
-                        name: None,
+                        name: component.metadata().component_name().map(|s| s.to_string()),
                         state: component.get_state().await,
                         message: None,
                     });

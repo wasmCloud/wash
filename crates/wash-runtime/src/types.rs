@@ -68,6 +68,10 @@ pub struct Service {
 /// Components can be pooled for concurrent execution and have invocation limits.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Component {
+    /// Optional user-provided name for this component. Used as a stable identifier
+    /// for component-specific operations like updates. If not provided, components
+    /// are only identifiable by their runtime-assigned component_id.
+    pub name: Option<String>,
     pub bytes: Bytes,
     pub local_resources: LocalResources,
     pub pool_size: i32,
@@ -200,11 +204,17 @@ pub struct WorkloadStartResponse {
     pub workload_status: WorkloadStatus,
 }
 
+/// Request to update specific components in a running workload.
+/// Components to update are determined by matching component names in the provided
+/// workload spec against running components. Only components with matching names
+/// will be updated - unnamed components in the spec will cause an error.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkloadUpdateRequest {
     pub workload_id: String,
+    /// The workload spec containing updated component definitions.
+    /// Components are matched by name - each component in this spec must have a name
+    /// that corresponds to a running component in the workload.
     pub workload: Workload,
-    pub component_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -119,6 +119,7 @@ impl PluginManager {
                 annotations: HashMap::new(),
                 service: None,
                 components: vec![Component {
+                    name: None,
                     bytes: plugin.into(),
                     local_resources: LocalResources {
                         volume_mounts: vec![VolumeMount {

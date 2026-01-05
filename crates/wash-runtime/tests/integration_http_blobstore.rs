@@ -82,6 +82,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
                     allowed_hosts: vec![],
                 },
                 pool_size: 1,
+                name: None,
                 max_invocations: 100,
             }],
             host_interfaces: vec![
