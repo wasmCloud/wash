@@ -111,6 +111,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
             ],
             volumes: vec![],
         },
+        component_ids: None,
     };
 
     // Start the workload

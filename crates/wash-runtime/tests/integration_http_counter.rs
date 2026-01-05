@@ -153,6 +153,7 @@ async fn test_http_counter_integration() -> Result<()> {
             ],
             volumes: vec![],
         },
+        component_ids: None,
     };
 
     // Start the workload
@@ -487,6 +488,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
             ],
             volumes: vec![],
         },
+        component_ids: None,
     };
 
     let workload_response = host

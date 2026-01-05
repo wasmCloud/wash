@@ -274,6 +274,8 @@ pub struct WorkloadComponent {
     pool_size: usize,
     /// The maximum number of concurrent invocations allowed for this component
     max_invocations: usize,
+    /// The current state of this component
+    state: Arc<RwLock<crate::types::ComponentState>>,
 }
 
 impl WorkloadComponent {
@@ -303,6 +305,7 @@ impl WorkloadComponent {
             // TODO: Implement pooling and instance limits
             pool_size: 0,
             max_invocations: 0,
+            state: Arc::new(RwLock::new(crate::types::ComponentState::Starting)),
         }
     }
 
@@ -314,6 +317,22 @@ impl WorkloadComponent {
 
     pub fn metadata(&self) -> &WorkloadMetadata {
         &self.metadata
+    }
+
+    /// Get the current state of this component
+    pub fn state(&self) -> Arc<RwLock<crate::types::ComponentState>> {
+        self.state.clone()
+    }
+
+    /// Set the state of this component
+    pub async fn set_state(&self, new_state: crate::types::ComponentState) {
+        let mut state = self.state.write().await;
+        *state = new_state;
+    }
+
+    /// Get the current state value of this component
+    pub async fn get_state(&self) -> crate::types::ComponentState {
+        self.state.read().await.clone()
     }
 }
 
@@ -1417,6 +1436,13 @@ impl UnresolvedWorkload {
             );
             let _ = resolved_workload.unbind_all_plugins().await;
             bail!(e);
+        }
+
+        // Now that the workload is fully resolved and ready, mark all components as Running
+        for component in resolved_workload.components.read().await.values() {
+            component
+                .set_state(crate::types::ComponentState::Running)
+                .await;
         }
 
         Ok(resolved_workload)

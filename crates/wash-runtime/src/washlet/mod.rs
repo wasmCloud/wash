@@ -313,6 +313,7 @@ async fn workload_start(
                                 "failed to pull component image {}: {}",
                                 component.image, e
                             ),
+                            components: Vec::new(),
                         }),
                     });
                 }
@@ -350,6 +351,7 @@ async fn workload_start(
                         workload_id: "".into(),
                         workload_state: types::v2::WorkloadState::Error.into(),
                         message: format!("failed to pull service image {}: {}", service.image, e),
+                        components: Vec::new(),
                     }),
                 });
             }
@@ -379,6 +381,11 @@ async fn workload_start(
             components,
             host_interfaces,
             volumes,
+        },
+        component_ids: if req.component_ids.is_empty() {
+            None
+        } else {
+            Some(req.component_ids)
         },
     };
 
@@ -561,6 +568,11 @@ impl From<types::v2::WorkloadStopRequest> for crate::types::WorkloadStopRequest 
     fn from(req: types::v2::WorkloadStopRequest) -> Self {
         crate::types::WorkloadStopRequest {
             workload_id: req.workload_id,
+            component_ids: if req.component_ids.is_empty() {
+                None
+            } else {
+                Some(req.component_ids)
+            },
         }
     }
 }
@@ -605,6 +617,31 @@ impl From<crate::types::WorkloadStatus> for types::v2::WorkloadStatus {
             workload_id: status.workload_id,
             workload_state: status.workload_state as i32,
             message: status.message,
+            components: status.components.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<crate::types::ComponentInfo> for types::v2::ComponentInfo {
+    fn from(info: crate::types::ComponentInfo) -> Self {
+        types::v2::ComponentInfo {
+            component_id: info.component_id,
+            name: info.name.unwrap_or_default(),
+            state: match info.state {
+                crate::types::ComponentState::Starting => {
+                    types::v2::ComponentState::Starting as i32
+                }
+                crate::types::ComponentState::Running => types::v2::ComponentState::Running as i32,
+                crate::types::ComponentState::Stopping => {
+                    types::v2::ComponentState::Stopping as i32
+                }
+                crate::types::ComponentState::Stopped => types::v2::ComponentState::Stopped as i32,
+                crate::types::ComponentState::Error => types::v2::ComponentState::Error as i32,
+                crate::types::ComponentState::Reconciling => {
+                    types::v2::ComponentState::Reconciling as i32
+                }
+            },
+            message: info.message.unwrap_or_default(),
         }
     }
 }

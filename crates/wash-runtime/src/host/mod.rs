@@ -117,6 +117,20 @@ pub trait HostApi {
         &self,
         request: WorkloadStopRequest,
     ) -> impl Future<Output = anyhow::Result<WorkloadStopResponse>>;
+    /// Updates a running workload on this host.
+    ///
+    /// # Arguments
+    /// * `request` - Contains the workload ID to stop
+    ///
+    /// # Returns
+    /// A `WrokloadUpdateResponse` with the final status of the updated workload.
+    ///
+    /// # Errors
+    /// Returns an error if the workload cannot be updated either due to workload not stopping or if it's not found.
+    fn workload_update(
+        &self,
+        request: WorkloadUpdateRequest,
+    ) -> impl Future<Output = anyhow::Result<WorkloadUpdateResponse>>;
 }
 
 // Helper trait impl that helps with Arc-ing the Host
@@ -135,6 +149,12 @@ impl<T: HostApi> HostApi for Arc<T> {
         request: WorkloadStopRequest,
     ) -> anyhow::Result<WorkloadStopResponse> {
         self.as_ref().workload_stop(request).await
+    }
+    async fn workload_update(
+        &self,
+        request: WorkloadUpdateRequest,
+    ) -> anyhow::Result<WorkloadUpdateResponse> {
+        self.as_ref().workload_update(request).await
     }
     async fn workload_status(
         &self,
@@ -463,52 +483,219 @@ impl HostApi for Host {
         })
     }
 
-    /// Start a workload
+    /// Start a workload or specific components within a workload
     async fn workload_start(
         &self,
         request: WorkloadStartRequest,
     ) -> anyhow::Result<WorkloadStartResponse> {
-        // Store the workload with initial state
-        self.workloads
-            .write()
+        // Check if this is a component-specific start (workload already exists)
+        let existing_workload = self
+            .workloads
+            .read()
             .await
-            .insert(request.workload_id.clone(), HostWorkload::Starting);
+            .get(&request.workload_id)
+            .cloned();
 
-        let service_present = request.workload.service.is_some();
+        if let Some(component_ids) = &request.component_ids {
+            // Component-specific start/restart
+            if let Some(HostWorkload::Running(resolved_workload)) = existing_workload {
+                debug!(
+                    workload_id = request.workload_id,
+                    component_ids = ?component_ids,
+                    "restarting specific components in workload"
+                );
 
-        // Initialize the workload using the engine, receiving the unresolved workload
-        let unresolved_workload = self
-            .engine
-            .initialize_workload(&request.workload_id, request.workload)?;
+                // For component start, we need to:
+                // 1. Check if components are Stopped (restart with new spec) or Running (update)
+                // 2. For Running components: unbind, re-initialize, replace
+                // 3. For Stopped components: re-initialize and start
 
-        let mut resolved_workload = unresolved_workload
-            .resolve(Some(&self.plugins), self.http_handler.clone())
-            .await?;
+                let components_arc = resolved_workload.components();
 
-        // If the service didn't run and we had one, warn
-        if resolved_workload.execute_service().await? != service_present {
-            warn!(
-                workload_id = request.workload_id,
-                "service did not properly execute"
-            );
+                // Determine which components need unbinding (Running components being updated)
+                let components_to_unbind = {
+                    let components = components_arc.read().await;
+                    let mut to_unbind = Vec::new();
+                    for component_id in component_ids.iter() {
+                        if let Some(component) = components.get(component_id.as_str()) {
+                            let state = component.get_state().await;
+                            if matches!(state, crate::types::ComponentState::Running) {
+                                to_unbind.push(component_id.clone());
+                            }
+                        }
+                    }
+                    to_unbind
+                };
+
+                // Unbind only the Running components that are being updated
+                {
+                    let components = components_arc.read().await;
+                    for component_id in components_to_unbind.iter() {
+                        if let Some(component) = components.get(component_id.as_str()) {
+                            // Unbind plugins for this specific component
+                            if let Some(plugins) = component.plugins() {
+                                for (plugin_id, plugin) in plugins.iter() {
+                                    let world = component.world();
+                                    let plugin_world = plugin.world();
+                                    let bound_interfaces = world
+                                        .imports
+                                        .iter()
+                                        .filter(|import| plugin_world.imports.contains(import))
+                                        .cloned()
+                                        .collect::<std::collections::HashSet<_>>();
+
+                                    if let Err(e) = plugin
+                                        .on_workload_unbind(
+                                            resolved_workload.id(),
+                                            bound_interfaces,
+                                        )
+                                        .await
+                                    {
+                                        warn!(
+                                            plugin_id,
+                                            component_id,
+                                            workload_id = request.workload_id,
+                                            error = ?e,
+                                            "failed to unbind plugin from component during update"
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Re-initialize the specified components from the workload spec
+                let unresolved_workload = self
+                    .engine
+                    .initialize_workload(&request.workload_id, request.workload)?;
+
+                let newly_resolved = unresolved_workload
+                    .resolve(Some(&self.plugins), self.http_handler.clone())
+                    .await?;
+
+                // Replace the specified components in the existing workload
+                let new_components_arc = newly_resolved.components();
+                {
+                    let mut components = components_arc.write().await;
+                    let new_components = new_components_arc.read().await;
+                    for component_id in component_ids {
+                        if let Some(new_component) = new_components.get(component_id.as_str()) {
+                            // Component state is already Running from resolve()
+                            components
+                                .insert(Arc::from(component_id.as_str()), new_component.clone());
+                            debug!(
+                                workload_id = request.workload_id,
+                                component_id, "component restarted successfully"
+                            );
+                        }
+                    }
+                }
+
+                // Update the workload in the host
+                self.workloads.write().await.insert(
+                    request.workload_id.clone(),
+                    HostWorkload::Running(resolved_workload),
+                );
+
+                // Collect component info after restart
+                let components = {
+                    let components = components_arc.read().await;
+                    let mut component_infos = Vec::new();
+                    for (id, component) in components.iter() {
+                        component_infos.push(crate::types::ComponentInfo {
+                            component_id: id.to_string(),
+                            name: None,
+                            state: component.get_state().await,
+                            message: None,
+                        });
+                    }
+                    component_infos
+                };
+
+                return Ok(WorkloadStartResponse {
+                    workload_status: WorkloadStatus {
+                        workload_id: request.workload_id,
+                        workload_state: WorkloadState::Running,
+                        message: format!("Components {:?} restarted successfully", component_ids),
+                        components,
+                    },
+                });
+            } else {
+                bail!(
+                    "Cannot restart specific components: workload is not running or does not exist"
+                )
+            }
+        } else {
+            // Full workload start (original behavior)
+            // Store the workload with initial state
+            self.workloads
+                .write()
+                .await
+                .insert(request.workload_id.clone(), HostWorkload::Starting);
+
+            let service_present = request.workload.service.is_some();
+
+            // Initialize the workload using the engine, receiving the unresolved workload
+            let unresolved_workload = self
+                .engine
+                .initialize_workload(&request.workload_id, request.workload)?;
+
+            let mut resolved_workload = unresolved_workload
+                .resolve(Some(&self.plugins), self.http_handler.clone())
+                .await?;
+
+            // If the service didn't run and we had one, warn
+            if resolved_workload.execute_service().await? != service_present {
+                warn!(
+                    workload_id = request.workload_id,
+                    "service did not properly execute"
+                );
+            }
+
+            // Collect component info before moving resolved_workload
+            let components = {
+                let components_arc = resolved_workload.components();
+                let components = components_arc.read().await;
+                let mut component_infos = Vec::new();
+                for (id, component) in components.iter() {
+                    // Component state is already Running from resolve()
+                    component_infos.push(crate::types::ComponentInfo {
+                        component_id: id.to_string(),
+                        name: None,
+                        state: component.get_state().await,
+                        message: None,
+                    });
+                }
+                component_infos
+            };
+
+            // Update the workload state to `Running`
+            self.workloads
+                .write()
+                .await
+                .entry(request.workload_id.clone())
+                .and_modify(|workload| {
+                    *workload = HostWorkload::Running(Box::new(resolved_workload));
+                });
+
+            Ok(WorkloadStartResponse {
+                workload_status: WorkloadStatus {
+                    workload_id: request.workload_id,
+                    workload_state: WorkloadState::Running,
+                    message: "Workload started successfully".to_string(),
+                    components,
+                },
+            })
         }
+    }
 
-        // Update the workload state to `Running`
-        self.workloads
-            .write()
-            .await
-            .entry(request.workload_id.clone())
-            .and_modify(|workload| {
-                *workload = HostWorkload::Running(Box::new(resolved_workload));
-            });
-
-        Ok(WorkloadStartResponse {
-            workload_status: WorkloadStatus {
-                workload_id: request.workload_id,
-                workload_state: WorkloadState::Running,
-                message: "Workload started successfully".to_string(),
-            },
-        })
+    async fn workload_update(
+        &self,
+        request: WorkloadUpdateRequest,
+    ) -> anyhow::Result<WorkloadUpdateResponse> {
+        todo!()
+        // TODO: for an update, a workload stop and start with the component_ids filter should do the trick.
     }
 
     async fn workload_status(
@@ -517,11 +704,29 @@ impl HostApi for Host {
     ) -> anyhow::Result<WorkloadStatusResponse> {
         if let Some(workload) = self.workloads.read().await.get(&request.workload_id) {
             let workload_state = workload.into();
+            let components = if let HostWorkload::Running(resolved_workload) = workload {
+                let components_arc = resolved_workload.components();
+                let components = components_arc.read().await;
+                let mut component_infos = Vec::new();
+                for (id, component) in components.iter() {
+                    component_infos.push(crate::types::ComponentInfo {
+                        component_id: id.to_string(),
+                        name: None,
+                        state: component.get_state().await,
+                        message: None,
+                    });
+                }
+                component_infos
+            } else {
+                Vec::new()
+            };
+
             Ok(WorkloadStatusResponse {
                 workload_status: WorkloadStatus {
                     workload_id: request.workload_id,
                     message: format!("Workload is {workload_state:?}"),
                     workload_state,
+                    components,
                 },
             })
         } else {
@@ -539,8 +744,103 @@ impl HostApi for Host {
             .await
             .contains_key(&request.workload_id);
 
-        let (workload_state, message) = if has_workload {
-            // Update state to stopping
+        if !has_workload {
+            return Ok(WorkloadStopResponse {
+                workload_status: WorkloadStatus {
+                    workload_id: request.workload_id,
+                    workload_state: WorkloadState::Unspecified,
+                    message: "Workload not found".to_string(),
+                    components: Vec::new(),
+                },
+            });
+        }
+
+        // Check if this is a component-specific stop
+        if let Some(component_ids) = &request.component_ids {
+            // Component-specific stop
+            let workload_clone = self
+                .workloads
+                .read()
+                .await
+                .get(&request.workload_id)
+                .cloned();
+
+            if let Some(HostWorkload::Running(resolved_workload)) = workload_clone {
+                debug!(
+                    workload_id = request.workload_id,
+                    component_ids = ?component_ids,
+                    "stopping specific components in workload"
+                );
+
+                let components_arc = resolved_workload.components();
+                let components = components_arc.write().await;
+
+                for component_id in component_ids {
+                    if let Some(component) = components.get(component_id.as_str()) {
+                        // Unbind plugins for this specific component
+                        if let Some(plugins) = component.plugins() {
+                            for (plugin_id, plugin) in plugins.iter() {
+                                let world = component.world();
+                                let plugin_world = plugin.world();
+                                let bound_interfaces = world
+                                    .imports
+                                    .iter()
+                                    .filter(|import| plugin_world.imports.contains(import))
+                                    .cloned()
+                                    .collect::<std::collections::HashSet<_>>();
+
+                                if let Err(e) = plugin
+                                    .on_workload_unbind(resolved_workload.id(), bound_interfaces)
+                                    .await
+                                {
+                                    warn!(
+                                        plugin_id,
+                                        component_id,
+                                        workload_id = request.workload_id,
+                                        error = ?e,
+                                        "failed to unbind plugin from component during stop"
+                                    );
+                                }
+                            }
+                        }
+
+                        // Set state to Stopped but keep component in memory
+                        component
+                            .set_state(crate::types::ComponentState::Stopped)
+                            .await;
+
+                        // Keep the component in memory (don't remove) to allow restart
+                        debug!(
+                            workload_id = request.workload_id,
+                            component_id, "component stopped and kept in memory"
+                        );
+                    }
+                }
+
+                // Collect all component info with their current states
+                let mut all_components: Vec<crate::types::ComponentInfo> = Vec::new();
+                for (id, component) in components.iter() {
+                    all_components.push(crate::types::ComponentInfo {
+                        component_id: id.to_string(),
+                        name: None,
+                        state: component.get_state().await,
+                        message: None,
+                    });
+                }
+
+                return Ok(WorkloadStopResponse {
+                    workload_status: WorkloadStatus {
+                        workload_id: request.workload_id,
+                        workload_state: WorkloadState::Running,
+                        message: format!("Components {:?} stopped (kept in memory)", component_ids),
+                        components: all_components,
+                    },
+                });
+            } else {
+                bail!("Cannot stop specific components: workload is not running")
+            }
+        } else {
+            // Full workload stop (original behavior)
             let resolved_workload = {
                 let mut workloads = self.workloads.write().await;
                 trace!(
@@ -588,20 +888,14 @@ impl HostApi for Host {
                 workload_id = request.workload_id,
                 "workload stopped successfully"
             );
-
-            (
-                WorkloadState::Stopping,
-                "Workload stopped successfully".to_string(),
-            )
-        } else {
-            (WorkloadState::Unspecified, "Workload not found".to_string())
-        };
+        }
 
         Ok(WorkloadStopResponse {
             workload_status: WorkloadStatus {
                 workload_id: request.workload_id,
-                workload_state,
-                message,
+                workload_state: WorkloadState::Stopping,
+                message: "Workload stopped successfully".to_string(),
+                components: Vec::new(),
             },
         })
     }

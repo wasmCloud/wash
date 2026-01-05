@@ -60,6 +60,7 @@ async fn test_cron_service_integration() -> Result<()> {
             host_interfaces: vec![],
             volumes: vec![],
         },
+        component_ids: None,
     };
 
     // Start the workload

@@ -149,6 +149,7 @@ impl PluginManager {
                 .workload_start(WorkloadStartRequest {
                     workload_id: uuid::Uuid::new_v4().to_string(),
                     workload,
+                    component_ids: None,
                 })
                 .await?;
             if res.workload_status.workload_state != WorkloadState::Running {

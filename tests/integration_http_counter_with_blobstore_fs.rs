@@ -193,6 +193,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
                 }),
             }],
         },
+        component_ids: None,
     };
 
     // Start the workload - this should:

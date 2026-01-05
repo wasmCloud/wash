@@ -13,12 +13,31 @@ service WorkloadService {
 
 message WorkloadStartRequest {
   Workload workload = 1;
+  repeated string component_ids = 2;
+}
+
+enum ComponentState {
+  COMPONENT_STATE_UNSPECIFIED = 0;
+  COMPONENT_STATE_STARTING = 1;
+  COMPONENT_STATE_RUNNING = 2;
+  COMPONENT_STATE_STOPPING = 3;
+  COMPONENT_STATE_STOPPED = 4;
+  COMPONENT_STATE_ERROR = 5;
+  COMPONENT_STATE_RECONCILING = 6;
+}
+
+message ComponentInfo {
+  string component_id = 1;
+  string name = 2;
+  ComponentState state = 3;
+  string message = 4;
 }
 
 message WorkloadStatus {
   string workload_id = 1;
   WorkloadState workload_state = 2;
   string message = 3;
+  repeated ComponentInfo components = 4;
 }
 
 message WorkloadStartResponse {
@@ -35,6 +54,7 @@ message WorkloadStatusResponse {
 
 message WorkloadStopRequest {
   string workload_id = 1;
+  repeated string component_ids = 2;
 }
 
 message WorkloadStopResponse {
