@@ -603,6 +603,167 @@ impl ResolvedWorkload {
         Ok(target_component_id)
     }
 
+    /// Re-link components that depend on the specified updated components.
+    ///
+    /// When a component is updated, any components that import from it need to have
+    /// their linkers rebuilt so they use the new component's `InstancePre`. This method
+    /// cascades: if component A depends on B which depends on C, and C is updated,
+    /// both B and A will be re-linked.
+    ///
+    /// # Arguments
+    /// * `updated_component_ids` - The IDs of components that were updated
+    ///
+    /// # Returns
+    /// A list of component IDs that were re-linked due to their dependencies being updated
+    pub async fn relink_dependent_components(
+        &self,
+        updated_component_ids: &[String],
+    ) -> anyhow::Result<Vec<String>> {
+        // Build the interface map of all component exports
+        let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
+
+        for c in self.components.read().await.values() {
+            let exported_instances = c.component_exports()?;
+            for (name, item) in exported_instances {
+                match name.split_once('@') {
+                    Some(("wasmcloud:wash/plugin", _)) => continue,
+                    None if name == "wasmcloud:wash/plugin" => continue,
+                    _ => {}
+                }
+                if let ComponentItem::ComponentInstance(_) = item {
+                    interface_map.insert(name.clone(), Arc::from(c.id()));
+                }
+            }
+        }
+
+        // Build the full dependency graph
+        let mut component_to_dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
+        {
+            let components = self.components.read().await;
+            for (component_id, component) in components.iter() {
+                let mut deps = HashSet::new();
+                let ty = component.metadata.component.component_type();
+                for (import_name, import_item) in ty.imports(component.metadata.component.engine())
+                {
+                    if matches!(import_item, ComponentItem::ComponentInstance(_)) {
+                        if let Some(exporter_id) = interface_map.get(import_name) {
+                            if exporter_id != component_id {
+                                deps.insert(exporter_id.clone());
+                            }
+                        }
+                    }
+                }
+                component_to_dependencies.insert(component_id.clone(), deps);
+            }
+        }
+
+        // Find all components that transitively depend on any updated component
+        // We use a worklist algorithm to cascade through the dependency graph
+        let mut components_to_relink: HashSet<Arc<str>> = HashSet::new();
+        let mut affected_components: HashSet<Arc<str>> = updated_component_ids
+            .iter()
+            .map(|s| Arc::from(s.as_str()))
+            .collect();
+
+        // Keep finding new dependents until no more are found
+        loop {
+            let mut new_dependents: HashSet<Arc<str>> = HashSet::new();
+
+            for (component_id, deps) in &component_to_dependencies {
+                // Skip already marked components
+                if affected_components.contains(component_id) {
+                    continue;
+                }
+
+                // Check if this component depends on any affected component
+                if deps.iter().any(|dep| affected_components.contains(dep)) {
+                    new_dependents.insert(component_id.clone());
+                    // Only relink if not one of the original updated components
+                    if !updated_component_ids
+                        .iter()
+                        .any(|id| id.as_str() == component_id.as_ref())
+                    {
+                        components_to_relink.insert(component_id.clone());
+                    }
+                }
+            }
+
+            if new_dependents.is_empty() {
+                break;
+            }
+
+            affected_components.extend(new_dependents);
+        }
+
+        if components_to_relink.is_empty() {
+            trace!("no dependent components to re-link");
+            return Ok(Vec::new());
+        }
+
+        // Sort components in topological order (dependencies first)
+        let sorted_components = topological_sort_components(&component_to_dependencies)
+            .context("failed to determine re-linking order - possible circular dependency")?;
+
+        // Filter to only include components that need re-linking, in proper order
+        let ordered_relink: Vec<Arc<str>> = sorted_components
+            .into_iter()
+            .filter(|id| components_to_relink.contains(id))
+            .collect();
+
+        info!(
+            updated = ?updated_component_ids,
+            dependents = ?ordered_relink.iter().map(|id| id.as_ref()).collect::<Vec<_>>(),
+            "re-linking dependent components after update (cascaded)"
+        );
+
+        // Re-resolve imports for each dependent component in topological order
+        let mut relinked_ids = Vec::new();
+        for component_id in ordered_relink {
+            trace!(component_id = %component_id, "re-linking component");
+
+            // Remove the component to get mutable access
+            let mut workload_component = {
+                self.components
+                    .write()
+                    .await
+                    .remove(&component_id)
+                    .context("component not found during re-linking")?
+            };
+
+            // Create a fresh linker for this component
+            let engine = workload_component.metadata.component.engine().clone();
+            let mut new_linker = Linker::new(&engine);
+
+            // Re-add WASI bindings
+            wasmtime_wasi::p2::add_to_linker_async(&mut new_linker)
+                .context("failed to add WASI to new linker")?;
+
+            // Add HTTP bindings if needed
+            if workload_component.imports_wasi_http() {
+                wasmtime_wasi_http::add_only_http_to_linker_async(&mut new_linker)
+                    .context("failed to add WASI HTTP to new linker")?;
+            }
+
+            // Replace the linker
+            workload_component.metadata.linker = new_linker;
+
+            // Re-resolve component imports with the new interface map
+            let component = workload_component.metadata.component.clone();
+            let linker = &mut workload_component.metadata.linker;
+            self.resolve_component_imports(&component, linker, &interface_map)
+                .await?;
+
+            // Put the component back
+            relinked_ids.push(component_id.to_string());
+            self.components
+                .write()
+                .await
+                .insert(component_id, workload_component);
+        }
+
+        Ok(relinked_ids)
+    }
+
     async fn link_components(&mut self) -> anyhow::Result<()> {
         // A map from component ID to its exported interfaces
         let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();

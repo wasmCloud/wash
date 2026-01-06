@@ -661,6 +661,34 @@ impl HostApi for Host {
                     }
                 }
 
+                // Re-link any components that depend on the updated components
+                // This ensures that components importing from updated components
+                // get fresh InstancePre references
+                if let Err(e) = resolved_workload
+                    .relink_dependent_components(&restarted_component_ids)
+                    .await
+                {
+                    warn!(
+                        workload_id = request.workload_id,
+                        error = ?e,
+                        "failed to re-link dependent components after update"
+                    );
+                    // Continue anyway - the updated components are still in place
+                }
+
+                // Refresh the HTTP handler cache so it uses the updated component chain
+                if let Err(e) = self
+                    .http_handler
+                    .refresh_workload_cache(&resolved_workload)
+                    .await
+                {
+                    warn!(
+                        workload_id = request.workload_id,
+                        error = ?e,
+                        "failed to refresh HTTP handler cache after update"
+                    );
+                }
+
                 // Collect component info after restart
                 let components = {
                     let components = components_arc.read().await;

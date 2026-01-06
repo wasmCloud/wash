@@ -237,6 +237,14 @@ pub trait HostHandler: Send + Sync + 'static {
     ) -> anyhow::Result<()>;
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()>;
 
+    /// Refresh the cached InstancePre for a workload after component updates.
+    /// This should be called after components are re-linked to ensure the HTTP
+    /// handler uses the updated component chain.
+    async fn refresh_workload_cache(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+    ) -> anyhow::Result<()>;
+
     fn outgoing_request(
         &self,
         workload_id: &str,
@@ -273,6 +281,13 @@ impl HostHandler for NullServer {
     }
 
     async fn on_workload_unbind(&self, _workload_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn refresh_workload_cache(
+        &self,
+        _resolved_handle: &ResolvedWorkload,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -445,6 +460,34 @@ impl<T: Router> HostHandler for HttpServer<T> {
         Ok(())
     }
 
+    async fn refresh_workload_cache(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+    ) -> anyhow::Result<()> {
+        let workload_id = resolved_handle.id().to_string();
+        let mut handles = self.workload_handles.write().await;
+
+        // Only refresh if this workload is already registered
+        if let Some((_, _, component_id)) = handles.get(&workload_id) {
+            let component_id = component_id.clone();
+            debug!(
+                workload_id = %workload_id,
+                component_id = %component_id,
+                "refreshing HTTP handler cache after component update"
+            );
+
+            // Get a fresh InstancePre from the updated workload
+            let instance_pre = resolved_handle.instantiate_pre(&component_id).await?;
+
+            handles.insert(
+                workload_id,
+                (resolved_handle.clone(), instance_pre, component_id),
+            );
+        }
+
+        Ok(())
+    }
+
     fn outgoing_request(
         &self,
         workload_id: &str,
@@ -464,7 +507,6 @@ impl<T: Router> HostHandler for HttpServer<T> {
         ))
     }
 }
-
 /// HTTP server implementation that routes to workload components
 async fn run_http_server<T: Router>(
     listener: TcpListener,
