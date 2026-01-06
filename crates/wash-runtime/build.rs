@@ -27,7 +27,10 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
     let fixtures_dir = workspace_dir.join("crates/wash-runtime/tests/fixtures");
 
     // Create fixtures directory if it doesn't exist
-    fs::create_dir_all(&fixtures_dir)?;
+    if fs::create_dir_all(&fixtures_dir).is_err() {
+        println!("Failed to create fixtures directory at {}. Some tests will fail.", fixtures_dir.display());
+        return Ok(());
+    }
 
     if !examples_dir.exists() {
         println!("No examples dir found at {}", examples_dir.display());
