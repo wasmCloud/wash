@@ -28,7 +28,10 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
 
     // Create fixtures directory if it doesn't exist
     if fs::create_dir_all(&fixtures_dir).is_err() {
-        println!("Failed to create fixtures directory at {}. Some tests will fail.", fixtures_dir.display());
+        println!(
+            "Failed to create fixtures directory at {}. Some tests will fail.",
+            fixtures_dir.display()
+        );
         return Ok(());
     }
 
