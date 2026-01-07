@@ -146,7 +146,9 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         if !workload_storage.contains_key(&name) {
             return Ok(Err(format!("container '{name}' does not exist")));
@@ -181,7 +183,9 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         Ok(Ok(workload_storage.contains_key(&name)))
     }
@@ -287,7 +291,9 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => Ok(Ok(ContainerMetadata {
@@ -323,7 +329,9 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => match container_data.objects.get(&name) {
@@ -388,7 +396,9 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         // Verify the container exists
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         if !workload_storage.contains_key(&container_name) {
             tracing::warn!(
@@ -426,7 +436,9 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => {
@@ -506,7 +518,9 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => Ok(Ok(container_data.objects.contains_key(&name))),
@@ -527,7 +541,9 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => match container_data.objects.get(&name) {
