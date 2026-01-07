@@ -934,12 +934,7 @@ impl HostPlugin for WasiBlobstore {
         bindings::wasi::blobstore::container::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
         bindings::wasi::blobstore::types::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
 
-        let id = workload_handle.id();
-
-        tracing::debug!(
-            workload_id = id,
-            "Successfully added blobstore interfaces to linker for workload"
-        );
+        let id = workload_handle.workload_id();
 
         // Initialize storage for this component (note: actual storage is per-store-context, this is just a placeholder)
         let mut storage = self.storage.write().await;
