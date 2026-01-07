@@ -11,6 +11,7 @@ use std::{
 
 const WASI_BLOBSTORE_ID: &str = "wasi-blobstore";
 use tokio::sync::RwLock;
+use tracing::debug;
 use wasmtime::component::{HasSelf, Resource};
 use wasmtime_wasi::p2::{
     InputStream, OutputStream,
@@ -118,7 +119,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         if workload_storage.contains_key(&name) {
             return Ok(Err(format!("container '{name}' already exists")));
@@ -145,7 +146,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         if !workload_storage.contains_key(&name) {
             return Ok(Err(format!("container '{name}' does not exist")));
@@ -164,7 +165,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         workload_storage.remove(&name);
         Ok(Ok(()))
@@ -180,7 +181,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         Ok(Ok(workload_storage.contains_key(&name)))
     }
@@ -195,7 +196,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         // Get source object data (clone to avoid borrow conflicts)
         let src_object_data = {
@@ -254,7 +255,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
 
         // Then delete the source
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         if let Some(src_container) = workload_storage.get_mut(&src.container) {
             src_container.objects.remove(&src.object);
@@ -286,7 +287,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => Ok(Ok(ContainerMetadata {
@@ -322,7 +323,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => match container_data.objects.get(&name) {
@@ -387,7 +388,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         // Verify the container exists
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         if !workload_storage.contains_key(&container_name) {
             tracing::warn!(
@@ -425,14 +426,15 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => {
                 let objects: Vec<String> = container_data.objects.keys().cloned().collect();
+                debug!("objects {:?}", objects);
                 let handle = StreamObjectNamesHandle {
                     container_name: container_name.clone(),
-                    workload_id: self.id.clone(),
+                    workload_id: self.workload_id.to_string(),
                     objects,
                     position: 0,
                 };
@@ -455,7 +457,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(container_name) {
             Some(container_data) => {
@@ -478,7 +480,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(container_name) {
             Some(container_data) => {
@@ -504,7 +506,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => Ok(Ok(container_data.objects.contains_key(&name))),
@@ -525,7 +527,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(container_name) {
             Some(container_data) => match container_data.objects.get(&name) {
@@ -552,7 +554,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(container_name) {
             Some(container_data) => {
@@ -762,12 +764,12 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
                 container = container_name,
                 object = object_name,
                 pipe_data_size = data_bytes.len(),
-                workload_id = self.id,
+                workload_id = self.workload_id.to_string(),
                 "Retrieved data from pipe in finish()"
             );
 
             let mut storage = plugin.storage.write().await;
-            let workload_storage = storage.entry(self.id.clone()).or_default();
+            let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
             match workload_storage.get_mut(container_name) {
                 Some(container_data) => {
@@ -813,8 +815,10 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
             resource_id = ?rep,
             "Dropping OutgoingValue resource"
         );
-        self.table.delete(rep)?;
-        Ok(())
+        match self.finish(rep).await {
+            Ok(_) => Ok(()),
+            Err(e) => return Err(e),
+        }
     }
 }
 

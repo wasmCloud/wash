@@ -22,7 +22,7 @@ use tracing::{debug, error, info, trace, warn};
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_config::WasiConfig, wasi_logging::WasiLogging},
+    plugin::{wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -180,6 +180,7 @@ impl CliCommand for DevCommand {
                 .context("failed to create blobstore root directory")?;
         }
         debug!(path = ?volume_root.display(), "using blobstore root directory");
+        host_builder = host_builder.with_plugin(Arc::new(WasiBlobstore::new(None)))?;
 
         let http_handler = wash_runtime::host::http::DevRouter::default();
         // TODO(#19): Only spawn the server if the component exports wasi:http
