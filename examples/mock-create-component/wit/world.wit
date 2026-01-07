@@ -1,0 +1,9 @@
+package example:create@0.1.0;
+
+interface create  {
+   create: func() -> result<string, string>;
+}
+
+world app {
+   export create;
+}

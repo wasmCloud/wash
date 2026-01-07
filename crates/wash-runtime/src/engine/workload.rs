@@ -901,9 +901,13 @@ impl ResolvedWorkload {
         let ty = component.component_type();
         let imports: Vec<_> = ty.imports(component.engine()).collect();
 
-        // TODO: some kind of shared import_name -> component registry. need to remove when new store
-        // store id, instance, import_name. That will keep the instance properly unique
-        let instance: Arc<RwLock<Option<(String, Instance)>>> = Arc::default();
+        // Cache instances per exporter component per store. This ensures that all interfaces
+        // from the same exporting component share the same instance, which is required for
+        // resources to work correctly across interface boundaries.
+        // Key: exporter_component_id, Value: (store_id, instance)
+        let component_instance_cache: Arc<RwLock<HashMap<Arc<str>, (String, Instance)>>> =
+            Arc::default();
+
         for (import_name, import_item) in imports.into_iter() {
             match import_item {
                 ComponentItem::ComponentInstance(import_instance_ty) => {
@@ -943,6 +947,12 @@ impl ResolvedWorkload {
                     let pre = plugin_component
                         .pre_instantiate()
                         .context("failed to pre-instantiate during component linking")?;
+
+                    // Get the exporter component ID to use as the cache key
+                    let exporter_component_id: Arc<str> = interface_map
+                        .get(import_name)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::from("unknown"));
 
                     let mut linker_instance = match linker.instance(import_name) {
                         Ok(i) => i,
@@ -984,34 +994,66 @@ impl ResolvedWorkload {
                                 let import_name: Arc<str> = import_name.into();
                                 let export_name: Arc<str> = export_name.into();
                                 let pre = pre.clone();
-                                let instance = instance.clone();
+                                let instance_cache = component_instance_cache.clone();
+                                let exporter_id = exporter_component_id.clone();
                                 linker_instance
                                     .func_new_async(
                                         &export_name.clone(),
                                         move |mut store, params, results| {
-                                            // TODO(#103): some kind of store data hashing mechanism
-                                            // to detect a diff store to drop the old one
                                             let import_name = import_name.clone();
                                             let export_name = export_name.clone();
                                             let pre = pre.clone();
-                                            let instance = instance.clone();
+                                            let instance_cache = instance_cache.clone();
+                                            let exporter_id = exporter_id.clone();
                                             Box::new(async move {
-                                                let existing_instance = instance.read().await;
-                                                let store_id = store.data().id.clone();
-                                                let instance = if let Some((id, instance)) =
-                                                    existing_instance.clone()
-                                                    && id == store_id
-                                                {
-                                                    drop(existing_instance);
-                                                    instance
-                                                } else {
-                                                    // Likely unnecessary, but explicit drop of the read lock
-                                                    let new_instance =
-                                                        pre.instantiate_async(&mut store).await?;
-                                                    drop(existing_instance);
-                                                    *instance.write().await =
-                                                        Some((store_id, new_instance));
-                                                    new_instance
+                                                // Get the store ID to check if we can reuse a cached instance
+                                                let store_id =
+                                                    store.data().id.clone();
+
+                                                // Check if we have a cached instance for this exporter component and store
+                                                let instance = {
+                                                    let cache = instance_cache.read().await;
+                                                    if let Some((cached_store_id, cached_instance)) =
+                                                        cache.get(&exporter_id)
+                                                    {
+                                                        if cached_store_id == &store_id {
+                                                            trace!(
+                                                                name = %import_name,
+                                                                fn_name = %export_name,
+                                                                exporter = %exporter_id,
+                                                                "reusing cached instance for store"
+                                                            );
+                                                            *cached_instance
+                                                        } else {
+                                                            drop(cache);
+                                                            // Different store - create new instance and cache it
+                                                            trace!(
+                                                                name = %import_name,
+                                                                fn_name = %export_name,
+                                                                exporter = %exporter_id,
+                                                                "creating new instance (store changed)"
+                                                            );
+                                                            let new_instance =
+                                                                pre.instantiate_async(&mut store).await?;
+                                                            instance_cache.write().await
+                                                                .insert(exporter_id, (store_id, new_instance));
+                                                            new_instance
+                                                        }
+                                                    } else {
+                                                        drop(cache);
+                                                        // No cached instance for this exporter - create one
+                                                        trace!(
+                                                            name = %import_name,
+                                                            fn_name = %export_name,
+                                                            exporter = %exporter_id,
+                                                            "creating new instance (no cache)"
+                                                        );
+                                                        let new_instance =
+                                                            pre.instantiate_async(&mut store).await?;
+                                                        instance_cache.write().await
+                                                            .insert(exporter_id, (store_id, new_instance));
+                                                        new_instance
+                                                    }
                                                 };
 
                                                 let func = instance

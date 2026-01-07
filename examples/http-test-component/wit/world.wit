@@ -1,0 +1,7 @@
+package example:http-test;
+
+world http {
+   import example:action/action@0.1.0;
+
+   export wasi:http/incoming-handler@0.2.2;
+}

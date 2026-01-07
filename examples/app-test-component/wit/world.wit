@@ -1,0 +1,12 @@
+package example:action@0.1.0;
+
+interface action  {
+   run: func() -> result<string, string>;
+}
+
+world app {
+   import example:create/create@0.1.0;
+   import example:update/update@0.1.0;
+
+   export action;
+}
