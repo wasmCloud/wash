@@ -833,7 +833,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         );
         match self.finish(rep).await {
             Ok(_) => Ok(()),
-            Err(e) => return Err(e),
+            Err(e) => Err(e),
         }
     }
 }
