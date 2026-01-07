@@ -699,6 +699,8 @@ impl HostApi for Host {
                             name: component.metadata().component_name().map(|s| s.to_string()),
                             state: component.get_state().await,
                             message: None,
+                            version: component.version(),
+                            image: component.metadata().image().map(|s| s.to_string()),
                         });
                     }
                     component_infos
@@ -759,6 +761,8 @@ impl HostApi for Host {
                         name: component.metadata().component_name().map(|s| s.to_string()),
                         state: component.get_state().await,
                         message: None,
+                        version: component.version(),
+                        image: component.metadata().image().map(|s| s.to_string()),
                     });
                 }
                 component_infos
@@ -880,6 +884,8 @@ impl HostApi for Host {
                         name: component.metadata().component_name().map(|s| s.to_string()),
                         state: component.get_state().await,
                         message: None,
+                        version: component.version(),
+                        image: component.metadata().image().map(|s| s.to_string()),
                     });
                 }
                 component_infos
@@ -991,6 +997,8 @@ impl HostApi for Host {
                         name: component.metadata().component_name().map(|s| s.to_string()),
                         state: component.get_state().await,
                         message: None,
+                        version: component.version(),
+                        image: component.metadata().image().map(|s| s.to_string()),
                     });
                 }
 

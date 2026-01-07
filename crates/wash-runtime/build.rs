@@ -45,7 +45,7 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
         "http-test-component",
         "mock-create-component-v2",
         "mock-create-component",
-        "mock-update-component"
+        "mock-update-component",
     ];
 
     // Iterate through example directories

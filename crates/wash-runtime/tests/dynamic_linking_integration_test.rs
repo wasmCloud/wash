@@ -53,6 +53,7 @@ async fn test_dynamic_linking() -> Result<()> {
             components: vec![
                 Component {
                     name: Some("http-component".to_string()),
+                    image: None,
                     bytes: bytes::Bytes::from_static(HTTP_COMPONENT),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,
@@ -67,6 +68,7 @@ async fn test_dynamic_linking() -> Result<()> {
                 },
                 Component {
                     name: Some("App-component".to_string()),
+                    image: None,
                     bytes: bytes::Bytes::from_static(APP_COMPONENT),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,
@@ -81,6 +83,7 @@ async fn test_dynamic_linking() -> Result<()> {
                 },
                 Component {
                     name: Some("create-component".to_string()),
+                    image: None,
                     bytes: bytes::Bytes::from_static(CREATE_COMPONENT),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,
@@ -95,6 +98,7 @@ async fn test_dynamic_linking() -> Result<()> {
                 },
                 Component {
                     name: Some("update-component".to_string()),
+                    image: None,
                     bytes: bytes::Bytes::from_static(UPDATE_COMPONENT),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,

@@ -72,6 +72,8 @@ pub struct Component {
     /// for component-specific operations like updates. If not provided, components
     /// are only identifiable by their runtime-assigned component_id.
     pub name: Option<String>,
+    /// OCI image reference for this component (e.g., "ghcr.io/org/component:v1.2.3")
+    pub image: Option<String>,
     pub bytes: Bytes,
     pub local_resources: LocalResources,
     pub pool_size: i32,
@@ -176,6 +178,10 @@ pub struct ComponentInfo {
     pub state: ComponentState,
     /// Optional message with additional details (e.g., error information)
     pub message: Option<String>,
+    /// Version counter for this component, increments on each update (starts at 1)
+    pub version: u64,
+    /// OCI image reference for this component (e.g., "ghcr.io/org/component:v1.2.3")
+    pub image: Option<String>,
 }
 
 /// Status information about a workload including its ID, state, and any messages.

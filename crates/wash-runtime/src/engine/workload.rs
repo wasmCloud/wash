@@ -47,6 +47,8 @@ pub struct WorkloadMetadata {
     workload_namespace: Arc<str>,
     /// Optional user-provided name for this component (from spec)
     component_name: Option<String>,
+    /// OCI image reference for this component (e.g., "ghcr.io/org/component:v1.2.3")
+    image: Option<String>,
     /// The actual wasmtime [`Component`] that can be instantiated
     component: Component,
     /// The wasmtime [`Linker`] used to instantiate the component
@@ -83,6 +85,11 @@ impl WorkloadMetadata {
     /// Returns the optional user-provided name for this component.
     pub fn component_name(&self) -> Option<&str> {
         self.component_name.as_deref()
+    }
+
+    /// Returns the OCI image reference for this component.
+    pub fn image(&self) -> Option<&str> {
+        self.image.as_deref()
     }
 
     /// Returns a reference to the wasmtime engine used to compile this component.
@@ -243,6 +250,7 @@ impl WorkloadService {
                 workload_name: workload_name.into(),
                 workload_namespace: workload_namespace.into(),
                 component_name: None, // Services don't have names yet
+                image: None,          // Services don't track image yet
                 component,
                 linker,
                 volume_mounts,
@@ -284,6 +292,8 @@ pub struct WorkloadComponent {
     max_invocations: usize,
     /// The current state of this component
     state: Arc<RwLock<crate::types::ComponentState>>,
+    /// Version counter for this component, increments on each update (starts at 1)
+    version: u64,
 }
 
 impl WorkloadComponent {
@@ -294,6 +304,7 @@ impl WorkloadComponent {
         workload_name: impl Into<Arc<str>>,
         workload_namespace: impl Into<Arc<str>>,
         component_name: Option<String>,
+        image: Option<String>,
         component: Component,
         linker: Linker<Ctx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
@@ -306,6 +317,7 @@ impl WorkloadComponent {
                 workload_name: workload_name.into(),
                 workload_namespace: workload_namespace.into(),
                 component_name,
+                image,
                 component,
                 linker,
                 volume_mounts,
@@ -316,6 +328,7 @@ impl WorkloadComponent {
             pool_size: 0,
             max_invocations: 0,
             state: Arc::new(RwLock::new(crate::types::ComponentState::Starting)),
+            version: 1, // Start at version 1
         }
     }
 
@@ -343,6 +356,16 @@ impl WorkloadComponent {
     /// Get the current state value of this component
     pub async fn get_state(&self) -> crate::types::ComponentState {
         self.state.read().await.clone()
+    }
+
+    /// Get the current version of this component
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Increment the version counter (called on component update)
+    pub fn increment_version(&mut self) {
+        self.version += 1;
     }
 }
 
@@ -587,6 +610,15 @@ impl ResolvedWorkload {
                 );
                 bail!(e);
             }
+        }
+
+        // Get the previous version from the existing component (if any) and increment
+        {
+            let components = self.components.read().await;
+            if let Some(existing) = components.get(target_component_id.as_str()) {
+                component.version = existing.version + 1;
+            }
+            // If no existing component, version stays at 1 (initialized in WorkloadComponent::new)
         }
 
         // Set component state to Running
@@ -2024,6 +2056,7 @@ mod tests {
             format!("test-workload-{id}"),
             "test-namespace".to_string(),
             None, // No component name for test components
+            None, // No image for test components
             component,
             linker,
             Vec::new(),

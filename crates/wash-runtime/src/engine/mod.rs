@@ -366,6 +366,7 @@ impl Engine {
             workload_name.as_ref(),
             workload_namespace.as_ref(),
             component.name.clone(),
+            component.image.clone(),
             wasmtime_component,
             linker,
             component_volume_mounts,

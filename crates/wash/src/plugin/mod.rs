@@ -120,6 +120,7 @@ impl PluginManager {
                 service: None,
                 components: vec![Component {
                     name: None,
+                    image: None,
                     bytes: plugin.into(),
                     local_resources: LocalResources {
                         volume_mounts: vec![VolumeMount {

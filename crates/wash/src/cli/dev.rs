@@ -623,6 +623,7 @@ fn create_workload(
     let mut components = Vec::with_capacity(dev_register_components.len() + 1);
     components.push(Component {
         name: None,
+        image: None,
         bytes,
         local_resources: LocalResources {
             volume_mounts: vec![VolumeMount {

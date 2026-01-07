@@ -329,6 +329,11 @@ async fn workload_start(
                 } else {
                     Some(component.name.clone())
                 },
+                image: if component.image.is_empty() {
+                    None
+                } else {
+                    Some(component.image.clone())
+                },
                 bytes: bytes.0.into(),
                 local_resources: component
                     .local_resources
@@ -462,6 +467,11 @@ async fn workload_update(
                     None
                 } else {
                     Some(component.name.clone())
+                },
+                image: if component.image.is_empty() {
+                    None
+                } else {
+                    Some(component.image.clone())
                 },
                 bytes: bytes.0.into(),
                 local_resources: component

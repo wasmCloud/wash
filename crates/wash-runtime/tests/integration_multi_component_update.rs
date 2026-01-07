@@ -48,6 +48,7 @@ fn create_workload(name: &str, app_bytes: &'static [u8], create_bytes: &'static 
         components: vec![
             Component {
                 name: Some("http".to_string()),
+                image: None,
                 bytes: bytes::Bytes::from_static(HTTP_COMPONENT),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -62,6 +63,7 @@ fn create_workload(name: &str, app_bytes: &'static [u8], create_bytes: &'static 
             },
             Component {
                 name: Some("app".to_string()),
+                image: None,
                 bytes: bytes::Bytes::from_static(app_bytes),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -76,6 +78,7 @@ fn create_workload(name: &str, app_bytes: &'static [u8], create_bytes: &'static 
             },
             Component {
                 name: Some("create".to_string()),
+                image: None,
                 bytes: bytes::Bytes::from_static(create_bytes),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -90,6 +93,7 @@ fn create_workload(name: &str, app_bytes: &'static [u8], create_bytes: &'static 
             },
             Component {
                 name: Some("update".to_string()),
+                image: None,
                 bytes: bytes::Bytes::from_static(UPDATE_COMPONENT),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -130,6 +134,7 @@ fn create_update_spec_for_create_component(name: &str, create_bytes: &'static [u
         // since it imports from create
         components: vec![Component {
             name: Some("create".to_string()),
+            image: None,
             bytes: bytes::Bytes::from_static(create_bytes),
             local_resources: LocalResources {
                 memory_limit_mb: 256,

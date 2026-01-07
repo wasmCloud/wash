@@ -42,6 +42,7 @@ fn create_test_workload(name: &str) -> Workload {
         service: None,
         components: vec![Component {
             name: Some("main-component".to_string()),
+            image: None,
             bytes: bytes::Bytes::from_static(HTTP_HELLO_WASM),
             local_resources: LocalResources {
                 memory_limit_mb: 128,
@@ -97,6 +98,7 @@ fn create_multi_component_workload(name: &str) -> Workload {
             // Component 1: HTTP counter
             Component {
                 name: Some("http-counter".to_string()),
+                image: None,
                 bytes: bytes::Bytes::from_static(HTTP_COUNTER_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -112,6 +114,7 @@ fn create_multi_component_workload(name: &str) -> Workload {
             // Component 2: Blobstore filesystem
             Component {
                 name: Some("blobstore-fs".to_string()),
+                image: None,
                 bytes: bytes::Bytes::from_static(BLOBSTORE_FS_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 128,

@@ -72,6 +72,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
             annotations: HashMap::new(),
             service: None,
             components: vec![Component {
+                image: None,
                 bytes: bytes::Bytes::from_static(HTTP_BLOBSTORE_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
