@@ -191,6 +191,12 @@
         gap: 0.5rem;
       }
 
+      .copy-btn {
+        background: #102fb9;
+        color: white;
+        padding: 0.5rem 1rem;
+      }
+
       .download-btn {
         background: #10b981;
         color: white;
@@ -294,7 +300,6 @@
 
       <div class="card">
         <h2>Upload File</h2>
-        <div id="uploadMessages"></div>
         <div class="upload-section">
           <div class="file-input-wrapper">
             <input type="file" id="fileInput" multiple />
@@ -305,13 +310,18 @@
 
       <div class="card">
         <h2>Stored Files</h2>
-        <div id="filesMessages"></div>
         <div id="filesList" class="files-list">
           <div class="empty-state">
             <div class="empty-state-icon">📁</div>
             <p>No files yet. Upload some files to get started!</p>
           </div>
         </div>
+      </div>
+
+      <div class="card">
+        <h2>Activity</h2>
+        <div id="uploadMessages"></div>
+        <div id="filesMessages"></div>
       </div>
 
       <div class="footer">
@@ -350,9 +360,9 @@
         messageEl.textContent = message;
         container.appendChild(messageEl);
 
-        setTimeout(() => {
-          messageEl.remove();
-        }, 5000);
+        // setTimeout(() => {
+        //   messageEl.remove();
+        // }, 5000);
       }
 
       function getFileIcon(filename) {
@@ -395,9 +405,10 @@
                 <div class="file-item">
                     <div class="file-info">
                         <div class="file-icon">${getFileIcon(filename)}</div>
-                        <div class="file-name">${filename}</div>
+                        <div class="file-name">${decodeURIComponent(filename)}</div>
                     </div>
                     <div class="file-actions">
+                        <button class="copy-btn" onclick="copyLink(this, '${filename}')">Copy Link</button>
                         <button class="download-btn" onclick="downloadFile('${filename}')">Download</button>
                         <button class="delete-btn" onclick="deleteFile('${filename}')">Delete</button>
                     </div>
@@ -406,6 +417,7 @@
           )
           .join("");
       }
+
 
       async function uploadFile(file) {
         const apiUrl = getApiUrl();
@@ -435,9 +447,63 @@
         }
       }
 
+      function fallbackCopy(text, onSuccess) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            console.log('Content copied to clipboard successfully!');
+            onSuccess();
+          } else {
+            console.error('Failed to copy text using execCommand');
+          }
+        } catch (err) {
+          console.error('Failed to copy text: ', err);
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+
+      async function copyLink(copyBtn, filename) {
+        const apiUrl = getApiUrl();
+        const url = `${apiUrl}/${filename}`;
+
+        const updateButton = () => {
+          const btnText = copyBtn.textContent;
+          copyBtn.textContent = "Copied!";
+          copyBtn.disabled = true;
+          setTimeout(() => {
+            copyBtn.textContent = btnText;
+            copyBtn.disabled = false;
+          }, 2000);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(url);
+            console.log('Content copied to clipboard successfully!');
+            updateButton();
+          } catch (err) {
+            console.error('Failed to copy text: ', err);
+            // Fallback to execCommand
+            fallbackCopy(url, updateButton);
+          }
+        } else {
+          // Fallback for browsers without clipboard API
+          fallbackCopy(url, updateButton);
+        }
+      }
+
+
+
       async function downloadFile(filename) {
         const apiUrl = getApiUrl();
-        const url = `${apiUrl}/${encodeURIComponent(filename)}`;
+        const url = `${apiUrl}/${filename}`;
 
         try {
           const response = await fetch(url);
@@ -455,7 +521,7 @@
           const downloadUrl = window.URL.createObjectURL(blob);
           const a = document.createElement("a");
           a.href = downloadUrl;
-          a.download = filename;
+          a.download = decodeURIComponent(filename);
           document.body.appendChild(a);
           a.click();
           window.URL.revokeObjectURL(downloadUrl);
@@ -477,7 +543,7 @@
         }
 
         const apiUrl = getApiUrl();
-        const url = `${apiUrl}/${encodeURIComponent(filename)}`;
+        const url = `${apiUrl}/${filename}`;
 
         try {
           const response = await fetch(url, {
