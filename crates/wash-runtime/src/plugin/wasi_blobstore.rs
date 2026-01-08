@@ -11,7 +11,6 @@ use std::{
 
 const WASI_BLOBSTORE_ID: &str = "wasi-blobstore";
 use tokio::sync::RwLock;
-use tracing::debug;
 use wasmtime::component::{HasSelf, Resource};
 use wasmtime_wasi::p2::{
     InputStream, OutputStream,
