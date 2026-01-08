@@ -23,9 +23,11 @@ pub struct Ctx {
     /// The unique identifier for the workload this component belongs to
     pub workload_id: Arc<str>,
     /// The resource table used to manage resources in the Wasmtime store.
-    pub table: wasmtime::component::ResourceTable,
+    pub table: ResourceTable,
     /// The WASI context used to provide WASI functionality to the components using this context.
     pub ctx: WasiCtx,
+    /// The wash WASI context
+    pub wasi_wash: wasmtime_wasi_wash::WasiCtx,
     /// The HTTP context used to provide HTTP functionality to the component.
     pub http: WasiHttpCtx,
     /// Plugin instances stored by string ID for access during component execution.
@@ -72,8 +74,17 @@ impl WasiView for Ctx {
 }
 
 impl wasmtime_wasi_io::IoView for Ctx {
-    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
+    fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
+    }
+}
+
+impl wasmtime_wasi_wash::WasiView for Ctx {
+    fn ctx(&mut self) -> wasmtime_wasi_wash::WasiCtxView<'_> {
+        wasmtime_wasi_wash::WasiCtxView {
+            ctx: &mut self.wasi_wash,
+            table: &mut self.table,
+        }
     }
 }
 
@@ -107,8 +118,10 @@ pub struct CtxBuilder {
     workload_id: Arc<str>,
     component_id: Arc<str>,
     ctx: Option<WasiCtx>,
+    wasi_wash: wasmtime_wasi_wash::WasiCtxBuilder,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
+    allow_tcp_bind: bool,
 }
 
 impl CtxBuilder {
@@ -118,13 +131,30 @@ impl CtxBuilder {
             component_id: component_id.into(),
             workload_id: workload_id.into(),
             ctx: None,
+            wasi_wash: wasmtime_wasi_wash::WasiCtxBuilder::default(),
             http_handler: None,
             plugins: HashMap::new(),
+            allow_tcp_bind: false,
         }
     }
 
+    /// Set a custom [WasiCtx], note that socket configuration will be ignored
     pub fn with_wasi_ctx(mut self, ctx: WasiCtx) -> Self {
         self.ctx = Some(ctx);
+        self
+    }
+
+    /// Allow TCP bind on loopback and unspecified IPs
+    pub fn allow_tcp_bind(mut self) -> Self {
+        self.allow_tcp_bind = true;
+        self
+    }
+
+    pub fn with_loopback(
+        mut self,
+        loopback: Arc<std::sync::Mutex<wasmtime_wasi_wash::sockets::loopback::Network>>,
+    ) -> Self {
+        self.wasi_wash.loopback_network(loopback);
         self
     }
 
@@ -144,21 +174,43 @@ impl CtxBuilder {
         self
     }
 
-    pub fn build(self) -> Ctx {
+    pub fn build(mut self) -> Ctx {
         let plugins = self
             .plugins
             .into_iter()
             .map(|(k, v)| (k, v as Arc<dyn Any + Send + Sync>))
             .collect();
 
+        let ctx = self.ctx.unwrap_or_else(|| {
+            WasiCtxBuilder::new()
+                .args(&["main.wasm"])
+                .inherit_stderr()
+                .build()
+        });
+
+        self.wasi_wash.socket_addr_check(move |addr, reason| {
+            Box::pin(async move {
+                use wasmtime_wasi_wash::sockets::SocketAddrUse;
+                match reason {
+                    SocketAddrUse::TcpBind if self.allow_tcp_bind => {
+                        addr.ip().is_loopback() || addr.ip().is_unspecified()
+                    }
+                    SocketAddrUse::TcpBind => false,
+                    SocketAddrUse::UdpBind => {
+                        // NOTE: Outbound UDP requires an explicit bind in `wasi:sockets`
+                        addr.ip().is_loopback() || addr.ip().is_unspecified()
+                    }
+                    SocketAddrUse::TcpConnect
+                    | SocketAddrUse::UdpConnect
+                    | SocketAddrUse::UdpOutgoingDatagram => true,
+                }
+            })
+        });
+
         Ctx {
             id: self.id,
-            ctx: self.ctx.unwrap_or_else(|| {
-                WasiCtxBuilder::new()
-                    .args(&["main.wasm"])
-                    .inherit_stderr()
-                    .build()
-            }),
+            ctx,
+            wasi_wash: self.wasi_wash.build(),
             workload_id: self.workload_id,
             component_id: self.component_id,
             http: WasiHttpCtx::new(),
