@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -440,6 +441,54 @@ async fn workload_update(
     else {
         anyhow::bail!("workload is required for update");
     };
+
+    // Fetch current workload status to check if update is needed
+    let current_status = host
+        .workload_status(crate::types::WorkloadStatusRequest {
+            workload_id: req.workload_id.clone(),
+        })
+        .await?;
+
+    // Check if we can skip the update by comparing component images
+    // We need to pull component specs first to get image references
+    let incoming_components = if let Some(ref wit_world) = wit_world {
+        wit_world.components.clone()
+    } else {
+        vec![]
+    };
+
+    // Build a map of current component images by name
+    let mut current_images: HashMap<String, String> = HashMap::new();
+    for comp_info in &current_status.workload_status.components {
+        if let (Some(name), Some(image)) = (&comp_info.name, &comp_info.image) {
+            current_images.insert(name.clone(), image.clone());
+        }
+    }
+
+    // Check if all incoming components have matching images
+    let mut needs_update = false;
+    for incoming_comp in &incoming_components {
+        if let Some(current_image) = current_images.get(&incoming_comp.name) {
+            if current_image != &incoming_comp.image {
+                needs_update = true;
+                break;
+            }
+        } else {
+            // New component or unnamed component - needs update
+            needs_update = true;
+            break;
+        }
+    }
+
+    if !needs_update && !incoming_components.is_empty() {
+        info!(
+            workload_id = ?req.workload_id,
+            "Skipping update as all component images are unchanged"
+        );
+        return Ok(types::v2::WorkloadUpdateResponse {
+            workload_status: Some(current_status.workload_status.into()),
+        });
+    }
 
     // Pull and convert components from the update spec
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
