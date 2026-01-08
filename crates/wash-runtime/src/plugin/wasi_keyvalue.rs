@@ -76,7 +76,7 @@ impl bindings::wasi::keyvalue::store::Host for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         // Create bucket if it doesn't exist
         if !workload_storage.contains_key(&identifier) {
@@ -110,7 +110,7 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => {
@@ -138,7 +138,7 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(bucket_name) {
             Some(bucket_data) => {
@@ -165,7 +165,7 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(bucket_name) {
             Some(bucket_data) => {
@@ -193,7 +193,7 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => Ok(Ok(bucket_data.data.contains_key(&key))),
@@ -218,7 +218,7 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => {
@@ -253,7 +253,7 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
     async fn drop(&mut self, rep: Resource<BucketHandle>) -> anyhow::Result<()> {
         tracing::debug!(
-            workload_id = self.id,
+            workload_id = self.workload_id.to_string(),
             resource_id = ?rep,
             "Dropping bucket resource"
         );
@@ -279,7 +279,7 @@ impl bindings::wasi::keyvalue::atomics::Host for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(bucket_name) {
             Some(bucket_data) => {
@@ -330,7 +330,7 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.id).unwrap_or(&empty_map);
+        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => {
@@ -366,7 +366,7 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(bucket_name) {
             Some(bucket_data) => {
@@ -395,7 +395,7 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
         };
 
         let mut storage = plugin.storage.write().await;
-        let workload_storage = storage.entry(self.id.clone()).or_default();
+        let workload_storage = storage.entry(self.workload_id.to_string()).or_default();
 
         match workload_storage.get_mut(bucket_name) {
             Some(bucket_data) => {
@@ -454,7 +454,7 @@ impl HostPlugin for WasiKeyvalue {
         bindings::wasi::keyvalue::atomics::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
         bindings::wasi::keyvalue::batch::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
 
-        let id = component.id();
+        let id = component.workload_id();
         tracing::debug!(
             workload_id = id,
             "Successfully added keyvalue interfaces to linker for workload"
