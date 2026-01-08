@@ -1,0 +1,629 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Blobby Storage Manager</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu,
+          Cantarell, sans-serif;
+        background: linear-gradient(
+          135deg,
+          #0a0a0a 0%,
+          #1a0f2e 50%,
+          #0a0a0a 100%
+        );
+        min-height: 100vh;
+        padding: 2rem;
+      }
+
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+      }
+
+      .header {
+        text-align: center;
+        margin-bottom: 2rem;
+      }
+
+      h1 {
+        color: white;
+        text-align: center;
+        margin-bottom: 1rem;
+        font-size: 2.5rem;
+        text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+      }
+
+      .powered-by {
+        text-align: center;
+        color: rgba(255, 255, 255, 0.9);
+        font-size: 0.9rem;
+        margin-top: 0.5rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+      }
+
+      .wasmcloud-logo {
+        height: 24px;
+        width: auto;
+        vertical-align: middle;
+      }
+
+      .footer {
+        text-align: center;
+        margin-top: 2rem;
+        padding: 1.5rem;
+        color: rgba(255, 255, 255, 0.8);
+        font-size: 0.85rem;
+      }
+
+      .footer a {
+        color: white;
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .footer a:hover {
+        text-decoration: underline;
+      }
+
+      .card {
+        background: white;
+        border-radius: 12px;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+      }
+
+      h2 {
+        color: #1a1a1a;
+        margin-bottom: 1.5rem;
+        font-size: 1.5rem;
+        border-bottom: 2px solid #685bc7;
+        padding-bottom: 0.5rem;
+      }
+
+      .upload-section {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .file-input-wrapper {
+        position: relative;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        padding: 0.75rem;
+        border: 2px dashed #685bc7;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 1rem;
+      }
+
+      input[type="file"]:hover {
+        border-color: #8b7fd8;
+        background: #f8f7ff;
+      }
+
+      button {
+        padding: 0.75rem 1.5rem;
+        border: none;
+        border-radius: 8px;
+        font-size: 1rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+      }
+
+      .upload-btn {
+        background: linear-gradient(135deg, #685bc7 0%, #8b7fd8 100%);
+        color: white;
+        font-weight: 700;
+      }
+
+      .upload-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(104, 91, 199, 0.4);
+      }
+
+      .upload-btn:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .files-list {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      .file-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 1rem;
+        background: #f8f7ff;
+        border-radius: 8px;
+        border-left: 4px solid #685bc7;
+      }
+
+      .file-info {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        flex: 1;
+      }
+
+      .file-icon {
+        width: 40px;
+        height: 40px;
+        background: #685bc7;
+        border-radius: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: white;
+        font-weight: bold;
+      }
+
+      .file-name {
+        font-weight: 500;
+        color: #333;
+        word-break: break-all;
+      }
+
+      .file-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      .copy-btn {
+        background: #102fb9;
+        color: white;
+        padding: 0.5rem 1rem;
+      }
+
+      .download-btn {
+        background: #10b981;
+        color: white;
+        padding: 0.5rem 1rem;
+      }
+
+      .download-btn:hover {
+        background: #059669;
+      }
+
+      .delete-btn {
+        background: #ef4444;
+        color: white;
+        padding: 0.5rem 1rem;
+      }
+
+      .delete-btn:hover {
+        background: #dc2626;
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: 3rem 1rem;
+        color: #666;
+      }
+
+      .empty-state-icon {
+        font-size: 3rem;
+        margin-bottom: 1rem;
+        opacity: 0.5;
+      }
+
+      .message {
+        padding: 1rem;
+        border-radius: 8px;
+        margin-bottom: 1rem;
+        animation: slideIn 0.3s ease;
+      }
+
+      .message.success {
+        background: #ede9fe;
+        color: #4c1d95;
+        border: 1px solid #685bc7;
+      }
+
+      .message.error {
+        background: #fee2e2;
+        color: #991b1b;
+        border: 1px solid #ef4444;
+      }
+
+      @keyframes slideIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .config-section {
+        margin-bottom: 1rem;
+      }
+
+      .config-label {
+        display: block;
+        margin-bottom: 0.5rem;
+        font-weight: 600;
+        color: #333;
+      }
+
+      input[type="text"] {
+        width: 100%;
+        padding: 0.75rem;
+        border: 2px solid #e5e7eb;
+        border-radius: 8px;
+        font-size: 1rem;
+      }
+
+      input[type="text"]:focus {
+        outline: none;
+        border-color: #685bc7;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Blobby Storage Manager</h1>
+        <div class="powered-by">
+          Built with
+          <img
+            src="https://cdn.prod.website-files.com/68e941b736876afc9468db2b/68e941b736876afc9468dcda_Wasmcloud.Logo-Hrztl_Color.png"
+            alt="CNCF wasmCloud"
+            class="wasmcloud-logo"
+          />
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Upload File</h2>
+        <div class="upload-section">
+          <div class="file-input-wrapper">
+            <input type="file" id="fileInput" multiple />
+          </div>
+          <button class="upload-btn" id="uploadBtn">Upload Files</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Stored Files</h2>
+        <div id="filesList" class="files-list">
+          <div class="empty-state">
+            <div class="empty-state-icon">📁</div>
+            <p>No files yet. Upload some files to get started!</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Activity</h2>
+        <div id="uploadMessages"></div>
+        <div id="filesMessages"></div>
+      </div>
+
+      <div class="footer">
+        Built with
+        <a href="https://wasmcloud.com" target="_blank">wasmCloud</a>, a CNCF
+        Incubating project
+      </div>
+    </div>
+
+    <script>
+      // Storage for tracking files (since blobby doesn't have a LIST endpoint)
+      const STORAGE_KEY = "blobby-files";
+
+      function getApiUrl() {
+        return window.location.origin;
+      }
+
+      async function getStoredFiles() {
+        try {
+          let response = await fetch(getApiUrl(), {
+            method: 'POST'
+          });
+          if (!response.ok) {
+            throw new Error(`Failed fetching object list: ${response.status}`);
+          }
+          return await response.json();
+        } catch (e) {
+          return [];
+        }
+      }
+
+      function showMessage(containerId, message, type) {
+        const container = document.getElementById(containerId);
+        const messageEl = document.createElement("div");
+        messageEl.className = `message ${type}`;
+        messageEl.textContent = message;
+        container.appendChild(messageEl);
+
+        // setTimeout(() => {
+        //   messageEl.remove();
+        // }, 5000);
+      }
+
+      function getFileIcon(filename) {
+        const ext = filename.split(".").pop().toLowerCase();
+        const icons = {
+          txt: "📄",
+          pdf: "📕",
+          doc: "📘",
+          docx: "📘",
+          jpg: "🖼️",
+          jpeg: "🖼️",
+          png: "🖼️",
+          gif: "🖼️",
+          zip: "📦",
+          mp3: "🎵",
+          mp4: "🎬",
+          default: "📄",
+        };
+        return icons[ext] || icons["default"];
+      }
+
+      async function renderFiles() {
+        const filesList = document.getElementById("filesList");
+        const files = await getStoredFiles();
+        console.log(`Files are ${files}`);
+
+        if (files.length === 0) {
+          filesList.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📁</div>
+                        <p>No files yet. Upload some files to get started!</p>
+                    </div>
+                `;
+          return;
+        }
+
+        filesList.innerHTML = files
+          .map(
+            (filename) => `
+                <div class="file-item">
+                    <div class="file-info">
+                        <div class="file-icon">${getFileIcon(filename)}</div>
+                        <div class="file-name">${decodeURIComponent(filename)}</div>
+                    </div>
+                    <div class="file-actions">
+                        <button class="copy-btn" onclick="copyLink(this, '${filename}')">Copy Link</button>
+                        <button class="download-btn" onclick="downloadFile('${filename}')">Download</button>
+                        <button class="delete-btn" onclick="deleteFile('${filename}')">Delete</button>
+                    </div>
+                </div>
+            `,
+          )
+          .join("");
+      }
+
+
+      async function uploadFile(file) {
+        const apiUrl = getApiUrl();
+        const url = `${apiUrl}/${encodeURIComponent(file.name)}`;
+        console.log(`Uploading to ${url}`);
+
+        try {
+          const response = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": file.type || "application/octet-stream",
+            },
+            body: file,
+          });
+
+          if (response.ok) {
+            return { success: true, filename: file.name };
+          } else {
+            return {
+              success: false,
+              filename: file.name,
+              error: `HTTP ${response.status}`,
+            };
+          }
+        } catch (error) {
+          return { success: false, filename: file.name, error: error.message };
+        }
+      }
+
+      function fallbackCopy(text, onSuccess) {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        try {
+          const successful = document.execCommand('copy');
+          if (successful) {
+            console.log('Content copied to clipboard successfully!');
+            onSuccess();
+          } else {
+            console.error('Failed to copy text using execCommand');
+          }
+        } catch (err) {
+          console.error('Failed to copy text: ', err);
+        } finally {
+          document.body.removeChild(textarea);
+        }
+      }
+
+      async function copyLink(copyBtn, filename) {
+        const apiUrl = getApiUrl();
+        const url = `${apiUrl}/${filename}`;
+
+        const updateButton = () => {
+          const btnText = copyBtn.textContent;
+          copyBtn.textContent = "Copied!";
+          copyBtn.disabled = true;
+          setTimeout(() => {
+            copyBtn.textContent = btnText;
+            copyBtn.disabled = false;
+          }, 2000);
+        };
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          try {
+            await navigator.clipboard.writeText(url);
+            console.log('Content copied to clipboard successfully!');
+            updateButton();
+          } catch (err) {
+            console.error('Failed to copy text: ', err);
+            // Fallback to execCommand
+            fallbackCopy(url, updateButton);
+          }
+        } else {
+          // Fallback for browsers without clipboard API
+          fallbackCopy(url, updateButton);
+        }
+      }
+
+
+
+      async function downloadFile(filename) {
+        const apiUrl = getApiUrl();
+        const url = `${apiUrl}/${filename}`;
+
+        try {
+          const response = await fetch(url);
+
+          if (!response.ok) {
+            showMessage(
+              "filesMessages",
+              `Failed to download ${filename}: HTTP ${response.status}`,
+              "error",
+            );
+            return;
+          }
+
+          const blob = await response.blob();
+          const downloadUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = downloadUrl;
+          a.download = decodeURIComponent(filename);
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(downloadUrl);
+          document.body.removeChild(a);
+
+          showMessage("filesMessages", `Downloaded ${filename}`, "success");
+        } catch (error) {
+          showMessage(
+            "filesMessages",
+            `Failed to download ${filename}: ${error.message}`,
+            "error",
+          );
+        }
+      }
+
+      async function deleteFile(filename) {
+        if (!confirm(`Are you sure you want to delete ${filename}?`)) {
+          return;
+        }
+
+        const apiUrl = getApiUrl();
+        const url = `${apiUrl}/${filename}`;
+
+        try {
+          const response = await fetch(url, {
+            method: "DELETE",
+          });
+
+          if (response.ok) {
+            await renderFiles();
+            showMessage("filesMessages", `Deleted ${filename}`, "success");
+          } else {
+            showMessage(
+              "filesMessages",
+              `Failed to delete ${filename}: HTTP ${response.status}`,
+              "error",
+            );
+          }
+        } catch (error) {
+          showMessage(
+            "filesMessages",
+            `Failed to delete ${filename}: ${error.message}`,
+            "error",
+          );
+        }
+      }
+
+      // Upload button handler
+      document
+        .getElementById("uploadBtn")
+        .addEventListener("click", async () => {
+          const fileInput = document.getElementById("fileInput");
+          const files = Array.from(fileInput.files);
+
+          if (files.length === 0) {
+            showMessage(
+              "uploadMessages",
+              "Please select at least one file",
+              "error",
+            );
+            return;
+          }
+
+          const uploadBtn = document.getElementById("uploadBtn");
+          uploadBtn.disabled = true;
+          uploadBtn.textContent = "Uploading...";
+
+          let successCount = 0;
+          let failCount = 0;
+
+          for (const file of files) {
+            const result = await uploadFile(file);
+            if (result.success) {
+              successCount++;
+            } else {
+              failCount++;
+              showMessage(
+                "uploadMessages",
+                `Failed to upload ${result.filename}: ${result.error}`,
+                "error",
+              );
+            }
+          }
+
+          if (successCount > 0) {
+            showMessage(
+              "uploadMessages",
+              `Successfully uploaded ${successCount} file(s)`,
+              "success",
+            );
+            await renderFiles();
+          }
+
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = "Upload Files";
+          fileInput.value = "";
+        });
+
+      // Initialize
+      window.addEventListener("load", async () => {
+        await renderFiles();
+      });
+    </script>
+  </body>
+</html>

@@ -22,7 +22,7 @@ use tracing::{debug, error, info, trace, warn};
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_config::WasiConfig, wasi_logging::WasiLogging},
+    plugin::{wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_logging::WasiLogging},
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -60,10 +60,9 @@ pub struct DevCommand {
     #[clap(long = "wasi-webgpu", default_value_t = false)]
     pub wasi_webgpu: bool,
 
-    // TODO: filesystem root?
-    /// The root directory for the blobstore to use for `wasi:blobstore/blobstore`. Defaults to a subfolder in the wash data directory.
-    #[clap(long = "blobstore-root")]
-    pub blobstore_root: Option<PathBuf>,
+    /// A Local directory to be mounted as /tmp directory in the Workload
+    #[clap(long = "temp-path")]
+    pub temp_path: Option<PathBuf>,
 
     /// Path to TLS certificate file (PEM format) for HTTPS support
     #[clap(long = "tls-cert", requires = "tls_key")]
@@ -169,17 +168,20 @@ impl CliCommand for DevCommand {
         // Enable wasi config
         host_builder = host_builder.with_plugin(Arc::new(WasiConfig::default()))?;
 
-        let volume_root = self
-            .blobstore_root
+        // Prepare host directory to be mounted as /tmp
+        let temp_mount_path = self
+            .temp_path
             .clone()
-            .unwrap_or_else(|| ctx.data_dir().join("dev_blobstore"));
-        // Ensure the blobstore root directory exists
-        if !volume_root.exists() {
-            tokio::fs::create_dir_all(&volume_root)
+            .unwrap_or_else(|| ctx.data_dir().join("dev_tmp"));
+        // Ensure the temp directory exists
+        if !temp_mount_path.exists() {
+            tokio::fs::create_dir_all(&temp_mount_path)
                 .await
-                .context("failed to create blobstore root directory")?;
+                .context("failed to create temp directory")?;
         }
-        debug!(path = ?volume_root.display(), "using blobstore root directory");
+        debug!(path = ?temp_mount_path.display(), "using temp directory");
+
+        host_builder = host_builder.with_plugin(Arc::new(WasiBlobstore::new(None)))?;
 
         let http_handler = wash_runtime::host::http::DevRouter::default();
         // TODO(#19): Only spawn the server if the component exports wasi:http
@@ -257,7 +259,7 @@ impl CliCommand for DevCommand {
         let mut workload = create_workload(
             wasm_bytes.into(),
             wasi_config,
-            volume_root,
+            temp_mount_path,
             dev_register_components,
         );
         // Running workload ID for reloads
@@ -586,12 +588,12 @@ fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSe
 /// ## Arguments
 /// - `bytes`: The bytes of the component to develop
 /// - `wasi_config`: Any wasi configuration to pass to the workload
-/// - `volume_root`: The root directory of available scratch space to pass as a [`Volume`].
-///   Must be a valid UTF-8 path.
+/// - `temp_path`: Scratch space to pass as a [`Volume`] under '/tmp'.
+///   Must be a valid path.
 fn create_workload(
     bytes: Bytes,
     wasi_config: HashMap<String, String>,
-    volume_root: PathBuf,
+    temp_path: PathBuf,
     dev_register_components: Vec<Bytes>,
 ) -> Workload {
     // Extract both imports and exports from the component
@@ -656,7 +658,7 @@ fn create_workload(
         volumes: vec![Volume {
             name: "dev".to_string(),
             volume_type: VolumeType::HostPath(HostPathVolume {
-                local_path: volume_root.to_string_lossy().to_string(),
+                local_path: temp_path.to_string_lossy().to_string(),
             }),
         }],
     }
