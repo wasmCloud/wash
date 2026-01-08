@@ -20,7 +20,6 @@ use tracing::{debug, error, info, trace, warn};
 #[cfg(not(target_os = "windows"))]
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
-    engine::uses_wasi_http,
     host::{Host, HostApi},
     plugin::{
         wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
@@ -30,7 +29,6 @@ use wash_runtime::{
         Component, HostPathVolume, LocalResources, Service, Volume, VolumeMount, VolumeType,
         Workload, WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
     },
-    wit::WitInterface,
 };
 
 use crate::{
@@ -208,7 +206,7 @@ impl CliCommand for DevCommand {
         let host = host_builder.build()?.start().await?;
 
         // First run
-        let workload = create_workload(&config, wasm_bytes.into())?;
+        let workload = create_workload(&host, &config, wasm_bytes.into())?;
         // Running workload ID for reloads
         let mut workload_id = reload_component(host.clone(), &workload, None).await?;
 
@@ -358,7 +356,7 @@ impl CliCommand for DevCommand {
                                 .context("failed to read component file")?;
 
 
-                            let workload = create_workload(&config, wasm_bytes.into())?;
+                            let workload = create_workload(&host, &config, wasm_bytes.into())?;
 
                             workload_id = reload_component(
                                 host.clone(),
@@ -424,46 +422,12 @@ impl CliCommand for DevCommand {
     }
 }
 
-/// Extract known WIT interfaces from a component's imports and exports
-///
-/// Inspects the component to determine what interfaces it uses and provides.
-/// This is used to populate the `host_interfaces` field in the Workload, which is
-/// checked bidirectionally against both imports and exports during plugin binding.
-///
-/// For example:
-/// - A component that **imports** `wasi:blobstore/blobstore` needs the blobstore plugin
-fn extract_component_interfaces(component_bytes: &[u8]) -> anyhow::Result<HashSet<WitInterface>> {
-    use wasmtime::component::Component;
-
-    // Create a minimal engine just for introspection
-    let engine = wasmtime::Engine::default();
-    let component = Component::new(&engine, component_bytes)
-        .context("failed to parse component for interface extraction")?;
-
-    let mut interfaces = HashSet::new();
-
-    if uses_wasi_http(&component) {
-        interfaces.insert(WitInterface {
-            namespace: "wasi".to_string(),
-            package: "http".to_string(),
-            interfaces: HashSet::from([
-                "incoming-handler".to_string(),
-                "outgoing-handler".to_string(),
-            ]),
-            version: None,
-            config: HashMap::new(),
-        });
-    }
-
-    Ok(interfaces)
-}
-
 /// Create the [`Workload`] structure for the development component
 ///
 /// ## Arguments
 /// - `config`: The overall Wash configuration
 /// - `bytes`: The bytes of the component under development
-fn create_workload(config: &Config, bytes: Bytes) -> anyhow::Result<Workload> {
+fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result<Workload> {
     let dev_config = config.dev();
 
     let mut volumes = Vec::<Volume>::new();
@@ -501,7 +465,8 @@ fn create_workload(config: &Config, bytes: Bytes) -> anyhow::Result<Workload> {
             },
         })
     } else {
-        let component_interfaces = extract_component_interfaces(&bytes)
+        let component_interfaces = host
+            .intersect_interfaces(&bytes)
             .context("failed to extract component interfaces")?;
 
         // Merge component interfaces into host_interfaces
@@ -514,6 +479,7 @@ fn create_workload(config: &Config, bytes: Bytes) -> anyhow::Result<Workload> {
                 None => host_interfaces.push(interface),
             }
         }
+        debug!("workload host interfaces: {:?}", host_interfaces);
 
         components.push(Component {
             bytes,
@@ -773,63 +739,6 @@ mod tests {
     use super::*;
     use std::fs;
     use tempfile::TempDir;
-
-    #[test]
-    fn test_extract_component_interfaces_with_http_export() {
-        // Create a component that exports wasi:http/incoming-handler
-        // Using import syntax since WAT exports require actual implementations
-        let wat = r#"
-            (component
-                (import "wasi:http/incoming-handler@0.2.0" (instance))
-            )
-        "#;
-        let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
-
-        let interfaces =
-            extract_component_interfaces(&component_bytes).expect("failed to extract interfaces");
-
-        // Should have extracted 1 interface
-        assert_eq!(interfaces.len(), 1, "expected 1 interface");
-
-        // Check for wasi:http interface
-        let http_interface = interfaces
-            .iter()
-            .find(|i| i.namespace == "wasi" && i.package == "http")
-            .expect("wasi:http interface not found");
-        assert!(
-            http_interface.interfaces.contains("incoming-handler"),
-            "should contain incoming-handler interface"
-        );
-    }
-
-    #[test]
-    fn test_extract_component_interfaces_no_interfaces() {
-        // Component with no imports or exports
-        let wat = r#"
-            (component)
-        "#;
-        let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
-
-        let interfaces =
-            extract_component_interfaces(&component_bytes).expect("failed to extract interfaces");
-
-        assert_eq!(
-            interfaces.len(),
-            0,
-            "expected no interfaces for component with no imports/exports"
-        );
-    }
-
-    #[test]
-    fn test_extract_component_interfaces_invalid_bytes() {
-        let invalid_bytes = b"not a valid component";
-
-        let result = extract_component_interfaces(invalid_bytes);
-        assert!(
-            result.is_err(),
-            "should fail to extract interfaces from invalid bytes"
-        );
-    }
 
     #[test]
     fn test_is_ignored_rust_project() {

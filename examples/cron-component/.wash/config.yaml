@@ -5,4 +5,4 @@ build:
 
 dev:
   # We need a service to call the cron component.
-  service_path: ../cron-service/target/wasm32-wasip2/release/cron_service.wasm
+  service_path: ../cron-service/target/wasm32-wasip2/release/cron-service.wasm

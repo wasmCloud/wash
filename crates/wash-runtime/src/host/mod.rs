@@ -49,12 +49,13 @@ use anyhow::{Context, bail};
 use names::{Generator, Name};
 use tokio::sync::RwLock;
 use tracing::{debug, trace, warn};
+use wasmtime::component::Component;
 
-use crate::engine::Engine;
+use crate::engine::{Engine, uses_wasi_http};
 use crate::engine::workload::ResolvedWorkload;
 use crate::plugin::HostPlugin;
 use crate::types::*;
-use crate::wit::WitWorld;
+use crate::wit::{WitInterface, WitWorld};
 
 mod sysinfo;
 use sysinfo::SystemMonitor;
@@ -199,6 +200,93 @@ impl Host {
     /// Create a new builder for the host.
     pub fn builder() -> HostBuilder {
         HostBuilder::default()
+    }
+
+    /// Extract known WIT interfaces from a component's imports and exports
+    ///
+    /// Inspects the component to determine what interfaces it uses and provides.
+    /// This is used to populate the `host_interfaces` field in the Workload, which is
+    /// checked bidirectionally against both imports and exports during plugin binding.
+    ///
+    /// For example:
+    /// - A component that **imports** `wasi:blobstore/blobstore` needs the blobstore plugin
+    pub fn intersect_interfaces(
+        &self,
+        component_bytes: &[u8],
+    ) -> anyhow::Result<HashSet<WitInterface>> {
+        // Create a minimal engine just for introspection
+        let engine = self.engine.inner();
+        let component = Component::new(&engine, component_bytes)
+            .context("failed to parse component for interface extraction")?;
+        let ty = component.component_type();
+
+        let mut interfaces = HashSet::new();
+
+        let parse_interface = |name: &str| -> Option<WitInterface> {
+            // Parse names like "wasi:http/incoming-handler@0.2.0"
+            let (namespace_package, interface_version) = name.rsplit_once('/')?;
+            let (namespace, package) = namespace_package.split_once(':')?;
+
+            // Extract interface name and optional version
+            let (interface, version) = if let Some((iface, ver)) = interface_version.split_once('@')
+            {
+                let parsed_version = ver.parse().ok();
+                (iface.to_string(), parsed_version)
+            } else {
+                (interface_version.to_string(), None)
+            };
+
+            Some(WitInterface {
+                namespace: namespace.to_string(),
+                package: package.to_string(),
+                interfaces: HashSet::from([interface]),
+                version,
+                config: HashMap::new(),
+            })
+        };
+
+        let mut filter_plugins = |interface: &WitInterface| {
+            let mut found = false;
+            for (_, plugin) in self.plugins.iter() {
+                if plugin.world().includes(&interface) {
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                interfaces.insert(interface.clone());
+            }
+        };
+
+        // Extract imports (filter out standard WASI interfaces)
+        for (import_name, _item) in ty.imports(&engine) {
+            if let Some(interface) = parse_interface(import_name) {
+                filter_plugins(&interface);
+            }
+        }
+
+        // Extract exports (these are what the component provides to plugins)
+        for (export_name, _item) in ty.exports(&engine) {
+            if let Some(interface) = parse_interface(export_name) {
+                filter_plugins(&interface);
+            }
+        }
+
+        // http is not a plugin
+        if uses_wasi_http(&component) {
+            interfaces.insert(WitInterface {
+                namespace: "wasi".to_string(),
+                package: "http".to_string(),
+                interfaces: HashSet::from([
+                    "incoming-handler".to_string(),
+                    "outgoing-handler".to_string(),
+                ]),
+                version: None,
+                config: HashMap::new(),
+            });
+        }
+
+        Ok(interfaces)
     }
 
     /// Start the host and initialize all plugins.
@@ -797,5 +885,73 @@ impl HostBuilder {
             http_handler,
             config: self.config.unwrap_or_default(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_component_interfaces_with_http_export() {
+        // Create a component that exports wasi:http/incoming-handler
+        // Using import syntax since WAT exports require actual implementations
+        let wat = r#"
+            (component
+                (import "wasi:http/incoming-handler@0.2.0" (instance))
+            )
+        "#;
+        let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
+
+        let host = Host::builder().build().expect("failed to build host");
+
+        let interfaces =
+            host.intersect_interfaces(&component_bytes).expect("failed to extract interfaces");
+
+        // Should have extracted 1 interface
+        assert_eq!(interfaces.len(), 1, "expected 1 interface");
+
+        // Check for wasi:http interface
+        let http_interface = interfaces
+            .iter()
+            .find(|i| i.namespace == "wasi" && i.package == "http")
+            .expect("wasi:http interface not found");
+        assert!(
+            http_interface.interfaces.contains("incoming-handler"),
+            "should contain incoming-handler interface"
+        );
+    }
+
+    #[test]
+    fn test_extract_component_interfaces_no_interfaces() {
+        // Component with no imports or exports
+        let wat = r#"
+            (component)
+        "#;
+        let component_bytes = wat::parse_str(wat).expect("failed to parse WAT");
+
+        let host = Host::builder().build().expect("failed to build host");
+
+        let interfaces =
+            host.intersect_interfaces(&component_bytes).expect("failed to extract interfaces");
+
+        assert_eq!(
+            interfaces.len(),
+            0,
+            "expected no interfaces for component with no imports/exports"
+        );
+    }
+
+    #[test]
+    fn test_extract_component_interfaces_invalid_bytes() {
+        let invalid_bytes = b"not a valid component";
+
+        let host = Host::builder().build().expect("failed to build host");
+
+        let result = host.intersect_interfaces(invalid_bytes);
+        assert!(
+            result.is_err(),
+            "should fail to extract interfaces from invalid bytes"
+        );
     }
 }
