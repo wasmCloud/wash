@@ -46,6 +46,7 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
         "cron-component",
         "http-blobstore",
         "http-webgpu",
+        "http-streaming",
     ];
 
     // Iterate through example directories
@@ -120,6 +121,7 @@ fn check_and_rebuild_fixtures(workspace_dir: &Path) -> anyhow::Result<()> {
             "cron-component",
             "http-blobstore",
             "http-webgpu",
+            "http-streaming",
         ];
         for example in tracked_examples {
             let example_dir = examples_dir.join(example);

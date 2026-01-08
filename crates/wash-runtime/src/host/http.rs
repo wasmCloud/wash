@@ -619,7 +619,6 @@ pub async fn handle_component_request(
         Some(scheme) if scheme == &hyper::http::uri::Scheme::HTTP => Scheme::Http,
         Some(scheme) if scheme == &hyper::http::uri::Scheme::HTTPS => Scheme::Https,
         Some(scheme) => Scheme::Other(scheme.as_str().to_string()),
-        // Fallback to HTTP if no scheme is present
         None => Scheme::Http,
     };
     let req = store.data_mut().new_incoming_request(scheme, req)?;
@@ -642,13 +641,8 @@ pub async fn handle_component_request(
     });
 
     match receiver.await {
-        // If the client calls `response-outparam::set` then one of these
-        // methods will be called.
         Ok(Ok(resp)) => Ok(resp),
         Ok(Err(e)) => Err(e.into()),
-
-        // Otherwise the `sender` will get dropped along with the `Store`
-        // meaning that the oneshot will get disconnected
         Err(e) => {
             if let Err(task_error) = task.await {
                 error!(err = ?task_error, "error receiving http response");
