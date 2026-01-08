@@ -110,7 +110,9 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => {
@@ -193,7 +195,9 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => Ok(Ok(bucket_data.data.contains_key(&key))),
@@ -218,7 +222,9 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => {
@@ -330,7 +336,9 @@ impl bindings::wasi::keyvalue::batch::Host for Ctx {
 
         let storage = plugin.storage.read().await;
         let empty_map = HashMap::new();
-        let workload_storage = storage.get(&self.workload_id.to_string()).unwrap_or(&empty_map);
+        let workload_storage = storage
+            .get(&self.workload_id.to_string())
+            .unwrap_or(&empty_map);
 
         match workload_storage.get(bucket_name) {
             Some(bucket_data) => {

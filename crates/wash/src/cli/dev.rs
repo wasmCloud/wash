@@ -22,7 +22,10 @@ use tracing::{debug, error, info, trace, warn};
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging},
+    plugin::{
+        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
+        wasi_logging::WasiLogging,
+    },
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
