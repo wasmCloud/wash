@@ -1,4 +1,3 @@
-#![cfg(feature = "grpc")]
 //! Integration test for gRPC client plugin with HTTP/2 support
 //!
 //! This test demonstrates:
@@ -27,8 +26,6 @@ use wash_runtime::{
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
 };
-
-use wash_runtime::host::transport::CompositeOutgoingHandler;
 
 const GRPC_HELLO_WORLD_WASM: &[u8] = include_bytes!("fixtures/grpc_hello_world.wasm");
 
@@ -119,7 +116,6 @@ async fn start_test_grpc_server(
 }
 
 /// Test gRPC client plugin with default configuration
-#[cfg(feature = "grpc")]
 #[tokio::test]
 async fn test_grpc_client_basic() -> Result<()> {
     let _ = tracing_subscriber::fmt()
@@ -148,11 +144,9 @@ async fn test_grpc_client_basic() -> Result<()> {
     let port = find_available_port().await?;
     let http_addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
 
-    let outgoing = CompositeOutgoingHandler::new().with_grpc(HashMap::new())?;
-
     // Create HTTP server with outgoing handlers
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::with_outgoing_handler(http_handler, http_addr, outgoing);
+    let http_plugin = HttpServer::new(http_handler, http_addr);
 
     // Build host (clean!)
     let host = HostBuilder::new()
@@ -241,7 +235,6 @@ async fn test_grpc_client_basic() -> Result<()> {
 }
 
 /// Test gRPC client with concurrent requests
-#[cfg(feature = "grpc")]
 #[tokio::test]
 async fn test_grpc_client_concurrent() -> Result<()> {
     let _ = tracing_subscriber::fmt()
@@ -266,11 +259,9 @@ async fn test_grpc_client_concurrent() -> Result<()> {
     let http_port = find_available_port().await?;
     let http_addr: SocketAddr = format!("127.0.0.1:{http_port}").parse().unwrap();
 
-    let outgoing = CompositeOutgoingHandler::new().with_grpc(HashMap::new())?;
-
     // Create HTTP server with outgoing handlers
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::with_outgoing_handler(http_handler, http_addr, outgoing);
+    let http_plugin = HttpServer::new(http_handler, http_addr);
 
     let engine = Engine::builder().build()?;
 
@@ -330,7 +321,6 @@ async fn test_grpc_client_concurrent() -> Result<()> {
 }
 
 /// Test gRPC client error handling
-#[cfg(feature = "grpc")]
 #[tokio::test]
 async fn test_grpc_client_error_handling() -> Result<()> {
     let _ = tracing_subscriber::fmt()
@@ -349,11 +339,9 @@ async fn test_grpc_client_error_handling() -> Result<()> {
 
     let engine = Engine::builder().build()?;
 
-    let outgoing = CompositeOutgoingHandler::new().with_grpc(HashMap::new())?;
-
     // Create HTTP server with outgoing handlers
     let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::with_outgoing_handler(http_handler, http_addr, outgoing);
+    let http_plugin = HttpServer::new(http_handler, http_addr);
 
     let host = HostBuilder::new()
         .with_engine(engine.clone())

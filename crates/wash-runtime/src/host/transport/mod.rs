@@ -1,4 +1,13 @@
 //! Modular outgoing request handling for HTTP server
+//!
+//! This module provides a composable system for handling outgoing HTTP requests
+//! with support for multiple transport protocols. The [`CompositeOutgoingHandler`]
+//! automatically routes requests to appropriate handlers based on content type
+//! and other request characteristics.
+//!
+//! HTTP/2 and gRPC support is automatically included by the HTTP server constructors.
+
+pub mod grpc;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -41,21 +50,18 @@ impl OutgoingHandler for DefaultHttpHandler {
     }
 }
 
-/// gRPC handler
-#[cfg(feature = "grpc")]
+/// gRPC/HTTP2 handler for outgoing requests
 pub struct GrpcHandler {
     _config: HashMap<String, String>,
 }
 
-#[cfg(feature = "grpc")]
 impl GrpcHandler {
     pub fn new(config: HashMap<String, String>) -> anyhow::Result<Self> {
-        crate::grpc::init_grpc(&config)?;
+        grpc::init_grpc(&config)?;
         Ok(Self { _config: config })
     }
 }
 
-#[cfg(feature = "grpc")]
 impl OutgoingHandler for GrpcHandler {
     fn can_handle(&self, request: &hyper::Request<HyperOutgoingBody>) -> bool {
         request
@@ -71,7 +77,7 @@ impl OutgoingHandler for GrpcHandler {
         request: hyper::Request<HyperOutgoingBody>,
         config: OutgoingRequestConfig,
     ) -> HttpResult<HostFutureIncomingResponse> {
-        crate::grpc::send_request(request, config)
+        grpc::send_request(request, config)
     }
 }
 
@@ -94,7 +100,7 @@ impl CompositeOutgoingHandler {
         self
     }
 
-    #[cfg(feature = "grpc")]
+    /// Adds gRPC/HTTP2 support to the handler chain
     pub fn with_grpc(self, config: HashMap<String, String>) -> anyhow::Result<Self> {
         let grpc = GrpcHandler::new(config)?;
         Ok(self.with_handler(Arc::new(grpc)))
