@@ -8,7 +8,6 @@ use wasmcloud_component::{
 
 struct Component;
 
-
 enum ResponseBody {
     String(String),
     Stream(InputStream),

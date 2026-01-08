@@ -237,11 +237,11 @@ fn put_object(
 
     let copied_bytes = std::io::copy(&mut data, &mut stream).map_err(|e| e.to_string())?;
     if copied_bytes != content_length {
-        Err(
-            "Expected to copy {content_length} bytes, but only copied {copied_bytes} bytes"
-                .to_string(),
-        )
-    }else{
+        Err(format!(
+            "Expected to copy {} bytes, but only copied {} bytes",
+            content_length, copied_bytes
+        ))
+    } else {
         Ok(())
     }
 }

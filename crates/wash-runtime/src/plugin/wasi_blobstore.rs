@@ -443,7 +443,6 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
         match workload_storage.get(container_name) {
             Some(container_data) => {
                 let objects: Vec<String> = container_data.objects.keys().cloned().collect();
-                debug!("objects {:?}", objects);
                 let handle = StreamObjectNamesHandle {
                     container_name: container_name.clone(),
                     workload_id: self.workload_id.to_string(),
