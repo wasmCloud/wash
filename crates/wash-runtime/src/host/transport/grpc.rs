@@ -2,6 +2,9 @@
 //!
 //! This module provides a gRPC client capable of handling HTTP/2 connections,
 //! including support for TLS and ALPN for `h2`. It is designed to be used
+//! with the [`CompositeOutgoingHandler`](super::CompositeOutgoingHandler) for
+//! routing gRPC requests through HTTP/2.
+
 use anyhow::{Context, Result};
 use http_body_util::BodyExt;
 use hyper::Uri;

@@ -8,6 +8,7 @@
 //! - TLS/HTTPS connections
 //! - Component isolation per request
 //! - Graceful shutdown capabilities
+//! - Automatic HTTP/2 and gRPC support for outgoing requests
 //!
 //! # Architecture
 //!
@@ -16,6 +17,7 @@
 //! 2. Routing requests to components based on the Host header
 //! 3. Creating isolated component instances for each request
 //! 4. Managing the request/response lifecycle through WASI-HTTP
+//! 5. Automatically routing gRPC requests through HTTP/2
 //! ```
 
 use std::{
@@ -322,17 +324,23 @@ impl<T: Router> HttpServer<T> {
     /// * `addr` - The socket address to bind to
     ///
     /// # Returns
-    /// A new `HttpServer` instance configured for HTTP connections.
+    /// A new `HttpServer` instance configured for HTTP connections with
+    /// automatic HTTP/2 and gRPC support.
     pub fn new(router: T, addr: SocketAddr) -> Self {
-        Self::with_outgoing_handler(router, addr, CompositeOutgoingHandler::default())
-    }
+        let outgoing = {
+            let grpc_config = std::collections::HashMap::new();
+            match CompositeOutgoingHandler::default().with_grpc(grpc_config) {
+                Ok(handler) => {
+                    tracing::debug!("HTTP/2 handler automatically registered in HTTP server");
+                    handler
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to initialize HTTP/2 handler, continuing with HTTP/1.1 only");
+                    CompositeOutgoingHandler::default()
+                }
+            }
+        };
 
-    /// Creates a new HTTP server with custom outgoing handlers
-    pub fn with_outgoing_handler(
-        router: T,
-        addr: SocketAddr,
-        outgoing: CompositeOutgoingHandler,
-    ) -> Self {
         Self {
             router: Arc::new(router),
             addr,
@@ -353,7 +361,8 @@ impl<T: Router> HttpServer<T> {
     /// * `ca_path` - Optional path to CA certificate for mutual TLS
     ///
     /// # Returns
-    /// A new `HttpServer` instance configured for HTTPS connections.
+    /// A new `HttpServer` instance configured for HTTPS connections with
+    /// automatic HTTP/2 and gRPC support.
     ///
     /// # Errors
     /// Returns an error if the TLS configuration cannot be loaded.
@@ -363,10 +372,23 @@ impl<T: Router> HttpServer<T> {
         cert_path: &Path,
         key_path: &Path,
         ca_path: Option<&Path>,
-        outgoing: Option<CompositeOutgoingHandler>,
     ) -> anyhow::Result<Self> {
         let tls_config = load_tls_config(cert_path, key_path, ca_path).await?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
+
+        let outgoing = {
+            let grpc_config = std::collections::HashMap::new();
+            match CompositeOutgoingHandler::default().with_grpc(grpc_config) {
+                Ok(handler) => {
+                    tracing::debug!("HTTP/2 handler automatically registered in HTTPS server");
+                    handler
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to initialize HTTP/2 handler, continuing with HTTP/1.1 only");
+                    CompositeOutgoingHandler::default()
+                }
+            }
+        };
 
         Ok(Self {
             router: Arc::new(router),
@@ -374,7 +396,7 @@ impl<T: Router> HttpServer<T> {
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
-            outgoing: outgoing.unwrap_or_default(),
+            outgoing,
         })
     }
 }

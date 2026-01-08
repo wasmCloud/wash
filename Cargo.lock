@@ -6377,6 +6377,7 @@ dependencies = [
  "wasmtime-wasi-http",
  "wasmtime-wasi-io",
  "wat",
+ "webpki-roots 0.26.11",
  "wit-component 0.244.0",
 ]
 
