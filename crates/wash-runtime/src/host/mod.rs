@@ -51,8 +51,8 @@ use tokio::sync::RwLock;
 use tracing::{debug, trace, warn};
 use wasmtime::component::Component;
 
-use crate::engine::{Engine, uses_wasi_http};
 use crate::engine::workload::ResolvedWorkload;
+use crate::engine::{Engine, uses_wasi_http};
 use crate::plugin::HostPlugin;
 use crate::types::*;
 use crate::wit::{WitInterface, WitWorld};
@@ -216,7 +216,7 @@ impl Host {
     ) -> anyhow::Result<HashSet<WitInterface>> {
         // Create a minimal engine just for introspection
         let engine = self.engine.inner();
-        let component = Component::new(&engine, component_bytes)
+        let component = Component::new(engine, component_bytes)
             .context("failed to parse component for interface extraction")?;
         let ty = component.component_type();
 
@@ -248,7 +248,7 @@ impl Host {
         let mut filter_plugins = |interface: &WitInterface| {
             let mut found = false;
             for (_, plugin) in self.plugins.iter() {
-                if plugin.world().includes(&interface) {
+                if plugin.world().includes(interface) {
                     found = true;
                     break;
                 }
@@ -259,14 +259,14 @@ impl Host {
         };
 
         // Extract imports (filter out standard WASI interfaces)
-        for (import_name, _item) in ty.imports(&engine) {
+        for (import_name, _item) in ty.imports(engine) {
             if let Some(interface) = parse_interface(import_name) {
                 filter_plugins(&interface);
             }
         }
 
         // Extract exports (these are what the component provides to plugins)
-        for (export_name, _item) in ty.exports(&engine) {
+        for (export_name, _item) in ty.exports(engine) {
             if let Some(interface) = parse_interface(export_name) {
                 filter_plugins(&interface);
             }
@@ -905,8 +905,9 @@ mod tests {
 
         let host = Host::builder().build().expect("failed to build host");
 
-        let interfaces =
-            host.intersect_interfaces(&component_bytes).expect("failed to extract interfaces");
+        let interfaces = host
+            .intersect_interfaces(&component_bytes)
+            .expect("failed to extract interfaces");
 
         // Should have extracted 1 interface
         assert_eq!(interfaces.len(), 1, "expected 1 interface");
@@ -932,8 +933,9 @@ mod tests {
 
         let host = Host::builder().build().expect("failed to build host");
 
-        let interfaces =
-            host.intersect_interfaces(&component_bytes).expect("failed to extract interfaces");
+        let interfaces = host
+            .intersect_interfaces(&component_bytes)
+            .expect("failed to extract interfaces");
 
         assert_eq!(
             interfaces.len(),
