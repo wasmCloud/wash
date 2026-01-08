@@ -22,7 +22,10 @@ use tracing::{debug, error, info, trace, warn};
 use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_logging::WasiLogging},
+    plugin::{
+        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
+        wasi_logging::WasiLogging,
+    },
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -230,6 +233,9 @@ impl CliCommand for DevCommand {
         // Add logging plugin
         host_builder = host_builder.with_plugin(Arc::new(WasiLogging))?;
         debug!("Logging plugin registered");
+
+        // Add keyvalue plugin
+        host_builder = host_builder.with_plugin(Arc::new(WasiKeyvalue::new()))?;
 
         // Enable WASI WebGPU if requested
         #[cfg(not(target_os = "windows"))]
