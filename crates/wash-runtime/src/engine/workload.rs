@@ -268,6 +268,8 @@ impl WorkloadService {
 /// full list of [`HostPlugin`]s that the component depends on.
 #[derive(Clone)]
 pub struct WorkloadComponent {
+    /// Component name. Primarily for debugging purposes.
+    name: Arc<str>,
     /// The [`WorkloadMetadata`] for this component
     metadata: WorkloadMetadata,
     /// The number of warm instances to keep for this component
@@ -279,10 +281,12 @@ pub struct WorkloadComponent {
 impl WorkloadComponent {
     /// Create a new [`WorkloadComponent`] with the given workload ID,
     /// wasmtime [`Component`], [`Linker`], volume mounts, and instance limits.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         workload_id: impl Into<Arc<str>>,
         workload_name: impl Into<Arc<str>>,
         workload_namespace: impl Into<Arc<str>>,
+        component_name: impl Into<Arc<str>>,
         component: Component,
         linker: Linker<Ctx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
@@ -300,6 +304,7 @@ impl WorkloadComponent {
                 local_resources,
                 plugins: None,
             },
+            name: component_name.into(),
             // TODO: Implement pooling and instance limits
             pool_size: 0,
             max_invocations: 0,
@@ -314,6 +319,10 @@ impl WorkloadComponent {
 
     pub fn metadata(&self) -> &WorkloadMetadata {
         &self.metadata
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 
@@ -1671,6 +1680,7 @@ mod tests {
             format!("workload-{id}"),
             format!("test-workload-{id}"),
             "test-namespace".to_string(),
+            "test-component".to_string(),
             component,
             linker,
             Vec::new(),

@@ -318,6 +318,7 @@ async fn workload_start(
                 }
             };
             pulled_components.push(crate::types::Component {
+                name: component.name.clone(),
                 bytes: bytes.0.into(),
                 local_resources: component
                     .local_resources
