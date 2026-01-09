@@ -81,9 +81,9 @@ impl Config {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DevVolume {
-    // Host path to mount
+    /// Host path to mount
     pub host_path: PathBuf,
-    // Guest path inside the dev environment
+    /// Guest path inside the dev environment
     pub guest_path: PathBuf,
 }
 
