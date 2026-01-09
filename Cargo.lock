@@ -6300,6 +6300,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "walkdir",
  "wash-runtime",
  "wasm-metadata 0.239.0",
  "wasm-pkg-client",
