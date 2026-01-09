@@ -82,12 +82,16 @@ message WitWorld {
 // All their invocations happen over WIT Interfaces, and state is ephemeral.
 // While they can TCP connect outbound, they cannot accept inbound connections (fail bind call).
 message Component {
-  string image = 1;
-  LocalResources local_resources = 2;
-  sint32 pool_size = 3;
-  sint32 max_invocations = 4;
+  // Optional user-provided name for this component. Used as a stable identifier
+  // for component-specific operations like updates. If not provided, components
+  // are only identifiable by their runtime-assigned component_id.
+  string name = 1;
+  string image = 2;
+  LocalResources local_resources = 3;
+  sint32 pool_size = 4;
+  sint32 max_invocations = 5;
   // Optional credentials for pulling the image from a private registry
-  ImagePullSecret image_pull_secret = 5;
+  ImagePullSecret image_pull_secret = 6;
 }
 
 message LocalResources {

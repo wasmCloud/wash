@@ -23,3 +23,5 @@ worktrees/
 # AI things
 .claude
 CLAUDE.md
+
+.github/instructions/copilot-instructions.md

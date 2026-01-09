@@ -70,6 +70,8 @@ async fn test_http_webgpu_integration() -> Result<()> {
             annotations: HashMap::new(),
             service: None,
             components: vec![Component {
+                name: None,
+                image: None,
                 bytes: bytes::Bytes::from_static(HTTP_WEBGPU_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -111,6 +113,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
             ],
             volumes: vec![],
         },
+        component_ids: None,
     };
 
     // Start the workload

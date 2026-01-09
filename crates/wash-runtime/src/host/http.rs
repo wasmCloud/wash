@@ -237,6 +237,14 @@ pub trait HostHandler: Send + Sync + 'static {
     ) -> anyhow::Result<()>;
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()>;
 
+    /// Refresh the cached InstancePre for a workload after component updates.
+    /// This should be called after components are re-linked to ensure the HTTP
+    /// handler uses the updated component chain.
+    async fn refresh_workload_cache(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+    ) -> anyhow::Result<()>;
+
     fn outgoing_request(
         &self,
         workload_id: &str,
@@ -273,6 +281,13 @@ impl HostHandler for NullServer {
     }
 
     async fn on_workload_unbind(&self, _workload_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    async fn refresh_workload_cache(
+        &self,
+        _resolved_handle: &ResolvedWorkload,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 
@@ -445,6 +460,34 @@ impl<T: Router> HostHandler for HttpServer<T> {
         Ok(())
     }
 
+    async fn refresh_workload_cache(
+        &self,
+        resolved_handle: &ResolvedWorkload,
+    ) -> anyhow::Result<()> {
+        let workload_id = resolved_handle.id().to_string();
+        let mut handles = self.workload_handles.write().await;
+
+        // Only refresh if this workload is already registered
+        if let Some((_, _, component_id)) = handles.get(&workload_id) {
+            let component_id = component_id.clone();
+            debug!(
+                workload_id = %workload_id,
+                component_id = %component_id,
+                "refreshing HTTP handler cache after component update"
+            );
+
+            // Get a fresh InstancePre from the updated workload
+            let instance_pre = resolved_handle.instantiate_pre(&component_id).await?;
+
+            handles.insert(
+                workload_id,
+                (resolved_handle.clone(), instance_pre, component_id),
+            );
+        }
+
+        Ok(())
+    }
+
     fn outgoing_request(
         &self,
         workload_id: &str,
@@ -464,7 +507,6 @@ impl<T: Router> HostHandler for HttpServer<T> {
         ))
     }
 }
-
 /// HTTP server implementation that routes to workload components
 async fn run_http_server<T: Router>(
     listener: TcpListener,
@@ -602,10 +644,85 @@ async fn invoke_component_handler(
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
+    let components_arc = workload_handle.components();
+
+    // Retry loop for reconciling/starting state
+    // Re-read the component from the map on each iteration to get the latest state,
+    // since the component object may be replaced during updates.
+    let max_wait = std::time::Duration::from_secs(30);
+    let poll_interval = std::time::Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    loop {
+        let state = {
+            let components = components_arc.read().await;
+            if let Some(comp) = components.get(component_id) {
+                comp.get_state().await
+            } else {
+                // Component not found - might have been removed
+                anyhow::bail!("component '{}' not found in workload", component_id);
+            }
+        };
+
+        match state {
+            crate::types::ComponentState::Running => break,
+            crate::types::ComponentState::Reconciling => {
+                if start.elapsed() > max_wait {
+                    anyhow::bail!(
+                        "component '{}' still reconciling after {:?}, request timed out",
+                        component_id,
+                        max_wait
+                    );
+                }
+                tokio::time::sleep(poll_interval).await;
+                continue;
+            }
+            crate::types::ComponentState::Stopped
+            | crate::types::ComponentState::Stopping
+            | crate::types::ComponentState::Error => {
+                anyhow::bail!(
+                    "component '{}' is not available (state: {:?})",
+                    component_id,
+                    state
+                );
+            }
+            crate::types::ComponentState::Starting => {
+                // Allow starting components - they may become ready
+                if start.elapsed() > max_wait {
+                    anyhow::bail!(
+                        "component '{}' still starting after {:?}, request timed out",
+                        component_id,
+                        max_wait
+                    );
+                }
+                tokio::time::sleep(poll_interval).await;
+                continue;
+            }
+        }
+    }
+
+    // Get the current component (may have been replaced during update) and track in-flight request
+    let component = {
+        let components = components_arc.read().await;
+        components.get(component_id).cloned()
+    };
+
+    if let Some(ref comp) = component {
+        comp.begin_invocation();
+    }
+
     // Create a new store for this request with plugin contexts
     let store = workload_handle.new_store(component_id).await?;
 
-    handle_component_request(store, instance_pre, req).await
+    // Execute the request and ensure we decrement the counter on completion
+    let result = handle_component_request(store, instance_pre, req).await;
+
+    // Decrement in-flight counter
+    if let Some(ref comp) = component {
+        comp.end_invocation();
+    }
+
+    result
 }
 
 /// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)

@@ -45,6 +45,10 @@ pub struct WorkloadMetadata {
     workload_name: Arc<str>,
     /// The namespace of the workload this component belongs to
     workload_namespace: Arc<str>,
+    /// Optional user-provided name for this component (from spec)
+    component_name: Option<String>,
+    /// OCI image reference for this component (e.g., "ghcr.io/org/component:v1.2.3")
+    image: Option<String>,
     /// The actual wasmtime [`Component`] that can be instantiated
     component: Component,
     /// The wasmtime [`Linker`] used to instantiate the component
@@ -76,6 +80,16 @@ impl WorkloadMetadata {
     /// Returns the namespace of the workload this component belongs to.
     pub fn workload_namespace(&self) -> &str {
         &self.workload_namespace
+    }
+
+    /// Returns the optional user-provided name for this component.
+    pub fn component_name(&self) -> Option<&str> {
+        self.component_name.as_deref()
+    }
+
+    /// Returns the OCI image reference for this component.
+    pub fn image(&self) -> Option<&str> {
+        self.image.as_deref()
     }
 
     /// Returns a reference to the wasmtime engine used to compile this component.
@@ -235,6 +249,8 @@ impl WorkloadService {
                 workload_id: workload_id.into(),
                 workload_name: workload_name.into(),
                 workload_namespace: workload_namespace.into(),
+                component_name: None, // Services don't have names yet
+                image: None,          // Services don't track image yet
                 component,
                 linker,
                 volume_mounts,
@@ -274,6 +290,13 @@ pub struct WorkloadComponent {
     pool_size: usize,
     /// The maximum number of concurrent invocations allowed for this component
     max_invocations: usize,
+    /// The current state of this component
+    state: Arc<RwLock<crate::types::ComponentState>>,
+    /// Version counter for this component, increments on each update (starts at 1)
+    version: u64,
+    /// Counter for in-flight requests currently being processed by this component.
+    /// Used for graceful drain during component updates.
+    in_flight_count: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl WorkloadComponent {
@@ -283,6 +306,8 @@ impl WorkloadComponent {
         workload_id: impl Into<Arc<str>>,
         workload_name: impl Into<Arc<str>>,
         workload_namespace: impl Into<Arc<str>>,
+        component_name: Option<String>,
+        image: Option<String>,
         component: Component,
         linker: Linker<Ctx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
@@ -294,6 +319,8 @@ impl WorkloadComponent {
                 workload_id: workload_id.into(),
                 workload_name: workload_name.into(),
                 workload_namespace: workload_namespace.into(),
+                component_name,
+                image,
                 component,
                 linker,
                 volume_mounts,
@@ -303,6 +330,9 @@ impl WorkloadComponent {
             // TODO: Implement pooling and instance limits
             pool_size: 0,
             max_invocations: 0,
+            state: Arc::new(RwLock::new(crate::types::ComponentState::Starting)),
+            version: 1, // Start at version 1
+            in_flight_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -314,6 +344,74 @@ impl WorkloadComponent {
 
     pub fn metadata(&self) -> &WorkloadMetadata {
         &self.metadata
+    }
+
+    /// Get the current state of this component
+    pub fn state(&self) -> Arc<RwLock<crate::types::ComponentState>> {
+        self.state.clone()
+    }
+
+    /// Set the state of this component
+    pub async fn set_state(&self, new_state: crate::types::ComponentState) {
+        let mut state = self.state.write().await;
+        *state = new_state;
+    }
+
+    /// Get the current state value of this component
+    pub async fn get_state(&self) -> crate::types::ComponentState {
+        self.state.read().await.clone()
+    }
+
+    /// Get the current version of this component
+    pub fn version(&self) -> u64 {
+        self.version
+    }
+
+    /// Increment the version counter (called on component update)
+    pub fn increment_version(&mut self) {
+        self.version += 1;
+    }
+
+    /// Increment the in-flight request counter. Call this when starting to process a request.
+    pub fn begin_invocation(&self) {
+        self.in_flight_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Decrement the in-flight request counter. Call this when a request completes.
+    pub fn end_invocation(&self) {
+        self.in_flight_count
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Get the current number of in-flight requests being processed.
+    pub fn in_flight_count(&self) -> u64 {
+        self.in_flight_count
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Wait for all in-flight requests to complete (drain) with a timeout.
+    /// Returns Ok(()) if drained successfully, Err if timeout exceeded.
+    pub async fn wait_for_drain(&self, timeout: std::time::Duration) -> anyhow::Result<()> {
+        let start = std::time::Instant::now();
+        let poll_interval = std::time::Duration::from_millis(50);
+        // TODO: simple counter tracking mechanism for now, probably need something more robust
+        loop {
+            let count = self.in_flight_count();
+            if count == 0 {
+                return Ok(());
+            }
+
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "timeout waiting for component drain {} request ar still in-flight after {:?}",
+                    count,
+                    timeout
+                );
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
     }
 }
 
@@ -461,6 +559,289 @@ impl ResolvedWorkload {
         &self.host_interfaces
     }
 
+    /// Bind a single component to plugins and add/replace it in the resolved workload.
+    /// This is used for component-specific restart operations.
+    ///
+    /// # Arguments
+    /// * `component` - The initialized WorkloadComponent to bind and add
+    /// * `target_component_id` - The component ID to use (for replacing existing components)
+    /// * `plugins` - Available host plugins for binding
+    ///
+    /// # Returns
+    /// The component ID that was bound
+    pub async fn bind_and_add_component(
+        &self,
+        mut component: WorkloadComponent,
+        target_component_id: String,
+        plugins: &HashMap<&'static str, Arc<dyn HostPlugin + 'static>>,
+        host_interfaces: &[WitInterface],
+    ) -> anyhow::Result<String> {
+        // Override the component ID to match the target (for replacement)
+        component.metadata.id = Arc::from(target_component_id.as_str());
+
+        // Determine which interfaces this component needs
+        let world = component.world();
+        let http_iface = WitInterface::from("wasi:http/incoming-handler,outgoing-handler");
+        let required_interfaces: HashSet<WitInterface> = host_interfaces
+            .iter()
+            .filter(|wit_interface| !http_iface.contains(wit_interface))
+            .filter(|wit_interface| world.includes_bidirectional(wit_interface))
+            .cloned()
+            .collect();
+
+        if required_interfaces.is_empty() {
+            // No plugins needed, just add the component
+            // Set component state to Running first
+            component
+                .set_state(crate::types::ComponentState::Running)
+                .await;
+
+            self.components
+                .write()
+                .await
+                .insert(Arc::from(target_component_id.as_str()), component);
+            return Ok(target_component_id);
+        }
+
+        // Bind to matching plugins
+        for (_plugin_id, plugin) in plugins.iter() {
+            let plugin_world = plugin.world();
+            let plugin_matched_interfaces: HashSet<WitInterface> = required_interfaces
+                .iter()
+                .filter(|interface| plugin_world.includes_bidirectional(interface))
+                .cloned()
+                .collect();
+
+            if plugin_matched_interfaces.is_empty() {
+                continue;
+            }
+
+            // Note: We skip on_workload_bind for individual component restarts
+            // as the workload is already bound. We only need on_component_bind.
+
+            // Bind plugin to component
+            let matching_interfaces: HashSet<WitInterface> = plugin_matched_interfaces
+                .iter()
+                .filter(|interface| world.includes_bidirectional(interface))
+                .cloned()
+                .collect();
+
+            if !matching_interfaces.is_empty() {
+                if let Err(e) = plugin
+                    .on_component_bind(&mut component, matching_interfaces.clone())
+                    .await
+                {
+                    warn!(
+                        plugin_id = plugin.id(),
+                        component_id = target_component_id,
+                        error = ?e,
+                        "failed to bind component to plugin during component restart"
+                    );
+                    bail!(e);
+                }
+
+                component.add_plugin(plugin.id(), plugin.clone());
+            }
+
+            // Notify plugin of resolution
+            if let Err(e) = plugin
+                .on_workload_resolved(self, &target_component_id)
+                .await
+            {
+                warn!(
+                    plugin_id = plugin.id(),
+                    component_id = target_component_id,
+                    error = ?e,
+                    "failed to notify plugin of resolved workload during component restart"
+                );
+                bail!(e);
+            }
+        }
+
+        // Get the previous version from the existing component (if any) and increment
+        {
+            let components = self.components.read().await;
+            if let Some(existing) = components.get(target_component_id.as_str()) {
+                component.version = existing.version + 1;
+            }
+            // If no existing component, version stays at 1 (initialized in WorkloadComponent::new)
+        }
+
+        // Set component state to Running
+        component
+            .set_state(crate::types::ComponentState::Running)
+            .await;
+
+        // Add/replace the component in the workload
+        self.components
+            .write()
+            .await
+            .insert(Arc::from(target_component_id.as_str()), component);
+
+        Ok(target_component_id)
+    }
+
+    /// Re-link components that depend on the specified updated components.
+    ///
+    /// When a component is updated, any components that import from it need to have
+    /// their linkers rebuilt so they use the new component's `InstancePre`. This method
+    /// cascades: if component A depends on B which depends on C, and C is updated,
+    /// both B and A will be re-linked.
+    ///
+    /// # Arguments
+    /// * `updated_component_ids` - The IDs of components that were updated
+    ///
+    /// # Returns
+    /// A list of component IDs that were re-linked due to their dependencies being updated
+    pub async fn relink_dependent_components(
+        &self,
+        updated_component_ids: &[String],
+    ) -> anyhow::Result<Vec<String>> {
+        // Build the interface map of all component exports
+        let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
+
+        for c in self.components.read().await.values() {
+            let exported_instances = c.component_exports()?;
+            for (name, item) in exported_instances {
+                match name.split_once('@') {
+                    Some(("wasmcloud:wash/plugin", _)) => continue,
+                    None if name == "wasmcloud:wash/plugin" => continue,
+                    _ => {}
+                }
+                if let ComponentItem::ComponentInstance(_) = item {
+                    interface_map.insert(name.clone(), Arc::from(c.id()));
+                }
+            }
+        }
+
+        // Build the full dependency graph
+        let mut component_to_dependencies: HashMap<Arc<str>, HashSet<Arc<str>>> = HashMap::new();
+        {
+            let components = self.components.read().await;
+            for (component_id, component) in components.iter() {
+                let mut deps = HashSet::new();
+                let ty = component.metadata.component.component_type();
+                for (import_name, import_item) in ty.imports(component.metadata.component.engine())
+                {
+                    if matches!(import_item, ComponentItem::ComponentInstance(_)) {
+                        if let Some(exporter_id) = interface_map.get(import_name) {
+                            if exporter_id != component_id {
+                                deps.insert(exporter_id.clone());
+                            }
+                        }
+                    }
+                }
+                component_to_dependencies.insert(component_id.clone(), deps);
+            }
+        }
+
+        // Find all components that transitively depend on any updated component
+        // We use a worklist algorithm to cascade through the dependency graph
+        let mut components_to_relink: HashSet<Arc<str>> = HashSet::new();
+        let mut affected_components: HashSet<Arc<str>> = updated_component_ids
+            .iter()
+            .map(|s| Arc::from(s.as_str()))
+            .collect();
+
+        // Keep finding new dependents until no more are found
+        loop {
+            let mut new_dependents: HashSet<Arc<str>> = HashSet::new();
+
+            for (component_id, deps) in &component_to_dependencies {
+                // Skip already marked components
+                if affected_components.contains(component_id) {
+                    continue;
+                }
+
+                // Check if this component depends on any affected component
+                if deps.iter().any(|dep| affected_components.contains(dep)) {
+                    new_dependents.insert(component_id.clone());
+                    // Only relink if not one of the original updated components
+                    if !updated_component_ids
+                        .iter()
+                        .any(|id| id.as_str() == component_id.as_ref())
+                    {
+                        components_to_relink.insert(component_id.clone());
+                    }
+                }
+            }
+
+            if new_dependents.is_empty() {
+                break;
+            }
+
+            affected_components.extend(new_dependents);
+        }
+
+        if components_to_relink.is_empty() {
+            trace!("no dependent components to re-link");
+            return Ok(Vec::new());
+        }
+
+        // Sort components in topological order (dependencies first)
+        let sorted_components = topological_sort_components(&component_to_dependencies)
+            .context("failed to determine re-linking order - possible circular dependency")?;
+
+        // Filter to only include components that need re-linking, in proper order
+        let ordered_relink: Vec<Arc<str>> = sorted_components
+            .into_iter()
+            .filter(|id| components_to_relink.contains(id))
+            .collect();
+
+        info!(
+            updated = ?updated_component_ids,
+            dependents = ?ordered_relink.iter().map(|id| id.as_ref()).collect::<Vec<_>>(),
+            "re-linking dependent components after update (cascaded)"
+        );
+
+        // Re-resolve imports for each dependent component in topological order
+        let mut relinked_ids = Vec::new();
+        for component_id in ordered_relink {
+            trace!(component_id = %component_id, "re-linking component");
+
+            // Remove the component to get mutable access
+            let mut workload_component = {
+                self.components
+                    .write()
+                    .await
+                    .remove(&component_id)
+                    .context("component not found during re-linking")?
+            };
+
+            // Create a fresh linker for this component
+            let engine = workload_component.metadata.component.engine().clone();
+            let mut new_linker = Linker::new(&engine);
+
+            // Re-add WASI bindings
+            wasmtime_wasi::p2::add_to_linker_async(&mut new_linker)
+                .context("failed to add WASI to new linker")?;
+
+            // Add HTTP bindings if needed
+            if workload_component.imports_wasi_http() {
+                wasmtime_wasi_http::add_only_http_to_linker_async(&mut new_linker)
+                    .context("failed to add WASI HTTP to new linker")?;
+            }
+
+            // Replace the linker
+            workload_component.metadata.linker = new_linker;
+
+            // Re-resolve component imports with the new interface map
+            let component = workload_component.metadata.component.clone();
+            let linker = &mut workload_component.metadata.linker;
+            self.resolve_component_imports(&component, linker, &interface_map)
+                .await?;
+
+            // Put the component back
+            relinked_ids.push(component_id.to_string());
+            self.components
+                .write()
+                .await
+                .insert(component_id, workload_component);
+        }
+
+        Ok(relinked_ids)
+    }
+
     async fn link_components(&mut self) -> anyhow::Result<()> {
         // A map from component ID to its exported interfaces
         let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
@@ -598,9 +979,13 @@ impl ResolvedWorkload {
         let ty = component.component_type();
         let imports: Vec<_> = ty.imports(component.engine()).collect();
 
-        // TODO: some kind of shared import_name -> component registry. need to remove when new store
-        // store id, instance, import_name. That will keep the instance properly unique
-        let instance: Arc<RwLock<Option<(String, Instance)>>> = Arc::default();
+        // Cache instances per exporter component per store. This ensures that all interfaces
+        // from the same exporting component share the same instance, which is required for
+        // resources to work correctly across interface boundaries.
+        // Key: exporter_component_id, Value: (store_id, instance)
+        let component_instance_cache: Arc<RwLock<HashMap<Arc<str>, (String, Instance)>>> =
+            Arc::default();
+
         for (import_name, import_item) in imports.into_iter() {
             match import_item {
                 ComponentItem::ComponentInstance(import_instance_ty) => {
@@ -640,6 +1025,12 @@ impl ResolvedWorkload {
                     let pre = plugin_component
                         .pre_instantiate()
                         .context("failed to pre-instantiate during component linking")?;
+
+                    // Get the exporter component ID to use as the cache key
+                    let exporter_component_id: Arc<str> = interface_map
+                        .get(import_name)
+                        .cloned()
+                        .unwrap_or_else(|| Arc::from("unknown"));
 
                     let mut linker_instance = match linker.instance(import_name) {
                         Ok(i) => i,
@@ -681,34 +1072,66 @@ impl ResolvedWorkload {
                                 let import_name: Arc<str> = import_name.into();
                                 let export_name: Arc<str> = export_name.into();
                                 let pre = pre.clone();
-                                let instance = instance.clone();
+                                let instance_cache = component_instance_cache.clone();
+                                let exporter_id = exporter_component_id.clone();
                                 linker_instance
                                     .func_new_async(
                                         &export_name.clone(),
                                         move |mut store, params, results| {
-                                            // TODO(#103): some kind of store data hashing mechanism
-                                            // to detect a diff store to drop the old one
                                             let import_name = import_name.clone();
                                             let export_name = export_name.clone();
                                             let pre = pre.clone();
-                                            let instance = instance.clone();
+                                            let instance_cache = instance_cache.clone();
+                                            let exporter_id = exporter_id.clone();
                                             Box::new(async move {
-                                                let existing_instance = instance.read().await;
-                                                let store_id = store.data().id.clone();
-                                                let instance = if let Some((id, instance)) =
-                                                    existing_instance.clone()
-                                                    && id == store_id
-                                                {
-                                                    drop(existing_instance);
-                                                    instance
-                                                } else {
-                                                    // Likely unnecessary, but explicit drop of the read lock
-                                                    let new_instance =
-                                                        pre.instantiate_async(&mut store).await?;
-                                                    drop(existing_instance);
-                                                    *instance.write().await =
-                                                        Some((store_id, new_instance));
-                                                    new_instance
+                                                // Get the store ID to check if we can reuse a cached instance
+                                                let store_id =
+                                                    store.data().id.clone();
+
+                                                // Check if we have a cached instance for this exporter component and store
+                                                let instance = {
+                                                    let cache = instance_cache.read().await;
+                                                    if let Some((cached_store_id, cached_instance)) =
+                                                        cache.get(&exporter_id)
+                                                    {
+                                                        if cached_store_id == &store_id {
+                                                            trace!(
+                                                                name = %import_name,
+                                                                fn_name = %export_name,
+                                                                exporter = %exporter_id,
+                                                                "reusing cached instance for store"
+                                                            );
+                                                            *cached_instance
+                                                        } else {
+                                                            drop(cache);
+                                                            // Different store - create new instance and cache it
+                                                            trace!(
+                                                                name = %import_name,
+                                                                fn_name = %export_name,
+                                                                exporter = %exporter_id,
+                                                                "creating new instance (store changed)"
+                                                            );
+                                                            let new_instance =
+                                                                pre.instantiate_async(&mut store).await?;
+                                                            instance_cache.write().await
+                                                                .insert(exporter_id, (store_id, new_instance));
+                                                            new_instance
+                                                        }
+                                                    } else {
+                                                        drop(cache);
+                                                        // No cached instance for this exporter - create one
+                                                        trace!(
+                                                            name = %import_name,
+                                                            fn_name = %export_name,
+                                                            exporter = %exporter_id,
+                                                            "creating new instance (no cache)"
+                                                        );
+                                                        let new_instance =
+                                                            pre.instantiate_async(&mut store).await?;
+                                                        instance_cache.write().await
+                                                            .insert(exporter_id, (store_id, new_instance));
+                                                        new_instance
+                                                    }
                                                 };
 
                                                 let func = instance
@@ -1419,6 +1842,13 @@ impl UnresolvedWorkload {
             bail!(e);
         }
 
+        // Now that the workload is fully resolved and ready, mark all components as Running
+        for component in resolved_workload.components.read().await.values() {
+            component
+                .set_state(crate::types::ComponentState::Running)
+                .await;
+        }
+
         Ok(resolved_workload)
     }
 
@@ -1671,6 +2101,8 @@ mod tests {
             format!("workload-{id}"),
             format!("test-workload-{id}"),
             "test-namespace".to_string(),
+            None, // No component name for test components
+            None, // No image for test components
             component,
             linker,
             Vec::new(),

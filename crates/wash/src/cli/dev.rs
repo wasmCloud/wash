@@ -460,6 +460,7 @@ impl CliCommand for DevCommand {
         if let Err(e) = host
             .workload_stop(WorkloadStopRequest {
                 workload_id: workload_id.clone(),
+                component_ids: None,
             })
             .await
         {
@@ -629,6 +630,8 @@ fn create_workload(
 
     let mut components = Vec::with_capacity(dev_register_components.len() + 1);
     components.push(Component {
+        name: None,
+        image: None,
         bytes,
         local_resources: LocalResources {
             volume_mounts: vec![VolumeMount {
@@ -642,6 +645,7 @@ fn create_workload(
         max_invocations: -1,
     });
     components.extend(dev_register_components.into_iter().map(|bytes| Component {
+        name: None,
         bytes,
         // TODO: Must have the root, but can't isolate rn
         // local_resources: LocalResources {
@@ -677,14 +681,18 @@ async fn reload_component(
     workload_id: Option<String>,
 ) -> anyhow::Result<String> {
     if let Some(workload_id) = workload_id {
-        host.workload_stop(WorkloadStopRequest { workload_id })
-            .await?;
+        host.workload_stop(WorkloadStopRequest {
+            workload_id,
+            component_ids: None,
+        })
+        .await?;
     }
 
     let response = host
         .workload_start(WorkloadStartRequest {
             workload_id: uuid::Uuid::new_v4().to_string(),
             workload: workload.to_owned(),
+            component_ids: None,
         })
         .await?;
 

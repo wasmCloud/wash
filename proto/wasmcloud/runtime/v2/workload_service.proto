@@ -7,18 +7,38 @@ import "wasmcloud/runtime/v2/workload.proto";
 //  Methods called by the Runtime Operator on a given Wasm Host.
 service WorkloadService {
   rpc WorkloadStart(WorkloadStartRequest) returns (WorkloadStartResponse);
+  rpc WorkloadUpdate(WorkloadUpdateRequest) returns (WorkloadUpdateResponse);
   rpc WorkloadStatus(WorkloadStatusRequest) returns (WorkloadStatusResponse);
   rpc WorkloadStop(WorkloadStopRequest) returns (WorkloadStopResponse);
 }
 
 message WorkloadStartRequest {
   Workload workload = 1;
+  repeated string component_ids = 2;
+}
+
+enum ComponentState {
+  COMPONENT_STATE_UNSPECIFIED = 0;
+  COMPONENT_STATE_STARTING = 1;
+  COMPONENT_STATE_RUNNING = 2;
+  COMPONENT_STATE_STOPPING = 3;
+  COMPONENT_STATE_STOPPED = 4;
+  COMPONENT_STATE_ERROR = 5;
+  COMPONENT_STATE_RECONCILING = 6;
+}
+
+message ComponentInfo {
+  string component_id = 1;
+  string name = 2;
+  ComponentState state = 3;
+  string message = 4;
 }
 
 message WorkloadStatus {
   string workload_id = 1;
   WorkloadState workload_state = 2;
   string message = 3;
+  repeated ComponentInfo components = 4;
 }
 
 message WorkloadStartResponse {
@@ -35,8 +55,23 @@ message WorkloadStatusResponse {
 
 message WorkloadStopRequest {
   string workload_id = 1;
+  repeated string component_ids = 2;
 }
 
 message WorkloadStopResponse {
+  WorkloadStatus workload_status = 1;
+}
+
+// Request to update specific components in a running workload.
+// Components are matched by name - each component in the workload spec must have
+// a name that corresponds to a running component in the workload.
+message WorkloadUpdateRequest {
+  string workload_id = 1;
+  // The workload spec containing updated component definitions.
+  // Components are matched by name to identify which running components to update.
+  Workload workload = 2;
+}
+
+message WorkloadUpdateResponse {
   WorkloadStatus workload_status = 1;
 }

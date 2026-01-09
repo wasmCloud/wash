@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -250,6 +251,11 @@ async fn handle_command(
             let res = workload_stop(host, req).await?;
             to_api(&res)
         }
+        "workload.update" => {
+            let req: types::v2::WorkloadUpdateRequest = from_api(payload)?;
+            let res = workload_update(host, req, config).await?;
+            to_api(&res)
+        }
         "workload.status" => {
             let req: types::v2::WorkloadStatusRequest = from_api(payload)?;
             let res = workload_status(host, req).await?;
@@ -313,11 +319,22 @@ async fn workload_start(
                                 "failed to pull component image {}: {}",
                                 component.image, e
                             ),
+                            components: Vec::new(),
                         }),
                     });
                 }
             };
             pulled_components.push(crate::types::Component {
+                name: if component.name.is_empty() {
+                    None
+                } else {
+                    Some(component.name.clone())
+                },
+                image: if component.image.is_empty() {
+                    None
+                } else {
+                    Some(component.image.clone())
+                },
                 bytes: bytes.0.into(),
                 local_resources: component
                     .local_resources
@@ -350,6 +367,7 @@ async fn workload_start(
                         workload_id: "".into(),
                         workload_state: types::v2::WorkloadState::Error.into(),
                         message: format!("failed to pull service image {}: {}", service.image, e),
+                        components: Vec::new(),
                     }),
                 });
             }
@@ -380,6 +398,11 @@ async fn workload_start(
             host_interfaces,
             volumes,
         },
+        component_ids: if req.component_ids.is_empty() {
+            None
+        } else {
+            Some(req.component_ids)
+        },
     };
 
     info!(
@@ -400,6 +423,178 @@ async fn workload_stop(
         "Stopping workload");
 
     host.workload_stop(req.into()).await.map(|resp| resp.into())
+}
+
+async fn workload_update(
+    host: &impl HostApi,
+    req: types::v2::WorkloadUpdateRequest,
+    config: &HostConfig,
+) -> anyhow::Result<types::v2::WorkloadUpdateResponse> {
+    let Some(types::v2::Workload {
+        namespace,
+        name,
+        annotations,
+        service,
+        wit_world,
+        volumes,
+    }) = req.workload
+    else {
+        anyhow::bail!("workload is required for update");
+    };
+
+    // Fetch current workload status to check if update is needed
+    let current_status = host
+        .workload_status(crate::types::WorkloadStatusRequest {
+            workload_id: req.workload_id.clone(),
+        })
+        .await?;
+
+    // Check if we can skip the update by comparing component images
+    // We need to pull component specs first to get image references
+    let incoming_components = if let Some(ref wit_world) = wit_world {
+        wit_world.components.clone()
+    } else {
+        vec![]
+    };
+
+    // Build a map of current component images by name
+    let mut current_images: HashMap<String, String> = HashMap::new();
+    for comp_info in &current_status.workload_status.components {
+        if let (Some(name), Some(image)) = (&comp_info.name, &comp_info.image) {
+            current_images.insert(name.clone(), image.clone());
+        }
+    }
+
+    // Check if all incoming components have matching images
+    let mut needs_update = false;
+    for incoming_comp in &incoming_components {
+        if let Some(current_image) = current_images.get(&incoming_comp.name) {
+            if current_image != &incoming_comp.image {
+                needs_update = true;
+                break;
+            }
+        } else {
+            // New component or unnamed component - needs update
+            needs_update = true;
+            break;
+        }
+    }
+
+    if !needs_update && !incoming_components.is_empty() {
+        info!(
+            workload_id = ?req.workload_id,
+            "Skipping update as all component images are unchanged"
+        );
+        return Ok(types::v2::WorkloadUpdateResponse {
+            workload_status: Some(current_status.workload_status.into()),
+        });
+    }
+
+    // Pull and convert components from the update spec
+    let (components, host_interfaces) = if let Some(wit_world) = wit_world {
+        let mut pulled_components = Vec::with_capacity(wit_world.components.len());
+        for component in &wit_world.components {
+            let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
+            let bytes = match oci::pull_component(&component.image, oci_config).await {
+                Ok(bytes) => bytes,
+                Err(e) => {
+                    return Ok(types::v2::WorkloadUpdateResponse {
+                        workload_status: Some(types::v2::WorkloadStatus {
+                            workload_id: req.workload_id,
+                            workload_state: types::v2::WorkloadState::Error.into(),
+                            message: format!(
+                                "failed to pull component image {}: {}",
+                                component.image, e
+                            ),
+                            components: Vec::new(),
+                        }),
+                    });
+                }
+            };
+            pulled_components.push(crate::types::Component {
+                name: if component.name.is_empty() {
+                    None
+                } else {
+                    Some(component.name.clone())
+                },
+                image: if component.image.is_empty() {
+                    None
+                } else {
+                    Some(component.image.clone())
+                },
+                bytes: bytes.0.into(),
+                local_resources: component
+                    .local_resources
+                    .clone()
+                    .map(Into::into)
+                    .unwrap_or_default(),
+                pool_size: component.pool_size,
+                max_invocations: component.max_invocations,
+            })
+        }
+        (
+            pulled_components,
+            wit_world
+                .host_interfaces
+                .into_iter()
+                .map(Into::into)
+                .collect(),
+        )
+    } else {
+        (vec![], vec![])
+    };
+
+    // Service handling for update (if provided)
+    let service = if let Some(service) = service {
+        let oci_config = image_pull_secret_to_oci_config(config, &service.image_pull_secret);
+        let bytes = match oci::pull_component(&service.image, oci_config).await {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                return Ok(types::v2::WorkloadUpdateResponse {
+                    workload_status: Some(types::v2::WorkloadStatus {
+                        workload_id: req.workload_id,
+                        workload_state: types::v2::WorkloadState::Error.into(),
+                        message: format!("failed to pull service image {}: {}", service.image, e),
+                        components: Vec::new(),
+                    }),
+                });
+            }
+        };
+        Some(crate::types::Service {
+            bytes: bytes.0.into(),
+            local_resources: service
+                .local_resources
+                .clone()
+                .map(Into::into)
+                .unwrap_or_default(),
+            max_restarts: service.max_restarts,
+        })
+    } else {
+        None
+    };
+
+    let volumes = volumes.into_iter().map(Into::into).collect();
+
+    let request = crate::types::WorkloadUpdateRequest {
+        workload_id: req.workload_id.clone(),
+        workload: crate::types::Workload {
+            namespace,
+            name,
+            annotations,
+            service,
+            components,
+            host_interfaces,
+            volumes,
+        },
+    };
+
+    info!(
+        workload_id=?request.workload_id,
+        namespace=?request.workload.namespace,
+        name=?request.workload.name,
+        "Updating workload components");
+
+    Ok(host.workload_update(request).await?.into())
 }
 
 async fn workload_status(
@@ -561,6 +756,11 @@ impl From<types::v2::WorkloadStopRequest> for crate::types::WorkloadStopRequest 
     fn from(req: types::v2::WorkloadStopRequest) -> Self {
         crate::types::WorkloadStopRequest {
             workload_id: req.workload_id,
+            component_ids: if req.component_ids.is_empty() {
+                None
+            } else {
+                Some(req.component_ids)
+            },
         }
     }
 }
@@ -591,6 +791,14 @@ impl From<crate::types::WorkloadStopResponse> for types::v2::WorkloadStopRespons
     }
 }
 
+impl From<crate::types::WorkloadUpdateResponse> for types::v2::WorkloadUpdateResponse {
+    fn from(resp: crate::types::WorkloadUpdateResponse) -> Self {
+        types::v2::WorkloadUpdateResponse {
+            workload_status: Some(resp.workload_status.into()),
+        }
+    }
+}
+
 impl From<crate::types::WorkloadStatusResponse> for types::v2::WorkloadStatusResponse {
     fn from(resp: crate::types::WorkloadStatusResponse) -> Self {
         types::v2::WorkloadStatusResponse {
@@ -605,6 +813,31 @@ impl From<crate::types::WorkloadStatus> for types::v2::WorkloadStatus {
             workload_id: status.workload_id,
             workload_state: status.workload_state as i32,
             message: status.message,
+            components: status.components.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+impl From<crate::types::ComponentInfo> for types::v2::ComponentInfo {
+    fn from(info: crate::types::ComponentInfo) -> Self {
+        types::v2::ComponentInfo {
+            component_id: info.component_id,
+            name: info.name.unwrap_or_default(),
+            state: match info.state {
+                crate::types::ComponentState::Starting => {
+                    types::v2::ComponentState::Starting as i32
+                }
+                crate::types::ComponentState::Running => types::v2::ComponentState::Running as i32,
+                crate::types::ComponentState::Stopping => {
+                    types::v2::ComponentState::Stopping as i32
+                }
+                crate::types::ComponentState::Stopped => types::v2::ComponentState::Stopped as i32,
+                crate::types::ComponentState::Error => types::v2::ComponentState::Error as i32,
+                crate::types::ComponentState::Reconciling => {
+                    types::v2::ComponentState::Reconciling as i32
+                }
+            },
+            message: info.message.unwrap_or_default(),
         }
     }
 }

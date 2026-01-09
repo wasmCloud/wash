@@ -44,6 +44,17 @@ pub enum WorkloadState {
     Error,
 }
 
+/// The current state of an individual component in its lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ComponentState {
+    Starting,
+    Running,
+    Stopping,
+    Stopped,
+    Error,
+    Reconciling,
+}
+
 /// Configuration for a long-running service component that handles requests.
 /// Services can be restarted if they fail and have resource limits.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +68,12 @@ pub struct Service {
 /// Components can be pooled for concurrent execution and have invocation limits.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Component {
+    /// Optional user-provided name for this component. Used as a stable identifier
+    /// for component-specific operations like updates. If not provided, components
+    /// are only identifiable by their runtime-assigned component_id.
+    pub name: Option<String>,
+    /// OCI image reference for this component (e.g., "ghcr.io/org/component:v1.2.3")
+    pub image: Option<String>,
     pub bytes: Bytes,
     pub local_resources: LocalResources,
     pub pool_size: i32,
@@ -149,12 +166,32 @@ pub struct HostHeartbeat {
     pub exports: Vec<WitInterface>,
 }
 
+/// Information about a component within a workload.
+/// Includes the runtime-assigned component ID needed for component-specific operations.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ComponentInfo {
+    /// Runtime-assigned unique identifier for this component instance
+    pub component_id: String,
+    /// Optional name or label for the component (from workload spec annotations if available)
+    pub name: Option<String>,
+    /// Current state of this component
+    pub state: ComponentState,
+    /// Optional message with additional details (e.g., error information)
+    pub message: Option<String>,
+    /// Version counter for this component, increments on each update (starts at 1)
+    pub version: u64,
+    /// OCI image reference for this component (e.g., "ghcr.io/org/component:v1.2.3")
+    pub image: Option<String>,
+}
+
 /// Status information about a workload including its ID, state, and any messages.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkloadStatus {
     pub workload_id: String,
     pub workload_state: WorkloadState,
     pub message: String,
+    /// List of components in the workload with their runtime-assigned IDs
+    pub components: Vec<ComponentInfo>,
 }
 
 /// Request to start a new workload on the host.
@@ -162,11 +199,32 @@ pub struct WorkloadStatus {
 pub struct WorkloadStartRequest {
     pub workload_id: String,
     pub workload: Workload,
+    /// Optional list of component IDs to start. If None, all components are started.
+    /// If Some(vec), only the specified components are started/restarted.
+    pub component_ids: Option<Vec<String>>,
 }
 
 /// Response after attempting to start a workload.
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkloadStartResponse {
+    pub workload_status: WorkloadStatus,
+}
+
+/// Request to update specific components in a running workload.
+/// Components to update are determined by matching component names in the provided
+/// workload spec against running components. Only components with matching names
+/// will be updated - unnamed components in the spec will cause an error.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkloadUpdateRequest {
+    pub workload_id: String,
+    /// The workload spec containing updated component definitions.
+    /// Components are matched by name - each component in this spec must have a name
+    /// that corresponds to a running component in the workload.
+    pub workload: Workload,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorkloadUpdateResponse {
     pub workload_status: WorkloadStatus,
 }
 
@@ -186,6 +244,9 @@ pub struct WorkloadStatusResponse {
 #[derive(Debug, Clone, PartialEq)]
 pub struct WorkloadStopRequest {
     pub workload_id: String,
+    /// Optional list of component IDs to stop. If None, the entire workload is stopped.
+    /// If Some(vec), only the specified components are stopped.
+    pub component_ids: Option<Vec<String>>,
 }
 
 /// Response after attempting to stop a workload.

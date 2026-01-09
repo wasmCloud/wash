@@ -55,6 +55,7 @@ mod test {
                 host_interfaces: vec![],
                 volumes: vec![],
             },
+            component_ids: None,
         };
         let _res = host.workload_start(req).await?;
 
