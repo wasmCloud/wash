@@ -4,7 +4,7 @@
 //! Plugins are WebAssembly components that extend wash functionality.
 
 use crate::{
-    cli::{CliContext, oci::OCI_CACHE_DIR, plugin},
+    cli::{CliContext, oci::OCI_CACHE_DIR},
     plugin::{
         bindings::{
             WashPlugin,

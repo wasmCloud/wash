@@ -281,6 +281,7 @@ pub struct WorkloadComponent {
 impl WorkloadComponent {
     /// Create a new [`WorkloadComponent`] with the given workload ID,
     /// wasmtime [`Component`], [`Linker`], volume mounts, and instance limits.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         workload_id: impl Into<Arc<str>>,
         workload_name: impl Into<Arc<str>>,
@@ -318,6 +319,10 @@ impl WorkloadComponent {
 
     pub fn metadata(&self) -> &WorkloadMetadata {
         &self.metadata
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 }
 
