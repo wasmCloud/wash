@@ -644,10 +644,85 @@ async fn invoke_component_handler(
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
+    let components_arc = workload_handle.components();
+
+    // Retry loop for reconciling/starting state
+    // Re-read the component from the map on each iteration to get the latest state,
+    // since the component object may be replaced during updates.
+    let max_wait = std::time::Duration::from_secs(30);
+    let poll_interval = std::time::Duration::from_millis(100);
+    let start = std::time::Instant::now();
+
+    loop {
+        let state = {
+            let components = components_arc.read().await;
+            if let Some(comp) = components.get(component_id) {
+                comp.get_state().await
+            } else {
+                // Component not found - might have been removed
+                anyhow::bail!("component '{}' not found in workload", component_id);
+            }
+        };
+
+        match state {
+            crate::types::ComponentState::Running => break,
+            crate::types::ComponentState::Reconciling => {
+                if start.elapsed() > max_wait {
+                    anyhow::bail!(
+                        "component '{}' still reconciling after {:?}, request timed out",
+                        component_id,
+                        max_wait
+                    );
+                }
+                tokio::time::sleep(poll_interval).await;
+                continue;
+            }
+            crate::types::ComponentState::Stopped
+            | crate::types::ComponentState::Stopping
+            | crate::types::ComponentState::Error => {
+                anyhow::bail!(
+                    "component '{}' is not available (state: {:?})",
+                    component_id,
+                    state
+                );
+            }
+            crate::types::ComponentState::Starting => {
+                // Allow starting components - they may become ready
+                if start.elapsed() > max_wait {
+                    anyhow::bail!(
+                        "component '{}' still starting after {:?}, request timed out",
+                        component_id,
+                        max_wait
+                    );
+                }
+                tokio::time::sleep(poll_interval).await;
+                continue;
+            }
+        }
+    }
+
+    // Get the current component (may have been replaced during update) and track in-flight request
+    let component = {
+        let components = components_arc.read().await;
+        components.get(component_id).cloned()
+    };
+
+    if let Some(ref comp) = component {
+        comp.begin_invocation();
+    }
+
     // Create a new store for this request with plugin contexts
     let store = workload_handle.new_store(component_id).await?;
 
-    handle_component_request(store, instance_pre, req).await
+    // Execute the request and ensure we decrement the counter on completion
+    let result = handle_component_request(store, instance_pre, req).await;
+
+    // Decrement in-flight counter
+    if let Some(ref comp) = component {
+        comp.end_invocation();
+    }
+
+    result
 }
 
 /// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)

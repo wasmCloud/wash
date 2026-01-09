@@ -294,6 +294,9 @@ pub struct WorkloadComponent {
     state: Arc<RwLock<crate::types::ComponentState>>,
     /// Version counter for this component, increments on each update (starts at 1)
     version: u64,
+    /// Counter for in-flight requests currently being processed by this component.
+    /// Used for graceful drain during component updates.
+    in_flight_count: Arc<std::sync::atomic::AtomicU64>,
 }
 
 impl WorkloadComponent {
@@ -329,6 +332,7 @@ impl WorkloadComponent {
             max_invocations: 0,
             state: Arc::new(RwLock::new(crate::types::ComponentState::Starting)),
             version: 1, // Start at version 1
+            in_flight_count: Arc::new(std::sync::atomic::AtomicU64::new(0)),
         }
     }
 
@@ -366,6 +370,48 @@ impl WorkloadComponent {
     /// Increment the version counter (called on component update)
     pub fn increment_version(&mut self) {
         self.version += 1;
+    }
+
+    /// Increment the in-flight request counter. Call this when starting to process a request.
+    pub fn begin_invocation(&self) {
+        self.in_flight_count
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Decrement the in-flight request counter. Call this when a request completes.
+    pub fn end_invocation(&self) {
+        self.in_flight_count
+            .fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// Get the current number of in-flight requests being processed.
+    pub fn in_flight_count(&self) -> u64 {
+        self.in_flight_count
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Wait for all in-flight requests to complete (drain) with a timeout.
+    /// Returns Ok(()) if drained successfully, Err if timeout exceeded.
+    pub async fn wait_for_drain(&self, timeout: std::time::Duration) -> anyhow::Result<()> {
+        let start = std::time::Instant::now();
+        let poll_interval = std::time::Duration::from_millis(50);
+        // TODO: simple counter tracking mechanism for now, probably need something more robust
+        loop {
+            let count = self.in_flight_count();
+            if count == 0 {
+                return Ok(());
+            }
+
+            if start.elapsed() > timeout {
+                anyhow::bail!(
+                    "timeout waiting for component drain {} request ar still in-flight after {:?}",
+                    count,
+                    timeout
+                );
+            }
+
+            tokio::time::sleep(poll_interval).await;
+        }
     }
 }
 

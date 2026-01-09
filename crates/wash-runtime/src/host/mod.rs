@@ -550,7 +550,10 @@ impl HostApi for Host {
 
                 let components_arc = resolved_workload.components();
 
-                // Mark components as Reconciling and unbind Running components
+                // Drain timeout for graceful shutdown
+                let drain_timeout = std::time::Duration::from_secs(30);
+
+                // Mark components as Reconciling, wait for drain, and unbind Running components
                 {
                     let components = components_arc.read().await;
                     for name in component_names_to_restart.iter() {
@@ -558,10 +561,27 @@ impl HostApi for Host {
                         if let Some(component) = components.get(component_id.as_str()) {
                             let state = component.get_state().await;
 
-                            // Set to Reconciling
+                            // Set to `Reconciling` to stop accepting new requests
                             component
                                 .set_state(crate::types::ComponentState::Reconciling)
                                 .await;
+
+                            // Wait for in-flight requests to drain
+                            debug!(
+                                workload_id = request.workload_id,
+                                component_id,
+                                in_flight = component.in_flight_count(),
+                                "waiting for in-flight requests to drain before restart"
+                            );
+
+                            if let Err(e) = component.wait_for_drain(drain_timeout).await {
+                                warn!(
+                                    workload_id = request.workload_id,
+                                    component_id,
+                                    error = ?e,
+                                    "drain timeout exceeded, restartig now"
+                                );
+                            }
 
                             // Unbind plugins if component is Running
                             if matches!(state, crate::types::ComponentState::Running) {
@@ -947,8 +967,33 @@ impl HostApi for Host {
                 let components_arc = resolved_workload.components();
                 let components = components_arc.write().await;
 
+                // Drain timeout for graceful shutdown
+                let drain_timeout = std::time::Duration::from_secs(30);
+
                 for component_id in component_ids {
                     if let Some(component) = components.get(component_id.as_str()) {
+                        // Set state to Reconciling to stop accepting new requests
+                        component
+                            .set_state(crate::types::ComponentState::Reconciling)
+                            .await;
+
+                        debug!(
+                            workload_id = request.workload_id,
+                            component_id,
+                            in_flight = component.in_flight_count(),
+                            "waiting for in-flight requests to drain"
+                        );
+
+                        // Wait for in-flight requests to complete
+                        if let Err(e) = component.wait_for_drain(drain_timeout).await {
+                            warn!(
+                                workload_id = request.workload_id,
+                                component_id,
+                                error = ?e,
+                                "drain timeout exceeded, proceeding with stop"
+                            );
+                        }
+
                         // Unbind plugins for this specific component
                         if let Some(plugins) = component.plugins() {
                             for (plugin_id, plugin) in plugins.iter() {

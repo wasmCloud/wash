@@ -1,0 +1,5 @@
+package wasmcloud:slow-http;
+
+world slow-http {
+   export wasi:http/incoming-handler@0.2.2;
+}
