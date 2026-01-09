@@ -87,6 +87,14 @@ pub struct DevVolume {
     pub guest_path: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevComponent {
+    // Name of the component
+    pub name: String,
+    // Path to the component file
+    pub file: PathBuf,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DevConfig {
     /// Address for the dev server to bind to (default: "0.0.0:8000")
@@ -97,11 +105,11 @@ pub struct DevConfig {
     #[serde(default)]
     pub service: bool,
     /// Optional path to a wasm component to be used as a service
-    pub service_path: Option<PathBuf>,
+    pub service_file: Option<PathBuf>,
 
     /// Additional components to load alongside the main component
     #[serde(default)]
-    pub components: Vec<PathBuf>,
+    pub components: Vec<DevComponent>,
 
     /// Volumes to mount into the dev environment
     #[serde(default)]

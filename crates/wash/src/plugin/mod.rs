@@ -4,7 +4,7 @@
 //! Plugins are WebAssembly components that extend wash functionality.
 
 use crate::{
-    cli::{CliContext, oci::OCI_CACHE_DIR},
+    cli::{CliContext, oci::OCI_CACHE_DIR, plugin},
     plugin::{
         bindings::{
             WashPlugin,
@@ -118,6 +118,7 @@ impl PluginManager {
                 annotations: HashMap::new(),
                 service: None,
                 components: vec![Component {
+                    name: plugin_name.to_string(),
                     bytes: plugin.into(),
                     local_resources: LocalResources {
                         volume_mounts: vec![VolumeMount {

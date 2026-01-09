@@ -482,6 +482,7 @@ fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result
         debug!("workload host interfaces: {:?}", host_interfaces);
 
         components.push(Component {
+            name: "wash-dev-component".to_string(),
             bytes,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
@@ -491,7 +492,7 @@ fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result
             max_invocations: -1,
         });
 
-        if let Some(service_path) = &dev_config.service_path {
+        if let Some(service_path) = &dev_config.service_file {
             match std::fs::read(service_path) {
                 Ok(service_bytes) => {
                     service = Some(Service {
@@ -502,7 +503,7 @@ fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result
                             ..Default::default()
                         },
                     });
-                    debug!(path = ?dev_config.service_path.as_ref().unwrap().display(), "added service component to workload");
+                    debug!(path = ?dev_config.service_file.as_ref().unwrap().display(), "added service component to workload");
                 }
                 Err(e) => {
                     return Err(e.into());
@@ -511,10 +512,11 @@ fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result
         }
     }
 
-    for comp_path in &dev_config.components {
-        match std::fs::read(comp_path) {
+    for dev_component in &dev_config.components {
+        match std::fs::read(&dev_component.file) {
             Ok(comp_bytes) => {
                 components.push(Component {
+                    name: dev_component.name.clone(),
                     bytes: Bytes::from(comp_bytes),
                     local_resources: LocalResources {
                         volume_mounts: volume_mounts.clone(),
@@ -523,7 +525,7 @@ fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result
                     pool_size: -1,
                     max_invocations: -1,
                 });
-                debug!(path = ?comp_path.display(), "added additional component to workload");
+                debug!(path = ?dev_component.file.display(), "added additional component to workload");
             }
             Err(e) => {
                 return Err(e.into());

@@ -8,4 +8,5 @@ dev:
   service: true
   # Loads a sample cron task
   components:
-    - ../cron-component/target/wasm32-wasip2/release/cron_component.wasm
+    - name: cron-component
+      file: ../cron-component/target/wasm32-wasip2/release/cron_component.wasm
