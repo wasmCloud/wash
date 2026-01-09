@@ -25,6 +25,7 @@ interface types {
         after-dev,
         /// Called to register a component's exports for use in `wash dev`
         /// This hook is deprecated and will be removed in future versions.
+        /// @deprecated(version = 0.0.2)
         dev-register,
     }
 

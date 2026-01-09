@@ -89,15 +89,15 @@ pub struct DevVolume {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DevComponent {
-    // Name of the component
+    /// Name of the component
     pub name: String,
-    // Path to the component file
+    /// Path to the component file
     pub file: PathBuf,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DevConfig {
-    /// Address for the dev server to bind to (default: "0.0.0:8000")
+    /// Address for the dev server to bind to (default: "0.0.0.0:8000")
     #[serde(skip_serializing_if = "Option::is_none")]
     pub address: Option<String>,
 
@@ -105,18 +105,19 @@ pub struct DevConfig {
     #[serde(default)]
     pub service: bool,
     /// Optional path to a wasm component to be used as a service
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub service_file: Option<PathBuf>,
 
     /// Additional components to load alongside the main component
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub components: Vec<DevComponent>,
 
     /// Volumes to mount into the dev environment
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub volumes: Vec<DevVolume>,
 
     /// Host interfaces configuration
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub host_interfaces: Vec<WitInterface>,
 
     #[serde(skip_serializing_if = "Option::is_none")]

@@ -130,10 +130,10 @@ impl CliCommand for DevCommand {
         ctx.call_hooks(HookType::BeforeDev, Arc::default()).await;
 
         let dev_config = config.dev();
-        let http_addr = match &dev_config.address {
-            Some(addr) => addr.clone(),
-            None => "0.0.0.0:8000".to_string(),
-        };
+        let http_addr = dev_config
+            .address
+            .clone()
+            .unwrap_or_else(|| "0.0.0.0:8000".to_string());
 
         let mut host_builder = Host::builder();
 
@@ -206,7 +206,7 @@ impl CliCommand for DevCommand {
         let host = host_builder.build()?.start().await?;
 
         // First run
-        let workload = create_workload(&host, &config, wasm_bytes.into())?;
+        let workload = create_workload(&host, &config, wasm_bytes.into()).await?;
         // Running workload ID for reloads
         let mut workload_id = reload_component(host.clone(), &workload, None).await?;
 
@@ -356,7 +356,7 @@ impl CliCommand for DevCommand {
                                 .context("failed to read component file")?;
 
 
-                            let workload = create_workload(&host, &config, wasm_bytes.into())?;
+                            let workload = create_workload(&host, &config, wasm_bytes.into()).await?;
 
                             workload_id = reload_component(
                                 host.clone(),
@@ -427,7 +427,7 @@ impl CliCommand for DevCommand {
 /// ## Arguments
 /// - `config`: The overall Wash configuration
 /// - `bytes`: The bytes of the component under development
-fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result<Workload> {
+async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result<Workload> {
     let dev_config = config.dev();
 
     let mut volumes = Vec::<Volume>::new();
@@ -493,44 +493,40 @@ fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::Result
         });
 
         if let Some(service_path) = &dev_config.service_file {
-            match std::fs::read(service_path) {
-                Ok(service_bytes) => {
-                    service = Some(Service {
-                        bytes: Bytes::from(service_bytes),
-                        max_restarts: 0,
-                        local_resources: LocalResources {
-                            volume_mounts: volume_mounts.clone(),
-                            ..Default::default()
-                        },
-                    });
-                    debug!(path = ?dev_config.service_file.as_ref().unwrap().display(), "added service component to workload");
-                }
-                Err(e) => {
-                    return Err(e.into());
-                }
-            }
+            let service_bytes = tokio::fs::read(service_path).await.with_context(|| {
+                format!("failed to read service file at {}", service_path.display())
+            })?;
+
+            service = Some(Service {
+                bytes: Bytes::from(service_bytes),
+                max_restarts: 0,
+                local_resources: LocalResources {
+                    volume_mounts: volume_mounts.clone(),
+                    ..Default::default()
+                },
+            });
         }
     }
 
     for dev_component in &dev_config.components {
-        match std::fs::read(&dev_component.file) {
-            Ok(comp_bytes) => {
-                components.push(Component {
-                    name: dev_component.name.clone(),
-                    bytes: Bytes::from(comp_bytes),
-                    local_resources: LocalResources {
-                        volume_mounts: volume_mounts.clone(),
-                        ..Default::default()
-                    },
-                    pool_size: -1,
-                    max_invocations: -1,
-                });
-                debug!(path = ?dev_component.file.display(), "added additional component to workload");
-            }
-            Err(e) => {
-                return Err(e.into());
-            }
-        }
+        let comp_bytes = tokio::fs::read(&dev_component.file)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to read component file at {}",
+                    dev_component.file.display()
+                )
+            })?;
+        components.push(Component {
+            name: dev_component.name.clone(),
+            bytes: Bytes::from(comp_bytes),
+            local_resources: LocalResources {
+                volume_mounts: volume_mounts.clone(),
+                ..Default::default()
+            },
+            pool_size: -1,
+            max_invocations: -1,
+        });
     }
 
     Ok(Workload {
