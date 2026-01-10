@@ -10,10 +10,13 @@ use std::{
 
 const WASI_KEYVALUE_ID: &str = "wasi-keyvalue";
 use tokio::sync::RwLock;
-use wasmtime::component::{HasSelf, Resource};
+use wasmtime::component::Resource;
 
 use crate::{
-    engine::{ctx::Ctx, workload::WorkloadComponent},
+    engine::{
+        ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
+        workload::WorkloadComponent,
+    },
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -64,7 +67,7 @@ impl WasiKeyvalue {
 }
 
 // Implementation for the store interface
-impl bindings::wasi::keyvalue::store::Host for Ctx {
+impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
     async fn open(
         &mut self,
         identifier: String,
@@ -94,7 +97,7 @@ impl bindings::wasi::keyvalue::store::Host for Ctx {
 }
 
 // Resource host trait implementations for bucket
-impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
+impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
     async fn get(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -269,7 +272,7 @@ impl bindings::wasi::keyvalue::store::HostBucket for Ctx {
 }
 
 // Implementation for the atomics interface
-impl bindings::wasi::keyvalue::atomics::Host for Ctx {
+impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
     async fn increment(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -320,7 +323,7 @@ impl bindings::wasi::keyvalue::atomics::Host for Ctx {
 }
 
 // Implementation for the batch interface
-impl bindings::wasi::keyvalue::batch::Host for Ctx {
+impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
     async fn get_many(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -458,9 +461,12 @@ impl HostPlugin for WasiKeyvalue {
         );
         let linker = component.linker();
 
-        bindings::wasi::keyvalue::store::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::atomics::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::keyvalue::batch::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::keyvalue::store::add_to_linker::<_, SharedCtx>(linker, extract_active_ctx)?;
+        bindings::wasi::keyvalue::atomics::add_to_linker::<_, SharedCtx>(
+            linker,
+            extract_active_ctx,
+        )?;
+        bindings::wasi::keyvalue::batch::add_to_linker::<_, SharedCtx>(linker, extract_active_ctx)?;
 
         let id = component.workload_id();
         tracing::debug!(

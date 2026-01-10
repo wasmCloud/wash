@@ -28,12 +28,14 @@
 use std::collections::HashSet;
 
 use anyhow::bail;
-use wasmtime::component::HasSelf;
 
 const WASI_LOGGING_ID: &str = "wasi-logging";
 
 use crate::{
-    engine::{ctx::Ctx, workload::WorkloadComponent},
+    engine::{
+        ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
+        workload::WorkloadComponent,
+    },
     plugin::{HostPlugin, wasi_logging::bindings::wasi::logging::logging::Level},
     wit::{WitInterface, WitWorld},
 };
@@ -52,7 +54,7 @@ mod bindings {
 /// processed and routed by the host's logging system.
 pub struct WasiLogging;
 
-impl bindings::wasi::logging::logging::Host for Ctx {
+impl<'a> bindings::wasi::logging::logging::Host for ActiveCtx<'a> {
     async fn log(&mut self, level: Level, context: String, message: String) -> anyhow::Result<()> {
         match level {
             Level::Critical => tracing::error!(id = &self.id, context, "{message}"),
@@ -101,9 +103,9 @@ impl HostPlugin for WasiLogging {
         }
 
         // Add `wasi:logging/logging` to the workload's linker
-        bindings::wasi::logging::logging::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasi::logging::logging::add_to_linker::<_, SharedCtx>(
             workload_handle.linker(),
-            |ctx| ctx,
+            extract_active_ctx,
         )?;
 
         Ok(())
