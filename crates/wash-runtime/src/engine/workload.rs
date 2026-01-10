@@ -60,7 +60,7 @@ pub struct WorkloadMetadata {
     /// Workload loopback
     loopback: Arc<std::sync::Mutex<loopback::Network>>,
     /// Linked component ids
-    linked_components: Vec<Arc<str>>,
+    linked_components: HashSet<Arc<str>>,
 }
 
 impl WorkloadMetadata {
@@ -581,18 +581,19 @@ impl ResolvedWorkload {
                     .context("component not found during import resolution")?
             };
 
-            let linked_components = if let Some(dependencies) = dependencies.get(&component_id) {
-                dependencies.iter().cloned().collect()
-            } else {
-                Vec::new()
-            };
-
             let component = workload_component.metadata.component.clone();
             let linker = &mut workload_component.metadata.linker;
-            let res = self
+            let res = match self
                 .resolve_component_imports(&component, linker, interface_map)
-                .await;
-            workload_component.linked_components = linked_components;
+                .await
+            {
+                Ok(linked_components) => {
+                    workload_component.linked_components = linked_components;
+                    Ok(())
+                }
+                Err(err) => Err(err),
+            };
+
             self.components
                 .write()
                 .await
@@ -605,9 +606,16 @@ impl ResolvedWorkload {
             let component = service.metadata.component.clone();
             let linker = &mut service.metadata.linker;
 
-            let res = self
+            let res = match self
                 .resolve_component_imports(&component, linker, interface_map)
-                .await;
+                .await
+            {
+                Ok(linked_components) => {
+                    service.metadata.linked_components = linked_components;
+                    Ok(())
+                }
+                Err(err) => Err(err),
+            };
 
             self.service = Some(service);
 
@@ -623,7 +631,8 @@ impl ResolvedWorkload {
         component: &wasmtime::component::Component,
         linker: &mut Linker<SharedCtx>,
         interface_map: &HashMap<String, Arc<str>>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<HashSet<Arc<str>>> {
+        let mut linked_components = HashSet::new();
         let ty = component.component_type();
         let imports: Vec<_> = ty.imports(component.engine()).collect();
 
@@ -710,6 +719,8 @@ impl ResolvedWorkload {
                                 let pre = pre.clone();
                                 let instance = instance.clone();
                                 let plugin_component_id = plugin_component.id.clone();
+
+                                linked_components.insert(plugin_component_id.clone());
 
                                 linker_instance
                                     .func_new_async(
@@ -897,7 +908,7 @@ impl ResolvedWorkload {
             }
         }
 
-        Ok(())
+        Ok(linked_components)
     }
 
     /// Gets the unique identifier of the workload
