@@ -17,7 +17,7 @@ use wasmtime_wasi_http::{WasiHttpCtx, WasiHttpView};
 
 use crate::plugin::HostPlugin;
 
-/// Shared context
+/// Shared context for linked components
 pub struct SharedCtx {
     /// Current active context
     pub active_ctx: Ctx,
