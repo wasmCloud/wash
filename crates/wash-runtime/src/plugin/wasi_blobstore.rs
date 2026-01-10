@@ -11,15 +11,17 @@ use std::{
 
 const WASI_BLOBSTORE_ID: &str = "wasi-blobstore";
 use tokio::sync::RwLock;
-use wasmtime::component::{HasSelf, Resource};
+use wasmtime::component::Resource;
 use wasmtime_wasi::p2::{
     InputStream, OutputStream,
     pipe::{MemoryInputPipe, MemoryOutputPipe},
 };
 
 use crate::{
-    engine::ctx::Ctx,
-    engine::workload::WorkloadComponent,
+    engine::{
+        ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
+        workload::WorkloadComponent,
+    },
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -108,7 +110,7 @@ impl WasiBlobstore {
 }
 
 // Implementation for the main blobstore interface
-impl bindings::wasi::blobstore::blobstore::Host for Ctx {
+impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
     async fn create_container(
         &mut self,
         name: ContainerName,
@@ -269,7 +271,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
 }
 
 // Resource host trait implementations - these handle the lifecycle of each resource type
-impl bindings::wasi::blobstore::container::HostContainer for Ctx {
+impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     async fn name(
         &mut self,
         container: Resource<String>,
@@ -591,7 +593,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::container::HostStreamObjectNames for Ctx {
+impl<'a> bindings::wasi::blobstore::container::HostStreamObjectNames for ActiveCtx<'a> {
     async fn read_stream_object_names(
         &mut self,
         stream: Resource<StreamObjectNamesHandle>,
@@ -649,7 +651,7 @@ impl bindings::wasi::blobstore::container::HostStreamObjectNames for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
+impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<OutgoingValueHandle>> {
         tracing::debug!(workload_id = self.id, "Creating new OutgoingValue");
 
@@ -699,7 +701,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         let handle = match self.table.get_mut(&outgoing_value) {
             Ok(h) => {
                 tracing::debug!(
-                    workload_id = self.id,
+                    workload_id = self.ctx.id,
                     "Successfully retrieved OutgoingValueHandle from table"
                 );
                 h
@@ -715,7 +717,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
         };
 
         tracing::debug!(
-            workload_id = self.id,
+            workload_id = self.ctx.id,
             "Creating boxed OutputStream from pipe"
         );
 
@@ -836,7 +838,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::types::HostIncomingValue for Ctx {
+impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
     async fn incoming_value_consume_sync(
         &mut self,
         incoming_value: Resource<IncomingValueHandle>,
@@ -898,10 +900,10 @@ impl bindings::wasi::blobstore::types::HostIncomingValue for Ctx {
 // traits are sealed and can only be implemented on &mut _T types.
 
 // Implement the main types Host trait that combines all resource types
-impl bindings::wasi::blobstore::types::Host for Ctx {}
+impl<'a> bindings::wasi::blobstore::types::Host for ActiveCtx<'a> {}
 
 // Implement the main container Host trait that combines all resource types
-impl bindings::wasi::blobstore::container::Host for Ctx {}
+impl<'a> bindings::wasi::blobstore::container::Host for ActiveCtx<'a> {}
 
 #[async_trait::async_trait]
 impl HostPlugin for WasiBlobstore {
@@ -944,9 +946,18 @@ impl HostPlugin for WasiBlobstore {
         );
         let linker = workload_handle.linker();
 
-        bindings::wasi::blobstore::blobstore::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::container::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::types::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::blobstore::add_to_linker::<_, SharedCtx>(
+            linker,
+            extract_active_ctx,
+        )?;
+        bindings::wasi::blobstore::container::add_to_linker::<_, SharedCtx>(
+            linker,
+            extract_active_ctx,
+        )?;
+        bindings::wasi::blobstore::types::add_to_linker::<_, SharedCtx>(
+            linker,
+            extract_active_ctx,
+        )?;
 
         let id = workload_handle.workload_id();
 

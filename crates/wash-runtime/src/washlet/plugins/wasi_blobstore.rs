@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::washlet::plugins::WorkloadTracker;
@@ -11,7 +11,7 @@ use async_nats::jetstream::object_store::{self, List, Object, ObjectStore};
 use futures::StreamExt;
 use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
-use wasmtime::component::{HasSelf, Resource};
+use wasmtime::component::Resource;
 use wasmtime_wasi::p2::pipe::{AsyncReadStream, AsyncWriteStream};
 use wasmtime_wasi::p2::{InputStream, OutputStream};
 
@@ -122,7 +122,7 @@ impl WasiBlobstore {
 }
 
 // Implementation for the main blobstore interface
-impl bindings::wasi::blobstore::blobstore::Host for Ctx {
+impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
     async fn create_container(
         &mut self,
         name: ContainerName,
@@ -330,7 +330,7 @@ impl bindings::wasi::blobstore::blobstore::Host for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::container::HostContainer for Ctx {
+impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     async fn name(
         &mut self,
         container: Resource<ContainerData>,
@@ -581,7 +581,7 @@ impl bindings::wasi::blobstore::container::HostContainer for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::container::HostStreamObjectNames for Ctx {
+impl<'a> bindings::wasi::blobstore::container::HostStreamObjectNames for ActiveCtx<'a> {
     async fn read_stream_object_names(
         &mut self,
         stream: Resource<StreamObjectNamesHandle>,
@@ -642,7 +642,7 @@ impl bindings::wasi::blobstore::container::HostStreamObjectNames for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
+impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<OutgoingValueHandle>> {
         let temp_file = tempfile::Builder::new()
             .tempfile()
@@ -720,7 +720,7 @@ impl bindings::wasi::blobstore::types::HostOutgoingValue for Ctx {
     }
 }
 
-impl bindings::wasi::blobstore::types::HostIncomingValue for Ctx {
+impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
     async fn incoming_value_consume_sync(
         &mut self,
         incoming_value: Resource<IncomingValueHandle>,
@@ -765,10 +765,10 @@ impl bindings::wasi::blobstore::types::HostIncomingValue for Ctx {
 }
 
 // Implement the main types Host trait that combines all resource types
-impl bindings::wasi::blobstore::types::Host for Ctx {}
+impl<'a> bindings::wasi::blobstore::types::Host for ActiveCtx<'a> {}
 
 // Implement the main container Host trait that combines all resource types
-impl bindings::wasi::blobstore::container::Host for Ctx {}
+impl<'a> bindings::wasi::blobstore::container::Host for ActiveCtx<'a> {}
 
 #[async_trait::async_trait]
 impl HostPlugin for WasiBlobstore {
@@ -803,9 +803,18 @@ impl HostPlugin for WasiBlobstore {
         );
         let linker = component_handle.linker();
 
-        bindings::wasi::blobstore::blobstore::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::container::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
-        bindings::wasi::blobstore::types::add_to_linker::<_, HasSelf<Ctx>>(linker, |ctx| ctx)?;
+        bindings::wasi::blobstore::blobstore::add_to_linker::<_, SharedCtx>(
+            linker,
+            extract_active_ctx,
+        )?;
+        bindings::wasi::blobstore::container::add_to_linker::<_, SharedCtx>(
+            linker,
+            extract_active_ctx,
+        )?;
+        bindings::wasi::blobstore::types::add_to_linker::<_, SharedCtx>(
+            linker,
+            extract_active_ctx,
+        )?;
 
         Ok(())
     }

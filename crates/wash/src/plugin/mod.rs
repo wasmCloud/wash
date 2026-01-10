@@ -23,7 +23,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 use wash_runtime::{
     engine::{
-        ctx::Ctx,
+        ctx::{SharedCtx, extract_active_ctx},
         workload::{ResolvedWorkload, WorkloadComponent},
     },
     host::HostApi,
@@ -35,7 +35,6 @@ use wash_runtime::{
     },
     wit::{WitInterface, WitWorld},
 };
-use wasmtime::component::HasSelf;
 
 pub mod bindings;
 pub mod runner;
@@ -278,9 +277,9 @@ impl HostPlugin for PluginManager {
         );
 
         // Add the types interface (provides runner, context, etc. to components that import wasmcloud:wash/types)
-        bindings::wasmcloud::wash::types::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasmcloud::wash::types::add_to_linker::<_, SharedCtx>(
             component.linker(),
-            |ctx| ctx,
+            extract_active_ctx,
         )?;
 
         Ok(())

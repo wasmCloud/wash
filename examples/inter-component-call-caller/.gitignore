@@ -1,0 +1,11 @@
+# Rust build artifacts
+target/
+
+# wash config
+.wash
+
+# WIT dependencies
+wit/deps
+
+# Trash
+.DS_Store
