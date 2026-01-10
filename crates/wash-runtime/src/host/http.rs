@@ -25,7 +25,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
 use anyhow::{Context, ensure};
@@ -290,7 +290,7 @@ impl HostHandler for NullServer {
 
 /// A map from host header to resolved workload handles and their associated component id
 pub type WorkloadHandles =
-    Arc<RwLock<HashMap<String, (ResolvedWorkload, InstancePre<Ctx>, String)>>>;
+    Arc<RwLock<HashMap<String, (ResolvedWorkload, InstancePre<SharedCtx>, String)>>>;
 
 /// HTTP server plugin that handles incoming HTTP requests for WebAssembly components.
 ///
@@ -598,7 +598,7 @@ async fn handle_http_request<T: Router>(
 /// Invoke the component handler for the given workload
 async fn invoke_component_handler(
     workload_handle: ResolvedWorkload,
-    instance_pre: InstancePre<Ctx>,
+    instance_pre: InstancePre<SharedCtx>,
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
@@ -610,8 +610,8 @@ async fn invoke_component_handler(
 
 /// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)
 pub async fn handle_component_request(
-    mut store: Store<Ctx>,
-    pre: InstancePre<Ctx>,
+    mut store: Store<SharedCtx>,
+    pre: InstancePre<SharedCtx>,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     let (sender, receiver) = tokio::sync::oneshot::channel();

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::{ResolvedWorkload, WorkloadComponent};
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
@@ -23,7 +23,6 @@ mod bindings {
 
 use bindings::wasmcloud::messaging::consumer::Host;
 use bindings::wasmcloud::messaging::types;
-use wasmtime::component::HasSelf;
 
 use crate::washlet::plugins::WorkloadTracker;
 
@@ -47,7 +46,7 @@ impl WasmcloudMessaging {
     }
 }
 
-impl Host for Ctx {
+impl<'a> Host for ActiveCtx<'a> {
     #[instrument(level = "debug", skip_all, fields(subject = %subject, timeout_ms))]
     async fn request(
         &mut self,
@@ -107,7 +106,7 @@ impl Host for Ctx {
     }
 }
 
-impl types::Host for Ctx {}
+impl<'a> types::Host for ActiveCtx<'a> {}
 
 #[async_trait::async_trait]
 impl HostPlugin for WasmcloudMessaging {
@@ -137,13 +136,13 @@ impl HostPlugin for WasmcloudMessaging {
             return Ok(());
         };
 
-        bindings::wasmcloud::messaging::types::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasmcloud::messaging::types::add_to_linker::<_, SharedCtx>(
             component_handle.linker(),
-            |ctx| ctx,
+            extract_active_ctx,
         )?;
-        bindings::wasmcloud::messaging::consumer::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasmcloud::messaging::consumer::add_to_linker::<_, SharedCtx>(
             component_handle.linker(),
-            |ctx| ctx,
+            extract_active_ctx,
         )?;
 
         if interface.interfaces.iter().any(|i| i == "handler") {

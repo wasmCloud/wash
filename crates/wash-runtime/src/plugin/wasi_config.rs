@@ -22,10 +22,12 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
-use wasmtime::component::HasSelf;
 
 use crate::{
-    engine::{ctx::Ctx, workload::WorkloadComponent},
+    engine::{
+        ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
+        workload::WorkloadComponent,
+    },
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -54,7 +56,7 @@ pub struct WasiConfig {
     config: Arc<RwLock<ConfigMap>>,
 }
 
-impl Host for Ctx {
+impl<'a> Host for ActiveCtx<'a> {
     async fn get(
         &mut self,
         key: String,
@@ -114,9 +116,9 @@ impl HostPlugin for WasiConfig {
         };
 
         // Add `wasi:config/store` to the workload's linker
-        bindings::wasi::config::store::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasi::config::store::add_to_linker::<_, SharedCtx>(
             component_handle.linker(),
-            |ctx| ctx,
+            extract_active_ctx,
         )?;
 
         // Store the configuration for lookups later

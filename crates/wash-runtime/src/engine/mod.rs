@@ -44,7 +44,7 @@ use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
 use wasmtime_wasi::sockets::loopback;
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent, WorkloadService};
 use crate::types::{EmptyDirVolume, HostPathVolume, VolumeType, Workload};
 use std::{path::PathBuf, sync::Arc};
@@ -216,7 +216,7 @@ impl Engine {
             .context("failed to create component from bytes")?;
 
         // Create a linker for this component
-        let mut linker: Linker<Ctx> = Linker::new(&self.inner);
+        let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);
 
         // Add WASI@0.2 interfaces to the linker
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)
@@ -271,7 +271,7 @@ impl Engine {
             .context("failed to create component from bytes")?;
 
         // Create a linker for this component
-        let mut linker: Linker<Ctx> = Linker::new(&self.inner);
+        let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);
 
         // Add WASI@0.2 interfaces to the linker
         wasmtime_wasi::p2::add_to_linker_async(&mut linker)

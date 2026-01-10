@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
@@ -25,7 +25,6 @@ mod bindings {
 
 use bindings::wasi::logging::logging::Level;
 use tokio::sync::RwLock;
-use wasmtime::component::HasSelf;
 
 type ComponentMap = Arc<RwLock<HashMap<String, ComponentInfo>>>;
 
@@ -40,7 +39,7 @@ struct ComponentInfo {
     component_id: String,
 }
 
-impl bindings::wasi::logging::logging::Host for Ctx {
+impl<'a> bindings::wasi::logging::logging::Host for ActiveCtx<'a> {
     async fn log(&mut self, level: Level, context: String, message: String) -> anyhow::Result<()> {
         let Some(plugin) = self.get_plugin::<TracingLogging>(PLUGIN_LOGGING_ID) else {
             bail!("TracingLogging plugin not found in context");
@@ -148,9 +147,9 @@ impl HostPlugin for TracingLogging {
         }
 
         // Add `wasi:logging/logging` to the workload's linker
-        bindings::wasi::logging::logging::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasi::logging::logging::add_to_linker::<_, SharedCtx>(
             component.linker(),
-            |ctx| ctx,
+            extract_active_ctx,
         )?;
 
         self.components.write().await.insert(
