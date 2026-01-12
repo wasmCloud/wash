@@ -1,5 +1,5 @@
 [package]
-name = "inter-component-call-sender"
+name = "inter-component-call-caller"
 edition = "2024"
 version = "0.1.0"
 

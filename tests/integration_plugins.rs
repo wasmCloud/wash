@@ -48,7 +48,6 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     let oauth_plugin_path = PathBuf::from("plugins/oauth");
 
     let test_cmd_basic = TestCommand {
-        plugin: oauth_plugin_path.clone(),
         args: vec!["--help".to_string()],
         hooks: vec![],
     };
@@ -93,7 +92,6 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     };
 
     let test_cmd_with_command = TestCommand {
-        plugin: inspect_plugin_path.clone(),
         args: vec![component_arg.clone()],
         hooks: vec![],
     };
@@ -123,7 +121,6 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     // Test 3: Plugin test with --hook afterdev
     eprintln!("🔍 Test 3: Plugin test with AfterDev hook");
     let test_cmd_with_hook = TestCommand {
-        plugin: inspect_plugin_path.clone(),
         args: vec![],
         hooks: vec![HookType::AfterDev],
     };
@@ -143,7 +140,6 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     // Test 4: Plugin test with both command and AfterDev hook
     eprintln!("🔍 Test 4: Plugin test with both component inspection and AfterDev hook");
     let test_cmd_with_both = TestCommand {
-        plugin: inspect_plugin_path.clone(),
         args: vec![component_arg.clone()],
         hooks: vec![HookType::AfterDev],
     };

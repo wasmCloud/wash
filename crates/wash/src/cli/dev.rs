@@ -34,39 +34,23 @@ use wash_runtime::{
 use crate::{
     cli::{
         CliCommand, CliContext, CommandOutput,
-        component_build::build_component,
+        component_build::build_dev_component,
         doctor::{ProjectContext, check_project_specific_tools, detect_project_context},
     },
-    component_build::BuildConfig,
     config::{Config, load_config},
     plugin::bindings::wasmcloud::wash::types::HookType,
 };
 
 #[derive(Debug, Clone, Args)]
-pub struct DevCommand {
-    /// The path to the built Wasm file to be used in development
-    #[clap(long = "component-path")]
-    pub component_path: Option<PathBuf>,
-}
+pub struct DevCommand {}
 
 impl CliCommand for DevCommand {
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let project_dir = ctx.project_dir();
         info!(path = ?project_dir, "starting development session for project");
 
-        let config = load_config(
-            &ctx.user_config_path(),
-            Some(project_dir),
-            // Override the component path with the one provided in the command line
-            Some(Config {
-                build: Some(BuildConfig {
-                    component_path: self.component_path.clone(),
-                    ..Default::default()
-                }),
-                ..Default::default()
-            }),
-        )
-        .context("failed to load config for development")?;
+        let config = load_config(&ctx.user_config_path(), Some(project_dir), None::<Config>)
+            .context("failed to load config for development")?;
 
         // Check for required tools (e.g., wasmCloud, WIT)
         let project_context = detect_project_context(project_dir)
@@ -93,21 +77,9 @@ impl CliCommand for DevCommand {
             debug!("no recommendations found for project tools");
         }
 
-        let component_path = match build_component(project_dir, ctx, &config, None).await {
+        let component_path = match build_dev_component(ctx, &config).await {
             // Edge case where the build was successful, but the component path in the config is different
             // than the one returned by the build process.
-            Ok(build_result)
-                if config
-                    .build
-                    .as_ref()
-                    .and_then(|b| b.component_path.as_ref())
-                    .is_some_and(|p| p != &build_result.component_path) =>
-            {
-                warn!(path = ?build_result.component_path, "component built successfully, but component path in config is different");
-                // Ensure the component path is set in the config
-                build_result.component_path
-            }
-            // Use the build result component path if the config does not specify one
             Ok(build_result) => {
                 debug!(path = ?build_result.component_path, "component built successfully, using as component path");
                 build_result.component_path
@@ -120,6 +92,10 @@ impl CliCommand for DevCommand {
             }
         };
 
+        debug!(
+            component_path = ?component_path.display(),
+            "using component path for dev session"
+        );
         // Deploy to local host
         let wasm_bytes = tokio::fs::read(&component_path)
             .await
@@ -337,11 +313,9 @@ impl CliCommand for DevCommand {
                         debug!("WIT-related files changed, fetching WIT dependencies");
                     }
 
-                    let rebuild_result = build_component(
-                        project_dir,
+                    let rebuild_result = build_dev_component(
                         ctx,
                         &rebuild_config,
-                        None,
                     ).await;
 
                     match rebuild_result {
@@ -479,7 +453,6 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
                 None => host_interfaces.push(interface),
             }
         }
-        debug!("workload host interfaces: {:?}", host_interfaces);
 
         components.push(Component {
             name: "wash-dev-component".to_string(),
@@ -517,6 +490,22 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
                     dev_component.file.display()
                 )
             })?;
+
+        let comp_interfaces = host
+            .intersect_interfaces(&comp_bytes)
+            .context("failed to extract component interfaces")?;
+
+        // Merge component interfaces into host_interfaces
+        for interface in comp_interfaces {
+            match host_interfaces
+                .iter()
+                .find(|i| i.namespace == interface.namespace && i.package == interface.package)
+            {
+                Some(_) => {}
+                None => host_interfaces.push(interface),
+            }
+        }
+
         components.push(Component {
             name: dev_component.name.clone(),
             bytes: Bytes::from(comp_bytes),
@@ -528,6 +517,8 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
             max_invocations: -1,
         });
     }
+
+    debug!("workload host interfaces: {:?}", host_interfaces);
 
     Ok(Workload {
         namespace: "default".to_string(),

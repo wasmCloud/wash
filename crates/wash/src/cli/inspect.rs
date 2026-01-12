@@ -1,11 +1,8 @@
 use clap::Args;
-use tracing::{info, instrument};
-use wash_runtime::oci::{OciConfig, pull_component};
+use tracing::instrument;
 
 use crate::{
-    cli::{
-        CliCommand, CliContext, CommandOutput, component_build::build_component, oci::OCI_CACHE_DIR,
-    },
+    cli::{CliCommand, CliContext, CommandOutput},
     inspect::{decode_component, get_component_wit},
 };
 use anyhow::Context;
@@ -13,95 +10,37 @@ use std::path::Path;
 
 #[derive(Args, Debug, Clone)]
 pub struct InspectCommand {
-    /// Inspect a component by its reference, which can be a local file path, project directory, or remote OCI reference.
-    /// If omitted or pointing to a directory, attempts to build and inspect a component from that directory.
-    #[clap(name = "component_reference")]
-    pub component_reference: Option<String>,
+    /// Inspect a component at a given path.
+    #[arg(value_name = "COMPONENT_PATH")]
+    pub component_reference: String,
 }
 
 impl CliCommand for InspectCommand {
     #[instrument(level = "debug", skip_all, name = "inspect")]
-    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, _ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         // Handle the optional component reference - default to current directory if not provided
-        let component_reference = match &self.component_reference {
-            Some(reference) => reference.clone(),
-            None => ".".to_string(),
-        };
+        let component_reference = &self.component_reference;
 
         let path = Path::new(&component_reference);
 
         let bytes = if path.exists() {
             if path.is_file() {
-                // Direct file path - load it
-                info!(?component_reference, "loading component from file");
                 tokio::fs::read(&component_reference)
                     .await
                     .context("failed to read component file")?
             } else if path.is_dir() {
-                // Directory - check if it's a project and build it
-                info!(
-                    ?component_reference,
-                    "directory detected, checking if it's a project"
+                anyhow::bail!(
+                    "Directory '{}' specified. Please provide a file path.",
+                    component_reference
                 );
-
-                // Check for project files
-                let project_files = [
-                    "Cargo.toml",
-                    "go.mod",
-                    "package.json",
-                    "wasmcloud.toml",
-                    ".wash/config.yaml",
-                ];
-                let is_project = project_files.iter().any(|file| path.join(file).exists());
-
-                if is_project {
-                    info!(
-                        ?component_reference,
-                        "project directory detected, building component"
-                    );
-
-                    // Load project config and build the component
-                    let config = ctx
-                        .ensure_config(Some(path))
-                        .await
-                        .context("Failed to load project configuration")?;
-
-                    let build_result = build_component(path, ctx, &config, None)
-                        .await
-                        .context("Failed to build component from project directory")?;
-
-                    info!(component_path = ?build_result.component_path, "Component built successfully");
-
-                    // Read the built component
-                    tokio::fs::read(&build_result.component_path)
-                        .await
-                        .context("Failed to read built component file")?
-                } else {
-                    return Err(anyhow::anyhow!(
-                        "Directory '{}' does not appear to be a project (no Cargo.toml, go.mod, package.json, wasmcloud.toml, or .wash/config.yaml found)",
-                        component_reference
-                    ));
-                }
             } else {
-                return Err(anyhow::anyhow!(
+                anyhow::bail!(
                     "Path '{}' exists but is neither a file nor directory",
                     component_reference
-                ));
+                );
             }
         } else {
-            info!(
-                ?component_reference,
-                "Path does not exist locally, attempting to pull from remote"
-            );
-            // Pull component from remote
-            let (component_data, _) = pull_component(
-                &component_reference,
-                OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR)),
-            )
-            .await
-            .context("Failed to pull component from remote")?;
-
-            component_data
+            anyhow::bail!("Path '{}' does not exist locally", component_reference);
         };
 
         let component = decode_component(bytes.as_slice())

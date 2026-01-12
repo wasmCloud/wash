@@ -1,7 +1,6 @@
 build:
-  rust:
-    target: wasm32-wasip2
-    release: true
+  command: cargo build --target wasm32-wasip2 --release
+  component_path: target/wasm32-wasip2/release/cron_component.wasm
 
 dev:
   # bind to another port so it doesnt collide with cron-service dev
