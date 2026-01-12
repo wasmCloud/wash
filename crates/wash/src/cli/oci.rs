@@ -73,6 +73,10 @@ impl PullCommand {
             && let Some(ref password) = self.password
         {
             oci_config.credentials = Some((user.clone(), password.clone()));
+        } else {
+            if self.user.as_ref().or(self.password.as_ref()).is_some() {
+                tracing::warn!("username or password provided without the other");
+            }
         }
 
         let (c, digest) = pull_component(&self.reference, oci_config).await?;
@@ -181,6 +185,10 @@ impl PushCommand {
             && let Some(ref password) = self.password
         {
             oci_config.credentials = Some((user.clone(), password.clone()));
+        } else {
+            if self.user.as_ref().or(self.password.as_ref()).is_some() {
+                tracing::warn!("username or password provided without the other");
+            }
         }
 
         let digest = push_component(
