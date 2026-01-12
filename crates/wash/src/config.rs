@@ -11,6 +11,7 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use wash_runtime::wit::WitInterface;
 
 use crate::{
     cli::{CONFIG_DIR_NAME, CONFIG_FILE_NAME, VALID_CONFIG_FILES},
@@ -36,6 +37,10 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<BuildConfig>,
 
+    /// Wash dev configuration (default: empty/optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev: Option<DevConfig>,
+
     /// WIT dependency management configuration (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wit: Option<WitConfig>,
@@ -48,6 +53,7 @@ impl Default for Config {
         Config {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             build: None,
+            dev: None,
             wit: None,
         }
     }
@@ -63,6 +69,66 @@ impl Config {
         }
         PathBuf::from("wit")
     }
+
+    /// Get the development configuration, defaulting to [DevConfig::default()] if not set
+    pub fn dev(&self) -> DevConfig {
+        match &self.dev {
+            Some(dev) => dev.clone(),
+            None => DevConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevVolume {
+    /// Host path to mount
+    pub host_path: PathBuf,
+    /// Guest path inside the dev environment
+    pub guest_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevComponent {
+    /// Name of the component
+    pub name: String,
+    /// Path to the component file
+    pub file: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DevConfig {
+    /// Address for the dev server to bind to (default: "0.0.0.0:8000")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+
+    /// Whether the component under development should be treated as a service
+    #[serde(default)]
+    pub service: bool,
+    /// Optional path to a wasm component to be used as a service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_file: Option<PathBuf>,
+
+    /// Additional components to load alongside the main component
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub components: Vec<DevComponent>,
+
+    /// Volumes to mount into the dev environment
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes: Vec<DevVolume>,
+
+    /// Host interfaces configuration
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub host_interfaces: Vec<WitInterface>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_cert_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_key_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_ca_path: Option<PathBuf>,
+
+    #[serde(default)]
+    pub wasi_webgpu: bool,
 }
 
 /// Load configuration with hierarchical merging

@@ -14,7 +14,6 @@ use crate::{
     },
 };
 use anyhow::{Context as _, bail};
-use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -119,6 +118,7 @@ impl PluginManager {
                 annotations: HashMap::new(),
                 service: None,
                 components: vec![Component {
+                    name: plugin_name.to_string(),
                     bytes: plugin.into(),
                     local_resources: LocalResources {
                         volume_mounts: vec![VolumeMount {
@@ -440,12 +440,6 @@ impl PluginComponent {
             .call_run(&mut store, command_runner, command)
             .await?
             .map_err(|e| anyhow::anyhow!(e))
-    }
-
-    /// Retrieve the original component [`Bytes`] of an installed plugin
-    pub async fn get_original_component(&self, ctx: &CliContext) -> anyhow::Result<Bytes> {
-        let path = self.path(ctx);
-        Ok(tokio::fs::read(path).await.map(Bytes::from_owner)?)
     }
 
     pub fn metadata(&self) -> &Metadata {

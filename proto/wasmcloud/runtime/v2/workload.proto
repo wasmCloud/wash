@@ -88,6 +88,7 @@ message Component {
   sint32 max_invocations = 4;
   // Optional credentials for pulling the image from a private registry
   ImagePullSecret image_pull_secret = 5;
+  string name = 6;
 }
 
 message LocalResources {

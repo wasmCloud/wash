@@ -57,6 +57,7 @@ pub struct Service {
 /// Components can be pooled for concurrent execution and have invocation limits.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct Component {
+    pub name: String,
     pub bytes: Bytes,
     pub local_resources: LocalResources,
     pub pool_size: i32,

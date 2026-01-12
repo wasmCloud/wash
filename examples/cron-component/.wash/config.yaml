@@ -2,3 +2,9 @@ build:
   rust:
     target: wasm32-wasip2
     release: true
+
+dev:
+  # bind to another port so it doesnt collide with cron-service dev
+  address: 0.0.0.0:8001
+  # We need a service to call the cron component.
+  service_file: ../cron-service/target/wasm32-wasip2/release/cron-service.wasm

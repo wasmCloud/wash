@@ -287,6 +287,7 @@ impl Engine {
             workload_id.as_ref(),
             workload_name.as_ref(),
             workload_namespace.as_ref(),
+            component.name,
             wasmtime_component,
             linker,
             component_volume_mounts,

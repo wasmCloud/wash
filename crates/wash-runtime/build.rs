@@ -27,7 +27,13 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
     let fixtures_dir = workspace_dir.join("crates/wash-runtime/tests/fixtures");
 
     // Create fixtures directory if it doesn't exist
-    fs::create_dir_all(&fixtures_dir)?;
+    if fs::create_dir_all(&fixtures_dir).is_err() {
+        println!(
+            "Failed to create fixtures directory at {}. Some tests will fail.",
+            fixtures_dir.display()
+        );
+        return Ok(());
+    }
 
     if !examples_dir.exists() {
         println!("No examples dir found at {}", examples_dir.display());
@@ -66,8 +72,6 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
             continue;
         }
 
-        println!("cargo:warning=Building example: {}", name);
-
         // Build the example
         let status = Command::new("cargo")
             .args(["build", "--target", "wasm32-wasip2", "--release"])
@@ -101,18 +105,14 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
         }
     }
 
-    println!("cargo:warning=Finished building fixtures.");
     Ok(())
 }
 
 fn check_and_rebuild_fixtures(workspace_dir: &Path) -> anyhow::Result<()> {
     let examples_dir = workspace_dir.join("examples");
-    let fixtures_dir = workspace_dir.join("crates/wash-runtime/tests/fixtures");
 
-    // Tell cargo to rerun this build script if examples change
+    // Tell cargo to rerun this build script if (only) example source files change
     if examples_dir.exists() {
-        println!("cargo:rerun-if-changed={}", examples_dir.display());
-
         // Track specific example directories we care about
         let tracked_examples = [
             "http-counter",
@@ -124,15 +124,25 @@ fn check_and_rebuild_fixtures(workspace_dir: &Path) -> anyhow::Result<()> {
         for example in tracked_examples {
             let example_dir = examples_dir.join(example);
             if example_dir.exists() {
-                println!("cargo:rerun-if-changed={}", example_dir.display());
+                // Only watch source files and Cargo.toml
+                println!(
+                    "cargo:rerun-if-changed={}/Cargo.toml",
+                    example_dir.display()
+                );
+
+                let src_dir = example_dir.join("src");
+                if src_dir.exists() {
+                    println!("cargo:rerun-if-changed={}", src_dir.display());
+                }
+
+                let wit_dir = example_dir.join("wit");
+                if wit_dir.exists() {
+                    println!("cargo:rerun-if-changed={}", wit_dir.display());
+                }
             }
         }
     }
 
-    // Also rerun if fixtures themselves are missing/changed
-    println!("cargo:rerun-if-changed={}", fixtures_dir.display());
-
-    println!("cargo:warning=Rebuilding test fixtures from examples...");
     build_fixtures_rust(workspace_dir)?;
 
     Ok(())

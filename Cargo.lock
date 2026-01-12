@@ -6360,7 +6360,6 @@ version = "2.0.0-rc.5"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64 0.22.1",
  "bytes",
  "chrono",
  "clap",
@@ -6452,6 +6451,7 @@ dependencies = [
  "wasmtime-wasi",
  "wasmtime-wasi-http",
  "wasmtime-wasi-io",
+ "wat",
  "wit-component 0.235.0",
 ]
 
