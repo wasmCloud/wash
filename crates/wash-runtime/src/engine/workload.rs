@@ -20,7 +20,7 @@ use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 
 use crate::{
     engine::{
-        ctx::Ctx,
+        ctx::{Ctx, SharedCtx},
         value::{lift, lower},
     },
     plugin::HostPlugin,
@@ -50,7 +50,7 @@ pub struct WorkloadMetadata {
     /// The actual wasmtime [`Component`] that can be instantiated
     component: Component,
     /// The wasmtime [`Linker`] used to instantiate the component
-    linker: Linker<Ctx>,
+    linker: Linker<SharedCtx>,
     /// The volume mounts requested by this component
     volume_mounts: Vec<(PathBuf, VolumeMount)>,
     /// The local resources requested by this component
@@ -59,6 +59,8 @@ pub struct WorkloadMetadata {
     plugins: Option<HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>>,
     /// Workload loopback
     loopback: Arc<std::sync::Mutex<loopback::Network>>,
+    /// Linked component ids
+    linked_components: HashSet<Arc<str>>,
 }
 
 impl WorkloadMetadata {
@@ -88,7 +90,7 @@ impl WorkloadMetadata {
     }
 
     /// Returns a mutable reference to the component's linker.
-    pub fn linker(&mut self) -> &mut Linker<Ctx> {
+    pub fn linker(&mut self) -> &mut Linker<SharedCtx> {
         &mut self.linker
     }
 
@@ -228,7 +230,7 @@ impl WorkloadService {
         workload_name: impl Into<Arc<str>>,
         workload_namespace: impl Into<Arc<str>>,
         component: Component,
-        linker: Linker<Ctx>,
+        linker: Linker<SharedCtx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
         local_resources: LocalResources,
         max_restarts: u64,
@@ -246,6 +248,7 @@ impl WorkloadService {
                 local_resources,
                 plugins: None,
                 loopback,
+                linked_components: Default::default(),
             },
             handle: None,
             max_restarts,
@@ -253,7 +256,7 @@ impl WorkloadService {
     }
 
     /// Pre-instantiate the component to prepare for execution.
-    pub fn pre_instantiate(&mut self) -> anyhow::Result<CommandPre<Ctx>> {
+    pub fn pre_instantiate(&mut self) -> anyhow::Result<CommandPre<SharedCtx>> {
         let component = self.metadata.component.clone();
         let pre = self.metadata.linker.instantiate_pre(&component)?;
         let command = CommandPre::new(pre)?;
@@ -294,7 +297,7 @@ impl WorkloadComponent {
         workload_namespace: impl Into<Arc<str>>,
         component_name: impl Into<Arc<str>>,
         component: Component,
-        linker: Linker<Ctx>,
+        linker: Linker<SharedCtx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
         local_resources: LocalResources,
         loopback: Arc<std::sync::Mutex<loopback::Network>>,
@@ -311,6 +314,7 @@ impl WorkloadComponent {
                 local_resources,
                 plugins: None,
                 loopback,
+                linked_components: Default::default(),
             },
             name: component_name.into(),
             // TODO: Implement pooling and instance limits
@@ -320,7 +324,7 @@ impl WorkloadComponent {
     }
 
     /// Pre-instantiate the component to prepare for instantiation.
-    pub fn pre_instantiate(&mut self) -> anyhow::Result<InstancePre<Ctx>> {
+    pub fn pre_instantiate(&mut self) -> anyhow::Result<InstancePre<SharedCtx>> {
         let component = self.metadata.component.clone();
         self.metadata.linker.instantiate_pre(&component)
     }
@@ -579,9 +583,17 @@ impl ResolvedWorkload {
 
             let component = workload_component.metadata.component.clone();
             let linker = &mut workload_component.metadata.linker;
-            let res = self
+            let res = match self
                 .resolve_component_imports(&component, linker, interface_map)
-                .await;
+                .await
+            {
+                Ok(linked_components) => {
+                    workload_component.linked_components = linked_components;
+                    Ok(())
+                }
+                Err(err) => Err(err),
+            };
+
             self.components
                 .write()
                 .await
@@ -594,9 +606,16 @@ impl ResolvedWorkload {
             let component = service.metadata.component.clone();
             let linker = &mut service.metadata.linker;
 
-            let res = self
+            let res = match self
                 .resolve_component_imports(&component, linker, interface_map)
-                .await;
+                .await
+            {
+                Ok(linked_components) => {
+                    service.metadata.linked_components = linked_components;
+                    Ok(())
+                }
+                Err(err) => Err(err),
+            };
 
             self.service = Some(service);
 
@@ -610,14 +629,13 @@ impl ResolvedWorkload {
     async fn resolve_component_imports(
         &self,
         component: &wasmtime::component::Component,
-        linker: &mut Linker<Ctx>,
+        linker: &mut Linker<SharedCtx>,
         interface_map: &HashMap<String, Arc<str>>,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<HashSet<Arc<str>>> {
+        let mut linked_components = HashSet::new();
         let ty = component.component_type();
         let imports: Vec<_> = ty.imports(component.engine()).collect();
 
-        // TODO: some kind of shared import_name -> component registry. need to remove when new store
-        // store id, instance, import_name. That will keep the instance properly unique
         let instance: Arc<RwLock<Option<(String, Instance)>>> = Arc::default();
         for (import_name, import_item) in imports.into_iter() {
             match import_item {
@@ -700,6 +718,10 @@ impl ResolvedWorkload {
                                 let export_name: Arc<str> = export_name.into();
                                 let pre = pre.clone();
                                 let instance = instance.clone();
+                                let plugin_component_id = plugin_component.id.clone();
+
+                                linked_components.insert(plugin_component_id.clone());
+
                                 linker_instance
                                     .func_new_async(
                                         &export_name.clone(),
@@ -709,10 +731,18 @@ impl ResolvedWorkload {
                                             let import_name = import_name.clone();
                                             let export_name = export_name.clone();
                                             let pre = pre.clone();
+                                            let plugin_component_id = plugin_component_id.clone();
                                             let instance = instance.clone();
                                             Box::new(async move {
+                                                let prev_id =
+                                                    store.data().active_ctx.component_id.clone();
+
+                                                store
+                                                    .data_mut()
+                                                    .set_active_ctx(&plugin_component_id)?;
+
                                                 let existing_instance = instance.read().await;
-                                                let store_id = store.data().id.clone();
+                                                let store_id = store.data().active_ctx.id.clone();
                                                 let instance = if let Some((id, instance)) =
                                                     existing_instance.clone()
                                                     && id == store_id
@@ -793,6 +823,9 @@ impl ResolvedWorkload {
                                                 func.post_return_async(&mut store)
                                                     .await
                                                     .context("failed to execute post-return")?;
+
+                                                store.data_mut().set_active_ctx(&prev_id)?;
+
                                                 Ok(())
                                             })
                                         },
@@ -875,7 +908,7 @@ impl ResolvedWorkload {
             }
         }
 
-        Ok(())
+        Ok(linked_components)
     }
 
     /// Gets the unique identifier of the workload
@@ -900,21 +933,20 @@ impl ResolvedWorkload {
     }
 
     /// Helper to create a new wasmtime Store for a given component in the workload.
-    pub async fn new_store(&self, component_id: &str) -> anyhow::Result<wasmtime::Store<Ctx>> {
+    async fn new_ctx(&self, component_id: &str) -> anyhow::Result<Ctx> {
         let components = self.components.read().await;
         let component = components
             .get(component_id)
             .context("component ID not found in workload")?;
-        self.new_store_from_metadata(&component.metadata, false)
-            .await
+        self.new_ctx_from_metadata(&component.metadata, false).await
     }
 
     /// Creates a new wasmtime Store from the given workload metadata.
-    pub async fn new_store_from_metadata(
+    async fn new_ctx_from_metadata(
         &self,
         metadata: &WorkloadMetadata,
         is_service: bool,
-    ) -> anyhow::Result<wasmtime::Store<Ctx>> {
+    ) -> anyhow::Result<Ctx> {
         let components = self.components.read().await;
 
         // TODO: Consider stderr/stdout buffering + logging
@@ -973,7 +1005,39 @@ impl ResolvedWorkload {
             ctx_builder = ctx_builder.with_plugins(plugins.clone());
         }
 
-        let store = wasmtime::Store::new(metadata.engine(), ctx_builder.build());
+        Ok(ctx_builder.build())
+    }
+
+    /// Helper to create a new wasmtime Store for multiple components and set active given component in the workload.
+    pub async fn new_store(
+        &self,
+        component_id: &str,
+    ) -> anyhow::Result<wasmtime::Store<SharedCtx>> {
+        let components = self.components.read().await;
+        let component = components
+            .get(component_id)
+            .context("component ID not found in workload")?;
+        self.new_store_from_metadata(&component.metadata, false)
+            .await
+    }
+
+    /// Creates a new wasmtime Store for multiple components from the given workload metadata.
+    pub async fn new_store_from_metadata(
+        &self,
+        metadata: &WorkloadMetadata,
+        is_service: bool,
+    ) -> anyhow::Result<wasmtime::Store<SharedCtx>> {
+        let active_ctx = self.new_ctx_from_metadata(metadata, is_service).await?;
+        let mut shared_ctx = SharedCtx::new(active_ctx);
+
+        for linked_component_id in metadata.linked_components.iter() {
+            let linked_component_ctx = self.new_ctx(linked_component_id).await?;
+            shared_ctx
+                .contexts
+                .insert(linked_component_id.clone(), linked_component_ctx);
+        }
+
+        let store = wasmtime::Store::new(metadata.engine(), shared_ctx);
 
         Ok(store)
     }
@@ -981,7 +1045,7 @@ impl ResolvedWorkload {
     pub async fn instantiate_pre(
         &self,
         component_id: &str,
-    ) -> anyhow::Result<wasmtime::component::InstancePre<Ctx>> {
+    ) -> anyhow::Result<wasmtime::component::InstancePre<SharedCtx>> {
         let mut components = self.components.write().await;
         let component = components
             .get_mut(component_id)

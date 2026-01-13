@@ -6,11 +6,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use tokio::sync::RwLock;
-use wasmtime::component::HasSelf;
 
 const PLUGIN_WASI_CONFIG_ID: &str = "wasi-config";
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
@@ -35,7 +34,7 @@ pub struct WasiConfig {
     config: Arc<RwLock<HashMap<String, HashMap<String, String>>>>,
 }
 
-impl Host for Ctx {
+impl<'a> Host for ActiveCtx<'a> {
     async fn get(&mut self, key: String) -> anyhow::Result<Result<Option<String>, ConfigError>> {
         let Some(plugin) = self.get_plugin::<WasiConfig>(PLUGIN_WASI_CONFIG_ID) else {
             return Ok(Ok(None));
@@ -90,9 +89,9 @@ impl HostPlugin for WasiConfig {
         };
 
         // Add `wasi:config/store` to the workload's linker
-        bindings::wasi::config::store::add_to_linker::<_, HasSelf<Ctx>>(
+        bindings::wasi::config::store::add_to_linker::<_, SharedCtx>(
             component_handle.linker(),
-            |ctx| ctx,
+            extract_active_ctx,
         )?;
 
         // Store the configuration for lookups later

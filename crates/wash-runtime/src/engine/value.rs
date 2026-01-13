@@ -6,9 +6,9 @@ use tracing::trace;
 use wasmtime::component::Val;
 use wasmtime::{AsContextMut, StoreContextMut};
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 
-pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Result<Val> {
+pub(crate) fn lower(store: &mut StoreContextMut<SharedCtx>, v: &Val) -> anyhow::Result<Val> {
     match v {
         &Val::Bool(v) => Ok(Val::Bool(v)),
         &Val::S8(v) => Ok(Val::S8(v)),
@@ -126,7 +126,7 @@ pub(crate) fn lower(store: &mut StoreContextMut<'_, Ctx>, v: &Val) -> anyhow::Re
     }
 }
 
-pub(crate) fn lift(store: &mut StoreContextMut<'_, Ctx>, v: Val) -> anyhow::Result<Val> {
+pub(crate) fn lift(store: &mut StoreContextMut<SharedCtx>, v: Val) -> anyhow::Result<Val> {
     match v {
         Val::Bool(v) => Ok(Val::Bool(v)),
         Val::S8(v) => Ok(Val::S8(v)),
