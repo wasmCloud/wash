@@ -1,19 +1,33 @@
 [package]
 name = "wash"
-version = "2.0.0-rc.5"
 categories = ["wasm", "command-line-utilities"]
 description = "The Wasm Shell (wash) for developing and publishing Wasm components"
 keywords = ["webassembly", "wasm", "component", "wash", "cli"]
 readme = "README.md"
-authors = ["The wasmCloud Team"]
-edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/wasmcloud/wash"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
 
 [workspace]
 members = [
     "crates/wash-runtime",
 ]
+package.authors = ["The wasmCloud Team"]
+package.edition = "2024"
+package.rust-version = "1.91.0"
+package.version = "2.0.0-rc.5"
+
+[workspace.lints.rust]
+# Inherited from Wasmtime
+unused_extern_crates = 'warn'
+trivial_numeric_casts = 'warn'
+unstable_features = 'warn'
+unused_import_braces = 'warn'
+unused-lifetimes = 'warn'
+unused-macro-rules = 'warn'
 
 [lib]
 name = "wash"
@@ -139,13 +153,30 @@ wasm-pkg-core = { version = "0.10.0", default-features = false }
 wasm-metadata = { version = "0.239.0", default-features = false, features = ["oci"] }
 wasmcloud = { path = "crates/wasmcloud", default-features = false }
 wasmtime = { version = "38", default-features = false }
-wasmtime-wasi = { version = "38", default-features = false }
+wasmtime-wasi = { version = "2.0.0-rc.5", package = "wash-wasi", path = "crates/wasi", default-features = false }
 wasmtime-wasi-io = { version = "38", default-features = false }
 wasmtime-wasi-http = { version = "38", default-features = false }
 which = { version = "6.0.3", default-features = false }
 wit-component = { version = "0.235.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
 wat = { version = "1.239.0", default-features = false }
+
+# wasmtime-wasi deps
+bitflags = "2.0"
+cap-fs-ext = "3.4.4"
+cap-net-ext = "3.4.4"
+cap-rand = { version = "3.4.4", features = ["small_rng"] }
+cap-std = "3.4.4"
+cap-time-ext = "3.4.4"
+env_logger = "0.11.5"
+fs-set-times = "0.20.1"
+io-extras = "0.18.1"
+io-lifetimes = { version = "2.0.3", default-features = false }
+rustix = "1.0.3"
+system-interface = { version = "0.27.1", features = ["cap_std_impls"] }
+test-log = { version = "0.2", default-features = false, features = ["trace"] }
+wiggle = { version = "=38.0.4", default-features = false }
+windows-sys = "0.60.0"
 
 [build-dependencies]
 anyhow = { workspace = true, default-features = true }
@@ -179,3 +210,7 @@ ignored = [
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/{name}-v{version}/wash-{ target }{ binary-ext }"
 pkg-fmt = "bin"
+
+# this section is required for testing `wash-wasi`, it should be removed before release
+[patch.crates-io]
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v38.0.4" }
