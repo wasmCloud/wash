@@ -14,7 +14,9 @@ use tracing::{debug, info, trace, warn};
 use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
-use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder, p2::bindings::CommandPre};
+use wasmtime_wasi::p2::bindings::CommandPre;
+use wasmtime_wasi::sockets::{SocketAddrUse, loopback};
+use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
 
 use crate::{
     engine::{
@@ -55,6 +57,8 @@ pub struct WorkloadMetadata {
     local_resources: LocalResources,
     /// The plugins available to this component
     plugins: Option<HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>>,
+    /// Workload loopback
+    loopback: Arc<std::sync::Mutex<loopback::Network>>,
 }
 
 impl WorkloadMetadata {
@@ -228,6 +232,7 @@ impl WorkloadService {
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
         local_resources: LocalResources,
         max_restarts: u64,
+        loopback: Arc<std::sync::Mutex<loopback::Network>>,
     ) -> Self {
         Self {
             metadata: WorkloadMetadata {
@@ -240,6 +245,7 @@ impl WorkloadService {
                 volume_mounts,
                 local_resources,
                 plugins: None,
+                loopback,
             },
             handle: None,
             max_restarts,
@@ -291,6 +297,7 @@ impl WorkloadComponent {
         linker: Linker<Ctx>,
         volume_mounts: Vec<(PathBuf, VolumeMount)>,
         local_resources: LocalResources,
+        loopback: Arc<std::sync::Mutex<loopback::Network>>,
     ) -> Self {
         Self {
             metadata: WorkloadMetadata {
@@ -303,6 +310,7 @@ impl WorkloadComponent {
                 volume_mounts,
                 local_resources,
                 plugins: None,
+                loopback,
             },
             name: component_name.into(),
             // TODO: Implement pooling and instance limits
@@ -418,7 +426,8 @@ impl ResolvedWorkload {
             // This will always be present since we just checked above, but we need this structure
             // to only borrow the service metadata
             let mut store = if let Some(service) = self.service.as_ref() {
-                self.new_store_from_metadata(&service.metadata).await?
+                self.new_store_from_metadata(&service.metadata, true)
+                    .await?
             } else {
                 bail!("service unexpectedly missing during execution");
             };
@@ -896,13 +905,15 @@ impl ResolvedWorkload {
         let component = components
             .get(component_id)
             .context("component ID not found in workload")?;
-        self.new_store_from_metadata(&component.metadata).await
+        self.new_store_from_metadata(&component.metadata, false)
+            .await
     }
 
     /// Creates a new wasmtime Store from the given workload metadata.
     pub async fn new_store_from_metadata(
         &self,
         metadata: &WorkloadMetadata,
+        is_service: bool,
     ) -> anyhow::Result<wasmtime::Store<Ctx>> {
         let components = self.components.read().await;
 
@@ -918,6 +929,24 @@ impl ResolvedWorkload {
                     .collect::<Vec<_>>()
                     .as_slice(),
             )
+            .loopback_network(Arc::clone(&metadata.loopback))
+            .socket_addr_check(move |addr, reason| {
+                Box::pin(async move {
+                    match reason {
+                        SocketAddrUse::TcpBind if is_service => {
+                            addr.ip().is_loopback() || addr.ip().is_unspecified()
+                        }
+                        SocketAddrUse::TcpBind => false,
+                        SocketAddrUse::UdpBind => {
+                            // NOTE: Outbound UDP requires an explicit bind in `wasi:sockets`
+                            addr.ip().is_loopback() || addr.ip().is_unspecified()
+                        }
+                        SocketAddrUse::TcpConnect
+                        | SocketAddrUse::UdpConnect
+                        | SocketAddrUse::UdpOutgoingDatagram => true,
+                    }
+                })
+            })
             .inherit_stdout()
             .inherit_stderr();
 
@@ -1685,6 +1714,7 @@ mod tests {
             linker,
             Vec::new(),
             local_resources,
+            Arc::default(),
         )
     }
 

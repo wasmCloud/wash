@@ -23,7 +23,7 @@ pub struct Ctx {
     /// The unique identifier for the workload this component belongs to
     pub workload_id: Arc<str>,
     /// The resource table used to manage resources in the Wasmtime store.
-    pub table: wasmtime::component::ResourceTable,
+    pub table: ResourceTable,
     /// The WASI context used to provide WASI functionality to the components using this context.
     pub ctx: WasiCtx,
     /// The HTTP context used to provide HTTP functionality to the component.
@@ -72,7 +72,7 @@ impl WasiView for Ctx {
 }
 
 impl wasmtime_wasi_io::IoView for Ctx {
-    fn table(&mut self) -> &mut wasmtime_wasi::ResourceTable {
+    fn table(&mut self) -> &mut ResourceTable {
         &mut self.table
     }
 }
@@ -123,6 +123,7 @@ impl CtxBuilder {
         }
     }
 
+    /// Set a custom [WasiCtx]
     pub fn with_wasi_ctx(mut self, ctx: WasiCtx) -> Self {
         self.ctx = Some(ctx);
         self

@@ -42,11 +42,12 @@
 use anyhow::{Context, bail};
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
+use wasmtime_wasi::sockets::loopback;
 
 use crate::engine::ctx::Ctx;
 use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent, WorkloadService};
 use crate::types::{EmptyDirVolume, HostPathVolume, VolumeType, Workload};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 pub mod ctx;
 mod value;
@@ -144,9 +145,18 @@ impl Engine {
             validated_volumes.insert(v.name.clone(), host_path);
         }
 
+        let loopback = Arc::default();
+
         // Iniitalize service
         let service = if let Some(svc) = service {
-            match self.initialize_service(id.as_ref(), &name, &namespace, svc, &validated_volumes) {
+            match self.initialize_service(
+                id.as_ref(),
+                &name,
+                &namespace,
+                svc,
+                &validated_volumes,
+                Arc::clone(&loopback),
+            ) {
                 Ok(handle) => {
                     tracing::debug!("successfully initialized service component");
                     Some(handle)
@@ -169,6 +179,7 @@ impl Engine {
                 &namespace,
                 component,
                 &validated_volumes,
+                Arc::clone(&loopback),
             ) {
                 Ok(handle) => {
                     tracing::debug!("successfully initialized workload component");
@@ -198,6 +209,7 @@ impl Engine {
         workload_namespace: impl AsRef<str>,
         service: crate::types::Service,
         validated_volumes: &std::collections::HashMap<String, PathBuf>,
+        loopback: Arc<std::sync::Mutex<loopback::Network>>,
     ) -> anyhow::Result<WorkloadService> {
         // Create a wasmtime component from the bytes
         let wasmtime_component = Component::new(&self.inner, service.bytes)
@@ -239,6 +251,7 @@ impl Engine {
             component_volume_mounts,
             service.local_resources,
             service.max_restarts,
+            loopback,
         ))
     }
 
@@ -251,6 +264,7 @@ impl Engine {
         workload_namespace: impl AsRef<str>,
         component: crate::types::Component,
         validated_volumes: &std::collections::HashMap<String, PathBuf>,
+        loopback: Arc<std::sync::Mutex<loopback::Network>>,
     ) -> anyhow::Result<WorkloadComponent> {
         // Create a wasmtime component from the bytes
         let wasmtime_component = Component::new(&self.inner, component.bytes)
@@ -292,6 +306,7 @@ impl Engine {
             linker,
             component_volume_mounts,
             component.local_resources,
+            loopback,
             // TODO: implement pooling and instance limits
             // component.pool_size,
             // component.max_invocations,
