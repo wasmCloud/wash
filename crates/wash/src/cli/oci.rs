@@ -55,6 +55,11 @@ pub struct PullCommand {
     /// Use HTTP or HTTPS protocol
     #[clap(long = "insecure", default_value_t = false)]
     insecure: bool,
+    /// Username for basic authentication
+    user: Option<String>,
+    /// Password for basic authentication
+    #[clap(short, long)]
+    password: Option<String>,
 }
 
 impl PullCommand {
@@ -63,6 +68,15 @@ impl PullCommand {
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let mut oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
         oci_config.insecure = self.insecure;
+
+        if let Some(ref user) = self.user
+            && let Some(ref password) = self.password
+        {
+            oci_config.credentials = Some((user.clone(), password.clone()));
+        } else if self.user.as_ref().or(self.password.as_ref()).is_some() {
+            tracing::warn!("username or password provided without the other");
+        }
+
         let (c, digest) = pull_component(&self.reference, oci_config).await?;
 
         // Write the component to the specified output path
@@ -97,6 +111,12 @@ pub struct PushCommand {
     /// Use HTTP or HTTPS protocol
     #[clap(long = "insecure", default_value_t = false)]
     insecure: bool,
+    #[clap(short, long)]
+    /// Username for basic authentication
+    user: Option<String>,
+    /// Password for basic authentication
+    #[clap(short, long)]
+    password: Option<String>,
 }
 
 impl PushCommand {
@@ -158,6 +178,14 @@ impl PushCommand {
 
         let mut oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
         oci_config.insecure = self.insecure;
+
+        if let Some(ref user) = self.user
+            && let Some(ref password) = self.password
+        {
+            oci_config.credentials = Some((user.clone(), password.clone()));
+        } else if self.user.as_ref().or(self.password.as_ref()).is_some() {
+            tracing::warn!("username or password provided without the other");
+        }
 
         let digest = push_component(
             &self.reference,
