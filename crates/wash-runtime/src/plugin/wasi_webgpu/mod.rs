@@ -15,26 +15,26 @@ use crate::{
 
 /// Webgpu plugin
 #[derive(Clone)]
-pub struct WasiWebGpu {
+pub struct WebGpu {
     pub gpu: Arc<wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global>,
 }
 
 /// Backend options for the WasiWebGpu plugin
-pub enum WasiWebGpuBackend {
+pub enum WebGpuBackend {
     /// Backend with all available features
     All,
     /// Noop backend for testing purposes. It does not perform any real GPU operations.
     Noop,
 }
 
-impl WasiWebGpu {
-    pub fn new(backend: WasiWebGpuBackend) -> Self {
+impl WebGpu {
+    pub fn new(backend: WebGpuBackend) -> Self {
         let (backends, backend_options) = match backend {
-            WasiWebGpuBackend::All => (
+            WebGpuBackend::All => (
                 wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::all(),
                 wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions::default(),
             ),
-            WasiWebGpuBackend::Noop => (
+            WebGpuBackend::Noop => (
                 wasi_webgpu_wasmtime::reexports::wgpu_types::Backends::NOOP,
                 wasi_webgpu_wasmtime::reexports::wgpu_types::BackendOptions {
                     noop: wasi_webgpu_wasmtime::reexports::wgpu_types::NoopBackendOptions {
@@ -59,9 +59,9 @@ impl WasiWebGpu {
     }
 }
 
-impl Default for WasiWebGpu {
+impl Default for WebGpu {
     fn default() -> Self {
-        Self::new(WasiWebGpuBackend::All)
+        Self::new(WebGpuBackend::All)
     }
 }
 
@@ -82,7 +82,7 @@ impl wasi_webgpu_wasmtime::WasiWebGpuView for SharedCtx {
     fn instance(&self) -> Arc<wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global> {
         let plugin = self
             .active_ctx
-            .get_plugin::<WasiWebGpu>(WASI_WEBGPU_ID)
+            .get_plugin::<WebGpu>(WASI_WEBGPU_ID)
             .unwrap();
         Arc::clone(&plugin.gpu)
     }
@@ -93,7 +93,7 @@ impl wasi_webgpu_wasmtime::WasiWebGpuView for SharedCtx {
 }
 
 #[async_trait::async_trait]
-impl HostPlugin for WasiWebGpu {
+impl HostPlugin for WebGpu {
     fn id(&self) -> &'static str {
         WASI_WEBGPU_ID
     }

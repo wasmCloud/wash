@@ -26,7 +26,7 @@ mod bindings {
         world: "keyvalue",
         imports: { default: async | trappable },
         with: {
-            "wasi:keyvalue/store/bucket": crate::plugin::wasi_keyvalue::BucketHandle,
+            "wasi:keyvalue/store/bucket": crate::plugin::wasi_keyvalue::in_memory::BucketHandle,
         },
     });
 }
@@ -46,12 +46,12 @@ pub type BucketHandle = String;
 
 /// Memory-based keyvalue plugin
 #[derive(Clone, Default)]
-pub struct WasiKeyvalue {
+pub struct InMemoryKeyValue {
     /// Storage for all buckets, keyed by workload ID, then bucket name
     storage: Arc<RwLock<HashMap<String, HashMap<String, BucketData>>>>,
 }
 
-impl WasiKeyvalue {
+impl InMemoryKeyValue {
     pub fn new() -> Self {
         Self {
             storage: Arc::new(RwLock::new(HashMap::new())),
@@ -72,7 +72,7 @@ impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
         &mut self,
         identifier: String,
     ) -> anyhow::Result<Result<Resource<BucketHandle>, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -86,7 +86,7 @@ impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
             let bucket_data = BucketData {
                 name: identifier.clone(),
                 data: HashMap::new(),
-                created_at: WasiKeyvalue::get_timestamp(),
+                created_at: InMemoryKeyValue::get_timestamp(),
             };
             workload_storage.insert(identifier.clone(), bucket_data);
         }
@@ -105,7 +105,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<Option<Vec<u8>>, StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -136,7 +136,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<(), StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -163,7 +163,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<(), StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -190,7 +190,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<bool, StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -217,7 +217,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<KeyResponse, StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -281,7 +281,7 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<u64, StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -331,7 +331,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<Vec<Option<(String, Vec<u8>)>>, StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -370,7 +370,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<(), StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -399,7 +399,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<(), StoreError>> {
         let bucket_name = self.table.get(&bucket)?;
 
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(WASI_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryKeyValue>(WASI_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -423,7 +423,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
 }
 
 #[async_trait::async_trait]
-impl HostPlugin for WasiKeyvalue {
+impl HostPlugin for InMemoryKeyValue {
     fn id(&self) -> &'static str {
         WASI_KEYVALUE_ID
     }
@@ -504,13 +504,13 @@ mod tests {
 
     #[test]
     fn test_wasi_keyvalue_creation() {
-        let keyvalue = WasiKeyvalue::new();
+        let keyvalue = InMemoryKeyValue::new();
         assert!(keyvalue.storage.try_read().is_ok());
     }
 
     #[test]
     fn test_get_timestamp() {
-        let timestamp = WasiKeyvalue::get_timestamp();
+        let timestamp = InMemoryKeyValue::get_timestamp();
         assert!(timestamp > 0);
     }
 
@@ -519,7 +519,7 @@ mod tests {
         let bucket = BucketData {
             name: "test-bucket".to_string(),
             data: HashMap::new(),
-            created_at: WasiKeyvalue::get_timestamp(),
+            created_at: InMemoryKeyValue::get_timestamp(),
         };
 
         assert_eq!(bucket.name, "test-bucket");
@@ -529,7 +529,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_operations() {
-        let keyvalue = WasiKeyvalue::new();
+        let keyvalue = InMemoryKeyValue::new();
 
         // Test write access
         {

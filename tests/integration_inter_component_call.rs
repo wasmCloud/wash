@@ -28,7 +28,7 @@ use wash_runtime::{
         HostApi, HostBuilder,
         http::{DevRouter, HttpServer},
     },
-    plugin::{HostPlugin, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue},
+    plugin::{HostPlugin, wasi_config::DynamicConfig, wasi_keyvalue::InMemoryKeyValue},
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::{WitInterface, WitWorld},
 };
@@ -165,13 +165,13 @@ async fn test_inter_component_call() -> Result<()> {
     let http_plugin = HttpServer::new(DevRouter::default(), addr);
 
     // Create keyvalue plugin for counter persistence (still using built-in)
-    let keyvalue_plugin = WasiKeyvalue::new();
+    let keyvalue_plugin = InMemoryKeyValue::new();
 
     // Create logging plugin
     let logging_plugin = CustomLogging::default();
 
     // Create config plugin
-    let config_plugin = WasiConfig::default();
+    let config_plugin = DynamicConfig::default();
 
     // Create plugin manager to provide wasmcloud:wash interfaces
     let plugin_manager = PluginManager::default();

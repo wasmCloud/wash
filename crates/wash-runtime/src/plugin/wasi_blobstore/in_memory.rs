@@ -33,9 +33,9 @@ mod bindings {
         with: {
             "wasi:io": ::wasmtime_wasi::p2::bindings::io,
             "wasi:blobstore/container/container": String,
-            "wasi:blobstore/container/stream-object-names": crate::plugin::wasi_blobstore::StreamObjectNamesHandle,
-            "wasi:blobstore/types/incoming-value": crate::plugin::wasi_blobstore::IncomingValueHandle,
-            "wasi:blobstore/types/outgoing-value": crate::plugin::wasi_blobstore::OutgoingValueHandle,
+            "wasi:blobstore/container/stream-object-names": crate::plugin::wasi_blobstore::in_memory::StreamObjectNamesHandle,
+            "wasi:blobstore/types/incoming-value": crate::plugin::wasi_blobstore::in_memory::IncomingValueHandle,
+            "wasi:blobstore/types/outgoing-value": crate::plugin::wasi_blobstore::in_memory::OutgoingValueHandle,
         },
     });
 }
@@ -86,14 +86,14 @@ pub struct StreamObjectNamesHandle {
 
 /// Memory-based blobstore plugin
 #[derive(Clone, Default)]
-pub struct WasiBlobstore {
+pub struct InMemoryBlobstore {
     /// Storage for all containers, keyed by store context ID
     storage: Arc<RwLock<HashMap<String, HashMap<String, ContainerData>>>>,
     /// The maximum size for objects stored in the blobstore
     max_object_size: usize,
 }
 
-impl WasiBlobstore {
+impl InMemoryBlobstore {
     pub fn new(max_object_size: Option<usize>) -> Self {
         Self {
             storage: Arc::new(RwLock::new(HashMap::new())),
@@ -115,7 +115,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<Resource<String>, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -128,7 +128,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
 
         let container_data = ContainerData {
             name: name.clone(),
-            created_at: WasiBlobstore::get_timestamp(),
+            created_at: InMemoryBlobstore::get_timestamp(),
             objects: HashMap::new(),
         };
 
@@ -141,7 +141,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<Resource<String>, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -163,7 +163,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -178,7 +178,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<bool, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -196,7 +196,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         src: ObjectId,
         dest: ObjectId,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -240,7 +240,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         let mut copied_object = src_object_data;
         copied_object.name = dest.object.clone();
         copied_object.container = dest.container.clone();
-        copied_object.created_at = WasiBlobstore::get_timestamp();
+        copied_object.created_at = InMemoryBlobstore::get_timestamp();
 
         dest_container.objects.insert(dest.object, copied_object);
         Ok(Ok(()))
@@ -254,7 +254,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         // First copy the object
         let _ = self.copy_object(src.clone(), dest).await?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -286,7 +286,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<ContainerMetadata, ContainerError>> {
         let container_name = self.table.get(&container)?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -323,7 +323,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
             "Getting object data from container"
         );
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             tracing::error!("blobstore plugin not available for get_data");
             return Ok(Err("blobstore plugin not available".to_string()));
         };
@@ -389,7 +389,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
             "Initiating write_data for object"
         );
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             tracing::error!("blobstore plugin not available for write_data");
             return Ok(Err("blobstore plugin not available".to_string()));
         };
@@ -431,7 +431,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<Resource<StreamObjectNamesHandle>, ContainerError>> {
         let container_name = self.table.get(&container)?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -464,7 +464,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<(), ContainerError>> {
         let container_name = self.table.get(&container)?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -487,7 +487,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<(), ContainerError>> {
         let container_name = self.table.get(&container)?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -512,7 +512,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<bool, ContainerError>> {
         let container_name = self.table.get(&container)?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -535,7 +535,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<ObjectMetadata, ContainerError>> {
         let container_name = self.table.get(&container)?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -565,7 +565,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<(), ContainerError>> {
         let container_name = self.table.get(&container)?;
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -655,7 +655,7 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
     async fn new_outgoing_value(&mut self) -> anyhow::Result<Resource<OutgoingValueHandle>> {
         tracing::debug!(workload_id = self.id, "Creating new OutgoingValue");
 
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
             tracing::error!("blobstore plugin not available in new_outgoing_value");
             return Err(anyhow::anyhow!("blobstore plugin not available"));
         };
@@ -768,7 +768,7 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
         if let (Some(container_name), Some(object_name)) =
             (&handle.container_name, &handle.object_name)
         {
-            let Some(plugin) = self.get_plugin::<WasiBlobstore>(WASI_BLOBSTORE_ID) else {
+            let Some(plugin) = self.get_plugin::<InMemoryBlobstore>(WASI_BLOBSTORE_ID) else {
                 tracing::error!("blobstore plugin not available in finish()");
                 return Ok(Err("blobstore plugin not available".to_string()));
             };
@@ -793,7 +793,7 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
                         name: object_name.clone(),
                         container: container_name.clone(),
                         data: data_bytes.to_vec(),
-                        created_at: WasiBlobstore::get_timestamp(),
+                        created_at: InMemoryBlobstore::get_timestamp(),
                     };
                     container_data
                         .objects
@@ -906,7 +906,7 @@ impl<'a> bindings::wasi::blobstore::types::Host for ActiveCtx<'a> {}
 impl<'a> bindings::wasi::blobstore::container::Host for ActiveCtx<'a> {}
 
 #[async_trait::async_trait]
-impl HostPlugin for WasiBlobstore {
+impl HostPlugin for InMemoryBlobstore {
     fn id(&self) -> &'static str {
         WASI_BLOBSTORE_ID
     }
@@ -991,13 +991,13 @@ mod tests {
 
     #[test]
     fn test_wasi_blobstore_creation() {
-        let blobstore = WasiBlobstore::new(None);
+        let blobstore = InMemoryBlobstore::new(None);
         assert!(blobstore.storage.try_read().is_ok());
     }
 
     #[test]
     fn test_get_timestamp() {
-        let timestamp = WasiBlobstore::get_timestamp();
+        let timestamp = InMemoryBlobstore::get_timestamp();
         assert!(timestamp > 0);
     }
 
@@ -1007,7 +1007,7 @@ mod tests {
             name: "test.txt".to_string(),
             container: "test-container".to_string(),
             data: b"hello world".to_vec(),
-            created_at: WasiBlobstore::get_timestamp(),
+            created_at: InMemoryBlobstore::get_timestamp(),
         };
 
         assert_eq!(data.name, "test.txt");
@@ -1020,7 +1020,7 @@ mod tests {
     fn test_container_data_creation() {
         let container = ContainerData {
             name: "test-container".to_string(),
-            created_at: WasiBlobstore::get_timestamp(),
+            created_at: InMemoryBlobstore::get_timestamp(),
             objects: HashMap::new(),
         };
 
@@ -1031,7 +1031,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_operations() {
-        let blobstore = WasiBlobstore::new(None);
+        let blobstore = InMemoryBlobstore::new(None);
 
         // Test write access
         {

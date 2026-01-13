@@ -17,14 +17,9 @@ use notify::{
 };
 use tokio::{select, sync::mpsc};
 use tracing::{debug, error, info, trace, warn};
-#[cfg(not(target_os = "windows"))]
-use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
 use wash_runtime::{
     host::{Host, HostApi},
-    plugin::{
-        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
-        wasi_logging::WasiLogging,
-    },
+    plugin::{self},
     types::{
         Component, HostPathVolume, LocalResources, Service, Volume, VolumeMount, VolumeType,
         Workload, WorkloadStartRequest, WorkloadState, WorkloadStopRequest,
@@ -114,9 +109,12 @@ impl CliCommand for DevCommand {
         let mut host_builder = Host::builder();
 
         // Enable wasi config
-        host_builder = host_builder.with_plugin(Arc::new(WasiConfig::default()))?;
+        host_builder =
+            host_builder.with_plugin(Arc::new(plugin::wasi_config::DynamicConfig::default()))?;
 
-        host_builder = host_builder.with_plugin(Arc::new(WasiBlobstore::new(None)))?;
+        host_builder = host_builder.with_plugin(Arc::new(
+            plugin::wasi_blobstore::InMemoryBlobstore::new(None),
+        ))?;
 
         let http_handler = wash_runtime::host::http::DevRouter::default();
         // TODO(#19): Only spawn the server if the component exports wasi:http
@@ -165,16 +163,19 @@ impl CliCommand for DevCommand {
         };
 
         // Add logging plugin
-        host_builder = host_builder.with_plugin(Arc::new(WasiLogging))?;
+        host_builder =
+            host_builder.with_plugin(Arc::new(plugin::wasi_logging::TracingLogging::default()))?;
         debug!("Logging plugin registered");
 
         // Add keyvalue plugin
-        host_builder = host_builder.with_plugin(Arc::new(WasiKeyvalue::new()))?;
+        host_builder =
+            host_builder.with_plugin(Arc::new(plugin::wasi_keyvalue::InMemoryKeyValue::new()))?;
 
         // Enable WASI WebGPU if requested
         #[cfg(not(target_os = "windows"))]
         if dev_config.wasi_webgpu {
-            host_builder = host_builder.with_plugin(Arc::new(WasiWebGpu::default()))?;
+            host_builder =
+                host_builder.with_plugin(Arc::new(plugin::wasi_webgpu::WebGpu::default()))?;
             debug!("WASI WebGPU plugin registered");
         }
 

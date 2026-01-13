@@ -23,7 +23,7 @@ use wash_runtime::{
         HostApi, HostBuilder,
         http::{DevRouter, HttpServer},
     },
-    plugin::wasi_webgpu::{WasiWebGpu, WasiWebGpuBackend},
+    plugin::wasi_webgpu::{WebGpu, WebGpuBackend},
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
 };
@@ -51,7 +51,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
     let host = HostBuilder::new()
         .with_engine(engine.clone())
         .with_http_handler(Arc::new(http_plugin))
-        .with_plugin(Arc::new(WasiWebGpu::new(WasiWebGpuBackend::Noop)))?
+        .with_plugin(Arc::new(WebGpu::new(WebGpuBackend::Noop)))?
         .build()?;
 
     println!("Created host with HTTP and webgpu plugins");

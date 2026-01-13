@@ -3,8 +3,7 @@ use std::{net::SocketAddr, sync::Arc, time::Duration};
 use anyhow::Context as _;
 use clap::Args;
 use tracing::info;
-#[cfg(not(target_os = "windows"))]
-use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
+use wash_runtime::plugin::{self};
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 
@@ -66,27 +65,17 @@ impl CliCommand for HostCommand {
             .with_host_config(host_config)
             .with_nats_client(Arc::new(scheduler_nats_client))
             .with_host_group(self.host_group.clone())
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_config::WasiConfig::default(),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_logging::TracingLogging::default(),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_blobstore::WasiBlobstore::new(
-                    data_nats_client.clone(),
-                ),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasmcloud_messaging::WasmcloudMessaging::new(
-                    data_nats_client.clone(),
-                ),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_keyvalue::WasiKeyvalue::new(
-                    data_nats_client.clone(),
-                ),
-            ))?;
+            .with_plugin(Arc::new(plugin::wasi_config::DynamicConfig::new(true)))?
+            .with_plugin(Arc::new(plugin::wasi_logging::TracingLogging::default()))?
+            .with_plugin(Arc::new(plugin::wasi_blobstore::NatsBlobstore::new(
+                data_nats_client.clone(),
+            )))?
+            .with_plugin(Arc::new(plugin::wasmcloud_messaging::NatsMessaging::new(
+                data_nats_client.clone(),
+            )))?
+            .with_plugin(Arc::new(plugin::wasi_keyvalue::NatsKeyValue::new(
+                data_nats_client.clone(),
+            )))?;
 
         if let Some(host_name) = &self.host_name {
             cluster_host_builder = cluster_host_builder.with_host_name(host_name);
@@ -103,8 +92,8 @@ impl CliCommand for HostCommand {
         #[cfg(not(target_os = "windows"))]
         if self.wasi_webgpu {
             tracing::info!("WASI WebGPU support enabled");
-            cluster_host_builder =
-                cluster_host_builder.with_plugin(Arc::new(WasiWebGpu::default()))?;
+            cluster_host_builder = cluster_host_builder
+                .with_plugin(Arc::new(plugin::wasi_webgpu::WebGpu::default()))?;
         }
 
         let cluster_host = cluster_host_builder

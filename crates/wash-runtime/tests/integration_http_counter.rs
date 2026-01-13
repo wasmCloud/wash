@@ -22,8 +22,8 @@ use wash_runtime::{
         http::{DevRouter, HttpServer},
     },
     plugin::{
-        wasi_blobstore::WasiBlobstore, wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue,
-        wasi_logging::WasiLogging,
+        wasi_blobstore::InMemoryBlobstore, wasi_config::DynamicConfig,
+        wasi_keyvalue::InMemoryKeyValue, wasi_logging::TracingLogging,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
@@ -49,16 +49,16 @@ async fn test_http_counter_integration() -> Result<()> {
     let http_plugin = HttpServer::new(http_handler, addr);
 
     // Create blobstore plugin for storing HTTP responses
-    let blobstore_plugin = WasiBlobstore::new(None);
+    let blobstore_plugin = InMemoryBlobstore::new(None);
 
     // Create keyvalue plugin for counter persistence
-    let keyvalue_plugin = WasiKeyvalue::new();
+    let keyvalue_plugin = InMemoryKeyValue::new();
 
     // Create logging plugin
-    let logging_plugin = WasiLogging {};
+    let logging_plugin = TracingLogging::default();
 
     // Create config plugin
-    let config_plugin = WasiConfig::default();
+    let config_plugin = DynamicConfig::default();
 
     // Build host with all required plugins
     let host = HostBuilder::new()
@@ -397,10 +397,10 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
     let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
     let http_handler = DevRouter::default();
     let http_plugin = HttpServer::new(http_handler, addr);
-    let blobstore_plugin = WasiBlobstore::new(None);
-    let keyvalue_plugin = WasiKeyvalue::new();
-    let logging_plugin = WasiLogging {};
-    let config_plugin = WasiConfig::default();
+    let blobstore_plugin = InMemoryBlobstore::new(None);
+    let keyvalue_plugin = InMemoryKeyValue::new();
+    let logging_plugin = TracingLogging::default();
+    let config_plugin = DynamicConfig::default();
 
     let host = HostBuilder::new()
         .with_engine(engine)
@@ -595,18 +595,18 @@ async fn test_http_counter_plugin_isolation() -> Result<()> {
     let host1 = HostBuilder::new()
         .with_engine(engine1)
         .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr1)))
-        .with_plugin(Arc::new(WasiBlobstore::new(None)))?
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
-        .with_plugin(Arc::new(WasiLogging {}))?
+        .with_plugin(Arc::new(InMemoryBlobstore::new(None)))?
+        .with_plugin(Arc::new(InMemoryKeyValue::new()))?
+        .with_plugin(Arc::new(TracingLogging::default()))?
         .build()?;
 
     // Second host
     let host2 = HostBuilder::new()
         .with_engine(engine2)
         .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr2)))
-        .with_plugin(Arc::new(WasiBlobstore::new(None)))?
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
-        .with_plugin(Arc::new(WasiLogging {}))?
+        .with_plugin(Arc::new(InMemoryBlobstore::new(None)))?
+        .with_plugin(Arc::new(InMemoryKeyValue::new()))?
+        .with_plugin(Arc::new(TracingLogging::default()))?
         .build()?;
 
     let _host1 = host1.start().await.context("Failed to start host1")?;

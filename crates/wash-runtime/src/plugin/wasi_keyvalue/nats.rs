@@ -24,7 +24,7 @@ mod bindings {
         world: "keyvalue",
         imports: { default: async | trappable },
         with: {
-            "wasi:keyvalue/store/bucket": crate::washlet::plugins::wasi_keyvalue::BucketHandle,
+            "wasi:keyvalue/store/bucket": crate::plugin::wasi_keyvalue::nats::BucketHandle,
         },
     });
 }
@@ -38,7 +38,7 @@ pub struct BucketHandle {
 
 /// Memory-based keyvalue plugin
 #[derive(Clone)]
-pub struct WasiKeyvalue {
+pub struct NatsKeyValue {
     client: Arc<async_nats::jetstream::Context>,
     metrics: Arc<WasiKeyvalueMetrics>,
 }
@@ -57,7 +57,7 @@ impl WasiKeyvalueMetrics {
     }
 }
 
-impl WasiKeyvalue {
+impl NatsKeyValue {
     pub fn new(client: Arc<async_nats::Client>) -> Self {
         let meter = opentelemetry::global::meter("wasi-keyvalue");
         let metrics = WasiKeyvalueMetrics::new(&meter);
@@ -82,7 +82,7 @@ impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
         &mut self,
         identifier: String,
     ) -> anyhow::Result<Result<Resource<BucketHandle>, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -116,7 +116,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         bucket: Resource<BucketHandle>,
         key: String,
     ) -> anyhow::Result<Result<Option<Vec<u8>>, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -145,7 +145,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         key: String,
         value: Vec<u8>,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -168,7 +168,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         bucket: Resource<BucketHandle>,
         key: String,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -191,7 +191,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         bucket: Resource<BucketHandle>,
         key: String,
     ) -> anyhow::Result<Result<bool, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -215,7 +215,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         bucket: Resource<BucketHandle>,
         cursor: Option<u64>,
     ) -> anyhow::Result<Result<KeyResponse, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -275,7 +275,7 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
         key: String,
         delta: u64,
     ) -> anyhow::Result<Result<u64, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -335,7 +335,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         bucket: Resource<BucketHandle>,
         keys: Vec<String>,
     ) -> anyhow::Result<Result<Vec<Option<(String, Vec<u8>)>>, StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -374,7 +374,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         bucket: Resource<BucketHandle>,
         key_values: Vec<(String, Vec<u8>)>,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -416,7 +416,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         bucket: Resource<BucketHandle>,
         keys: Vec<String>,
     ) -> anyhow::Result<Result<(), StoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiKeyvalue>(PLUGIN_KEYVALUE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsKeyValue>(PLUGIN_KEYVALUE_ID) else {
             return Ok(Err(StoreError::Other(
                 "keyvalue plugin not available".to_string(),
             )));
@@ -449,7 +449,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
 }
 
 #[async_trait::async_trait]
-impl HostPlugin for WasiKeyvalue {
+impl HostPlugin for NatsKeyValue {
     fn id(&self) -> &'static str {
         PLUGIN_KEYVALUE_ID
     }
