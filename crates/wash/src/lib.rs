@@ -5,8 +5,6 @@ pub const CARGO_PKG_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Command line interface implementations for wash
 pub mod cli;
-/// Build Wasm components
-pub mod component_build;
 /// Configuration management for wash
 pub mod config;
 /// Component inspection and analysis

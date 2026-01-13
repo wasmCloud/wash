@@ -1,7 +1,6 @@
 build:
-  rust:
-    target: wasm32-wasip2
-    release: true
+  command: cargo build --target wasm32-wasip2 --release
+  component_path: target/wasm32-wasip2/release/cron-service.wasm
 
 dev:
   # We are developing a service, so tell Wash to treat it as such.

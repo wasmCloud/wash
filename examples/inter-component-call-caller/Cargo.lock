@@ -155,7 +155,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "inter-component-call-sender"
+name = "inter-component-call-caller"
 version = "0.1.0"
 dependencies = [
  "wit-bindgen",

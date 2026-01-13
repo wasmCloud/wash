@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use anyhow::Context;
 use anyhow::bail;
@@ -6,6 +6,7 @@ use clap::{Args, Subcommand};
 use serde_json::json;
 use tracing::{debug, instrument, trace, warn};
 
+use crate::config::Config;
 use crate::plugin::bindings::wasmcloud::wash::types::Metadata;
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput, OutputKind, component_build::build_component},
@@ -185,9 +186,6 @@ pub struct ListCommand {
 
 #[derive(Args, Debug, Clone)]
 pub struct TestCommand {
-    /// Path to the component or component project to test
-    #[clap(name = "plugin")]
-    pub plugin: PathBuf,
     /// The hook types to test
     #[clap(name = "type", long = "hook", conflicts_with = "arg")]
     pub hooks: Vec<HookType>,
@@ -323,22 +321,17 @@ impl TestCommand {
     /// Handle the plugin test command
     #[instrument(level = "debug", skip_all, name = "plugin_test")]
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let wasm = if self.plugin.is_dir() {
+        let wasm = {
             let config = ctx
-                .ensure_config(Some(self.plugin.as_path()))
-                .await
+                .load_config(None::<Config>)
                 .context("failed to load config")?;
-            let built_path = build_component(&self.plugin, ctx, &config, None)
+
+            let built_path = build_component(ctx, &config)
                 .await
                 .context("Failed to build component from directory")?;
             tokio::fs::read(&built_path.component_path)
                 .await
                 .context("Failed to read built component file")?
-        } else {
-            tokio::fs::read(&self.plugin)
-                .await
-                .context("Failed to read component file")?
-            // TODO(#14): support OCI references too
         };
 
         let mut output = String::new();
@@ -400,7 +393,7 @@ impl TestCommand {
         Ok(CommandOutput::ok(
             output,
             Some(json!({
-                "plugin_path": self.plugin.to_string_lossy(),
+                "plugin_path": ctx.project_dir().to_string_lossy(),
                 "args": self.args,
                 "hooks": self.hooks,
                 "metadata": metadata,
