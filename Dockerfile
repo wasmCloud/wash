@@ -9,11 +9,6 @@ USER root
 RUN apk --no-cache add protoc protobuf protobuf-dev
 USER nonroot
 
-# dependencies cache
-COPY Cargo.toml Cargo.lock rust-toolchain.toml rustfmt.toml ./
-COPY --parents ./crates/**/Cargo.toml ./
-RUN cargo fetch --locked
-
 # copy source code
 COPY . .
 
