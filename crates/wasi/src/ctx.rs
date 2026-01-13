@@ -377,6 +377,15 @@ impl WasiCtxBuilder {
         self.socket_addr_check(|_, _| Box::pin(async { true }))
     }
 
+    /// Set loopback network
+    pub fn loopback_network(
+        &mut self,
+        loopback: std::sync::Arc<std::sync::Mutex<crate::sockets::loopback::Network>>,
+    ) -> &mut Self {
+        self.sockets.loopback = loopback;
+        self
+    }
+
     /// A check that will be called for each socket address that is used.
     ///
     /// Returning `true` will permit socket connections to the `SocketAddr`,

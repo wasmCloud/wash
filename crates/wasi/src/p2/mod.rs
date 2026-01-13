@@ -238,7 +238,7 @@ pub mod pipe;
 mod poll;
 mod stdio;
 mod tcp;
-mod udp;
+pub(crate) mod udp;
 mod write_stream;
 
 pub use self::filesystem::{FsError, FsResult, ReaddirIterator};

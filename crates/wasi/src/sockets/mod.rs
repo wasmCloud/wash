@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use wasmtime::component::{HasData, ResourceTable};
 
+pub mod loopback;
 mod tcp;
 mod udp;
 pub(crate) mod util;
@@ -66,10 +67,11 @@ pub(crate) const DEFAULT_TCP_BACKLOG: u32 = 128;
 /// In practice, datagrams are typically less than 1500 bytes.
 pub(crate) const MAX_UDP_DATAGRAM_SIZE: usize = u16::MAX as usize;
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct WasiSocketsCtx {
     pub(crate) socket_addr_check: SocketAddrCheck,
     pub(crate) allowed_network_uses: AllowedNetworkUses,
+    pub(crate) loopback: Arc<std::sync::Mutex<loopback::Network>>,
 }
 
 pub struct WasiSocketsCtxView<'a> {

@@ -18,6 +18,7 @@ use tracing::debug;
 ///
 /// This represents the various states a socket can be in during the
 /// activities of binding, and connecting.
+#[derive(Clone)]
 enum UdpState {
     /// The initial state for a newly-created socket.
     Default,
@@ -42,7 +43,8 @@ enum UdpState {
 ///
 /// The inner state is wrapped in an Arc because the same underlying socket is
 /// used for implementing the stream types.
-pub struct UdpSocket {
+#[derive(Clone)]
+pub struct NetworkUdpSocket {
     socket: Arc<tokio::net::UdpSocket>,
 
     /// The current state in the bind/connect progression.
@@ -56,9 +58,9 @@ pub struct UdpSocket {
     socket_addr_check: Option<SocketAddrCheck>,
 }
 
-impl UdpSocket {
+impl NetworkUdpSocket {
     /// Create a new socket in the given family.
-    pub(crate) fn new(cx: &WasiSocketsCtx, family: AddressFamily) -> Result<Self, ErrorCode> {
+    fn new(cx: &WasiSocketsCtx, family: AddressFamily) -> Result<Self, ErrorCode> {
         cx.allowed_network_uses.check_allowed_udp()?;
 
         // Delegate socket creation to cap_net_ext. They handle a couple of things for us:
@@ -90,19 +92,13 @@ impl UdpSocket {
         })
     }
 
-    pub(crate) fn bind(&mut self, addr: SocketAddr) -> Result<(), ErrorCode> {
-        if !matches!(self.udp_state, UdpState::Default) {
-            return Err(ErrorCode::InvalidState);
-        }
-        if !is_valid_address_family(addr.ip(), self.family) {
-            return Err(ErrorCode::InvalidArgument);
-        }
+    fn bind(&mut self, addr: SocketAddr) -> Result<(), ErrorCode> {
         udp_bind(&self.socket, addr)?;
         self.udp_state = UdpState::BindStarted;
         Ok(())
     }
 
-    pub(crate) fn finish_bind(&mut self) -> Result<(), ErrorCode> {
+    fn finish_bind(&mut self) -> Result<(), ErrorCode> {
         match self.udp_state {
             UdpState::BindStarted => {
                 self.udp_state = UdpState::Bound;
@@ -112,15 +108,15 @@ impl UdpSocket {
         }
     }
 
-    pub(crate) fn is_connected(&self) -> bool {
+    fn is_connected(&self) -> bool {
         matches!(self.udp_state, UdpState::Connected(..))
     }
 
-    pub(crate) fn is_bound(&self) -> bool {
+    fn is_bound(&self) -> bool {
         matches!(self.udp_state, UdpState::Connected(..) | UdpState::Bound)
     }
 
-    pub(crate) fn disconnect(&mut self) -> Result<(), ErrorCode> {
+    fn disconnect(&mut self) -> Result<(), ErrorCode> {
         if !self.is_connected() {
             return Err(ErrorCode::InvalidState);
         }
@@ -129,7 +125,7 @@ impl UdpSocket {
         Ok(())
     }
 
-    pub(crate) fn connect(&mut self, addr: SocketAddr) -> Result<(), ErrorCode> {
+    fn connect(&mut self, addr: SocketAddr) -> Result<(), ErrorCode> {
         if !is_valid_address_family(addr.ip(), self.family) || !is_valid_remote_address(addr) {
             return Err(ErrorCode::InvalidArgument);
         }
@@ -164,7 +160,7 @@ impl UdpSocket {
     }
 
     #[cfg(feature = "p3")]
-    pub(crate) fn send(&self, buf: Vec<u8>) -> impl Future<Output = Result<(), ErrorCode>> + use<> {
+    fn send(&self, buf: Vec<u8>) -> impl Future<Output = Result<(), ErrorCode>> + use<> {
         let socket = if let UdpState::Connected(..) = self.udp_state {
             Ok(Arc::clone(&self.socket))
         } else {
@@ -177,7 +173,7 @@ impl UdpSocket {
     }
 
     #[cfg(feature = "p3")]
-    pub(crate) fn send_to(
+    fn send_to(
         &self,
         buf: Vec<u8>,
         addr: SocketAddr,
@@ -203,9 +199,7 @@ impl UdpSocket {
     }
 
     #[cfg(feature = "p3")]
-    pub(crate) fn receive(
-        &self,
-    ) -> impl Future<Output = Result<(Vec<u8>, SocketAddr), ErrorCode>> + use<> {
+    fn receive(&self) -> impl Future<Output = Result<(Vec<u8>, SocketAddr), ErrorCode>> + use<> {
         enum Mode {
             Recv(Arc<tokio::net::UdpSocket>, SocketAddr),
             RecvFrom(Arc<tokio::net::UdpSocket>),
@@ -233,7 +227,7 @@ impl UdpSocket {
         }
     }
 
-    pub(crate) fn local_address(&self) -> Result<SocketAddr, ErrorCode> {
+    fn local_address(&self) -> Result<SocketAddr, ErrorCode> {
         if matches!(self.udp_state, UdpState::Default | UdpState::BindStarted) {
             return Err(ErrorCode::InvalidState);
         }
@@ -244,7 +238,7 @@ impl UdpSocket {
         Ok(addr)
     }
 
-    pub(crate) fn remote_address(&self) -> Result<SocketAddr, ErrorCode> {
+    fn remote_address(&self) -> Result<SocketAddr, ErrorCode> {
         if !matches!(self.udp_state, UdpState::Connected(..)) {
             return Err(ErrorCode::InvalidState);
         }
@@ -259,32 +253,32 @@ impl UdpSocket {
         self.family
     }
 
-    pub(crate) fn unicast_hop_limit(&self) -> Result<u8, ErrorCode> {
+    fn unicast_hop_limit(&self) -> Result<u8, ErrorCode> {
         let n = get_unicast_hop_limit(&self.socket, self.family)?;
         Ok(n)
     }
 
-    pub(crate) fn set_unicast_hop_limit(&self, value: u8) -> Result<(), ErrorCode> {
+    fn set_unicast_hop_limit(&self, value: u8) -> Result<(), ErrorCode> {
         set_unicast_hop_limit(&self.socket, self.family, value)?;
         Ok(())
     }
 
-    pub(crate) fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
+    fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
         let n = receive_buffer_size(&self.socket)?;
         Ok(n)
     }
 
-    pub(crate) fn set_receive_buffer_size(&self, value: u64) -> Result<(), ErrorCode> {
+    fn set_receive_buffer_size(&self, value: u64) -> Result<(), ErrorCode> {
         set_receive_buffer_size(&self.socket, value)?;
         Ok(())
     }
 
-    pub(crate) fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
+    fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
         let n = send_buffer_size(&self.socket)?;
         Ok(n)
     }
 
-    pub(crate) fn set_send_buffer_size(&self, value: u64) -> Result<(), ErrorCode> {
+    fn set_send_buffer_size(&self, value: u64) -> Result<(), ErrorCode> {
         set_send_buffer_size(&self.socket, value)?;
         Ok(())
     }
@@ -297,7 +291,7 @@ impl UdpSocket {
         self.socket_addr_check.as_ref()
     }
 
-    pub(crate) fn set_socket_addr_check(&mut self, check: Option<SocketAddrCheck>) {
+    fn set_socket_addr_check(&mut self, check: Option<SocketAddrCheck>) {
         self.socket_addr_check = check;
     }
 }
@@ -329,5 +323,299 @@ async fn send_to(
         Err(ErrorCode::Unknown)
     } else {
         Ok(())
+    }
+}
+
+impl super::loopback::UdpSocket {
+    pub fn new(
+        socket: &NetworkUdpSocket,
+        state: super::loopback::UdpState,
+    ) -> Result<Self, ErrorCode> {
+        let hop_limit = get_unicast_hop_limit(&socket.socket, socket.family)?;
+
+        let receive_buffer_size = receive_buffer_size(&socket.socket)?;
+
+        let send_buffer_size = send_buffer_size(&socket.socket)?;
+        let send_buffer_size = send_buffer_size
+            .try_into()
+            .unwrap_or(Self::MAX_SEND_BUFFER_SIZE);
+
+        Ok(Self {
+            state,
+            hop_limit,
+            receive_buffer_size,
+            send_buffer_size,
+            family: socket.family,
+            socket_addr_check: socket.socket_addr_check.clone(),
+        })
+    }
+}
+
+pub enum UdpSocket {
+    Network(NetworkUdpSocket),
+    Loopback(super::loopback::UdpSocket),
+    Unspecified {
+        net: NetworkUdpSocket,
+        lo: super::loopback::UdpSocket,
+    },
+}
+
+impl UdpSocket {
+    pub(crate) fn new(cx: &WasiSocketsCtx, family: AddressFamily) -> Result<Self, ErrorCode> {
+        NetworkUdpSocket::new(cx, family).map(Self::Network)
+    }
+
+    pub(crate) fn bind(
+        &mut self,
+        mut addr: SocketAddr,
+        loopback: &mut super::loopback::Network,
+    ) -> Result<(), ErrorCode> {
+        use core::net::{Ipv4Addr, Ipv6Addr};
+
+        let Self::Network(socket) = self else {
+            return Err(ErrorCode::InvalidState);
+        };
+        if !matches!(socket.udp_state, UdpState::Default) {
+            return Err(ErrorCode::InvalidState);
+        }
+        if !is_valid_address_family(addr.ip(), socket.family) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let ip = addr.ip().to_canonical();
+        if !ip.is_loopback() {
+            socket.bind(addr)?;
+            if !ip.is_unspecified() {
+                return Ok(());
+            }
+            addr = socket.socket.local_addr()?;
+            match &mut addr {
+                SocketAddr::V4(addr) => addr.set_ip(Ipv4Addr::LOCALHOST),
+                SocketAddr::V6(addr) => addr.set_ip(Ipv6Addr::LOCALHOST),
+            }
+        };
+
+        let (addr, rx) = loopback.bind_udp(addr)?;
+        let lo = super::loopback::UdpSocket::new(
+            socket,
+            super::loopback::UdpState::BindStarted {
+                local_address: addr,
+                rx,
+            },
+        )?;
+
+        if ip.is_unspecified() {
+            *self = Self::Unspecified {
+                net: socket.clone(),
+                lo,
+            }
+        } else {
+            *self = Self::Loopback(lo);
+        }
+        return Ok(());
+    }
+
+    pub(crate) fn finish_bind(&mut self) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.finish_bind(),
+            Self::Loopback(socket) => socket.finish_bind(),
+            Self::Unspecified { net, lo } => {
+                net.finish_bind()?;
+                lo.finish_bind()
+            }
+        }
+    }
+
+    pub(crate) fn is_connected(&self) -> bool {
+        match self {
+            Self::Network(socket) => socket.is_connected(),
+            Self::Loopback(socket) => socket.is_connected(),
+            Self::Unspecified { net, lo } => net.is_connected() && lo.is_connected(),
+        }
+    }
+
+    pub(crate) fn is_bound(&self) -> bool {
+        match self {
+            Self::Network(socket) => socket.is_bound(),
+            Self::Loopback(socket) => socket.is_bound(),
+            Self::Unspecified { net, lo } => net.is_bound() && lo.is_bound(),
+        }
+    }
+
+    pub(crate) fn disconnect(
+        &mut self,
+        loopback: &mut super::loopback::Network,
+    ) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.disconnect(),
+            Self::Loopback(socket) => socket.disconnect(loopback),
+            Self::Unspecified { net, lo } => {
+                net.disconnect()?;
+                lo.disconnect(loopback)
+            }
+        }
+    }
+
+    pub(crate) fn connect(
+        &mut self,
+        addr: SocketAddr,
+        loopback: &mut super::loopback::Network,
+    ) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.connect(addr),
+            Self::Loopback(socket) => socket.connect(addr, loopback),
+            Self::Unspecified { net, lo } => {
+                net.connect(addr)?;
+                lo.connect(addr, loopback)
+            }
+        }
+    }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn send(&self, buf: Vec<u8>) -> impl Future<Output = Result<(), ErrorCode>> + use<> {
+        match self {
+            Self::Network(socket) => socket.send(buf),
+            Self::Loopback(..) | Self::Unspecified { .. } => todo!(),
+        }
+    }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn send_to(
+        &self,
+        buf: Vec<u8>,
+        addr: SocketAddr,
+    ) -> impl Future<Output = Result<(), ErrorCode>> + use<> {
+        match self {
+            Self::Network(socket) => socket.send_to(buf, addr),
+            Self::Loopback(..) | Self::Unspecified { .. } => todo!(),
+        }
+    }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn receive(
+        &self,
+    ) -> impl Future<Output = Result<(Vec<u8>, SocketAddr), ErrorCode>> + use<> {
+        match self {
+            Self::Network(socket) => socket.receive(),
+            Self::Loopback(..) | Self::Unspecified { .. } => todo!(),
+        }
+    }
+
+    pub(crate) fn local_address(&self) -> Result<SocketAddr, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => socket.local_address(),
+            Self::Loopback(socket) => socket.local_address(),
+        }
+    }
+
+    pub(crate) fn remote_address(&self) -> Result<SocketAddr, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.remote_address()
+            }
+            Self::Loopback(socket) => socket.remote_address(),
+        }
+    }
+
+    pub(crate) fn address_family(&self) -> SocketAddressFamily {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.address_family()
+            }
+            Self::Loopback(socket) => socket.address_family(),
+        }
+    }
+
+    pub(crate) fn unicast_hop_limit(&self) -> Result<u8, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.unicast_hop_limit()
+            }
+            Self::Loopback(socket) => socket.unicast_hop_limit(),
+        }
+    }
+
+    pub(crate) fn set_unicast_hop_limit(&mut self, value: u8) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_unicast_hop_limit(value),
+            Self::Loopback(socket) => socket.set_unicast_hop_limit(value),
+            Self::Unspecified { net, lo } => {
+                net.set_unicast_hop_limit(value)?;
+                lo.set_unicast_hop_limit(value)
+            }
+        }
+    }
+
+    pub(crate) fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.receive_buffer_size()
+            }
+            Self::Loopback(socket) => socket.receive_buffer_size(),
+        }
+    }
+
+    pub(crate) fn set_receive_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_receive_buffer_size(value),
+            Self::Loopback(socket) => socket.set_receive_buffer_size(value),
+            Self::Unspecified { net, lo } => {
+                net.set_receive_buffer_size(value)?;
+                lo.set_receive_buffer_size(value)
+            }
+        }
+    }
+
+    pub(crate) fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.send_buffer_size()
+            }
+            Self::Loopback(socket) => socket.send_buffer_size(),
+        }
+    }
+
+    pub(crate) fn set_send_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_send_buffer_size(value),
+            Self::Loopback(socket) => socket.set_send_buffer_size(value),
+            Self::Unspecified { net, lo } => {
+                net.set_send_buffer_size(value)?;
+                lo.set_send_buffer_size(value)
+            }
+        }
+    }
+
+    pub(crate) fn socket_addr_check(&self) -> Option<&SocketAddrCheck> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.socket_addr_check()
+            }
+            Self::Loopback(socket) => socket.socket_addr_check(),
+        }
+    }
+
+    pub(crate) fn set_socket_addr_check(&mut self, check: Option<SocketAddrCheck>) {
+        match self {
+            Self::Network(socket) => socket.set_socket_addr_check(check),
+            Self::Loopback(socket) => socket.set_socket_addr_check(check),
+            Self::Unspecified { net, lo } => {
+                net.set_socket_addr_check(check.clone());
+                lo.set_socket_addr_check(check);
+            }
+        }
+    }
+
+    pub(crate) fn drop(self, loopback: &mut super::loopback::Network) -> wasmtime::Result<()> {
+        match self {
+            Self::Network(socket) => {
+                drop(socket);
+                Ok(())
+            }
+            Self::Loopback(socket) => socket.drop(loopback),
+            Self::Unspecified { net, lo } => {
+                drop(net);
+                lo.drop(loopback)
+            }
+        }
     }
 }

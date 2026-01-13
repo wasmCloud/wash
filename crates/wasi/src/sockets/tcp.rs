@@ -71,7 +71,7 @@ enum TcpState {
     /// so this is `None`.
     ///
     /// From here a socket can transition to `ConnectReady` or `Connected`.
-    Connecting(Option<Pin<Box<dyn Future<Output = io::Result<tokio::net::TcpStream>> + Send>>>),
+    Connecting(Option<Pin<Box<dyn Future<Output = io::Result<ConnectingTcpStream>> + Send>>>),
 
     /// A connection via `Connecting` has completed.
     ///
@@ -80,7 +80,7 @@ enum TcpState {
     /// finishes as part of the `ready` method.
     ///
     /// From here a socket can transition to `Connected`.
-    ConnectReady(io::Result<tokio::net::TcpStream>),
+    ConnectReady(io::Result<ConnectingTcpStream>),
 
     /// A connection has been established.
     ///
@@ -135,7 +135,7 @@ impl Debug for TcpState {
 }
 
 /// A host TCP socket, plus associated bookkeeping.
-pub struct TcpSocket {
+pub struct NetworkTcpSocket {
     /// The current state in the bind/listen/accept/connect progression.
     tcp_state: TcpState,
 
@@ -147,12 +147,9 @@ pub struct TcpSocket {
     options: NonInheritedOptions,
 }
 
-impl TcpSocket {
+impl NetworkTcpSocket {
     /// Create a new socket in the given family.
-    pub(crate) fn new(
-        ctx: &WasiSocketsCtx,
-        family: SocketAddressFamily,
-    ) -> Result<Self, ErrorCode> {
+    fn new(ctx: &WasiSocketsCtx, family: SocketAddressFamily) -> Result<Self, ErrorCode> {
         ctx.allowed_network_uses.check_allowed_tcp()?;
 
         with_ambient_tokio_runtime(|| {
@@ -170,8 +167,8 @@ impl TcpSocket {
     }
 
     #[cfg(feature = "p3")]
-    pub(crate) fn new_error(err: io::Error, family: SocketAddressFamily) -> Self {
-        TcpSocket::from_state(TcpState::Error(err), family)
+    fn new_error(err: io::Error, family: SocketAddressFamily) -> Self {
+        NetworkTcpSocket::from_state(TcpState::Error(err), family)
     }
 
     /// Creates a new socket with the `result` of an accepted socket from a
@@ -179,7 +176,7 @@ impl TcpSocket {
     ///
     /// This will handle the `result` internally and `result` should be the raw
     /// result from a TCP listen operation.
-    pub(crate) fn new_accept(
+    fn new_accept(
         result: io::Result<tokio::net::TcpStream>,
         options: &NonInheritedOptions,
         family: SocketAddressFamily,
@@ -234,7 +231,7 @@ impl TcpSocket {
         }
     }
 
-    pub(crate) fn as_std_view(&self) -> Result<SocketlikeView<'_, std::net::TcpStream>, ErrorCode> {
+    fn as_std_view(&self) -> Result<SocketlikeView<'_, std::net::TcpStream>, ErrorCode> {
         match &self.tcp_state {
             TcpState::Default(socket)
             | TcpState::BindStarted(socket)
@@ -254,10 +251,6 @@ impl TcpSocket {
     }
 
     pub(crate) fn start_bind(&mut self, addr: SocketAddr) -> Result<(), ErrorCode> {
-        let ip = addr.ip();
-        if !is_valid_unicast_address(ip) || !is_valid_address_family(ip, self.family) {
-            return Err(ErrorCode::InvalidArgument);
-        }
         match mem::replace(&mut self.tcp_state, TcpState::Closed) {
             TcpState::Default(sock) => {
                 if let Err(err) = tcp_bind(&sock, addr) {
@@ -289,25 +282,7 @@ impl TcpSocket {
         }
     }
 
-    pub(crate) fn start_connect(
-        &mut self,
-        addr: &SocketAddr,
-    ) -> Result<tokio::net::TcpSocket, ErrorCode> {
-        match self.tcp_state {
-            TcpState::Default(..) | TcpState::Bound(..) => {}
-            TcpState::Connecting(..) => {
-                return Err(ErrorCode::ConcurrencyConflict);
-            }
-            _ => return Err(ErrorCode::InvalidState),
-        };
-
-        if !is_valid_unicast_address(addr.ip())
-            || !is_valid_remote_address(*addr)
-            || !is_valid_address_family(addr.ip(), self.family)
-        {
-            return Err(ErrorCode::InvalidArgument);
-        };
-
+    fn start_connect(&mut self) -> Result<tokio::net::TcpSocket, ErrorCode> {
         let (TcpState::Default(tokio_socket) | TcpState::Bound(tokio_socket)) =
             mem::replace(&mut self.tcp_state, TcpState::Connecting(None))
         else {
@@ -319,9 +294,9 @@ impl TcpSocket {
 
     /// For WASIp2 this is used to record the actual connection future as part
     /// of `start_connect` within this socket state.
-    pub(crate) fn set_pending_connect(
+    fn set_pending_connect(
         &mut self,
-        future: impl Future<Output = io::Result<tokio::net::TcpStream>> + Send + 'static,
+        future: impl Future<Output = io::Result<ConnectingTcpStream>> + Send + 'static,
     ) -> Result<(), ErrorCode> {
         match &mut self.tcp_state {
             TcpState::Connecting(slot @ None) => {
@@ -340,9 +315,9 @@ impl TcpSocket {
     /// * `Ok(Some(res))` - where `res` is the result of the connect operation.
     /// * `Ok(None)` - the connect operation isn't ready yet.
     /// * `Err(e)` - a connect operation is not in progress.
-    pub(crate) fn take_pending_connect(
+    fn take_pending_connect(
         &mut self,
-    ) -> Result<Option<io::Result<tokio::net::TcpStream>>, ErrorCode> {
+    ) -> Result<Option<io::Result<ConnectingTcpStream>>, ErrorCode> {
         match mem::replace(&mut self.tcp_state, TcpState::Connecting(None)) {
             TcpState::ConnectReady(result) => Ok(Some(result)),
             TcpState::Connecting(Some(mut future)) => {
@@ -362,18 +337,16 @@ impl TcpSocket {
         }
     }
 
-    pub(crate) fn finish_connect(
-        &mut self,
-        result: io::Result<tokio::net::TcpStream>,
-    ) -> Result<(), ErrorCode> {
+    fn finish_connect(&mut self, result: io::Result<ConnectingTcpStream>) -> Result<(), ErrorCode> {
         if !matches!(self.tcp_state, TcpState::Connecting(None)) {
             return Err(ErrorCode::InvalidState);
         }
         match result {
-            Ok(stream) => {
+            Ok(ConnectingTcpStream::Network(stream)) => {
                 self.tcp_state = TcpState::Connected(Arc::new(stream));
                 Ok(())
             }
+            Ok(ConnectingTcpStream::Loopback(..)) => Err(ErrorCode::InvalidState),
             Err(err) => {
                 self.tcp_state = TcpState::Closed;
                 Err(ErrorCode::from(err))
@@ -433,7 +406,7 @@ impl TcpSocket {
         }
     }
 
-    pub(crate) fn accept(&mut self) -> Result<Option<Self>, ErrorCode> {
+    fn accept(&mut self) -> Result<Option<Self>, ErrorCode> {
         let TcpState::Listening {
             listener,
             pending_accept,
@@ -472,7 +445,7 @@ impl TcpSocket {
         }
     }
 
-    pub(crate) fn local_address(&self) -> Result<SocketAddr, ErrorCode> {
+    fn local_address(&self) -> Result<SocketAddr, ErrorCode> {
         match &self.tcp_state {
             TcpState::Bound(socket) => Ok(socket.local_addr()?),
             TcpState::Connected(stream) => Ok(stream.local_addr()?),
@@ -486,13 +459,13 @@ impl TcpSocket {
         }
     }
 
-    pub(crate) fn remote_address(&self) -> Result<SocketAddr, ErrorCode> {
+    fn remote_address(&self) -> Result<SocketAddr, ErrorCode> {
         let stream = self.tcp_stream_arc()?;
         let addr = stream.peer_addr()?;
         Ok(addr)
     }
 
-    pub(crate) fn is_listening(&self) -> bool {
+    fn is_listening(&self) -> bool {
         matches!(self.tcp_state, TcpState::Listening { .. })
     }
 
@@ -500,7 +473,7 @@ impl TcpSocket {
         self.family
     }
 
-    pub(crate) fn set_listen_backlog_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+    fn set_listen_backlog_size(&mut self, value: u64) -> Result<(), ErrorCode> {
         const MIN_BACKLOG: u32 = 1;
         const MAX_BACKLOG: u32 = i32::MAX as u32; // OS'es will most likely limit it down even further.
 
@@ -533,25 +506,25 @@ impl TcpSocket {
         }
     }
 
-    pub(crate) fn keep_alive_enabled(&self) -> Result<bool, ErrorCode> {
+    fn keep_alive_enabled(&self) -> Result<bool, ErrorCode> {
         let fd = &*self.as_std_view()?;
         let v = sockopt::socket_keepalive(fd)?;
         Ok(v)
     }
 
-    pub(crate) fn set_keep_alive_enabled(&self, value: bool) -> Result<(), ErrorCode> {
+    fn set_keep_alive_enabled(&self, value: bool) -> Result<(), ErrorCode> {
         let fd = &*self.as_std_view()?;
         sockopt::set_socket_keepalive(fd, value)?;
         Ok(())
     }
 
-    pub(crate) fn keep_alive_idle_time(&self) -> Result<u64, ErrorCode> {
+    fn keep_alive_idle_time(&self) -> Result<u64, ErrorCode> {
         let fd = &*self.as_std_view()?;
         let v = sockopt::tcp_keepidle(fd)?;
         Ok(v.as_nanos().try_into().unwrap_or(u64::MAX))
     }
 
-    pub(crate) fn set_keep_alive_idle_time(&mut self, value: u64) -> Result<(), ErrorCode> {
+    fn set_keep_alive_idle_time(&mut self, value: u64) -> Result<(), ErrorCode> {
         let value = {
             let fd = self.as_std_view()?;
             set_keep_alive_idle_time(&*fd, value)?
@@ -560,37 +533,37 @@ impl TcpSocket {
         Ok(())
     }
 
-    pub(crate) fn keep_alive_interval(&self) -> Result<u64, ErrorCode> {
+    fn keep_alive_interval(&self) -> Result<u64, ErrorCode> {
         let fd = &*self.as_std_view()?;
         let v = sockopt::tcp_keepintvl(fd)?;
         Ok(v.as_nanos().try_into().unwrap_or(u64::MAX))
     }
 
-    pub(crate) fn set_keep_alive_interval(&self, value: u64) -> Result<(), ErrorCode> {
+    fn set_keep_alive_interval(&self, value: u64) -> Result<(), ErrorCode> {
         let fd = &*self.as_std_view()?;
         set_keep_alive_interval(fd, Duration::from_nanos(value))?;
         Ok(())
     }
 
-    pub(crate) fn keep_alive_count(&self) -> Result<u32, ErrorCode> {
+    fn keep_alive_count(&self) -> Result<u32, ErrorCode> {
         let fd = &*self.as_std_view()?;
         let v = sockopt::tcp_keepcnt(fd)?;
         Ok(v)
     }
 
-    pub(crate) fn set_keep_alive_count(&self, value: u32) -> Result<(), ErrorCode> {
+    fn set_keep_alive_count(&self, value: u32) -> Result<(), ErrorCode> {
         let fd = &*self.as_std_view()?;
         set_keep_alive_count(fd, value)?;
         Ok(())
     }
 
-    pub(crate) fn hop_limit(&self) -> Result<u8, ErrorCode> {
+    fn hop_limit(&self) -> Result<u8, ErrorCode> {
         let fd = &*self.as_std_view()?;
         let n = get_unicast_hop_limit(fd, self.family)?;
         Ok(n)
     }
 
-    pub(crate) fn set_hop_limit(&mut self, value: u8) -> Result<(), ErrorCode> {
+    fn set_hop_limit(&mut self, value: u8) -> Result<(), ErrorCode> {
         {
             let fd = &*self.as_std_view()?;
             set_unicast_hop_limit(fd, self.family, value)?;
@@ -599,13 +572,13 @@ impl TcpSocket {
         Ok(())
     }
 
-    pub(crate) fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
+    fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
         let fd = &*self.as_std_view()?;
         let n = receive_buffer_size(fd)?;
         Ok(n)
     }
 
-    pub(crate) fn set_receive_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+    fn set_receive_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
         let res = {
             let fd = &*self.as_std_view()?;
             set_receive_buffer_size(fd, value)?
@@ -614,13 +587,13 @@ impl TcpSocket {
         Ok(())
     }
 
-    pub(crate) fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
+    fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
         let fd = &*self.as_std_view()?;
         let n = send_buffer_size(fd)?;
         Ok(n)
     }
 
-    pub(crate) fn set_send_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+    fn set_send_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
         let res = {
             let fd = &*self.as_std_view()?;
             set_send_buffer_size(fd, value)?
@@ -681,7 +654,7 @@ impl TcpSocket {
     /// ready, if this is in the listening state.
     ///
     /// For all other states this method immediately returns.
-    pub(crate) async fn ready(&mut self) {
+    async fn ready(&mut self) {
         match &mut self.tcp_state {
             TcpState::Default(..)
             | TcpState::BindStarted(..)
@@ -813,6 +786,593 @@ mod does_not_inherit_options {
             if keep_alive_idle_time > 0 {
                 // Ignore potential error.
                 _ = sockopt::set_tcp_keepidle(&stream, Duration::from_nanos(keep_alive_idle_time));
+            }
+        }
+    }
+}
+
+impl super::loopback::TcpSocket {
+    pub fn new(
+        socket: &NetworkTcpSocket,
+        state: super::loopback::TcpState,
+    ) -> Result<Self, ErrorCode> {
+        let fd = &*socket.as_std_view()?;
+
+        let keep_alive_enabled = sockopt::socket_keepalive(fd)?;
+
+        let keep_alive_idle_time = sockopt::tcp_keepidle(fd)?;
+        let keep_alive_idle_time = keep_alive_idle_time
+            .as_nanos()
+            .try_into()
+            .unwrap_or(u64::MAX);
+
+        let keep_alive_interval = sockopt::tcp_keepintvl(fd)?;
+        let keep_alive_interval = keep_alive_interval
+            .as_nanos()
+            .try_into()
+            .unwrap_or(u64::MAX);
+
+        let keep_alive_count = sockopt::tcp_keepcnt(fd)?;
+
+        let hop_limit = get_unicast_hop_limit(fd, socket.family)?;
+
+        let receive_buffer_size = receive_buffer_size(fd)?;
+
+        let send_buffer_size = send_buffer_size(fd)?;
+        let send_buffer_size = send_buffer_size
+            .try_into()
+            .unwrap_or(Self::MAX_SEND_BUFFER_SIZE)
+            .min(Self::MAX_SEND_BUFFER_SIZE);
+
+        let listen_backlog_size = socket
+            .listen_backlog_size
+            .min(Self::MAX_LISTEN_BACKLOG_SIZE);
+        Ok(Self {
+            state,
+            send_buffer_size,
+            receive_buffer_size,
+            listen_backlog_size,
+            keep_alive_enabled,
+            keep_alive_idle_time,
+            keep_alive_interval,
+            keep_alive_count,
+            hop_limit,
+            family: socket.family,
+        })
+    }
+}
+
+pub enum TcpSocket {
+    Network(NetworkTcpSocket),
+    Loopback(super::loopback::TcpSocket),
+    // A socket bound to unspecified IP, which was not connected yet
+    Unspecified {
+        net: NetworkTcpSocket,
+        lo: super::loopback::TcpSocket,
+    },
+}
+
+pub enum ConnectingTcpSocket {
+    Network(tokio::net::TcpSocket),
+    Loopback(tokio::sync::mpsc::Sender<super::loopback::TcpConn>),
+}
+
+pub enum ConnectingTcpStream {
+    Network(tokio::net::TcpStream),
+    Loopback(tokio::sync::mpsc::OwnedPermit<super::loopback::TcpConn>),
+}
+
+impl ConnectingTcpSocket {
+    pub fn connect(
+        self,
+        addr: SocketAddr,
+    ) -> impl Future<Output = io::Result<ConnectingTcpStream>> {
+        async move {
+            match self {
+                Self::Network(socket) => {
+                    socket.connect(addr).await.map(ConnectingTcpStream::Network)
+                }
+                Self::Loopback(tx) => match tx.reserve_owned().await {
+                    Ok(tx) => Ok(ConnectingTcpStream::Loopback(tx)),
+                    Err(..) => Err(std::io::ErrorKind::ConnectionRefused.into()),
+                },
+            }
+        }
+    }
+}
+
+impl TcpSocket {
+    pub(crate) fn new(
+        ctx: &WasiSocketsCtx,
+        family: SocketAddressFamily,
+    ) -> Result<Self, ErrorCode> {
+        NetworkTcpSocket::new(ctx, family).map(Self::Network)
+    }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn new_error(err: io::Error, family: SocketAddressFamily) -> Self {
+        Self::Network(NetworkTcpSocket::new_error(err, family))
+    }
+
+    pub(crate) fn new_accept(
+        result: io::Result<tokio::net::TcpStream>,
+        options: &NonInheritedOptions,
+        family: SocketAddressFamily,
+    ) -> io::Result<Self> {
+        NetworkTcpSocket::new_accept(result, options, family).map(Self::Network)
+    }
+
+    pub(crate) fn start_bind(
+        &mut self,
+        mut addr: SocketAddr,
+        loopback: &mut super::loopback::Network,
+    ) -> Result<(), ErrorCode> {
+        use core::net::{Ipv4Addr, Ipv6Addr};
+
+        let Self::Network(socket) = self else {
+            return Err(ErrorCode::InvalidState);
+        };
+        let ip = addr.ip();
+        if !is_valid_unicast_address(ip) || !is_valid_address_family(ip, socket.family) {
+            return Err(ErrorCode::InvalidArgument);
+        }
+        let ip = ip.to_canonical();
+        if !ip.is_loopback() {
+            socket.start_bind(addr)?;
+            if !ip.is_unspecified() {
+                return Ok(());
+            }
+            let TcpState::BindStarted(sock) = &socket.tcp_state else {
+                unreachable!();
+            };
+            addr = sock.local_addr()?;
+            match &mut addr {
+                SocketAddr::V4(addr) => addr.set_ip(Ipv4Addr::LOCALHOST),
+                SocketAddr::V6(addr) => addr.set_ip(Ipv6Addr::LOCALHOST),
+            }
+        }
+        let addr = loopback.bind_tcp(addr)?;
+        let lo =
+            super::loopback::TcpSocket::new(socket, super::loopback::TcpState::BindStarted(addr))?;
+        if ip.is_unspecified() {
+            *self = Self::Unspecified {
+                net: NetworkTcpSocket {
+                    tcp_state: mem::replace(&mut socket.tcp_state, TcpState::Closed),
+                    listen_backlog_size: socket.listen_backlog_size,
+                    family: socket.family,
+                    options: socket.options.clone(),
+                },
+                lo,
+            }
+        } else {
+            *self = Self::Loopback(lo);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish_bind(&mut self) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.finish_bind(),
+            Self::Loopback(socket) => socket.finish_bind(),
+            Self::Unspecified { net, lo } => {
+                net.finish_bind()?;
+                lo.finish_bind()
+            }
+        }
+    }
+
+    pub(crate) fn start_connect(
+        &mut self,
+        addr: &SocketAddr,
+        loopback: &mut super::loopback::Network,
+    ) -> Result<ConnectingTcpSocket, ErrorCode> {
+        if let Self::Network(socket) | Self::Unspecified { net: socket, .. } = self {
+            match socket.tcp_state {
+                TcpState::Default(..) | TcpState::Bound(..) => {}
+                TcpState::Connecting(..) => {
+                    return Err(ErrorCode::ConcurrencyConflict);
+                }
+                _ => return Err(ErrorCode::InvalidState),
+            };
+
+            if !is_valid_unicast_address(addr.ip())
+                || !is_valid_remote_address(*addr)
+                || !is_valid_address_family(addr.ip(), socket.family)
+            {
+                return Err(ErrorCode::InvalidArgument);
+            };
+        }
+        if let Self::Loopback(socket) | Self::Unspecified { lo: socket, .. } = self {
+            match socket.state {
+                super::loopback::TcpState::Bound(..) => {}
+                super::loopback::TcpState::Connecting { .. } => {
+                    return Err(ErrorCode::ConcurrencyConflict);
+                }
+                _ => return Err(ErrorCode::InvalidState),
+            };
+
+            if !is_valid_unicast_address(addr.ip())
+                || !is_valid_remote_address(*addr)
+                || !is_valid_address_family(addr.ip(), socket.family)
+            {
+                return Err(ErrorCode::InvalidArgument);
+            };
+        }
+
+        let ip = addr.ip().to_canonical();
+        match (
+            mem::replace(
+                self,
+                Self::Loopback(super::loopback::TcpSocket {
+                    state: super::loopback::TcpState::Closed,
+                    listen_backlog_size: 0,
+                    keep_alive_enabled: false,
+                    keep_alive_idle_time: 0,
+                    keep_alive_interval: 0,
+                    keep_alive_count: 0,
+                    hop_limit: 0,
+                    receive_buffer_size: 0,
+                    send_buffer_size: 0,
+                    family: SocketAddressFamily::Ipv4,
+                }),
+            ),
+            ip.is_loopback(),
+        ) {
+            (
+                Self::Network(mut socket)
+                | Self::Unspecified {
+                    net: mut socket, ..
+                },
+                false,
+            ) => {
+                let res = socket.start_connect().map(ConnectingTcpSocket::Network);
+                *self = Self::Network(socket);
+                res
+            }
+            (Self::Network(socket), true) => {
+                if let TcpState::Bound(..) = socket.tcp_state {
+                    *self = Self::Network(socket);
+                    // socket wasn't bound to loopback
+                    return Err(ErrorCode::InvalidState);
+                }
+
+                let mut local_address = *addr;
+                local_address.set_port(0);
+                let local_address = match loopback.bind_tcp(local_address) {
+                    Ok(addr) => addr,
+                    Err(err) => {
+                        *self = Self::Network(socket);
+                        return Err(err);
+                    }
+                };
+
+                let tx = match loopback.connect_tcp(addr) {
+                    Ok(tx) => tx,
+                    Err(err) => {
+                        *self = Self::Network(socket);
+                        return Err(err);
+                    }
+                };
+
+                match super::loopback::TcpSocket::new(
+                    &socket,
+                    super::loopback::TcpState::Connecting {
+                        local_address,
+                        remote_address: *addr,
+                        future: None,
+                    },
+                ) {
+                    Ok(socket) => {
+                        *self = Self::Loopback(socket);
+                        Ok(ConnectingTcpSocket::Loopback(tx.clone()))
+                    }
+                    Err(err) => {
+                        *self = Self::Network(socket);
+                        Err(err)
+                    }
+                }
+            }
+            (Self::Loopback(mut socket), ..) => {
+                let tx = socket.start_connect(addr, loopback);
+                *self = Self::Loopback(socket);
+                tx.map(|tx| ConnectingTcpSocket::Loopback(tx.clone()))
+            }
+            (Self::Unspecified { mut lo, net }, true) => match lo.start_connect(addr, loopback) {
+                Ok(tx) => {
+                    *self = Self::Loopback(lo);
+                    Ok(ConnectingTcpSocket::Loopback(tx.clone()))
+                }
+                Err(err) => {
+                    *self = Self::Unspecified { lo, net };
+                    Err(err)
+                }
+            },
+        }
+    }
+
+    pub(crate) fn set_pending_connect(
+        &mut self,
+        future: impl Future<Output = io::Result<ConnectingTcpStream>> + Send + 'static,
+    ) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_pending_connect(future),
+            Self::Loopback(socket) => socket.set_pending_connect(future),
+            Self::Unspecified { .. } => Err(ErrorCode::InvalidState),
+        }
+    }
+
+    pub(crate) fn take_pending_connect(
+        &mut self,
+    ) -> Result<Option<io::Result<ConnectingTcpStream>>, ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.take_pending_connect(),
+            Self::Loopback(socket) => socket.take_pending_connect(),
+            Self::Unspecified { .. } => Err(ErrorCode::InvalidState),
+        }
+    }
+
+    pub(crate) fn finish_connect(
+        &mut self,
+        result: io::Result<ConnectingTcpStream>,
+        loopback: &mut super::loopback::Network,
+    ) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.finish_connect(result),
+            Self::Loopback(socket) => socket.finish_connect(result, loopback),
+            Self::Unspecified { .. } => Err(ErrorCode::InvalidState),
+        }
+    }
+
+    pub(crate) fn start_listen(
+        &mut self,
+        loopback: &mut super::loopback::Network,
+    ) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.start_listen(),
+            Self::Loopback(socket) => socket.start_listen(loopback),
+            Self::Unspecified { net, lo } => {
+                net.start_listen()?;
+                lo.start_listen(loopback)
+            }
+        }
+    }
+
+    pub(crate) fn finish_listen(&mut self) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.finish_listen(),
+            Self::Loopback(socket) => socket.finish_listen(),
+            Self::Unspecified { net, lo } => {
+                net.finish_listen()?;
+                lo.finish_listen()
+            }
+        }
+    }
+
+    pub(crate) fn accept(&mut self) -> Result<Option<Self>, ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.accept().map(|sock| sock.map(Self::Network)),
+            Self::Loopback(socket) => socket.accept().map(|sock| sock.map(Self::Loopback)),
+            Self::Unspecified { net, lo } => {
+                if let Some(sock) = net.accept()? {
+                    return Ok(Some(Self::Network(sock)));
+                }
+                lo.accept().map(|sock| sock.map(Self::Loopback))
+            }
+        }
+    }
+
+    pub(crate) fn local_address(&self) -> Result<SocketAddr, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => socket.local_address(),
+            Self::Loopback(socket) => socket.local_address(),
+        }
+    }
+
+    pub(crate) fn remote_address(&self) -> Result<SocketAddr, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.remote_address()
+            }
+            Self::Loopback(socket) => socket.remote_address(),
+        }
+    }
+
+    pub(crate) fn is_listening(&self) -> bool {
+        match self {
+            Self::Network(socket) => socket.is_listening(),
+            Self::Loopback(socket) => socket.is_listening(),
+            Self::Unspecified { net, lo } => net.is_listening() && lo.is_listening(),
+        }
+    }
+
+    pub(crate) fn address_family(&self) -> SocketAddressFamily {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.address_family()
+            }
+            Self::Loopback(socket) => socket.address_family(),
+        }
+    }
+
+    pub(crate) fn set_listen_backlog_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_listen_backlog_size(value),
+            Self::Loopback(socket) => socket.set_listen_backlog_size(value),
+            Self::Unspecified { net, lo } => {
+                net.set_listen_backlog_size(value)?;
+                lo.set_listen_backlog_size(value)
+            }
+        }
+    }
+
+    pub(crate) fn keep_alive_enabled(&self) -> Result<bool, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.keep_alive_enabled()
+            }
+            Self::Loopback(socket) => socket.keep_alive_enabled(),
+        }
+    }
+
+    pub(crate) fn set_keep_alive_enabled(&mut self, value: bool) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_keep_alive_enabled(value),
+            Self::Loopback(socket) => socket.set_keep_alive_enabled(value),
+            Self::Unspecified { net, lo } => {
+                net.set_keep_alive_enabled(value)?;
+                lo.set_keep_alive_enabled(value)
+            }
+        }
+    }
+
+    pub(crate) fn keep_alive_idle_time(&self) -> Result<u64, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.keep_alive_idle_time()
+            }
+            Self::Loopback(socket) => socket.keep_alive_idle_time(),
+        }
+    }
+
+    pub(crate) fn set_keep_alive_idle_time(&mut self, value: u64) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_keep_alive_idle_time(value),
+            Self::Loopback(socket) => socket.set_keep_alive_idle_time(value),
+            Self::Unspecified { net, lo } => {
+                net.set_keep_alive_idle_time(value)?;
+                lo.set_keep_alive_idle_time(value)
+            }
+        }
+    }
+
+    pub(crate) fn keep_alive_interval(&self) -> Result<u64, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.keep_alive_interval()
+            }
+            Self::Loopback(socket) => socket.keep_alive_interval(),
+        }
+    }
+
+    pub(crate) fn set_keep_alive_interval(&mut self, value: u64) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_keep_alive_interval(value),
+            Self::Loopback(socket) => socket.set_keep_alive_interval(value),
+            Self::Unspecified { net, lo } => {
+                net.set_keep_alive_interval(value)?;
+                lo.set_keep_alive_interval(value)
+            }
+        }
+    }
+
+    pub(crate) fn keep_alive_count(&self) -> Result<u32, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.keep_alive_count()
+            }
+            Self::Loopback(socket) => socket.keep_alive_count(),
+        }
+    }
+
+    pub(crate) fn set_keep_alive_count(&mut self, value: u32) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_keep_alive_count(value),
+            Self::Loopback(socket) => socket.set_keep_alive_count(value),
+            Self::Unspecified { net, lo } => {
+                net.set_keep_alive_count(value)?;
+                lo.set_keep_alive_count(value)
+            }
+        }
+    }
+
+    pub(crate) fn hop_limit(&self) -> Result<u8, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => socket.hop_limit(),
+            Self::Loopback(socket) => socket.hop_limit(),
+        }
+    }
+
+    pub(crate) fn set_hop_limit(&mut self, value: u8) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_hop_limit(value),
+            Self::Loopback(socket) => socket.set_hop_limit(value),
+            Self::Unspecified { net, lo } => {
+                net.set_hop_limit(value)?;
+                lo.set_hop_limit(value)
+            }
+        }
+    }
+
+    pub(crate) fn receive_buffer_size(&self) -> Result<u64, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.receive_buffer_size()
+            }
+            Self::Loopback(socket) => socket.receive_buffer_size(),
+        }
+    }
+
+    pub(crate) fn set_receive_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_receive_buffer_size(value),
+            Self::Loopback(socket) => socket.set_receive_buffer_size(value),
+            Self::Unspecified { net, lo } => {
+                net.set_receive_buffer_size(value)?;
+                lo.set_receive_buffer_size(value)
+            }
+        }
+    }
+
+    pub(crate) fn send_buffer_size(&self) -> Result<u64, ErrorCode> {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.send_buffer_size()
+            }
+            Self::Loopback(socket) => socket.send_buffer_size(),
+        }
+    }
+
+    pub(crate) fn set_send_buffer_size(&mut self, value: u64) -> Result<(), ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.set_send_buffer_size(value),
+            Self::Loopback(socket) => socket.set_send_buffer_size(value),
+            Self::Unspecified { net, lo } => {
+                net.set_send_buffer_size(value)?;
+                lo.set_send_buffer_size(value)
+            }
+        }
+    }
+
+    pub(crate) async fn ready(&mut self) {
+        match self {
+            Self::Network(socket) => socket.ready().await,
+            Self::Loopback(socket) => socket.ready().await,
+            Self::Unspecified { net, lo } => {
+                use core::future::poll_fn;
+                use core::pin::pin;
+                use core::task::Poll;
+
+                let mut net = pin!(net.ready());
+                let mut lo = pin!(lo.ready());
+                poll_fn(|cx| match net.as_mut().poll(cx) {
+                    Poll::Ready(()) => Poll::Ready(()),
+                    Poll::Pending => lo.as_mut().poll(cx),
+                })
+                .await;
+            }
+        }
+    }
+
+    pub(crate) fn drop(self, loopback: &mut super::loopback::Network) -> wasmtime::Result<()> {
+        match self {
+            Self::Network(socket) => {
+                drop(socket);
+                Ok(())
+            }
+            Self::Loopback(socket) => socket.drop(loopback),
+            Self::Unspecified { net, lo } => {
+                drop(net);
+                lo.drop(loopback)
             }
         }
     }

@@ -15,17 +15,64 @@ use tokio::sync::Mutex;
 
 impl TcpSocket {
     pub(crate) fn p2_streams(&mut self) -> SocketResult<(DynInputStream, DynOutputStream)> {
-        let client = self.tcp_stream_arc()?;
-        let reader = Arc::new(Mutex::new(TcpReader::new(client.clone())));
-        let writer = Arc::new(Mutex::new(TcpWriter::new(client.clone())));
-        self.set_p2_streaming_state(P2TcpStreamingState {
-            stream: client.clone(),
-            reader: reader.clone(),
-            writer: writer.clone(),
-        })?;
-        let input: DynInputStream = Box::new(TcpReadStream(reader));
-        let output: DynOutputStream = Box::new(TcpWriteStream(writer));
-        Ok((input, output))
+        match self {
+            Self::Network(socket) => {
+                let client = socket.tcp_stream_arc()?;
+                let reader = Arc::new(Mutex::new(TcpReader::new(client.clone())));
+                let writer = Arc::new(Mutex::new(TcpWriter::new(client.clone())));
+                socket.set_p2_streaming_state(P2TcpStreamingState {
+                    stream: client.clone(),
+                    reader: reader.clone(),
+                    writer: writer.clone(),
+                })?;
+                let input: DynInputStream = Box::new(TcpReadStream(reader));
+                let output: DynOutputStream = Box::new(TcpWriteStream(writer));
+                Ok((input, output))
+            }
+            Self::Loopback(socket) => {
+                use crate::sockets::loopback::{TcpConn, TcpSocket, TcpState};
+                let state = mem::replace(&mut socket.state, TcpState::Closed);
+                let TcpState::Connected {
+                    conn:
+                        TcpConn {
+                            local_address,
+                            remote_address,
+                            rx,
+                            tx,
+                        },
+                    accepted,
+                } = state
+                else {
+                    socket.state = state;
+                    return Err(crate::sockets::util::ErrorCode::InvalidState.into());
+                };
+                let rx = Arc::new(Mutex::new(Some(rx)));
+                let tx = Arc::new(std::sync::Mutex::new(Some(tx)));
+                // Ensure `check-write` allows more than `send_buffer_size` bytes to be written to
+                // make this assertion succeed:
+                // https://github.com/bytecodealliance/wasmtime/blob/b1c7887c801b62f7fb39e3bd916d8737b3043135/crates/test-programs/src/bin/p2_tcp_streams.rs#L96
+                let permits = socket
+                    .send_buffer_size
+                    .saturating_add(1)
+                    .min(TcpSocket::MAX_SEND_BUFFER_SIZE);
+                let permits = Arc::new(tokio::sync::Semaphore::new(permits as _));
+                socket.state = TcpState::P2Streaming {
+                    local_address,
+                    remote_address,
+                    accepted,
+                    permits: Arc::clone(&permits),
+                    rx: Arc::clone(&rx),
+                    tx: Arc::clone(&tx),
+                };
+                let input: DynInputStream = Box::new(LoopbackInputStream {
+                    rx,
+                    buffer: bytes::Bytes::default(),
+                });
+                let output: DynOutputStream = Box::new(LoopbackOutputStream { tx, permits });
+                Ok((input, output))
+            }
+            Self::Unspecified { .. } => Err(crate::sockets::util::ErrorCode::InvalidState.into()),
+        }
     }
 }
 
@@ -358,4 +405,134 @@ fn try_lock_for_socket<T>(mutex: &Mutex<T>) -> SocketResult<tokio::sync::MutexGu
             "concurrent access to resource not supported"
         ))
     })
+}
+
+struct LoopbackInputStream {
+    rx: Arc<
+        Mutex<
+            Option<
+                tokio::sync::mpsc::UnboundedReceiver<(
+                    bytes::Bytes,
+                    tokio::sync::OwnedSemaphorePermit,
+                )>,
+            >,
+        >,
+    >,
+    buffer: bytes::Bytes,
+}
+
+#[async_trait::async_trait]
+impl Pollable for LoopbackInputStream {
+    async fn ready(&mut self) {
+        if !self.buffer.is_empty() {
+            return;
+        }
+
+        let mut rx = self.rx.lock().await;
+        let Some(rx) = rx.as_mut() else {
+            return;
+        };
+        if let Some((buf, _permit)) = rx.recv().await {
+            self.buffer = buf;
+        };
+    }
+}
+
+impl InputStream for LoopbackInputStream {
+    fn read(&mut self, size: usize) -> Result<bytes::Bytes, StreamError> {
+        use tokio::sync::mpsc::error::TryRecvError;
+
+        let Ok(mut rx) = self.rx.try_lock() else {
+            return Err(StreamError::Closed);
+        };
+        let Some(rx) = rx.as_mut() else {
+            return Err(StreamError::Closed);
+        };
+        if rx.is_closed() && rx.is_empty() && self.buffer.is_empty() {
+            return Err(StreamError::Closed);
+        }
+
+        if size == 0 {
+            return Ok(bytes::Bytes::default());
+        }
+        if !self.buffer.is_empty() {
+            let n = self.buffer.len();
+            return Ok(self.buffer.split_to(size.min(n)));
+        }
+        match rx.try_recv() {
+            Ok((buf, _permit)) => {
+                self.buffer = buf;
+                let n = self.buffer.len();
+                Ok(self.buffer.split_to(size.min(n)))
+            }
+            Err(TryRecvError::Empty) => Ok(bytes::Bytes::default()),
+            Err(TryRecvError::Disconnected) => Err(StreamError::Closed),
+        }
+    }
+}
+
+struct LoopbackOutputStream {
+    tx: Arc<
+        std::sync::Mutex<
+            Option<
+                tokio::sync::mpsc::UnboundedSender<(
+                    bytes::Bytes,
+                    tokio::sync::OwnedSemaphorePermit,
+                )>,
+            >,
+        >,
+    >,
+    permits: Arc<tokio::sync::Semaphore>,
+}
+
+impl LoopbackOutputStream {
+    fn is_closed(&self) -> bool {
+        let tx = self.tx.lock().unwrap();
+        tx.as_ref().map(|tx| tx.is_closed()).unwrap_or(true)
+    }
+}
+
+#[async_trait::async_trait]
+impl Pollable for LoopbackOutputStream {
+    async fn ready(&mut self) {
+        _ = self.permits.acquire().await
+    }
+}
+
+impl OutputStream for LoopbackOutputStream {
+    fn write(&mut self, bytes: bytes::Bytes) -> Result<(), StreamError> {
+        let mut tx = self.tx.lock().unwrap();
+        let Some(tx) = tx.as_mut() else {
+            return Err(StreamError::Closed);
+        };
+        let Some(permit) = bytes.len().try_into().ok().and_then(|n| {
+            let permits = Arc::clone(&self.permits);
+            permits.try_acquire_many_owned(n).ok()
+        }) else {
+            return Err(StreamError::Trap(anyhow::anyhow!(
+                "write beyond capacity of LoopbackOutputStream"
+            )));
+        };
+        if let Err(..) = tx.send((bytes, permit)) {
+            Err(StreamError::Closed)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn flush(&mut self) -> Result<(), StreamError> {
+        if self.is_closed() {
+            Err(StreamError::Closed)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn check_write(&mut self) -> Result<usize, StreamError> {
+        if self.is_closed() {
+            Err(StreamError::Closed)
+        } else {
+            Ok(self.permits.available_permits())
+        }
+    }
 }

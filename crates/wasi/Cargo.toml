@@ -1,7 +1,10 @@
 [package]
 name = "wash-wasi"
 version.workspace = true
-authors = ["The Wasmtime Project Developers"]
+authors = [
+    "The Wasmtime Project Developers",
+    "The wasmCloud Team"
+]
 description = "WASI implementation in Rust"
 license = "Apache-2.0 WITH LLVM-exception"
 categories = ["wasm"]

@@ -369,6 +369,7 @@ mod async_io {
             "wasi:filesystem/types/[method]descriptor.unlink-file-at": async | tracing | trappable,
             "wasi:filesystem/types/[method]descriptor.write": async | tracing | trappable,
             "wasi:filesystem/types/[method]directory-entry-stream.read-directory-entry": async | tracing | trappable,
+            "wasi:sockets/tcp/[method]tcp-socket.shutdown": async | tracing | trappable,
             "wasi:sockets/tcp/[method]tcp-socket.start-bind": async | tracing | trappable,
             "wasi:sockets/tcp/[method]tcp-socket.start-connect": async | tracing | trappable,
             "wasi:sockets/udp/[method]udp-socket.start-bind": async | tracing | trappable,
