@@ -36,9 +36,7 @@ use bindings::wasi::keyvalue::store::{Error as StoreError, KeyResponse};
 /// In-memory bucket representation
 #[derive(Clone, Debug)]
 pub struct BucketData {
-    pub name: String,
     pub data: HashMap<String, Vec<u8>>,
-    pub created_at: u64,
 }
 
 /// Resource representation for a bucket (key-value store)
@@ -56,13 +54,6 @@ impl InMemoryKeyValue {
         Self {
             storage: Arc::new(RwLock::new(HashMap::new())),
         }
-    }
-
-    fn get_timestamp() -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs()
     }
 }
 
@@ -84,9 +75,7 @@ impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
         // Create bucket if it doesn't exist
         if !workload_storage.contains_key(&identifier) {
             let bucket_data = BucketData {
-                name: identifier.clone(),
                 data: HashMap::new(),
-                created_at: InMemoryKeyValue::get_timestamp(),
             };
             workload_storage.insert(identifier.clone(), bucket_data);
         }
@@ -509,22 +498,12 @@ mod tests {
     }
 
     #[test]
-    fn test_get_timestamp() {
-        let timestamp = InMemoryKeyValue::get_timestamp();
-        assert!(timestamp > 0);
-    }
-
-    #[test]
     fn test_bucket_data_creation() {
         let bucket = BucketData {
-            name: "test-bucket".to_string(),
             data: HashMap::new(),
-            created_at: InMemoryKeyValue::get_timestamp(),
         };
 
-        assert_eq!(bucket.name, "test-bucket");
         assert!(bucket.data.is_empty());
-        assert!(bucket.created_at > 0);
     }
 
     #[tokio::test]

@@ -78,8 +78,6 @@ pub struct OutgoingValueHandle {
 /// Resource representation for streaming object names
 #[derive(Debug)]
 pub struct StreamObjectNamesHandle {
-    pub container_name: String,
-    pub workload_id: String,
     pub objects: Vec<String>,
     pub position: usize,
 }
@@ -445,8 +443,6 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
             Some(container_data) => {
                 let objects: Vec<String> = container_data.objects.keys().cloned().collect();
                 let handle = StreamObjectNamesHandle {
-                    container_name: container_name.clone(),
-                    workload_id: self.workload_id.to_string(),
                     objects,
                     position: 0,
                 };

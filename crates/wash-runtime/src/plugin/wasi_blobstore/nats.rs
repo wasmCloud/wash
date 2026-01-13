@@ -36,15 +36,6 @@ use bindings::wasi::blobstore::types::{
     ContainerMetadata, ContainerName, Error as BlobstoreError, ObjectId, ObjectMetadata, ObjectName,
 };
 
-/// Metadata for an object stored in memory
-#[derive(Clone, Debug)]
-pub struct ObjectData {
-    pub name: String,
-    pub container: String,
-    pub data: Vec<u8>,
-    pub created_at: u64,
-}
-
 /// In-memory container representation
 #[derive(Clone)]
 pub struct ContainerData {
@@ -64,8 +55,6 @@ pub struct WorkloadData {
 /// Resource representation for an incoming value (data being read)
 pub struct IncomingValueHandle {
     pub object: Object,
-    pub start: u64,
-    pub end: u64,
 }
 
 /// Resource representation for an outgoing value (data being written)
@@ -79,7 +68,6 @@ pub struct OutgoingValueHandle {
 /// Resource representation for streaming object names
 pub struct StreamObjectNamesHandle {
     pub objects: List,
-    pub position: usize,
 }
 
 /// NATS blobstore plugin
@@ -355,8 +343,8 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         &mut self,
         container: Resource<ContainerData>,
         name: ObjectName,
-        start: u64,
-        end: u64,
+        _start: u64,
+        _end: u64,
     ) -> anyhow::Result<Result<Resource<IncomingValueHandle>, ContainerError>> {
         let container_data = self.table.get(&container)?;
 
@@ -372,9 +360,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
             }
         };
 
-        let resource = self
-            .table
-            .push(IncomingValueHandle { object, start, end })?;
+        let resource = self.table.push(IncomingValueHandle { object })?;
 
         Ok(Ok(resource))
     }
@@ -427,7 +413,6 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
 
         let resource = self.table.push(StreamObjectNamesHandle {
             objects: list_names,
-            position: 0,
         })?;
 
         Ok(Ok(resource))
