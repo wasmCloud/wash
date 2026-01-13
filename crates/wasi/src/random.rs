@@ -4,7 +4,7 @@ use wasmtime::component::HasData;
 /// A helper struct which implements [`HasData`] for the `wasi:random` APIs.
 ///
 /// This can be useful when directly calling `add_to_linker` functions directly,
-/// such as [`wasmtime_wasi::p2::bindings::random::random::add_to_linker`] as
+/// such as [`wash_wasi::p2::bindings::random::random::add_to_linker`] as
 /// the `D` type parameter. See [`HasData`] for more information about the type
 /// parameter's purpose.
 ///
@@ -16,7 +16,7 @@ use wasmtime::component::HasData;
 /// ```
 /// use wasmtime::component::Linker;
 /// use wasmtime::{Engine, Result, Config};
-/// use wasmtime_wasi::random::*;
+/// use wash_wasi::random::*;
 ///
 /// struct MyStoreState {
 ///     random: WasiRandomCtx,
@@ -28,7 +28,7 @@ use wasmtime::component::HasData;
 ///     let engine = Engine::new(&config)?;
 ///     let mut linker = Linker::new(&engine);
 ///
-///     wasmtime_wasi::p2::bindings::random::random::add_to_linker::<MyStoreState, WasiRandom>(
+///     wash_wasi::p2::bindings::random::random::add_to_linker::<MyStoreState, WasiRandom>(
 ///         &mut linker,
 ///         |state| &mut state.random,
 ///     )?;

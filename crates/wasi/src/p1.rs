@@ -35,8 +35,8 @@
 //!
 //! ```no_run
 //! use wasmtime::{Result, Engine, Linker, Module, Store};
-//! use wasmtime_wasi::p1::{self, WasiP1Ctx};
-//! use wasmtime_wasi::WasiCtxBuilder;
+//! use wash_wasi::p1::{self, WasiP1Ctx};
+//! use wash_wasi::WasiCtxBuilder;
 //!
 //! // An example of executing a WASIp1 "command"
 //! fn main() -> Result<()> {
@@ -114,8 +114,8 @@ use wasmtime_wasi_io::bindings::wasi::io::poll::Host as _;
 ///
 /// ```no_run
 /// use wasmtime::{Result, Linker};
-/// use wasmtime_wasi::p1::{self, WasiP1Ctx};
-/// use wasmtime_wasi::WasiCtxBuilder;
+/// use wash_wasi::p1::{self, WasiP1Ctx};
+/// use wash_wasi::WasiCtxBuilder;
 ///
 /// struct MyState {
 ///     // ... custom state as necessary ...
@@ -674,7 +674,7 @@ enum FdWrite {
 ///
 /// ```no_run
 /// use wasmtime::{Result, Linker, Engine, Config};
-/// use wasmtime_wasi::p1::{self, WasiP1Ctx};
+/// use wash_wasi::p1::{self, WasiP1Ctx};
 ///
 /// fn main() -> Result<()> {
 ///     let mut config = Config::new();
@@ -694,7 +694,7 @@ enum FdWrite {
 ///
 /// ```no_run
 /// use wasmtime::{Result, Linker, Engine, Config};
-/// use wasmtime_wasi::p1::{self, WasiP1Ctx};
+/// use wash_wasi::p1::{self, WasiP1Ctx};
 ///
 /// struct MyState {
 ///     // .. other custom state here ..
@@ -748,7 +748,7 @@ pub fn add_to_linker_async<T: Send + 'static>(
 ///
 /// ```no_run
 /// use wasmtime::{Result, Linker, Engine, Config};
-/// use wasmtime_wasi::p1::{self, WasiP1Ctx};
+/// use wash_wasi::p1::{self, WasiP1Ctx};
 ///
 /// fn main() -> Result<()> {
 ///     let mut config = Config::new();
@@ -768,7 +768,7 @@ pub fn add_to_linker_async<T: Send + 'static>(
 ///
 /// ```no_run
 /// use wasmtime::{Result, Linker, Engine, Config};
-/// use wasmtime_wasi::p1::{self, WasiP1Ctx};
+/// use wash_wasi::p1::{self, WasiP1Ctx};
 ///
 /// struct MyState {
 ///     // .. other custom state here ..

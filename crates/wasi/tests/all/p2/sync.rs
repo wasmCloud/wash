@@ -1,10 +1,10 @@
 use crate::store::{Ctx, MyWasiCtx};
 use std::path::Path;
 use test_programs_artifacts::*;
+use wash_wasi::p2::add_to_linker_sync;
+use wash_wasi::p2::bindings::sync::Command;
 use wasmtime::Result;
 use wasmtime::component::{Component, Linker};
-use wasmtime_wasi::p2::add_to_linker_sync;
-use wasmtime_wasi::p2::bindings::sync::Command;
 
 fn run(path: &str, inherit_stdio: bool) -> Result<()> {
     let path = Path::new(path);

@@ -23,7 +23,7 @@ use tokio::io::{stderr, stdin, stdout};
 /// # Examples
 ///
 /// ```
-/// use wasmtime_wasi::WasiCtx;
+/// use wash_wasi::WasiCtx;
 ///
 /// let mut wasi = WasiCtx::builder();
 /// wasi.arg("./foo.wasm");
@@ -72,8 +72,8 @@ impl WasiCtxBuilder {
     /// stdin looks like:
     ///
     /// ```
-    /// use wasmtime_wasi::WasiCtx;
-    /// use wasmtime_wasi::cli::stdin;
+    /// use wash_wasi::WasiCtx;
+    /// use wash_wasi::cli::stdin;
     ///
     /// let mut wasi = WasiCtx::builder();
     /// wasi.stdin(stdin());
@@ -178,7 +178,7 @@ impl WasiCtxBuilder {
     /// # Examples
     ///
     /// ```
-    /// use wasmtime_wasi::WasiCtxBuilder;
+    /// use wash_wasi::WasiCtxBuilder;
     ///
     /// let mut wasi = WasiCtxBuilder::new();
     /// wasi.envs(&[
@@ -202,7 +202,7 @@ impl WasiCtxBuilder {
     /// # Examples
     ///
     /// ```
-    /// use wasmtime_wasi::WasiCtxBuilder;
+    /// use wash_wasi::WasiCtxBuilder;
     ///
     /// let mut wasi = WasiCtxBuilder::new();
     /// wasi.env("FOO", "bar");
@@ -274,8 +274,8 @@ impl WasiCtxBuilder {
     /// # Examples
     ///
     /// ```
-    /// use wasmtime_wasi::WasiCtxBuilder;
-    /// use wasmtime_wasi::{DirPerms, FilePerms};
+    /// use wash_wasi::WasiCtxBuilder;
+    /// use wash_wasi::{DirPerms, FilePerms};
     ///
     /// # fn main() {}
     /// # fn foo() -> wasmtime::Result<()> {
@@ -487,7 +487,7 @@ impl WasiCtxBuilder {
 /// # Example
 ///
 /// ```
-/// use wasmtime_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView, WasiCtxBuilder};
+/// use wash_wasi::{ResourceTable, WasiCtx, WasiCtxView, WasiView, WasiCtxBuilder};
 ///
 /// struct MyState {
 ///     ctx: WasiCtx,

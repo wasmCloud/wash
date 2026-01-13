@@ -2,14 +2,14 @@ use anyhow::Result;
 use std::io::Write;
 use std::sync::Mutex;
 use std::time::Duration;
-use wasmtime::Store;
-use wasmtime::component::{Component, Linker, ResourceTable};
-use wasmtime_wasi::p2::add_to_linker_async;
-use wasmtime_wasi::p2::bindings::{Command, clocks::wall_clock, filesystem::types as filesystem};
-use wasmtime_wasi::{
+use wash_wasi::p2::add_to_linker_async;
+use wash_wasi::p2::bindings::{Command, clocks::wall_clock, filesystem::types as filesystem};
+use wash_wasi::{
     DirPerms, FilePerms, HostMonotonicClock, HostWallClock, WasiCtx, WasiCtxBuilder, WasiCtxView,
     WasiView,
 };
+use wasmtime::Store;
+use wasmtime::component::{Component, Linker, ResourceTable};
 
 struct CommandCtx {
     table: ResourceTable,
@@ -134,7 +134,7 @@ wasmtime::component::bindgen!({
     imports: { default: async },
     exports: { default: async },
     require_store_data_send: true,
-    with: { "wasi": wasmtime_wasi::p2::bindings },
+    with: { "wasi": wash_wasi::p2::bindings },
     ownership: Borrowing {
         duplicate_if_necessary: false
     }
@@ -168,8 +168,8 @@ async fn api_reactor() -> Result<()> {
     // `host` and `wasi-common` crate.
     // Note, this works because of the add_to_linker invocations using the
     // `host` crate for `streams`, not because of `with` in the bindgen macro.
-    let writepipe = wasmtime_wasi::p2::pipe::MemoryOutputPipe::new(4096);
-    let stream: wasmtime_wasi::p2::DynOutputStream = Box::new(writepipe.clone());
+    let writepipe = wash_wasi::p2::pipe::MemoryOutputPipe::new(4096);
+    let stream: wash_wasi::p2::DynOutputStream = Box::new(writepipe.clone());
     let table_ix = store.data_mut().table.push(stream)?;
     let r = reactor.call_write_strings_to(&mut store, table_ix).await?;
     assert_eq!(r, Ok(()));

@@ -17,7 +17,7 @@ pub use udp::UdpSocket;
 /// A helper struct which implements [`HasData`] for the `wasi:sockets` APIs.
 ///
 /// This can be useful when directly calling `add_to_linker` functions directly,
-/// such as [`wasmtime_wasi::p2::bindings::sockets::tcp::add_to_linker`] as the
+/// such as [`wash_wasi::p2::bindings::sockets::tcp::add_to_linker`] as the
 /// `D` type parameter. See [`HasData`] for more information about the type
 /// parameter's purpose.
 ///
@@ -29,7 +29,7 @@ pub use udp::UdpSocket;
 /// ```
 /// use wasmtime::component::{Linker, ResourceTable};
 /// use wasmtime::{Engine, Result, Config};
-/// use wasmtime_wasi::sockets::*;
+/// use wash_wasi::sockets::*;
 ///
 /// struct MyStoreState {
 ///     table: ResourceTable,
@@ -42,7 +42,7 @@ pub use udp::UdpSocket;
 ///     let engine = Engine::new(&config)?;
 ///     let mut linker = Linker::new(&engine);
 ///
-///     wasmtime_wasi::p2::bindings::sockets::tcp::add_to_linker::<MyStoreState, WasiSockets>(
+///     wash_wasi::p2::bindings::sockets::tcp::add_to_linker::<MyStoreState, WasiSockets>(
 ///         &mut linker,
 ///         |state| WasiSocketsCtxView {
 ///             ctx: &mut state.sockets,

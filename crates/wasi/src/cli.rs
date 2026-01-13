@@ -23,7 +23,7 @@ pub use tokio::io::{Stderr, Stdin, Stdout, stderr, stdin, stdout};
 /// A helper struct which implements [`HasData`] for the `wasi:cli` APIs.
 ///
 /// This can be useful when directly calling `add_to_linker` functions directly,
-/// such as [`wasmtime_wasi::p2::bindings::cli::environment::add_to_linker`] as
+/// such as [`wash_wasi::p2::bindings::cli::environment::add_to_linker`] as
 /// the `D` type parameter. See [`HasData`] for more information about the type
 /// parameter's purpose.
 ///
@@ -35,7 +35,7 @@ pub use tokio::io::{Stderr, Stdin, Stdout, stderr, stdin, stdout};
 /// ```
 /// use wasmtime::component::{Linker, ResourceTable};
 /// use wasmtime::{Engine, Result, Config};
-/// use wasmtime_wasi::cli::*;
+/// use wash_wasi::cli::*;
 ///
 /// struct MyStoreState {
 ///     table: ResourceTable,
@@ -48,7 +48,7 @@ pub use tokio::io::{Stderr, Stdin, Stdout, stderr, stdin, stdout};
 ///     let engine = Engine::new(&config)?;
 ///     let mut linker = Linker::new(&engine);
 ///
-///     wasmtime_wasi::p2::bindings::cli::environment::add_to_linker::<MyStoreState, WasiCli>(
+///     wash_wasi::p2::bindings::cli::environment::add_to_linker::<MyStoreState, WasiCli>(
 ///         &mut linker,
 ///         |state| WasiCliCtxView {
 ///             table: &mut state.table,

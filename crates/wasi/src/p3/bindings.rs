@@ -12,7 +12,7 @@
 //! done using the `with` option to [`bindgen!`]:
 //!
 //! ```rust
-//! use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+//! use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
 //! use wasmtime::{Result, Engine, Config};
 //! use wasmtime::component::{Linker, HasSelf, ResourceTable};
 //!
@@ -34,7 +34,7 @@
 //!     ",
 //!     path: "src/p3/wit",
 //!     with: {
-//!         "wasi": wasmtime_wasi::p3::bindings,
+//!         "wasi": wash_wasi::p3::bindings,
 //!     },
 //!     require_store_data_send: true,
 //! });
@@ -65,7 +65,7 @@
 //!     config.wasm_component_model_async(true);
 //!     let engine = Engine::new(&config)?;
 //!     let mut linker: Linker<MyState> = Linker::new(&engine);
-//!     wasmtime_wasi::p3::add_to_linker(&mut linker)?;
+//!     wash_wasi::p3::add_to_linker(&mut linker)?;
 //!     example::wasi::custom_host::add_to_linker::<_, HasSelf<_>>(&mut linker, |state| state)?;
 //!
 //!     // .. use `Linker` to instantiate component ...
@@ -121,8 +121,8 @@ pub use self::generated::wasi::*;
 /// ```no_run
 /// use wasmtime::{Engine, Result, Store, Config};
 /// use wasmtime::component::{Component, Linker, ResourceTable};
-/// use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
-/// use wasmtime_wasi::p3::bindings::Command;
+/// use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
+/// use wash_wasi::p3::bindings::Command;
 ///
 /// // This example is an example shim of executing a component based on the
 /// // command line arguments provided to this program.
@@ -139,7 +139,7 @@ pub use self::generated::wasi::*;
 ///     // Configure a `Linker` with WASI, compile a component based on
 ///     // command line arguments, and then pre-instantiate it.
 ///     let mut linker = Linker::<MyState>::new(&engine);
-///     wasmtime_wasi::p3::add_to_linker(&mut linker)?;
+///     wash_wasi::p3::add_to_linker(&mut linker)?;
 ///     let component = Component::from_file(&engine, &args[0])?;
 ///
 ///
@@ -195,8 +195,8 @@ pub use self::generated::Command;
 /// ```no_run
 /// use wasmtime::{Engine, Result, Store, Config};
 /// use wasmtime::component::{Linker, Component, ResourceTable};
-/// use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
-/// use wasmtime_wasi::p3::bindings::CommandPre;
+/// use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
+/// use wash_wasi::p3::bindings::CommandPre;
 ///
 /// // This example is an example shim of executing a component based on the
 /// // command line arguments provided to this program.
@@ -213,7 +213,7 @@ pub use self::generated::Command;
 ///     // Configure a `Linker` with WASI, compile a component based on
 ///     // command line arguments, and then pre-instantiate it.
 ///     let mut linker = Linker::<MyState>::new(&engine);
-///     wasmtime_wasi::p3::add_to_linker(&mut linker)?;
+///     wash_wasi::p3::add_to_linker(&mut linker)?;
 ///     let component = Component::from_file(&engine, &args[0])?;
 ///     let pre = CommandPre::new(linker.instantiate_pre(&component)?)?;
 ///

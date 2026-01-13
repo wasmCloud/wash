@@ -131,7 +131,7 @@ impl<I, E> Drop for FallibleIteratorProducer<I, E> {
 /// ```
 /// use wasmtime::{Engine, Result, Store, Config};
 /// use wasmtime::component::{Linker, ResourceTable};
-/// use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+/// use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
 ///
 /// fn main() -> Result<()> {
 ///     let mut config = Config::new();
@@ -140,7 +140,7 @@ impl<I, E> Drop for FallibleIteratorProducer<I, E> {
 ///     let engine = Engine::new(&config)?;
 ///
 ///     let mut linker = Linker::<MyState>::new(&engine);
-///     wasmtime_wasi::p3::add_to_linker(&mut linker)?;
+///     wash_wasi::p3::add_to_linker(&mut linker)?;
 ///     // ... add any further functionality to `linker` if desired ...
 ///
 ///     let mut store = Store::new(

@@ -2,9 +2,9 @@ use crate::store::{Ctx, MyWasiCtx};
 use anyhow::{Context as _, anyhow};
 use std::path::Path;
 use test_programs_artifacts::*;
+use wash_wasi::p3::bindings::Command;
 use wasmtime::Result;
 use wasmtime::component::{Component, Linker};
-use wasmtime_wasi::p3::bindings::Command;
 
 async fn run(path: &str) -> Result<()> {
     run_allow_blocking_current_thread(path, false).await
@@ -22,9 +22,8 @@ async fn run_allow_blocking_current_thread(
     });
     let mut linker = Linker::new(&engine);
     // TODO: Remove once test components are not built for `wasm32-wasip1`
-    wasmtime_wasi::p2::add_to_linker_async(&mut linker)
-        .context("failed to link `wasi:cli@0.2.x`")?;
-    wasmtime_wasi::p3::add_to_linker(&mut linker).context("failed to link `wasi:cli@0.3.x`")?;
+    wash_wasi::p2::add_to_linker_async(&mut linker).context("failed to link `wasi:cli@0.2.x`")?;
+    wash_wasi::p3::add_to_linker(&mut linker).context("failed to link `wasi:cli@0.3.x`")?;
 
     let (mut store, _td) = Ctx::new(&engine, name, |builder| MyWasiCtx {
         wasi: builder

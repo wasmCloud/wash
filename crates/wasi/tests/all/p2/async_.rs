@@ -2,9 +2,9 @@ use crate::store::{Ctx, MyWasiCtx};
 use anyhow::Result;
 use std::path::Path;
 use test_programs_artifacts::*;
+use wash_wasi::p2::add_to_linker_async;
+use wash_wasi::p2::bindings::Command;
 use wasmtime::component::{Component, Linker};
-use wasmtime_wasi::p2::add_to_linker_async;
-use wasmtime_wasi::p2::bindings::Command;
 
 async fn run(path: &str, inherit_stdio: bool) -> Result<()> {
     let path = Path::new(path);

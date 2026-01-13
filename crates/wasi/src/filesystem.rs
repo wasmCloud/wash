@@ -11,7 +11,7 @@ use wasmtime::component::{HasData, Resource, ResourceTable};
 /// A helper struct which implements [`HasData`] for the `wasi:filesystem` APIs.
 ///
 /// This can be useful when directly calling `add_to_linker` functions directly,
-/// such as [`wasmtime_wasi::p2::bindings::filesystem::types::add_to_linker`] as
+/// such as [`wash_wasi::p2::bindings::filesystem::types::add_to_linker`] as
 /// the `D` type parameter. See [`HasData`] for more information about the type
 /// parameter's purpose.
 ///
@@ -23,7 +23,7 @@ use wasmtime::component::{HasData, Resource, ResourceTable};
 /// ```
 /// use wasmtime::component::{Linker, ResourceTable};
 /// use wasmtime::{Engine, Result, Config};
-/// use wasmtime_wasi::filesystem::*;
+/// use wash_wasi::filesystem::*;
 ///
 /// struct MyStoreState {
 ///     table: ResourceTable,
@@ -36,7 +36,7 @@ use wasmtime::component::{HasData, Resource, ResourceTable};
 ///     let engine = Engine::new(&config)?;
 ///     let mut linker = Linker::new(&engine);
 ///
-///     wasmtime_wasi::p2::bindings::filesystem::types::add_to_linker::<MyStoreState, WasiFilesystem>(
+///     wash_wasi::p2::bindings::filesystem::types::add_to_linker::<MyStoreState, WasiFilesystem>(
 ///         &mut linker,
 ///         |state| WasiFilesystemCtxView {
 ///             table: &mut state.table,

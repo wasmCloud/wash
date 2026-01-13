@@ -2,8 +2,8 @@ use crate::store::Ctx;
 use anyhow::Result;
 use std::path::Path;
 use test_programs_artifacts::*;
+use wash_wasi::p1::{WasiP1Ctx, add_to_linker_async};
 use wasmtime::{Linker, Module};
-use wasmtime_wasi::p1::{WasiP1Ctx, add_to_linker_async};
 
 async fn run(path: &str, inherit_stdio: bool) -> Result<()> {
     let path = Path::new(path);

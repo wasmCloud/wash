@@ -13,7 +13,7 @@ use wasmtime::component::ResourceTable;
 /// # Example
 ///
 /// ```
-/// use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+/// use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
 /// use wasmtime::component::ResourceTable;
 ///
 /// struct MyState {

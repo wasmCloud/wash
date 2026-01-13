@@ -14,7 +14,7 @@ use wasmtime::component::Linker;
 /// this module.
 ///
 /// This is low-level API for advanced use cases,
-/// [`wasmtime_wasi::p3::add_to_linker`](crate::p3::add_to_linker) can be used instead
+/// [`wash_wasi::p3::add_to_linker`](crate::p3::add_to_linker) can be used instead
 /// to add *all* wasip3 interfaces (including the ones from this module) to the `linker`.
 ///
 /// # Example
@@ -22,7 +22,7 @@ use wasmtime::component::Linker;
 /// ```
 /// use wasmtime::{Engine, Result, Store, Config};
 /// use wasmtime::component::{Linker, ResourceTable};
-/// use wasmtime_wasi::cli::{WasiCliCtx, WasiCliView, WasiCliCtxView};
+/// use wash_wasi::cli::{WasiCliCtx, WasiCliView, WasiCliCtxView};
 ///
 /// fn main() -> Result<()> {
 ///     let mut config = Config::new();
@@ -31,7 +31,7 @@ use wasmtime::component::Linker;
 ///     let engine = Engine::new(&config)?;
 ///
 ///     let mut linker = Linker::<MyState>::new(&engine);
-///     wasmtime_wasi::p3::cli::add_to_linker(&mut linker)?;
+///     wash_wasi::p3::cli::add_to_linker(&mut linker)?;
 ///     // ... add any further functionality to `linker` if desired ...
 ///
 ///     let mut store = Store::new(

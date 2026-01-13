@@ -73,7 +73,7 @@
 //! implementations are provided looking like:
 //!
 //! ```
-//! # use wasmtime_wasi::WasiCtxView;
+//! # use wash_wasi::WasiCtxView;
 //! # trait WasiView {}
 //! # mod bindings { pub mod wasi { pub trait Host {} } }
 //! impl bindings::wasi::Host for WasiCtxView<'_> {
@@ -97,7 +97,7 @@
 //! trait to access those items in your `T`. For example:
 //! ```
 //! use wasmtime::component::ResourceTable;
-//! use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+//! use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
 //!
 //! struct MyCtx {
 //!     table: ResourceTable,
@@ -272,7 +272,7 @@ pub use wasmtime_wasi_io::streams::{
 /// ```
 /// use wasmtime::{Engine, Result, Store, Config};
 /// use wasmtime::component::{ResourceTable, Linker};
-/// use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+/// use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
 ///
 /// fn main() -> Result<()> {
 ///     let mut config = Config::new();
@@ -280,7 +280,7 @@ pub use wasmtime_wasi_io::streams::{
 ///     let engine = Engine::new(&config)?;
 ///
 ///     let mut linker = Linker::<MyState>::new(&engine);
-///     wasmtime_wasi::p2::add_to_linker_async(&mut linker)?;
+///     wash_wasi::p2::add_to_linker_async(&mut linker)?;
 ///     // ... add any further functionality to `linker` if desired ...
 ///
 ///     let mut builder = WasiCtx::builder();
@@ -417,13 +417,13 @@ fn add_proxy_interfaces_nonblocking<T: WasiView>(linker: &mut Linker<T>) -> anyh
 /// ```
 /// use wasmtime::{Engine, Result, Store, Config};
 /// use wasmtime::component::{ResourceTable, Linker};
-/// use wasmtime_wasi::{WasiCtx, WasiCtxView, WasiView};
+/// use wash_wasi::{WasiCtx, WasiCtxView, WasiView};
 ///
 /// fn main() -> Result<()> {
 ///     let engine = Engine::default();
 ///
 ///     let mut linker = Linker::<MyState>::new(&engine);
-///     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+///     wash_wasi::p2::add_to_linker_sync(&mut linker)?;
 ///     // ... add any further functionality to `linker` if desired ...
 ///
 ///     let mut builder = WasiCtx::builder();

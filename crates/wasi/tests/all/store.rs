@@ -1,10 +1,10 @@
 use anyhow::Result;
 use tempfile::TempDir;
-use wasmtime::component::ResourceTable;
-use wasmtime::{Engine, Store};
-use wasmtime_wasi::{
+use wash_wasi::{
     DirPerms, FilePerms, WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView, p2::pipe::MemoryOutputPipe,
 };
+use wasmtime::component::ResourceTable;
+use wasmtime::{Engine, Store};
 
 pub struct Ctx<T> {
     stdout: MemoryOutputPipe,

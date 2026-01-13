@@ -6,7 +6,7 @@ use wasmtime::component::{HasData, ResourceTable};
 /// A helper struct which implements [`HasData`] for the `wasi:clocks` APIs.
 ///
 /// This can be useful when directly calling `add_to_linker` functions directly,
-/// such as [`wasmtime_wasi::p2::bindings::clocks::monotonic_clock::add_to_linker`] as
+/// such as [`wash_wasi::p2::bindings::clocks::monotonic_clock::add_to_linker`] as
 /// the `D` type parameter. See [`HasData`] for more information about the type
 /// parameter's purpose.
 ///
@@ -18,7 +18,7 @@ use wasmtime::component::{HasData, ResourceTable};
 /// ```
 /// use wasmtime::component::{Linker, ResourceTable};
 /// use wasmtime::{Engine, Result, Config};
-/// use wasmtime_wasi::clocks::*;
+/// use wash_wasi::clocks::*;
 ///
 /// struct MyStoreState {
 ///     table: ResourceTable,
@@ -31,7 +31,7 @@ use wasmtime::component::{HasData, ResourceTable};
 ///     let engine = Engine::new(&config)?;
 ///     let mut linker = Linker::new(&engine);
 ///
-///     wasmtime_wasi::p2::bindings::clocks::monotonic_clock::add_to_linker::<MyStoreState, WasiClocks>(
+///     wash_wasi::p2::bindings::clocks::monotonic_clock::add_to_linker::<MyStoreState, WasiClocks>(
 ///         &mut linker,
 ///         |state| WasiClocksCtxView {
 ///             table: &mut state.table,
