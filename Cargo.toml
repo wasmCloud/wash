@@ -175,7 +175,6 @@ io-lifetimes = { version = "2.0.3", default-features = false }
 rustix = "1.0.3"
 system-interface = { version = "0.27.1", features = ["cap_std_impls"] }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
-thiserror = "2.0.12"
 wiggle = { version = "=38.0.4", default-features = false }
 windows-sys = "0.60.0"
 
