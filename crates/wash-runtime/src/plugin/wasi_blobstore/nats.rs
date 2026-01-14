@@ -4,7 +4,7 @@ use std::sync::Arc;
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::WorkloadComponent;
 use crate::plugin::HostPlugin;
-use crate::washlet::plugins::WorkloadTracker;
+use crate::plugin::WorkloadTracker;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::Context;
 use async_nats::jetstream::object_store::{self, List, Object, ObjectStore};
@@ -23,10 +23,10 @@ mod bindings {
         imports: { default: async | trappable },
         with: {
             "wasi:io": ::wasmtime_wasi::p2::bindings::io,
-            "wasi:blobstore/container/container": crate::washlet::plugins::wasi_blobstore::ContainerData,
-            "wasi:blobstore/container/stream-object-names": crate::washlet::plugins::wasi_blobstore::StreamObjectNamesHandle,
-            "wasi:blobstore/types/incoming-value": crate::washlet::plugins::wasi_blobstore::IncomingValueHandle,
-            "wasi:blobstore/types/outgoing-value": crate::washlet::plugins::wasi_blobstore::OutgoingValueHandle,
+            "wasi:blobstore/container/container": crate::plugin::wasi_blobstore::nats::ContainerData,
+            "wasi:blobstore/container/stream-object-names": crate::plugin::wasi_blobstore::nats::StreamObjectNamesHandle,
+            "wasi:blobstore/types/incoming-value": crate::plugin::wasi_blobstore::nats::IncomingValueHandle,
+            "wasi:blobstore/types/outgoing-value": crate::plugin::wasi_blobstore::nats::OutgoingValueHandle,
         },
     });
 }
@@ -35,15 +35,6 @@ use bindings::wasi::blobstore::container::Error as ContainerError;
 use bindings::wasi::blobstore::types::{
     ContainerMetadata, ContainerName, Error as BlobstoreError, ObjectId, ObjectMetadata, ObjectName,
 };
-
-/// Metadata for an object stored in memory
-#[derive(Clone, Debug)]
-pub struct ObjectData {
-    pub name: String,
-    pub container: String,
-    pub data: Vec<u8>,
-    pub created_at: u64,
-}
 
 /// In-memory container representation
 #[derive(Clone)]
@@ -64,8 +55,6 @@ pub struct WorkloadData {
 /// Resource representation for an incoming value (data being read)
 pub struct IncomingValueHandle {
     pub object: Object,
-    pub start: u64,
-    pub end: u64,
 }
 
 /// Resource representation for an outgoing value (data being written)
@@ -79,17 +68,16 @@ pub struct OutgoingValueHandle {
 /// Resource representation for streaming object names
 pub struct StreamObjectNamesHandle {
     pub objects: List,
-    pub position: usize,
 }
 
 /// NATS blobstore plugin
 #[derive(Clone)]
-pub struct WasiBlobstore {
+pub struct NatsBlobstore {
     client: Arc<async_nats::jetstream::Context>,
     tracker: Arc<RwLock<WorkloadTracker<WorkloadData, ()>>>,
 }
 
-impl WasiBlobstore {
+impl NatsBlobstore {
     pub fn new(client: Arc<async_nats::Client>) -> Self {
         Self {
             client: async_nats::jetstream::new((*client).clone()).into(),
@@ -127,7 +115,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<Resource<ContainerData>, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -165,7 +153,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<Resource<ContainerData>, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -199,7 +187,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -221,7 +209,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         &mut self,
         name: ContainerName,
     ) -> anyhow::Result<Result<bool, BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -243,7 +231,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         src: ObjectId,
         dest: ObjectId,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -297,7 +285,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         src: ObjectId,
         dest: ObjectId,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -355,8 +343,8 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         &mut self,
         container: Resource<ContainerData>,
         name: ObjectName,
-        start: u64,
-        end: u64,
+        _start: u64,
+        _end: u64,
     ) -> anyhow::Result<Result<Resource<IncomingValueHandle>, ContainerError>> {
         let container_data = self.table.get(&container)?;
 
@@ -372,9 +360,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
             }
         };
 
-        let resource = self
-            .table
-            .push(IncomingValueHandle { object, start, end })?;
+        let resource = self.table.push(IncomingValueHandle { object })?;
 
         Ok(Ok(resource))
     }
@@ -385,7 +371,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         name: ObjectName,
         data: Resource<OutgoingValueHandle>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -427,7 +413,6 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
 
         let resource = self.table.push(StreamObjectNamesHandle {
             objects: list_names,
-            position: 0,
         })?;
 
         Ok(Ok(resource))
@@ -438,7 +423,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         container: Resource<ContainerData>,
         name: ObjectName,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -464,7 +449,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         container: Resource<ContainerData>,
         names: Vec<ObjectName>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -521,7 +506,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         &mut self,
         container: Resource<ContainerData>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<WasiBlobstore>(PLUGIN_BLOBSTORE_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsBlobstore>(PLUGIN_BLOBSTORE_ID) else {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
@@ -771,7 +756,7 @@ impl<'a> bindings::wasi::blobstore::types::Host for ActiveCtx<'a> {}
 impl<'a> bindings::wasi::blobstore::container::Host for ActiveCtx<'a> {}
 
 #[async_trait::async_trait]
-impl HostPlugin for WasiBlobstore {
+impl HostPlugin for NatsBlobstore {
     fn id(&self) -> &'static str {
         PLUGIN_BLOBSTORE_ID
     }

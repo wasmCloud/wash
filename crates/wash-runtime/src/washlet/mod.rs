@@ -13,8 +13,6 @@ use sysinfo::System;
 use tokio::sync::oneshot;
 use tracing::{debug, info};
 
-pub mod plugins;
-
 pub const HOST_API_PREFIX: &str = "runtime.host";
 pub const OPERATOR_API_PREFIX: &str = "runtime.operator";
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(15);

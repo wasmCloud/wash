@@ -24,7 +24,7 @@ mod bindings {
 use bindings::wasmcloud::messaging::consumer::Host;
 use bindings::wasmcloud::messaging::types;
 
-use crate::washlet::plugins::WorkloadTracker;
+use crate::plugin::WorkloadTracker;
 
 pub struct ComponentData {
     subscriptions: Vec<String>,
@@ -32,12 +32,12 @@ pub struct ComponentData {
 }
 
 #[derive(Clone)]
-pub struct WasmcloudMessaging {
+pub struct NatsMessaging {
     tracker: Arc<RwLock<WorkloadTracker<(), ComponentData>>>,
     client: Arc<async_nats::Client>,
 }
 
-impl WasmcloudMessaging {
+impl NatsMessaging {
     pub fn new(client: Arc<async_nats::Client>) -> Self {
         Self {
             client: client.clone(),
@@ -54,7 +54,7 @@ impl<'a> Host for ActiveCtx<'a> {
         body: Vec<u8>,
         timeout_ms: u32,
     ) -> anyhow::Result<Result<types::BrokerMessage, String>> {
-        let Some(plugin) = self.get_plugin::<WasmcloudMessaging>(PLUGIN_MESSAGING_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsMessaging>(PLUGIN_MESSAGING_ID) else {
             return Ok(Err("plugin not available".to_string()));
         };
 
@@ -82,7 +82,7 @@ impl<'a> Host for ActiveCtx<'a> {
 
     #[instrument(level = "debug", skip_all, fields(subject = %msg.subject, reply_to = %msg.reply_to.as_deref().unwrap_or("<none>")))]
     async fn publish(&mut self, msg: types::BrokerMessage) -> anyhow::Result<Result<(), String>> {
-        let Some(plugin) = self.get_plugin::<WasmcloudMessaging>(PLUGIN_MESSAGING_ID) else {
+        let Some(plugin) = self.get_plugin::<NatsMessaging>(PLUGIN_MESSAGING_ID) else {
             return Ok(Err("plugin not available".to_string()));
         };
 
@@ -109,7 +109,7 @@ impl<'a> Host for ActiveCtx<'a> {
 impl<'a> types::Host for ActiveCtx<'a> {}
 
 #[async_trait::async_trait]
-impl HostPlugin for WasmcloudMessaging {
+impl HostPlugin for NatsMessaging {
     fn id(&self) -> &'static str {
         PLUGIN_MESSAGING_ID
     }

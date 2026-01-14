@@ -19,7 +19,9 @@ use wash_runtime::{
         HostApi, HostBuilder,
         http::{DevRouter, HttpServer},
     },
-    plugin::{wasi_config::WasiConfig, wasi_keyvalue::WasiKeyvalue, wasi_logging::WasiLogging},
+    plugin::{
+        wasi_config::DynamicConfig, wasi_keyvalue::InMemoryKeyValue, wasi_logging::TracingLogger,
+    },
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
         WorkloadStartRequest,
@@ -53,13 +55,13 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     let http_plugin = HttpServer::new(DevRouter::default(), addr);
 
     // Create keyvalue plugin for counter persistence (still using built-in)
-    let keyvalue_plugin = WasiKeyvalue::new();
+    let keyvalue_plugin = InMemoryKeyValue::new();
 
     // Create logging plugin
-    let logging_plugin = WasiLogging {};
+    let logging_plugin = TracingLogger::default();
 
     // Create config plugin
-    let config_plugin = WasiConfig::default();
+    let config_plugin = DynamicConfig::default();
 
     // Create plugin manager to provide wasmcloud:wash interfaces
     let plugin_manager = PluginManager::default();
@@ -394,8 +396,8 @@ async fn test_component_resolution_with_multiple_providers() -> Result<()> {
     let host = HostBuilder::new()
         .with_engine(engine)
         .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr)))
-        .with_plugin(Arc::new(WasiKeyvalue::new()))?
-        .with_plugin(Arc::new(WasiLogging {}))?
+        .with_plugin(Arc::new(InMemoryKeyValue::new()))?
+        .with_plugin(Arc::new(TracingLogger::default()))?
         .build()?;
 
     let _host = host.start().await.context("Failed to start host")?;

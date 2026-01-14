@@ -39,8 +39,6 @@ mod bindings {
     });
 }
 
-use bindings::wasi::config::store::Host;
-
 const WASI_CONFIG_ID: &str = "wasi-config";
 
 type ConfigMap = HashMap<Arc<str>, HashMap<String, String>>;
@@ -51,17 +49,27 @@ type ConfigMap = HashMap<Arc<str>, HashMap<String, String>>;
 /// retrieve configuration values and environment variables at runtime. Each
 /// component gets isolated access to its own configuration scope.
 #[derive(Clone, Default)]
-pub struct WasiConfig {
+pub struct DynamicConfig {
+    copy_environment: bool,
     /// A map of configuration from component id to key-value pairs
     config: Arc<RwLock<ConfigMap>>,
 }
 
-impl<'a> Host for ActiveCtx<'a> {
+impl DynamicConfig {
+    pub fn new(copy_environment: bool) -> Self {
+        Self {
+            copy_environment,
+            ..Default::default()
+        }
+    }
+}
+
+impl<'a> bindings::wasi::config::store::Host for ActiveCtx<'a> {
     async fn get(
         &mut self,
         key: String,
     ) -> anyhow::Result<Result<Option<String>, bindings::wasi::config::store::Error>> {
-        let Some(plugin) = self.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
+        let Some(plugin) = self.get_plugin::<DynamicConfig>(WASI_CONFIG_ID) else {
             return Ok(Ok(None));
         };
         let config_guard = plugin.config.read().await;
@@ -74,7 +82,7 @@ impl<'a> Host for ActiveCtx<'a> {
     async fn get_all(
         &mut self,
     ) -> anyhow::Result<Result<Vec<(String, String)>, bindings::wasi::config::store::Error>> {
-        let Some(plugin) = self.get_plugin::<WasiConfig>(WASI_CONFIG_ID) else {
+        let Some(plugin) = self.get_plugin::<DynamicConfig>(WASI_CONFIG_ID) else {
             return Ok(Ok(vec![]));
         };
         let config_guard = plugin.config.read().await;
@@ -87,7 +95,7 @@ impl<'a> Host for ActiveCtx<'a> {
 }
 
 #[async_trait::async_trait]
-impl HostPlugin for WasiConfig {
+impl HostPlugin for DynamicConfig {
     fn id(&self) -> &'static str {
         WASI_CONFIG_ID
     }
@@ -121,11 +129,23 @@ impl HostPlugin for WasiConfig {
             extract_active_ctx,
         )?;
 
+        let component_config = {
+            let mut config_map = interface.config.clone();
+
+            if self.copy_environment {
+                for (key, value) in component_handle.local_resources().environment.iter() {
+                    config_map.insert(key.into(), value.into());
+                }
+            }
+
+            config_map
+        };
+
         // Store the configuration for lookups later
         self.config
             .write()
             .await
-            .insert(Arc::from(component_handle.id()), interface.config.clone());
+            .insert(Arc::from(component_handle.id()), component_config);
 
         Ok(())
     }

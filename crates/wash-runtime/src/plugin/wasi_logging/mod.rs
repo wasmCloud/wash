@@ -29,7 +29,7 @@ use tokio::sync::RwLock;
 type ComponentMap = Arc<RwLock<HashMap<String, ComponentInfo>>>;
 
 #[derive(Default)]
-pub struct TracingLogging {
+pub struct TracingLogger {
     components: ComponentMap,
 }
 
@@ -41,8 +41,8 @@ struct ComponentInfo {
 
 impl<'a> bindings::wasi::logging::logging::Host for ActiveCtx<'a> {
     async fn log(&mut self, level: Level, context: String, message: String) -> anyhow::Result<()> {
-        let Some(plugin) = self.get_plugin::<TracingLogging>(PLUGIN_LOGGING_ID) else {
-            bail!("TracingLogging plugin not found in context");
+        let Some(plugin) = self.get_plugin::<TracingLogger>(PLUGIN_LOGGING_ID) else {
+            bail!("TracingLogger plugin not found in context");
         };
 
         let workloads = plugin.components.read().await;
@@ -52,7 +52,7 @@ impl<'a> bindings::wasi::logging::logging::Host for ActiveCtx<'a> {
             component_id,
         }) = workloads.get(&self.component_id.to_string())
         else {
-            bail!("Component not found in TracingLogging plugin");
+            bail!("Component not found in TracingLogger plugin");
         };
         match level {
             Level::Trace => {
@@ -116,7 +116,7 @@ impl<'a> bindings::wasi::logging::logging::Host for ActiveCtx<'a> {
 }
 
 #[async_trait::async_trait]
-impl HostPlugin for TracingLogging {
+impl HostPlugin for TracingLogger {
     fn id(&self) -> &'static str {
         PLUGIN_LOGGING_ID
     }
@@ -140,7 +140,7 @@ impl HostPlugin for TracingLogging {
 
         if !has_logging {
             tracing::warn!(
-                "TracingLoggingPlugin plugin requested for non-wasi:logging interface(s): {:?}",
+                "TracingLogger plugin requested for non-wasi:logging interface(s): {:?}",
                 interfaces
             );
             return Ok(());
