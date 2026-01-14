@@ -168,8 +168,19 @@ impl CliCommand for DevCommand {
         debug!("Logging plugin registered");
 
         // Add keyvalue plugin
-        host_builder =
-            host_builder.with_plugin(Arc::new(plugin::wasi_keyvalue::InMemoryKeyValue::new()))?;
+        if let Some(keyvalue_path) = &dev_config.wasi_keyvalue_path {
+            host_builder = host_builder.with_plugin(Arc::new(
+                plugin::wasi_keyvalue::FilesystemKeyValue::new(keyvalue_path.clone()),
+            ))?;
+            debug!(
+                path = %keyvalue_path.display(),
+                "WASI KeyValue plugin registered with filesystem backend"
+            );
+        } else {
+            host_builder = host_builder
+                .with_plugin(Arc::new(plugin::wasi_keyvalue::InMemoryKeyValue::default()))?;
+            debug!("WASI KeyValue plugin registered with in-memory backend");
+        }
 
         // Enable WASI WebGPU if requested
         #[cfg(not(target_os = "windows"))]

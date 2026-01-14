@@ -154,8 +154,17 @@ pub struct DevConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tls_ca_path: Option<PathBuf>,
 
+    /// Enable WASI WebGPU support in the dev environment. Only supported on non-Windows platforms.
     #[serde(default)]
     pub wasi_webgpu: bool,
+
+    /// Optional path for WASI keyvalue filesystem storage. If not set, an in-memory store is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasi_keyvalue_path: Option<PathBuf>,
+
+    /// Optional path for WASI blobstore filesystem storage. If not set, an in-memory store is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasi_blobstore_path: Option<PathBuf>,
 }
 
 /// Load configuration with hierarchical merging
