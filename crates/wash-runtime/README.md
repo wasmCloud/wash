@@ -27,7 +27,7 @@ use wash_runtime::{
       http::{HttpServer, DynamicRouter},
   },
     plugin::{
-        wasi_config::WasiConfig,
+        wasi_config::DynamicConfig,
     },
     types::{WorkloadStartRequest, Workload},
 };
@@ -40,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
     // Configure plugins
     let http_router = DynamicRouter::default();
     let http_handler = HttpServer::new(http_router, "127.0.0.1:8080".parse()?);
-    let wasi_config_plugin = WasiConfig::default();
+    let wasi_config_plugin = DynamicConfig::default();
 
     // Build and start the host
     let host = HostBuilder::new()
