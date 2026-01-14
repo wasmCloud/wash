@@ -112,9 +112,21 @@ impl CliCommand for DevCommand {
         host_builder =
             host_builder.with_plugin(Arc::new(plugin::wasi_config::DynamicConfig::default()))?;
 
-        host_builder = host_builder.with_plugin(Arc::new(
-            plugin::wasi_blobstore::InMemoryBlobstore::new(None),
-        ))?;
+        // Add blobstore plugin
+        if let Some(blobstore_path) = &dev_config.wasi_blobstore_path {
+            host_builder = host_builder.with_plugin(Arc::new(
+                plugin::wasi_blobstore::FilesystemBlobstore::new(blobstore_path.clone()),
+            ))?;
+            debug!(
+                path = %blobstore_path.display(),
+                "WASI Blobstore plugin registered with filesystem backend"
+            );
+        } else {
+            host_builder = host_builder.with_plugin(Arc::new(
+                plugin::wasi_blobstore::InMemoryBlobstore::default(),
+            ))?;
+            debug!("WASI Blobstore plugin registered with in-memory backend");
+        }
 
         let http_handler = wash_runtime::host::http::DevRouter::default();
         // TODO(#19): Only spawn the server if the component exports wasi:http

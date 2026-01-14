@@ -1,4 +1,6 @@
-use std::collections::HashSet;
+#![deny(clippy::all)]
+use std::collections::{HashSet, VecDeque};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -8,10 +10,8 @@ use crate::plugin::HostPlugin;
 use crate::plugin::WorkloadTracker;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::Context;
-use async_nats::jetstream::object_store::{self, List, Object, ObjectStore};
-use futures::StreamExt;
-use tokio::io::AsyncReadExt;
 use tokio::sync::RwLock;
+use tracing::debug;
 use wasmtime::component::Resource;
 use wasmtime_wasi::p2::pipe::{AsyncReadStream, AsyncWriteStream};
 use wasmtime_wasi::p2::{InputStream, OutputStream};
@@ -45,17 +45,13 @@ pub struct ContainerData {
 }
 
 pub struct WorkloadData {
-    /// Which buckets (containers) are accessible to this workload
-    pub buckets: HashSet<String>,
-    /// Whether the blobstore is read-only for this workload
-    pub read_only: bool,
     /// Cancellation token for any ongoing operations
     pub cancel_token: tokio_util::sync::CancellationToken,
 }
 
 /// Resource representation for an incoming value (data being read)
 pub struct IncomingValueHandle {
-    pub object: Object,
+    pub file: PathBuf,
 }
 
 /// Resource representation for an outgoing value (data being written)
@@ -68,7 +64,7 @@ pub struct OutgoingValueHandle {
 
 /// Resource representation for streaming object names
 pub struct StreamObjectNamesHandle {
-    pub objects: List,
+    pub objects: VecDeque<String>,
 }
 
 /// Filesystem blobstore plugin
@@ -83,29 +79,6 @@ impl FilesystemBlobstore {
         Self {
             root: root.as_ref().to_path_buf(),
             tracker: Arc::default(),
-        }
-    }
-
-    async fn workload_permit(
-        &self,
-        workload_id: &str,
-        container_name: &str,
-        is_write: bool,
-    ) -> Option<tokio_util::sync::CancellationToken> {
-        let tracker = self.tracker.read().await;
-        match tracker.workloads.get(workload_id) {
-            Some(item) => {
-                if let Some(data) = &item.workload_data {
-                    if data.buckets.contains(container_name) {
-                        return Some(data.cancel_token.clone());
-                    }
-                    if is_write && data.read_only {
-                        return None;
-                    }
-                }
-                None
-            }
-            None => None,
         }
     }
 }
@@ -198,48 +171,24 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let _read_permit = match plugin
-            .workload_permit(&self.workload_id, &src.container, false)
-            .await
+        let read_container = plugin.root.join(src.container);
+        let write_container = plugin.root.join(dest.container);
+
+        let read_object = read_container.join(&src.object);
+        let write_object = write_container.join(&dest.object);
+
+        if let Some(parent) = write_object.parent()
+            && !parent.exists()
+            && let Err(e) = tokio::fs::create_dir_all(parent).await
         {
-            Some(token) => token,
-            None => {
-                return Ok(Err("unauthorized read".to_string()));
-            }
-        };
+            return Ok(Err(format!(
+                "failed to create parent directories for destination object: {e}"
+            )));
+        }
 
-        let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &dest.container, true)
-            .await
-        {
-            Some(token) => token,
-            None => {
-                return Ok(Err("unauthorized write".to_string()));
-            }
-        };
-
-        let read_store = match plugin.client.get_object_store(src.container.clone()).await {
-            Ok(store) => store,
-            Err(e) => {
-                return Ok(Err(format!("failed to get source bucket: {e}")));
-            }
-        };
-
-        let write_store = match plugin.client.get_object_store(dest.container.clone()).await {
-            Ok(store) => store,
-            Err(e) => {
-                return Ok(Err(format!("failed to get destination bucket: {e}")));
-            }
-        };
-
-        match read_store.get(&src.object).await {
-            Ok(mut object) => match write_store.put(dest.object.as_str(), &mut object).await {
-                Ok(_) => Ok(Ok(())),
-                Err(e) => Ok(Err(format!(
-                    "failed to write data to destination object: {e}"
-                ))),
-            },
-            Err(e) => Ok(Err(format!("failed to get source object: {e}"))),
+        match tokio::fs::copy(&read_object, &write_object).await {
+            Ok(_) => Ok(Ok(())),
+            Err(e) => Ok(Err(format!("failed to copy object data: {e}"))),
         }
     }
 
@@ -252,31 +201,24 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        // requires an extra write permit on the src container to delete the object after copy
-        let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &src.container, true)
-            .await
-        {
-            Some(token) => token,
-            None => {
-                return Ok(Err("unauthorized delete".to_string()));
-            }
-        };
-        let delete_store = match plugin.client.get_object_store(src.container.clone()).await {
-            Ok(store) => store,
-            Err(e) => {
-                return Ok(Err(format!("failed to get source bucket: {e}")));
-            }
-        };
+        let read_container = plugin.root.join(src.container);
+        let write_container = plugin.root.join(dest.container);
 
-        let copy = self.copy_object(src.clone(), dest.clone()).await?;
-        if let Err(e) = copy {
-            return Ok(Err(format!("failed to copy object during move: {e}")));
+        let read_object = read_container.join(&src.object);
+        let write_object = write_container.join(&dest.object);
+
+        if let Some(parent) = write_object.parent()
+            && !parent.exists()
+            && let Err(e) = tokio::fs::create_dir_all(parent).await
+        {
+            return Ok(Err(format!(
+                "failed to create parent directories for destination object: {e}"
+            )));
         }
 
-        match delete_store.delete(src.object.as_str()).await {
+        match tokio::fs::rename(&read_object, &write_object).await {
             Ok(_) => Ok(Ok(())),
-            Err(e) => Ok(Err(format!("failed to delete source object: {e}"))),
+            Err(e) => Ok(Err(format!("failed to copy object data: {e}"))),
         }
     }
 }
@@ -311,19 +253,12 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<Resource<IncomingValueHandle>, ContainerError>> {
         let container_data = self.table.get(&container)?;
 
-        let object = match container_data.store.get(name.as_str()).await {
-            Ok(obj) => obj,
-            Err(e) => {
-                tracing::warn!(
-                    container = container_data.name,
-                    object = name,
-                    "Failed to get object from store: {e}"
-                );
-                return Ok(Err(format!("object '{name}' does not exist")));
-            }
-        };
+        let file = container_data.root.join(name.as_str());
+        if !file.exists() {
+            return Ok(Err(format!("object '{}' does not exist", name)));
+        }
 
-        let resource = self.table.push(IncomingValueHandle { object })?;
+        let resource = self.table.push(IncomingValueHandle { file })?;
 
         Ok(Ok(resource))
     }
@@ -334,20 +269,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         name: ObjectName,
         data: Resource<OutgoingValueHandle>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<FilesystemBlobstore>(PLUGIN_BLOBSTORE_ID) else {
-            return Ok(Err("blobstore plugin not available".to_string()));
-        };
-
         let container_data = self.table.get(&container).cloned()?;
-        let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
-            .await
-        {
-            Some(token) => token,
-            None => {
-                return Ok(Err("unauthorized write".to_string()));
-            }
-        };
 
         // prepare the write operation
         // it actually happens on 'finish'
@@ -364,18 +286,24 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
     ) -> anyhow::Result<Result<Resource<StreamObjectNamesHandle>, ContainerError>> {
         let container_data = self.table.get(&container)?;
 
-        let list_names = match container_data.store.list().await {
-            Ok(names) => names,
-            Err(e) => {
-                return Ok(Err(format!(
-                    "failed to list objects in container '{}': {e}",
-                    container_data.name
-                )));
-            }
-        };
+        let mut list_names = Vec::new();
+        if let Err(e) = list_files_recursively(&container_data.root, &mut list_names) {
+            return Ok(Err(format!(
+                "failed to list objects in container '{}': {e}",
+                container_data.name
+            )));
+        }
 
         let resource = self.table.push(StreamObjectNamesHandle {
-            objects: list_names,
+            objects: list_names
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&container_data.root)
+                        .unwrap_or(p)
+                        .to_string_lossy()
+                        .to_string()
+                })
+                .collect(),
         })?;
 
         Ok(Ok(resource))
@@ -386,22 +314,10 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         container: Resource<ContainerData>,
         name: ObjectName,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<FilesystemBlobstore>(PLUGIN_BLOBSTORE_ID) else {
-            return Ok(Err("blobstore plugin not available".to_string()));
-        };
-
         let container_data = self.table.get(&container)?;
-        let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
-            .await
-        {
-            Some(token) => token,
-            None => {
-                return Ok(Err("unauthorized write".to_string()));
-            }
-        };
+        let path = container_data.root.join(name.as_str());
 
-        match container_data.store.delete(name.as_str()).await {
+        match tokio::fs::remove_file(path).await {
             Ok(_) => Ok(Ok(())),
             Err(e) => Ok(Err(format!("failed to delete object: {e}"))),
         }
@@ -412,23 +328,11 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         container: Resource<ContainerData>,
         names: Vec<ObjectName>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<FilesystemBlobstore>(PLUGIN_BLOBSTORE_ID) else {
-            return Ok(Err("blobstore plugin not available".to_string()));
-        };
-
         let container_data = self.table.get(&container)?;
-        let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
-            .await
-        {
-            Some(token) => token,
-            None => {
-                return Ok(Err("unauthorized write".to_string()));
-            }
-        };
 
         for name in names {
-            if let Err(e) = container_data.store.delete(name.as_str()).await {
+            let path = container_data.root.join(name.as_str());
+            if let Err(e) = tokio::fs::remove_file(path).await {
                 return Ok(Err(format!("failed to delete object: {e}")));
             }
         }
@@ -442,10 +346,9 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         name: ObjectName,
     ) -> anyhow::Result<Result<bool, ContainerError>> {
         let container_data = self.table.get(&container)?;
-        match container_data.store.info(name.as_str()).await {
-            Ok(_) => Ok(Ok(true)),
-            Err(_) => Ok(Ok(false)),
-        }
+        let path = container_data.root.join(name.as_str());
+
+        Ok(Ok(path.exists()))
     }
 
     async fn object_info(
@@ -454,66 +357,32 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         name: ObjectName,
     ) -> anyhow::Result<Result<ObjectMetadata, ContainerError>> {
         let container_data = self.table.get(&container)?;
-        match container_data.store.info(name.as_str()).await {
-            Ok(info) => Ok(Ok(ObjectMetadata {
-                name: info.name,
-                container: container_data.name.clone(),
-                created_at: 0,
-                size: info.size as u64,
-            })),
-            Err(_) => Ok(Err(format!("object '{name}' does not exist"))),
-        }
+        let path = container_data.root.join(name.as_str());
+
+        let Ok(metadata) = tokio::fs::metadata(&path).await else {
+            return Ok(Err(format!("object '{name}' does not exist")));
+        };
+
+        Ok(Ok(ObjectMetadata {
+            name,
+            container: container_data.name.clone(),
+            created_at: 0,
+            size: metadata.len(),
+        }))
     }
 
     async fn clear(
         &mut self,
         container: Resource<ContainerData>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
-        let Some(plugin) = self.get_plugin::<FilesystemBlobstore>(PLUGIN_BLOBSTORE_ID) else {
-            return Ok(Err("blobstore plugin not available".to_string()));
-        };
-
         let container_data = self.table.get(&container)?;
-        let _write_permit = match plugin
-            .workload_permit(&self.workload_id, &container_data.name, true)
-            .await
-        {
-            Some(token) => token,
-            None => {
-                return Ok(Err("unauthorized delete".to_string()));
-            }
-        };
-
-        let mut object_list = match container_data.store.list().await {
-            Ok(list) => list,
-            Err(e) => {
-                return Ok(Err(format!(
-                    "failed to list objects in container '{}': {e}",
-                    container_data.name
-                )));
-            }
-        };
-
-        while let Some(object) = object_list.next().await {
-            match object {
-                Ok(obj) => {
-                    if let Err(e) = container_data.store.delete(&obj.name).await {
-                        return Ok(Err(format!(
-                            "failed to delete object '{}' in container '{}': {e}",
-                            obj.name, container_data.name
-                        )));
-                    }
-                }
-                Err(e) => {
-                    return Ok(Err(format!(
-                        "failed to list objects in container '{}': {e}",
-                        container_data.name
-                    )));
-                }
-            };
+        match tokio::fs::remove_dir_all(&container_data.root).await {
+            Ok(_) => Ok(Ok(())),
+            Err(e) => Ok(Err(format!(
+                "failed to clear container '{}': {e}",
+                container_data.name
+            ))),
         }
-
-        Ok(Ok(()))
     }
 
     async fn drop(&mut self, rep: Resource<ContainerData>) -> anyhow::Result<()> {
@@ -539,12 +408,9 @@ impl<'a> bindings::wasi::blobstore::container::HostStreamObjectNames for ActiveC
 
         let mut objects = Vec::<ObjectName>::new();
         for _ in 0..len {
-            match stream_handle.objects.next().await {
-                Some(Ok(obj)) => {
-                    objects.push(obj.name);
-                }
-                Some(Err(e)) => {
-                    return Ok(Err(format!("failed to read object name from stream: {e}")));
+            match stream_handle.objects.pop_front() {
+                Some(obj) => {
+                    objects.push(obj);
                 }
                 None => {
                     return Ok(Ok((objects, true)));
@@ -563,14 +429,8 @@ impl<'a> bindings::wasi::blobstore::container::HostStreamObjectNames for ActiveC
         let stream_handle = self.table.get_mut(&stream)?;
 
         for i in 0..num {
-            match stream_handle.objects.next().await {
-                Some(Ok(_)) => {}
-                Some(Err(e)) => {
-                    return Ok(Err(format!("failed to read object name from stream: {e}")));
-                }
-                None => {
-                    return Ok(Ok((i, true)));
-                }
+            if stream_handle.objects.pop_front().is_none() {
+                return Ok(Ok((i, true)));
             }
         }
 
@@ -627,7 +487,8 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
         &mut self,
         outgoing_value: Resource<OutgoingValueHandle>,
     ) -> anyhow::Result<Result<(), BlobstoreError>> {
-        let handle = self.table.delete(outgoing_value)?;
+        debug!("Finishing outgoing value {:?}", outgoing_value);
+        let mut handle = self.table.delete(outgoing_value)?;
         let container_data = match handle.container {
             Some(data) => data,
             None => {
@@ -637,8 +498,8 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
             }
         };
 
-        let object_name = match handle.object_name {
-            Some(name) => name,
+        let dest_file = match handle.object_name {
+            Some(name) => container_data.root.join(name),
             None => {
                 return Ok(Err(
                     "outgoing value not associated with an object name".to_string()
@@ -646,25 +507,30 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
             }
         };
 
-        let mut file = tokio::fs::File::from_std(handle.temp_file.reopen()?);
-
-        match container_data
-            .store
-            .put(object_name.as_str(), &mut file)
-            .await
+        if let Some(parent) = dest_file.parent()
+            && !parent.exists()
+            && let Err(e) = tokio::fs::create_dir_all(parent).await
         {
-            Ok(_) => {}
-            Err(e) => {
-                return Ok(Err(format!("failed to write object data: {e}")));
-            }
+            return Ok(Err(format!(
+                "failed to create parent directories for destination object: {e}"
+            )));
         }
 
-        Ok(Ok(()))
+        debug!("Flushing {:?}", dest_file.as_path());
+
+        handle.temp_file.flush()?;
+
+        match tokio::fs::copy(handle.temp_file.path(), &dest_file).await {
+            Ok(_) => Ok(Ok(())),
+            Err(e) => Ok(Err(format!("failed to write object data: {e}"))),
+        }
     }
 
     async fn drop(&mut self, rep: Resource<OutgoingValueHandle>) -> anyhow::Result<()> {
-        self.table.delete(rep)?;
-        Ok(())
+        match self.finish(rep).await {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
     }
 }
 
@@ -673,11 +539,10 @@ impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
         &mut self,
         incoming_value: Resource<IncomingValueHandle>,
     ) -> anyhow::Result<Result<Vec<u8>, BlobstoreError>> {
-        let mut data = self.table.delete(incoming_value)?;
-        let mut buf = Vec::new();
+        let data = self.table.delete(incoming_value)?;
 
-        match data.object.read(&mut buf).await {
-            Ok(_) => Ok(Ok(buf)),
+        match tokio::fs::read(&data.file).await {
+            Ok(buf) => Ok(Ok(buf)),
             Err(e) => Ok(Err(format!("failed to read object data: {e}"))),
         }
     }
@@ -690,7 +555,11 @@ impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
     > {
         let data = self.table.delete(incoming_value)?;
 
-        let stream: Box<dyn InputStream> = Box::new(AsyncReadStream::new(data.object));
+        let file = tokio::fs::File::open(data.file)
+            .await
+            .context("failed to open object file")?;
+
+        let stream: Box<dyn InputStream> = Box::new(AsyncReadStream::new(file));
         let stream = self.table.push(stream)?;
 
         Ok(Ok(stream))
@@ -698,7 +567,12 @@ impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
 
     async fn size(&mut self, incoming_value: Resource<IncomingValueHandle>) -> anyhow::Result<u64> {
         let data = self.table.get(&incoming_value)?;
-        Ok(data.object.info().size as u64)
+
+        let metadata = tokio::fs::metadata(&data.file)
+            .await
+            .context("failed to get object file metadata")?;
+
+        Ok(metadata.len())
     }
 
     async fn drop(&mut self, rep: Resource<IncomingValueHandle>) -> anyhow::Result<()> {
@@ -772,28 +646,16 @@ impl HostPlugin for FilesystemBlobstore {
         workload: &crate::engine::workload::UnresolvedWorkload,
         host_interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
-        let Some(interface) = host_interfaces
+        let Some(_interface) = host_interfaces
             .iter()
             .find(|i| i.namespace == "wasi" && i.package == "blobstore")
         else {
             return Ok(());
         };
 
-        let buckets = match interface.config.get("buckets") {
-            Some(buckets) => buckets.split(',').map(|s| s.to_string()).collect(),
-            None => vec![],
-        };
-
-        let read_only = interface
-            .config
-            .get("read_only")
-            .is_some_and(|v| v == "true");
-
         self.tracker.write().await.add_unresolved_workload(
             workload,
             WorkloadData {
-                buckets: HashSet::from_iter(buckets),
-                read_only,
                 cancel_token: tokio_util::sync::CancellationToken::new(),
             },
         );
@@ -821,4 +683,22 @@ impl HostPlugin for FilesystemBlobstore {
 
         Ok(())
     }
+}
+
+fn list_files_recursively(path: impl AsRef<Path>, files: &mut Vec<PathBuf>) -> anyhow::Result<()> {
+    // Read the entries in the current directory
+    for entry_result in std::fs::read_dir(path)? {
+        let entry = entry_result?;
+        let full_path = entry.path();
+        let meta = std::fs::metadata(&full_path)?;
+
+        if meta.is_dir() {
+            // If it's a directory, recurse into it
+            list_files_recursively(&full_path, files)?;
+        } else if meta.is_file() {
+            // If it's a file, add it to our list
+            files.push(full_path);
+        }
+    }
+    Ok(())
 }

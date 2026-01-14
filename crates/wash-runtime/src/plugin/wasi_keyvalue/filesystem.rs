@@ -1,3 +1,4 @@
+#![deny(clippy::all)]
 //! # WASI KeyValue Memory Plugin
 //!
 //! This module implements `wasi:keyvalue@0.2.0-draft` interfaces using
@@ -7,9 +8,6 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-use anyhow::Context;
-use bytes::{Buf, Bytes};
 
 const PLUGIN_KEYVALUE_ID: &str = "wasi-keyvalue";
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
@@ -93,7 +91,7 @@ impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
 
         let path = plugin.root.join(&identifier);
 
-        if let Err(_) = std::fs::create_dir_all(&path) {
+        if std::fs::create_dir_all(&path).is_err() {
             return Ok(Err(StoreError::Other(
                 "failed to create bucket directory".to_string(),
             )));
