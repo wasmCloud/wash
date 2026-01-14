@@ -20,7 +20,7 @@ use wash_runtime::{
         http::{DevRouter, HttpServer},
     },
     plugin::{
-        wasi_config::DynamicConfig, wasi_keyvalue::InMemoryKeyValue, wasi_logging::TracingLogging,
+        wasi_config::DynamicConfig, wasi_keyvalue::InMemoryKeyValue, wasi_logging::TracingLogger,
     },
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
@@ -58,7 +58,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     let keyvalue_plugin = InMemoryKeyValue::new();
 
     // Create logging plugin
-    let logging_plugin = TracingLogging::default();
+    let logging_plugin = TracingLogger::default();
 
     // Create config plugin
     let config_plugin = DynamicConfig::default();
@@ -397,7 +397,7 @@ async fn test_component_resolution_with_multiple_providers() -> Result<()> {
         .with_engine(engine)
         .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr)))
         .with_plugin(Arc::new(InMemoryKeyValue::new()))?
-        .with_plugin(Arc::new(TracingLogging::default()))?
+        .with_plugin(Arc::new(TracingLogger::default()))?
         .build()?;
 
     let _host = host.start().await.context("Failed to start host")?;

@@ -23,7 +23,7 @@ use wash_runtime::{
     },
     plugin::{
         wasi_blobstore::InMemoryBlobstore, wasi_config::DynamicConfig,
-        wasi_keyvalue::InMemoryKeyValue, wasi_logging::TracingLogging,
+        wasi_keyvalue::InMemoryKeyValue, wasi_logging::TracingLogger,
     },
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
@@ -55,7 +55,7 @@ async fn test_http_counter_integration() -> Result<()> {
     let keyvalue_plugin = InMemoryKeyValue::new();
 
     // Create logging plugin
-    let logging_plugin = TracingLogging::default();
+    let logging_plugin = TracingLogger::default();
 
     // Create config plugin
     let config_plugin = DynamicConfig::default();
@@ -399,7 +399,7 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
     let http_plugin = HttpServer::new(http_handler, addr);
     let blobstore_plugin = InMemoryBlobstore::new(None);
     let keyvalue_plugin = InMemoryKeyValue::new();
-    let logging_plugin = TracingLogging::default();
+    let logging_plugin = TracingLogger::default();
     let config_plugin = DynamicConfig::default();
 
     let host = HostBuilder::new()
@@ -597,7 +597,7 @@ async fn test_http_counter_plugin_isolation() -> Result<()> {
         .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr1)))
         .with_plugin(Arc::new(InMemoryBlobstore::new(None)))?
         .with_plugin(Arc::new(InMemoryKeyValue::new()))?
-        .with_plugin(Arc::new(TracingLogging::default()))?
+        .with_plugin(Arc::new(TracingLogger::default()))?
         .build()?;
 
     // Second host
@@ -606,7 +606,7 @@ async fn test_http_counter_plugin_isolation() -> Result<()> {
         .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr2)))
         .with_plugin(Arc::new(InMemoryBlobstore::new(None)))?
         .with_plugin(Arc::new(InMemoryKeyValue::new()))?
-        .with_plugin(Arc::new(TracingLogging::default()))?
+        .with_plugin(Arc::new(TracingLogger::default()))?
         .build()?;
 
     let _host1 = host1.start().await.context("Failed to start host1")?;

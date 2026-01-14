@@ -164,7 +164,7 @@ impl CliCommand for DevCommand {
 
         // Add logging plugin
         host_builder =
-            host_builder.with_plugin(Arc::new(plugin::wasi_logging::TracingLogging::default()))?;
+            host_builder.with_plugin(Arc::new(plugin::wasi_logging::TracingLogger::default()))?;
         debug!("Logging plugin registered");
 
         // Add keyvalue plugin
