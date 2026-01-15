@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::WorkloadComponent;
-use crate::plugin::HostPlugin;
 use crate::plugin::WorkloadTracker;
+use crate::plugin::{HostPlugin, lock_root};
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::Context;
 use tokio::sync::RwLock;
@@ -52,6 +52,8 @@ pub struct WorkloadData {
 /// Resource representation for an incoming value (data being read)
 pub struct IncomingValueHandle {
     pub file: PathBuf,
+    pub start: u64,
+    pub end: u64,
 }
 
 /// Resource representation for an outgoing value (data being written)
@@ -93,7 +95,9 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let root = plugin.root.join(&name);
+        let root = lock_root(&plugin.root, &name)
+            .map_err(|e| anyhow::anyhow!("invalid container name: {e}"))?;
+
         if let Err(e) = tokio::fs::create_dir_all(&root).await {
             return Ok(Err(format!("failed to create bucket directory: {e}")));
         }
@@ -115,7 +119,10 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let root = plugin.root.join(&name);
+        let Ok(root) = lock_root(&plugin.root, &name) else {
+            return Ok(Err("invalid container name".to_string()));
+        };
+
         if !root.exists() {
             return Ok(Err(format!("bucket '{}' does not exist", name)));
         }
@@ -137,7 +144,9 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let path = plugin.root.join(&name);
+        let Ok(path) = lock_root(&plugin.root, &name) else {
+            return Ok(Err("invalid container name".to_string()));
+        };
         if !path.exists() {
             return Ok(Err(format!("bucket '{}' does not exist", name)));
         }
@@ -157,7 +166,9 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let path = plugin.root.join(&name);
+        let Ok(path) = lock_root(&plugin.root, &name) else {
+            return Ok(Err("invalid container name".to_string()));
+        };
 
         Ok(Ok(path.exists()))
     }
@@ -171,11 +182,21 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let read_container = plugin.root.join(src.container);
-        let write_container = plugin.root.join(dest.container);
+        let Ok(read_container) = lock_root(&plugin.root, &src.container) else {
+            return Ok(Err("invalid source container name".to_string()));
+        };
 
-        let read_object = read_container.join(&src.object);
-        let write_object = write_container.join(&dest.object);
+        let Ok(write_container) = lock_root(&plugin.root, &dest.container) else {
+            return Ok(Err("invalid destination container name".to_string()));
+        };
+
+        let Ok(read_object) = lock_root(read_container, &src.object) else {
+            return Ok(Err("invalid source object name".to_string()));
+        };
+
+        let Ok(write_object) = lock_root(write_container, &dest.object) else {
+            return Ok(Err("invalid destination object name".to_string()));
+        };
 
         if let Some(parent) = write_object.parent()
             && !parent.exists()
@@ -201,11 +222,21 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
             return Ok(Err("blobstore plugin not available".to_string()));
         };
 
-        let read_container = plugin.root.join(src.container);
-        let write_container = plugin.root.join(dest.container);
+        let Ok(read_container) = lock_root(&plugin.root, &src.container) else {
+            return Ok(Err("invalid source container name".to_string()));
+        };
 
-        let read_object = read_container.join(&src.object);
-        let write_object = write_container.join(&dest.object);
+        let Ok(write_container) = lock_root(&plugin.root, &dest.container) else {
+            return Ok(Err("invalid destination container name".to_string()));
+        };
+
+        let Ok(read_object) = lock_root(read_container, &src.object) else {
+            return Ok(Err("invalid source object name".to_string()));
+        };
+
+        let Ok(write_object) = lock_root(write_container, &dest.object) else {
+            return Ok(Err("invalid destination object name".to_string()));
+        };
 
         if let Some(parent) = write_object.parent()
             && !parent.exists()
@@ -248,17 +279,20 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         &mut self,
         container: Resource<ContainerData>,
         name: ObjectName,
-        _start: u64,
-        _end: u64,
+        start: u64,
+        end: u64,
     ) -> anyhow::Result<Result<Resource<IncomingValueHandle>, ContainerError>> {
         let container_data = self.table.get(&container)?;
 
-        let file = container_data.root.join(name.as_str());
+        let Ok(file) = lock_root(&container_data.root, name.as_str()) else {
+            return Ok(Err("invalid object name".to_string()));
+        };
+
         if !file.exists() {
             return Ok(Err(format!("object '{}' does not exist", name)));
         }
 
-        let resource = self.table.push(IncomingValueHandle { file })?;
+        let resource = self.table.push(IncomingValueHandle { file, start, end })?;
 
         Ok(Ok(resource))
     }
@@ -270,6 +304,10 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         data: Resource<OutgoingValueHandle>,
     ) -> anyhow::Result<Result<(), ContainerError>> {
         let container_data = self.table.get(&container).cloned()?;
+
+        if lock_root(&container_data.root, name.as_str()).is_err() {
+            return Ok(Err("invalid object name".to_string()));
+        }
 
         // prepare the write operation
         // it actually happens on 'finish'
@@ -315,7 +353,9 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         name: ObjectName,
     ) -> anyhow::Result<Result<(), ContainerError>> {
         let container_data = self.table.get(&container)?;
-        let path = container_data.root.join(name.as_str());
+        let Ok(path) = lock_root(&container_data.root, name.as_str()) else {
+            return Ok(Err(format!("invalid object name: {}", name)));
+        };
 
         match tokio::fs::remove_file(path).await {
             Ok(_) => Ok(Ok(())),
@@ -331,7 +371,9 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         let container_data = self.table.get(&container)?;
 
         for name in names {
-            let path = container_data.root.join(name.as_str());
+            let Ok(path) = lock_root(&container_data.root, name.as_str()) else {
+                return Ok(Err(format!("invalid object name: {}", name)));
+            };
             if let Err(e) = tokio::fs::remove_file(path).await {
                 return Ok(Err(format!("failed to delete object: {e}")));
             }
@@ -346,7 +388,9 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         name: ObjectName,
     ) -> anyhow::Result<Result<bool, ContainerError>> {
         let container_data = self.table.get(&container)?;
-        let path = container_data.root.join(name.as_str());
+        let Ok(path) = lock_root(&container_data.root, name.as_str()) else {
+            return Ok(Err("invalid object name".to_string()));
+        };
 
         Ok(Ok(path.exists()))
     }
@@ -357,7 +401,9 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         name: ObjectName,
     ) -> anyhow::Result<Result<ObjectMetadata, ContainerError>> {
         let container_data = self.table.get(&container)?;
-        let path = container_data.root.join(name.as_str());
+        let Ok(path) = lock_root(&container_data.root, name.as_str()) else {
+            return Ok(Err("invalid object name".to_string()));
+        };
 
         let Ok(metadata) = tokio::fs::metadata(&path).await else {
             return Ok(Err(format!("object '{name}' does not exist")));
@@ -498,13 +544,14 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
             }
         };
 
-        let dest_file = match handle.object_name {
-            Some(name) => container_data.root.join(name),
-            None => {
-                return Ok(Err(
-                    "outgoing value not associated with an object name".to_string()
-                ));
-            }
+        let Some(handle_name) = handle.object_name else {
+            return Ok(Err(
+                "outgoing value not associated with an object name".to_string()
+            ));
+        };
+
+        let Ok(dest_file) = lock_root(&container_data.root, &handle_name) else {
+            return Ok(Err("invalid object name".to_string()));
         };
 
         if let Some(parent) = dest_file.parent()
@@ -539,12 +586,43 @@ impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
         &mut self,
         incoming_value: Resource<IncomingValueHandle>,
     ) -> anyhow::Result<Result<Vec<u8>, BlobstoreError>> {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
         let data = self.table.delete(incoming_value)?;
 
-        match tokio::fs::read(&data.file).await {
-            Ok(buf) => Ok(Ok(buf)),
-            Err(e) => Ok(Err(format!("failed to read object data: {e}"))),
+        let mut file = match tokio::fs::File::open(&data.file).await {
+            Ok(f) => f,
+            Err(e) => return Ok(Err(format!("failed to open object file: {e}"))),
+        };
+
+        let metadata = match file.metadata().await {
+            Ok(m) => m,
+            Err(e) => return Ok(Err(format!("failed to get file metadata: {e}"))),
+        };
+
+        let file_size = metadata.len();
+
+        // Calculate effective range (inclusive)
+        let start = data.start.min(file_size);
+        let end = data.end.min(file_size.saturating_sub(1));
+
+        if start > end {
+            return Ok(Ok(Vec::new()));
         }
+
+        let length = (end - start + 1) as usize; // +1 because range is inclusive
+
+        let mut buf = vec![0u8; length];
+
+        if let Err(e) = file.seek(std::io::SeekFrom::Start(start)).await {
+            return Ok(Err(format!("failed to seek in object file: {e}")));
+        }
+
+        if let Err(e) = file.read_exact(&mut buf).await {
+            return Ok(Err(format!("failed to read object data: {e}")));
+        }
+
+        Ok(Ok(buf))
     }
 
     async fn incoming_value_consume_async(
@@ -553,13 +631,32 @@ impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
     ) -> anyhow::Result<
         Result<Resource<bindings::wasi::blobstore::types::IncomingValueAsyncBody>, BlobstoreError>,
     > {
+        use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
         let data = self.table.delete(incoming_value)?;
 
-        let file = tokio::fs::File::open(data.file)
+        let mut file = tokio::fs::File::open(&data.file)
             .await
             .context("failed to open object file")?;
 
-        let stream: Box<dyn InputStream> = Box::new(AsyncReadStream::new(file));
+        let metadata = file
+            .metadata()
+            .await
+            .context("failed to get file metadata")?;
+        let file_size = metadata.len();
+
+        // Calculate effective range (inclusive)
+        let start = data.start.min(file_size);
+        let end = data.end.min(file_size.saturating_sub(1));
+
+        file.seek(std::io::SeekFrom::Start(start))
+            .await
+            .context("failed to seek in object file")?;
+
+        let length = if start > end { 0 } else { end - start + 1 };
+
+        let limited = file.take(length);
+        let stream: Box<dyn InputStream> = Box::new(AsyncReadStream::new(limited));
         let stream = self.table.push(stream)?;
 
         Ok(Ok(stream))
@@ -572,7 +669,15 @@ impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
             .await
             .context("failed to get object file metadata")?;
 
-        Ok(metadata.len())
+        let file_size = metadata.len();
+        let start = data.start.min(file_size);
+        let end = data.end.min(file_size.saturating_sub(1));
+
+        if start > end {
+            Ok(0)
+        } else {
+            Ok(end - start + 1)
+        }
     }
 
     async fn drop(&mut self, rep: Resource<IncomingValueHandle>) -> anyhow::Result<()> {

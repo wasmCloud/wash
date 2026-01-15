@@ -12,7 +12,7 @@ use std::sync::Arc;
 const PLUGIN_KEYVALUE_ID: &str = "wasi-keyvalue";
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::WorkloadComponent;
-use crate::plugin::HostPlugin;
+use crate::plugin::{HostPlugin, lock_root};
 use crate::wit::{WitInterface, WitWorld};
 use futures::StreamExt;
 use wasmtime::component::Resource;
@@ -89,7 +89,11 @@ impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
         };
         plugin.record_operation("open");
 
-        let path = plugin.root.join(&identifier);
+        let Ok(path) = lock_root(&plugin.root, &identifier) else {
+            return Ok(Err(StoreError::Other(
+                "invalid bucket identifier".to_string(),
+            )));
+        };
 
         if std::fs::create_dir_all(&path).is_err() {
             return Ok(Err(StoreError::Other(
@@ -119,7 +123,9 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         plugin.record_operation("get");
 
         let bucket_handle = self.table.get(&bucket)?;
-        let path = bucket_handle.root.join(&key);
+        let Ok(path) = lock_root(&bucket_handle.root, &key) else {
+            return Ok(Err(StoreError::Other("invalid key identifier".to_string())));
+        };
 
         let entry = match tokio::fs::read(path).await {
             Ok(entry) => Some(entry.to_vec()),
@@ -147,7 +153,9 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
 
         let bucket_handle = self.table.get(&bucket)?;
 
-        let path = bucket_handle.root.join(&key);
+        let Ok(path) = lock_root(&bucket_handle.root, &key) else {
+            return Ok(Err(StoreError::Other("invalid key identifier".to_string())));
+        };
 
         match tokio::fs::write(path, value).await {
             Ok(_) => Ok(Ok(())),
@@ -171,7 +179,9 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         plugin.record_operation("delete");
 
         let bucket_handle = self.table.get(&bucket)?;
-        let path = bucket_handle.root.join(&key);
+        let Ok(path) = lock_root(&bucket_handle.root, &key) else {
+            return Ok(Err(StoreError::Other("invalid key identifier".to_string())));
+        };
 
         match tokio::fs::remove_file(path).await {
             Ok(_) => Ok(Ok(())),
@@ -196,7 +206,14 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
 
         let bucket_handle = self.table.get(&bucket)?;
 
-        let path = bucket_handle.root.join(&key);
+        let Ok(path) = lock_root(&bucket_handle.root, &key) else {
+            return Ok(Err(StoreError::Other("invalid key identifier".to_string())));
+        };
+
+        // directories are not valid keys
+        if path.is_dir() {
+            return Ok(Ok(false));
+        }
 
         Ok(Ok(path.exists()))
     }
@@ -278,7 +295,9 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
         plugin.record_operation("increment");
 
         let bucket_handle = self.table.get(&bucket)?;
-        let path = bucket_handle.root.join(&key);
+        let Ok(path) = lock_root(&bucket_handle.root, &key) else {
+            return Ok(Err(StoreError::Other("invalid key identifier".to_string())));
+        };
 
         let current_value = match tokio::fs::read_to_string(&path).await {
             Ok(entry) => entry.trim().parse::<u64>().unwrap_or(0),
@@ -318,7 +337,9 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         let bucket_handle = self.table.get(&bucket)?;
 
         let values = futures::stream::FuturesOrdered::from_iter(keys.iter().map(|key| async {
-            let path = bucket_handle.root.join(key.clone());
+            let Ok(path) = lock_root(&bucket_handle.root, key) else {
+                return Err(StoreError::Other("invalid key identifier".to_string()));
+            };
             match tokio::fs::read(path).await {
                 Ok(entry) => Ok(Some((key.clone(), entry.to_vec()))),
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -359,7 +380,9 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
 
         let values = futures::stream::FuturesOrdered::from_iter(key_values.iter().map(
             |(key, value)| async {
-                let path = bucket_handle.root.join(key.clone());
+                let Ok(path) = lock_root(&bucket_handle.root, key) else {
+                    return Err(StoreError::Other("invalid key identifier".to_string()));
+                };
                 match tokio::fs::write(path, value.to_vec()).await {
                     Ok(_) => Ok(()),
                     Err(e) => {
@@ -397,7 +420,9 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         let bucket_handle = self.table.get(&bucket)?;
 
         let values = futures::stream::FuturesOrdered::from_iter(keys.iter().map(|key| async {
-            let path = bucket_handle.root.join(key.clone());
+            let Ok(path) = lock_root(&bucket_handle.root, key) else {
+                return Err(StoreError::Other("invalid key identifier".to_string()));
+            };
             match tokio::fs::remove_file(path).await {
                 Ok(_) => Ok(()),
                 Err(e) => {
