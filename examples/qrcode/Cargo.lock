@@ -750,15 +750,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "qirust"
-version = "0.1.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb67c49b99e3501df5dd17b8e3208f11ff6d7639d6d0b75df0521c0084fc4ac4"
-dependencies = [
- "image",
-]
-
-[[package]]
 name = "qoi"
 version = "0.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -772,10 +763,19 @@ name = "qrcode"
 version = "0.1.0"
 dependencies = [
  "image",
- "qirust",
+ "qrcode 0.14.1",
  "serde",
  "serde_json",
  "wstd",
+]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
+dependencies = [
+ "image",
 ]
 
 [[package]]

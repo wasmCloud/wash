@@ -1,7 +1,7 @@
 use std::io::Cursor;
 
-use image::ImageFormat;
-use qirust::{QrConfig, helper::generate_image_buffer};
+use image::{ImageFormat, Luma};
+use qrcode::QrCode;
 use serde::Deserialize;
 use wstd::http::{Body, Request, Response, StatusCode, error::Context};
 
@@ -48,8 +48,9 @@ async fn qrcode(mut req: Request<Body>) -> Result<Response<Body>, wstd::http::Er
         .await
         .context("failed to parse body")?;
 
-    let config = QrConfig::new().with_border(4)?.with_scale(10)?;
-    let img = generate_image_buffer(&js_req.payload, config)?;
+    let code = QrCode::new(&js_req.payload)?;
+
+    let img = code.render::<Luma<u8>>().build();
 
     let mut body = vec![];
     img.write_to(&mut Cursor::new(&mut body), ImageFormat::Png)?;
