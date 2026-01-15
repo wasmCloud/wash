@@ -21,8 +21,9 @@
 //! - [`wasi_keyvalue`] - Key-value storage (`wasi:keyvalue`)
 //! - [`wasi_logging`] - Structured logging (`wasi:logging`)
 
-use std::collections::HashMap;
 use std::future::Future;
+use std::path::PathBuf;
+use std::{collections::HashMap, path::Path};
 
 use crate::{
     engine::workload::{ResolvedWorkload, UnresolvedWorkload, WorkloadComponent},
@@ -289,4 +290,25 @@ impl<T, Y> WorkloadTracker<T, Y> {
         let item = self.workloads.get(workload_id)?;
         item.components.get(component_id)
     }
+}
+
+/// Locks an untrusted path to be within the given root directory.
+pub(crate) fn lock_root(root: impl AsRef<Path>, untrusted: &str) -> Result<PathBuf, &'static str> {
+    let path = Path::new(untrusted);
+
+    // Reject absolute paths
+    if path.is_absolute() {
+        return Err("absolute paths not allowed");
+    }
+
+    // Reject paths with parent references
+    for component in path.components() {
+        match component {
+            std::path::Component::ParentDir => return Err("path traversal not allowed"),
+            std::path::Component::Prefix(_) => return Err("windows prefixes not allowed"),
+            _ => {}
+        }
+    }
+
+    Ok(root.as_ref().join(path))
 }

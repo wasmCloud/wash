@@ -3,3 +3,6 @@ version: 2.0.0-rc.5
 build:
   command: cargo build --target wasm32-wasip2 --release
   component_path: target/wasm32-wasip2/release/blobby.wasm
+
+dev:
+  wasi_blobstore_path: tmp/blobstore
