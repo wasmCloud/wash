@@ -2,8 +2,7 @@
 //! # WASI KeyValue Memory Plugin
 //!
 //! This module implements `wasi:keyvalue@0.2.0-draft` interfaces using
-//! NATS JetStream as the backend storage.
-//! Atomics are stored in Network Byte Order (big-endian) format.
+//! Filesystem  as the backend storage.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
