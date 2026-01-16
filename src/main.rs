@@ -413,25 +413,14 @@ fn initialize_tracing(
         (Box::new(std::io::stdout()), Box::new(std::io::stderr()))
     } else {
         // Enable dynamic filtering from `RUST_LOG`, fallback to "info", but always set wasm_pkg_client=error
+        #[allow(clippy::expect_used)] // Static directive strings are always valid
         let env_filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(log_level.as_str()))
             // async_nats prints out on connect
-            .add_directive(
-                "async_nats=error"
-                    .parse()
-                    .expect("failed to parse async_nats directive"),
-            )
+            .add_directive("async_nats=error".parse().expect("valid directive"))
             // wasm_pkg_client/core are a little verbose so we set them to error level in non-verbose mode
-            .add_directive(
-                "wasm_pkg_client=error"
-                    .parse()
-                    .expect("failed to parse wasm_pkg_client directive"),
-            )
-            .add_directive(
-                "wasm_pkg_core=error"
-                    .parse()
-                    .expect("failed to parse wasm_pkg_core directive"),
-            );
+            .add_directive("wasm_pkg_client=error".parse().expect("valid directive"))
+            .add_directive("wasm_pkg_core=error".parse().expect("valid directive"));
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
@@ -451,6 +440,7 @@ fn initialize_tracing(
 }
 
 /// Helper function to ensure that we're exiting the program consistently and with the correct output format.
+#[allow(clippy::expect_used)] // Panicking on stdout failure during exit is acceptable
 fn exit_with_output(stdout: &mut impl std::io::Write, output: CommandOutput) -> ! {
     let (message, success) = output.render();
     writeln!(stdout, "{message}").expect("failed to write output to stdout");

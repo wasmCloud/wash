@@ -110,8 +110,12 @@ impl<'a> crate::plugin::bindings::wasmcloud::wash::types::HostContext for Active
 }
 
 impl<'a> crate::plugin::bindings::wasmcloud::wash::types::HostProjectConfig for ActiveCtx<'a> {
+    #[allow(clippy::expect_used)] // Trait returns String; resource guaranteed to exist by contract
     async fn version(&mut self, ctx: Resource<ProjectConfig>) -> String {
-        let c = self.table.get(&ctx).unwrap();
+        let c = self
+            .table
+            .get(&ctx)
+            .expect("project config resource should exist in table");
         c.version.clone()
     }
 

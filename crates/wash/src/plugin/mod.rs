@@ -493,11 +493,10 @@ pub async fn install_plugin(
     let component_data =
         if options.source.starts_with("file://") || Path::new(&options.source).exists() {
             // Load from file
-            let file_path = if options.source.starts_with("file://") {
-                options.source.strip_prefix("file://").unwrap()
-            } else {
-                &options.source
-            };
+            let file_path = options
+                .source
+                .strip_prefix("file://")
+                .unwrap_or(&options.source);
 
             debug!(path = %file_path, "loading plugin from file");
             tokio::fs::read(file_path)
