@@ -11,6 +11,9 @@ categories = ["wasm"]
 [lib]
 path = "src/lib.rs"
 
+[lints]
+workspace = true
+
 [features]
 default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]

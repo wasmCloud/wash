@@ -231,7 +231,9 @@ async fn find_world_wit_file(wit_dir: &std::path::Path) -> Result<std::path::Pat
                         if trimmed.contains('{') {
                             debug!(
                                 "Found world definition in {}",
-                                path.file_name().unwrap().to_string_lossy()
+                                path.file_name()
+                                    .map(|n| n.to_string_lossy())
+                                    .unwrap_or_default()
                             );
                             return Ok(path);
                         }
@@ -239,7 +241,9 @@ async fn find_world_wit_file(wit_dir: &std::path::Path) -> Result<std::path::Pat
                         // Opening brace on next line after world keyword
                         debug!(
                             "Found world definition in {}",
-                            path.file_name().unwrap().to_string_lossy()
+                            path.file_name()
+                                .map(|n| n.to_string_lossy())
+                                .unwrap_or_default()
                         );
                         return Ok(path);
                     } else if found_world_keyword
@@ -825,6 +829,7 @@ async fn handle_build(
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::fs;

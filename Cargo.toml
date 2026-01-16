@@ -11,6 +11,9 @@ edition.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[lints]
+workspace = true
+
 [workspace]
 members = [
     "crates/wash-runtime",
@@ -28,6 +31,10 @@ unstable_features = 'warn'
 unused_import_braces = 'warn'
 unused-lifetimes = 'warn'
 unused-macro-rules = 'warn'
+
+[workspace.lints.clippy]
+unwrap_used = 'deny'
+expect_used = 'deny'
 
 [lib]
 name = "wash"
