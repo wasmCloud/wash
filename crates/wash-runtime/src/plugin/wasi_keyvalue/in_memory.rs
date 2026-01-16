@@ -229,7 +229,10 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
                 // Return up to 100 keys per page
                 const PAGE_SIZE: usize = 100;
                 let end_index = std::cmp::min(start_index + PAGE_SIZE, keys.len());
-                let page_keys = keys[start_index..end_index].to_vec();
+                let page_keys = keys
+                    .get(start_index..end_index)
+                    .unwrap_or_default()
+                    .to_vec();
 
                 // Set next cursor if there are more keys
                 let next_cursor = if end_index < keys.len() {

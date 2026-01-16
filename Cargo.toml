@@ -36,6 +36,8 @@ unused-macro-rules = 'warn'
 [workspace.lints.clippy]
 unwrap_used = 'deny'
 expect_used = 'deny'
+panic = 'deny'
+indexing_slicing = 'deny'
 
 [lib]
 name = "wash"

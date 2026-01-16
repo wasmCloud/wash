@@ -855,8 +855,11 @@ impl ResolvedWorkload {
                                                     "lifting results"
                                                 );
                                                 for (i, v) in results_buf.into_iter().enumerate() {
-                                                    results[i] = lift(&mut store, v)
-                                                        .context("failed to lift result")?;
+                                                    *results
+                                                        .get_mut(i)
+                                                        .context("result index out of bounds")? =
+                                                        lift(&mut store, v)
+                                                            .context("failed to lift result")?;
                                                 }
                                                 trace!(
                                                     name = %import_name,
