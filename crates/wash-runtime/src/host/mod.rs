@@ -48,7 +48,7 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use names::{Generator, Name};
 use tokio::sync::RwLock;
-use tracing::{debug, trace, warn};
+use tracing::{debug, info, trace, warn};
 use wasmtime::component::Component;
 
 use crate::engine::workload::ResolvedWorkload;
@@ -464,6 +464,22 @@ impl Host {
         );
 
         WitWorld { imports, exports }
+    }
+
+    /// Logs all available host interfaces to the tracing system.
+    pub fn log_interfaces(&self) {
+        let wit_world = self.wit_world();
+
+        // Collect and sort exports for consistent output
+        let mut exports: Vec<_> = wit_world.exports.iter().collect();
+        exports.sort_by(|a, b| (&a.namespace, &a.package).cmp(&(&b.namespace, &b.package)));
+
+        let interfaces: Vec<String> = exports.iter().map(|e| e.to_string()).collect();
+        info!(
+            count = interfaces.len(),
+            interfaces = ?interfaces,
+            "Host provides interfaces"
+        );
     }
 
     /// Returns a three-tuple of (OS architecture, OS name, OS kernel)
