@@ -1,6 +1,9 @@
+// wasmtime-wasi fork - not modifying upstream code patterns
 #![allow(clippy::all)]
-#![allow(clippy::unwrap_used)] // wasmtime-wasi fork uses unwrap() patterns from upstream
-#![allow(clippy::expect_used)] // wasmtime-wasi fork uses expect() patterns from upstream
+#![allow(clippy::unwrap_used)]
+#![allow(clippy::expect_used)]
+#![allow(clippy::panic)]
+#![allow(clippy::indexing_slicing)]
 #![allow(dead_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 

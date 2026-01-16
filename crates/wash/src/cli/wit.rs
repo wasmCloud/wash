@@ -537,7 +537,7 @@ async fn handle_add(ctx: &CliContext, package: &str, config: &Config) -> Result<
             // Check if this line is an import statement inside the world
             if trimmed.starts_with("import ") {
                 // Check if this is the last import in the world block
-                let remaining_lines = &lines[i + 1..];
+                let remaining_lines = lines.get(i + 1..).unwrap_or_default();
                 let has_more_imports = remaining_lines
                     .iter()
                     .take_while(|l| !l.trim().starts_with('}')) // Stop at closing brace
@@ -551,7 +551,9 @@ async fn handle_add(ctx: &CliContext, package: &str, config: &Config) -> Result<
             } else if trimmed.starts_with("world ") && trimmed.ends_with('{') {
                 // World block just opened, and there are no imports yet
                 // Check if there are any existing imports in the world
-                let has_imports = lines[i + 1..]
+                let has_imports = lines
+                    .get(i + 1..)
+                    .unwrap_or_default()
                     .iter()
                     .take_while(|l| !l.trim().starts_with('}'))
                     .any(|l| l.trim().starts_with("import "));
