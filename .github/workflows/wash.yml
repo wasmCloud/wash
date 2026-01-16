@@ -116,7 +116,7 @@ jobs:
           cargo +nightly fmt -- --check
       - name: Lint
         run: |
-          cargo clippy --workspace -- -D warnings
+          cargo clippy --workspace
       - name: Check for unused dependencies
         run: |
           cargo machete

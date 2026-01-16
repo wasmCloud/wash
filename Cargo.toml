@@ -24,6 +24,7 @@ package.rust-version = "1.91.0"
 package.version = "2.0.0-rc.5"
 
 [workspace.lints.rust]
+warnings = 'deny' # Treat all warnings as errors
 # Inherited from Wasmtime
 unused_extern_crates = 'warn'
 trivial_numeric_casts = 'warn'
