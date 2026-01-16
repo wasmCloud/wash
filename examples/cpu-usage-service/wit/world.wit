@@ -1,0 +1,5 @@
+package wasmcloud:example@0.0.1;
+
+world service {
+    import wasi:logging/logging@0.1.0-draft;
+}

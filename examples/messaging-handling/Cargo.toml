@@ -1,0 +1,12 @@
+[package]
+name = "messaging-handling"
+edition = "2024"
+version = "0.1.0"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.46.0"

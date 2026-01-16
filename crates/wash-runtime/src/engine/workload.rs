@@ -1201,7 +1201,7 @@ impl UnresolvedWorkload {
 
         // Collect all component's required (unmatched) host interfaces
         // This tracks which interfaces each component still needs to be bound
-        let mut unmatched_interfaces: HashMap<Arc<str>, HashSet<WitInterface>> = HashMap::new();
+        let mut unmatched_interfaces: HashMap<IdFlavor, HashSet<WitInterface>> = HashMap::new();
         let host_interfaces = {
             // filter out Plugins fulfilled by host
             let http_iface = WitInterface::from("wasi:http/incoming-handler,outgoing-handler");
@@ -1224,7 +1224,10 @@ impl UnresolvedWorkload {
                 .collect();
 
             if !required_interfaces.is_empty() {
-                unmatched_interfaces.insert(Arc::from(service.id()), required_interfaces);
+                unmatched_interfaces.insert(
+                    IdFlavor::Service(Arc::from(service.id())),
+                    required_interfaces,
+                );
             }
         }
 
@@ -1238,7 +1241,7 @@ impl UnresolvedWorkload {
                 .collect();
 
             if !required_interfaces.is_empty() {
-                unmatched_interfaces.insert(id.clone(), required_interfaces);
+                unmatched_interfaces.insert(IdFlavor::Component(id.clone()), required_interfaces);
             }
         }
 
@@ -1319,10 +1322,34 @@ impl UnresolvedWorkload {
                 // Now bind each component
                 for (component_id, matching_interfaces) in plugin_component_bindings {
                     // Get the workload component (mutable access needed for binding)
-                    let workload_component = self
-                        .components
-                        .get_mut(&component_id)
-                        .context("component not found during plugin binding")?;
+                    let workload_component = match &component_id {
+                        IdFlavor::Component(component_id) => self
+                            .components
+                            .get_mut(component_id)
+                            .context("component not found during plugin binding")?,
+                        IdFlavor::Service(_) => {
+                            let service = self.service.as_mut().ok_or_else(|| {
+                                anyhow::anyhow!("Infallible. Service was presented before")
+                            })?;
+
+                            trace!(
+                                plugin_id = plugin_id,
+                                component_id = service.id(),
+                                "successfully bound plugin to service"
+                            );
+                            service.add_plugin(plugin_id, p.clone());
+                            plugin_component_ids.push(service.id().to_string());
+
+                            // Remove matched interfaces from unmatched set
+                            if let Some(unmatched) = unmatched_interfaces.get_mut(&component_id) {
+                                for interface in &matching_interfaces {
+                                    unmatched.remove(interface);
+                                }
+                            }
+
+                            continue;
+                        }
+                    };
 
                     debug!(
                         plugin_id = plugin_id,
@@ -1626,6 +1653,31 @@ fn topological_sort_components(
     Ok(result)
 }
 
+// Helper enum to differentiate between component and service IDs
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+enum IdFlavor {
+    Component(Arc<str>),
+    Service(Arc<str>),
+}
+
+impl AsRef<str> for IdFlavor {
+    fn as_ref(&self) -> &str {
+        match self {
+            IdFlavor::Component(id) => id.as_ref(),
+            IdFlavor::Service(id) => id.as_ref(),
+        }
+    }
+}
+
+impl std::fmt::Display for IdFlavor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IdFlavor::Component(id) => write!(f, "Component({})", id),
+            IdFlavor::Service(id) => write!(f, "Service({})", id),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1651,8 +1703,7 @@ mod tests {
     /// Mock plugin implementation for testing workload binding behavior.
     /// Tracks all method calls and counts for verification of callback order and frequency.
     struct MockPlugin {
-        #[allow(unused)]
-        id: String,
+        id: &'static str,
         world: WitWorld,
         call_records: Arc<Mutex<Vec<CallRecord>>>,
         on_workload_bind_count: Arc<AtomicUsize>,
@@ -1662,13 +1713,9 @@ mod tests {
 
     impl MockPlugin {
         /// Creates a new mock plugin with the specified interfaces it can import/export.
-        fn new(
-            id: impl Into<String>,
-            imports: Vec<WitInterface>,
-            exports: Vec<WitInterface>,
-        ) -> Self {
+        fn new(id: &'static str, imports: Vec<WitInterface>, exports: Vec<WitInterface>) -> Self {
             Self {
-                id: id.into(),
+                id,
                 world: WitWorld {
                     imports: imports.into_iter().collect(),
                     exports: exports.into_iter().collect(),
@@ -1696,12 +1743,10 @@ mod tests {
         }
     }
 
-    const ID: &str = "mock-plugin";
-
     #[async_trait]
     impl HostPlugin for MockPlugin {
         fn id(&self) -> &'static str {
-            ID
+            self.id
         }
 
         fn world(&self) -> WitWorld {
@@ -1715,7 +1760,7 @@ mod tests {
         ) -> anyhow::Result<()> {
             self.on_workload_bind_count.fetch_add(1, Ordering::SeqCst);
             self.call_records.lock().unwrap().push(CallRecord {
-                plugin_id: ID.to_string(),
+                plugin_id: self.id.to_string(),
                 method: "on_workload_bind".to_string(),
                 component_id: None,
                 interfaces: interfaces.iter().map(|i| i.to_string()).collect(),
@@ -1730,7 +1775,7 @@ mod tests {
         ) -> anyhow::Result<()> {
             self.on_component_bind_count.fetch_add(1, Ordering::SeqCst);
             self.call_records.lock().unwrap().push(CallRecord {
-                plugin_id: ID.to_string(),
+                plugin_id: self.id.to_string(),
                 method: "on_component_bind".to_string(),
                 component_id: Some(component.id().to_string()),
                 interfaces: interfaces.iter().map(|i| i.to_string()).collect(),
@@ -1746,7 +1791,7 @@ mod tests {
             self.on_workload_resolved_count
                 .fetch_add(1, Ordering::SeqCst);
             self.call_records.lock().unwrap().push(CallRecord {
-                plugin_id: ID.to_string(),
+                plugin_id: self.id.to_string(),
                 method: "on_workload_resolved".to_string(),
                 component_id: Some(component_id.to_string()),
                 interfaces: Vec::new(),
@@ -1757,6 +1802,11 @@ mod tests {
 
     /// HTTP counter component fixture for testing with actual WIT interfaces.
     const HTTP_COUNTER_WASM: &[u8] = include_bytes!("../../tests/fixtures/http_counter.wasm");
+
+    const MESSAGE_HANDLER_WASM: &[u8] =
+        include_bytes!("../../tests/fixtures/messaging_handling.wasm");
+
+    const SERVICE_WASM: &[u8] = include_bytes!("../../tests/fixtures/cpu-usage-service.wasm");
 
     /// Creates a test component using the http_counter fixture.
     /// This provides a real component with actual WIT interface imports.
@@ -1778,6 +1828,50 @@ mod tests {
             linker,
             Vec::new(),
             local_resources,
+            Arc::default(),
+        )
+    }
+
+    fn create_test_messaging_component(id: &str) -> WorkloadComponent {
+        let engine = wasmtime::Engine::default();
+        let linker = Linker::new(&engine);
+
+        // Use the actual http_counter fixture component
+        let component = Component::new(&engine, MESSAGE_HANDLER_WASM).unwrap();
+
+        let local_resources = LocalResources::default();
+
+        WorkloadComponent::new(
+            format!("workload-{id}"),
+            format!("test-workload-{id}"),
+            "test-namespace".to_string(),
+            "test-component".to_string(),
+            component,
+            linker,
+            Vec::new(),
+            local_resources,
+            Arc::default(),
+        )
+    }
+
+    fn create_test_service_component(id: &str) -> WorkloadService {
+        let engine = wasmtime::Engine::default();
+        let linker = Linker::new(&engine);
+
+        // Use the actual http_counter fixture component
+        let component = Component::new(&engine, SERVICE_WASM).unwrap();
+
+        let local_resources = LocalResources::default();
+
+        WorkloadService::new(
+            format!("workload-{id}"),
+            format!("test-workload-{id}"),
+            "test-namespace".to_string(),
+            component,
+            linker,
+            Vec::new(),
+            local_resources,
+            3,
             Arc::default(),
         )
     }
@@ -2160,5 +2254,146 @@ mod tests {
             "Should detect circular dependency: {:?}",
             result
         );
+    }
+
+    #[tokio::test]
+    async fn test_host_interface_redundancy() {
+        let messaging_handler = WitInterface {
+            namespace: "wasmcloud".to_string(),
+            package: "messaging".to_string(),
+            interfaces: ["handler".to_string()].into_iter().collect(),
+            version: Some(semver::Version::parse("0.2.0").unwrap()),
+            config: std::collections::HashMap::new(),
+        };
+
+        let messaging_consumer = WitInterface {
+            namespace: "wasmcloud".to_string(),
+            package: "messaging".to_string(),
+            interfaces: ["consumer".to_string(), "types".to_string()]
+                .into_iter()
+                .collect(),
+            version: Some(semver::Version::parse("0.2.0").unwrap()),
+            config: std::collections::HashMap::new(),
+        };
+
+        let logging = WitInterface {
+            namespace: "wasi".to_string(),
+            package: "logging".to_string(),
+            interfaces: ["logging".to_string()].into_iter().collect(),
+            version: Some(semver::Version::parse("0.1.0-draft").unwrap()),
+            config: std::collections::HashMap::new(),
+        };
+
+        let messaging_plugin = Arc::new(MockPlugin::new(
+            "messaging-plugin",
+            vec![messaging_consumer],
+            vec![messaging_handler],
+        ));
+
+        let logging_plugin = Arc::new(MockPlugin::new(
+            "logging-plugin",
+            vec![logging.clone()],
+            vec![],
+        ));
+
+        let mut plugins = HashMap::new();
+        plugins.insert(
+            logging_plugin.id(),
+            logging_plugin.clone() as Arc<dyn HostPlugin>,
+        );
+        plugins.insert(
+            messaging_plugin.id(),
+            messaging_plugin.clone() as Arc<dyn HostPlugin>,
+        );
+
+        // Create workload with single component
+        let components = vec![create_test_messaging_component("component")];
+
+        let mut workload = UnresolvedWorkload::new(
+            "test-workload-id".to_string(),
+            "test-workload".to_string(),
+            "test-namespace".to_string(),
+            None,
+            components,
+            vec![
+                WitInterface {
+                    namespace: "wasmcloud".to_string(),
+                    package: "messaging".to_string(),
+                    interfaces: ["consumer".to_string(), "handler".to_string()]
+                        .into_iter()
+                        .collect(),
+                    version: Some(semver::Version::parse("0.2.0").unwrap()),
+                    config: std::collections::HashMap::new(),
+                },
+                logging,
+            ],
+        );
+
+        let bound_plugins = workload.bind_plugins(&plugins).await.unwrap();
+
+        // Verify plugin was called once for workload binding
+        assert_eq!(logging_plugin.get_call_count("on_workload_bind"), 1);
+
+        // Verify plugin was called once for component binding
+        assert_eq!(logging_plugin.get_call_count("on_component_bind"), 1);
+
+        // Verify plugin was called once for workload binding
+        assert_eq!(messaging_plugin.get_call_count("on_workload_bind"), 0);
+
+        // Verify plugin was called once for component binding
+        assert_eq!(messaging_plugin.get_call_count("on_component_bind"), 0);
+
+        // Verify bound_plugins contains our plugin with the component
+        assert_eq!(bound_plugins.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_single_plugin_single_service() {
+        let logging_interface = WitInterface {
+            namespace: "wasi".to_string(),
+            package: "logging".to_string(),
+            interfaces: ["logging".to_string()].into_iter().collect(),
+            version: Some(semver::Version::parse("0.1.0-draft").unwrap()),
+            config: std::collections::HashMap::new(),
+        };
+
+        let plugin = Arc::new(MockPlugin::new(
+            "logging-plugin",
+            vec![logging_interface.clone()],
+            vec![],
+        ));
+
+        let mut plugins = HashMap::new();
+        plugins.insert(plugin.id(), plugin.clone() as Arc<dyn HostPlugin>);
+
+        // Create workload with single component
+        let service = create_test_service_component("service");
+
+        let mut workload = UnresolvedWorkload::new(
+            "test-workload-id".to_string(),
+            "test-workload".to_string(),
+            "test-namespace".to_string(),
+            Some(service),
+            vec![],
+            vec![logging_interface.clone()],
+        );
+
+        let bound_plugins = workload.bind_plugins(&plugins).await.unwrap();
+
+        // Verify plugin was called once for workload binding
+        assert_eq!(plugin.get_call_count("on_workload_bind"), 1);
+
+        // Verify plugin was called once for component binding
+        assert_eq!(plugin.get_call_count("on_component_bind"), 0);
+
+        // Verify bound_plugins contains our plugin with the component
+        assert_eq!(bound_plugins.len(), 1);
+        let (_bound_plugin, component_ids) = &bound_plugins[0];
+        assert_eq!(component_ids.len(), 1);
+
+        // Verify call order
+        let records = plugin.get_call_records();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].method, "on_workload_bind");
     }
 }
