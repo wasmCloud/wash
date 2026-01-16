@@ -79,11 +79,12 @@ impl wasi_webgpu_wasmtime::MainThreadSpawner for UiThreadSpawner {
 }
 
 impl wasi_webgpu_wasmtime::WasiWebGpuView for SharedCtx {
+    #[allow(clippy::expect_used)] // Trait doesn't return Result; plugin is registered at startup
     fn instance(&self) -> Arc<wasi_webgpu_wasmtime::reexports::wgpu_core::global::Global> {
         let plugin = self
             .active_ctx
             .get_plugin::<WebGpu>(WASI_WEBGPU_ID)
-            .unwrap();
+            .expect("WebGpu plugin should be registered");
         Arc::clone(&plugin.gpu)
     }
 

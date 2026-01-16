@@ -312,7 +312,11 @@ impl UpdateCommand {
 
         // Sort by version (newest first) and return the best match
         suitable_releases.sort_by(|a, b| b.0.cmp(&a.0));
-        Ok(suitable_releases.into_iter().next().unwrap().1)
+        suitable_releases
+            .into_iter()
+            .next()
+            .map(|(_, release)| release)
+            .ok_or_else(|| anyhow::anyhow!("No suitable updates found"))
     }
 
     /// Fetch the latest release from the configured repository with authentication
