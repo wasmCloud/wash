@@ -140,6 +140,8 @@ pub async fn run_cluster_host(
         version=?host.version(),
         "Host started");
 
+    host.log_interfaces();
+
     let task = tokio::task::spawn(async move {
         let host_subject = host_subject(host_id.as_ref());
 
