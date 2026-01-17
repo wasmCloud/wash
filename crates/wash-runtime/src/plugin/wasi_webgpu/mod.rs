@@ -8,7 +8,7 @@ use std::{collections::HashSet, sync::Arc};
 const WASI_WEBGPU_ID: &str = "wasi-webgpu";
 
 use crate::{
-    engine::{ctx::SharedCtx, workload::WorkloadComponent},
+    engine::{ctx::SharedCtx, workload::WorkloadItem},
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
 };
@@ -108,9 +108,9 @@ impl HostPlugin for WebGpu {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         // Check if any of the interfaces are wasi:webgpu related
@@ -127,15 +127,15 @@ impl HostPlugin for WebGpu {
         }
 
         tracing::debug!(
-            workload_id = component.id(),
+            workload_id = component_handle.id(),
             "Adding webgpu interfaces to linker for workload"
         );
-        let linker = component.linker();
+        let linker = component_handle.linker();
 
         wasi_webgpu_wasmtime::add_to_linker(linker)?;
         wasi_graphics_context_wasmtime::add_to_linker(linker)?;
 
-        let id = component.id();
+        let id = component_handle.id();
         tracing::debug!(
             workload_id = id,
             "Successfully added webgpu interfaces to linker for workload"

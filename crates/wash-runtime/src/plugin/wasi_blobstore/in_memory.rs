@@ -20,7 +20,7 @@ use wasmtime_wasi::p2::{
 use crate::{
     engine::{
         ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
-        workload::WorkloadComponent,
+        workload::WorkloadItem,
     },
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
@@ -915,9 +915,9 @@ impl HostPlugin for InMemoryBlobstore {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        workload_handle: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         // Check if any of the interfaces are wasi:blobstore related
@@ -937,10 +937,10 @@ impl HostPlugin for InMemoryBlobstore {
         // Note: wasi:io interfaces are already added by wasmtime_wasi::add_to_linker_async()
         // in the engine initialization, so we only need to add the blobstore-specific interfaces
         tracing::debug!(
-            workload_id = workload_handle.id(),
+            workload_id = component_handle.id(),
             "Adding blobstore interfaces to linker for workload"
         );
-        let linker = workload_handle.linker();
+        let linker = component_handle.linker();
 
         bindings::wasi::blobstore::blobstore::add_to_linker::<_, SharedCtx>(
             linker,
@@ -955,7 +955,7 @@ impl HostPlugin for InMemoryBlobstore {
             extract_active_ctx,
         )?;
 
-        let id = workload_handle.workload_id();
+        let id = component_handle.workload_id();
 
         // Initialize storage for this component (note: actual storage is per-store-context, this is just a placeholder)
         let mut storage = self.storage.write().await;

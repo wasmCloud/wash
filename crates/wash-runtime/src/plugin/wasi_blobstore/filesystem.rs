@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
-use crate::engine::workload::WorkloadComponent;
+use crate::engine::workload::WorkloadItem;
 use crate::plugin::WorkloadTracker;
 use crate::plugin::{HostPlugin, lock_root};
 use crate::wit::{WitInterface, WitWorld};
@@ -711,9 +711,9 @@ impl HostPlugin for FilesystemBlobstore {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component_handle: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         let Some(_interface) = interfaces

@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
-use crate::engine::workload::WorkloadComponent;
+use crate::engine::workload::WorkloadItem;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::bail;
@@ -128,9 +128,9 @@ impl HostPlugin for TracingLogger {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<WitInterface>,
     ) -> anyhow::Result<()> {
         // Ensure exactly one interface: "wasi:logging/logging"
@@ -148,16 +148,16 @@ impl HostPlugin for TracingLogger {
 
         // Add `wasi:logging/logging` to the workload's linker
         bindings::wasi::logging::logging::add_to_linker::<_, SharedCtx>(
-            component.linker(),
+            component_handle.linker(),
             extract_active_ctx,
         )?;
 
         self.components.write().await.insert(
-            component.id().to_string(),
+            component_handle.id().to_string(),
             ComponentInfo {
-                workload_name: component.workload_name().to_string(),
-                workload_namespace: component.workload_namespace().to_string(),
-                component_id: component.id().to_string(),
+                workload_name: component_handle.workload_name().to_string(),
+                workload_namespace: component_handle.workload_namespace().to_string(),
+                component_id: component_handle.id().to_string(),
             },
         );
 

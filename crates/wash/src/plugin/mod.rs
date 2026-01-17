@@ -24,7 +24,7 @@ use tracing::{debug, error, info, instrument};
 use wash_runtime::{
     engine::{
         ctx::{SharedCtx, extract_active_ctx},
-        workload::{ResolvedWorkload, WorkloadComponent},
+        workload::{ResolvedWorkload, WorkloadItem},
     },
     host::HostApi,
     oci::{OciConfig, pull_component},
@@ -255,9 +255,9 @@ impl HostPlugin for PluginManager {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: HashSet<WitInterface>,
     ) -> anyhow::Result<()> {
         // Should only be asking for `wasmcloud:wash/types`
@@ -278,7 +278,7 @@ impl HostPlugin for PluginManager {
 
         // Add the types interface (provides runner, context, etc. to components that import wasmcloud:wash/types)
         bindings::wasmcloud::wash::types::add_to_linker::<_, SharedCtx>(
-            component.linker(),
+            component_handle.linker(),
             extract_active_ctx,
         )?;
 

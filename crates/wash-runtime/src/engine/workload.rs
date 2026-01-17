@@ -338,6 +338,32 @@ impl WorkloadComponent {
     }
 }
 
+#[derive(Debug)]
+pub enum WorkloadItem<'a> {
+    Component(&'a mut WorkloadComponent),
+    Service(&'a mut WorkloadService),
+}
+
+impl<'a> Deref for WorkloadItem<'a> {
+    type Target = WorkloadMetadata;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            WorkloadItem::Component(component) => component,
+            WorkloadItem::Service(service) => service,
+        }
+    }
+}
+
+impl<'a> DerefMut for WorkloadItem<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            WorkloadItem::Component(component) => component,
+            WorkloadItem::Service(service) => service,
+        }
+    }
+}
+
 impl std::fmt::Debug for WorkloadComponent {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("WorkloadComponent")
@@ -1322,45 +1348,70 @@ impl UnresolvedWorkload {
 
                 // Now bind each component
                 for (id, matching_interfaces) in plugin_component_bindings {
-                    match &id {
-                        IdFlavor::Component(component_id) => {
-                            let workload_id = self.id().to_string();
-                            let workload_component = self
-                                .components
+                    let mut workload_item = match &id {
+                        IdFlavor::Component(component_id) => WorkloadItem::Component(
+                            self.components
                                 .get_mut(component_id)
-                                .context("component not found during plugin binding")?;
-
-                            bind_plugin_to_component(
-                                p.clone(),
-                                plugin_id,
-                                &workload_id,
-                                &id,
-                                workload_component,
-                                &matching_interfaces,
-                                &mut bound_plugins_with_interfaces,
-                                &mut unmatched_interfaces,
-                                &mut plugin_component_ids,
-                            )
-                            .await?;
-                        }
+                                .context("component not found during plugin binding")?,
+                        ),
                         IdFlavor::Service(_) => {
-                            let workload_id = self.id().to_string();
-                            let workload_service = self.service.as_mut().ok_or_else(|| {
+                            WorkloadItem::Service(self.service.as_mut().ok_or_else(|| {
                                 anyhow::anyhow!("Infallible. Service was presented before")
-                            })?;
+                            })?)
+                        }
+                    };
 
-                            bind_plugin_to_service(
-                                p.clone(),
-                                plugin_id,
-                                &workload_id,
-                                &id,
-                                workload_service,
-                                &matching_interfaces,
-                                &mut bound_plugins_with_interfaces,
-                                &mut unmatched_interfaces,
-                                &mut plugin_component_ids,
-                            )
-                            .await?;
+                    debug!(
+                        plugin_id = plugin_id,
+                        component_id = workload_item.id(),
+                        interfaces = ?matching_interfaces,
+                        "binding plugin to workload item"
+                    );
+
+                    if let Err(e) = p
+                        .on_workload_item_bind(&mut workload_item, matching_interfaces.clone())
+                        .await
+                    {
+                        tracing::error!(
+                            plugin_id = plugin_id,
+                            component_id = workload_item.id(),
+                            err = ?e,
+                            "failed to bind workload item to plugin"
+                        );
+                        // Clean up all previously bound plugins in reverse order
+                        for (bound_plugin, bound_interfaces, _) in
+                            bound_plugins_with_interfaces.iter().rev()
+                        {
+                            debug!(
+                                plugin_id = bound_plugin.id(),
+                                "calling on_workload_unbind for cleanup after component bind failure"
+                            );
+                            if let Err(cleanup_err) = bound_plugin
+                                .on_workload_unbind(self.id(), bound_interfaces.clone())
+                                .await
+                            {
+                                warn!(
+                                    plugin_id = bound_plugin.id(),
+                                    error = ?cleanup_err,
+                                    "failed to cleanup plugin after component bind failure"
+                                );
+                            }
+                        }
+                        bail!(e)
+                    } else {
+                        trace!(
+                            plugin_id = plugin_id,
+                            component_id = workload_item.id(),
+                            "successfully bound plugin to component"
+                        );
+                        workload_item.add_plugin(plugin_id, p.clone());
+                        plugin_component_ids.push(workload_item.id().to_string());
+
+                        // Remove matched interfaces from unmatched set
+                        if let Some(unmatched) = unmatched_interfaces.get_mut(&id) {
+                            for interface in matching_interfaces.iter() {
+                                unmatched.remove(interface);
+                            }
                         }
                     }
                 }
@@ -1534,140 +1585,6 @@ impl UnresolvedWorkload {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn bind_plugin_to_component(
-    p: Arc<dyn HostPlugin>,
-    plugin_id: &'static str,
-    workload_id: &str,
-    component_id: &IdFlavor,
-    workload_component: &mut WorkloadComponent,
-    matching_interfaces: &HashSet<WitInterface>,
-    bound_plugins_with_interfaces: &mut Vec<BoundPluginWithInterfaces>,
-    unmatched_interfaces: &mut HashMap<IdFlavor, HashSet<WitInterface>>,
-    plugin_component_ids: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    debug!(
-        plugin_id = plugin_id,
-        component_id = workload_component.id(),
-        interfaces = ?matching_interfaces,
-        "binding plugin to workload component"
-    );
-
-    if let Err(e) = p
-        .on_component_bind(workload_component, matching_interfaces.clone())
-        .await
-    {
-        tracing::error!(
-            plugin_id = plugin_id,
-            component_id = workload_component.id(),
-            err = ?e,
-            "failed to bind workload component to plugin"
-        );
-        // Clean up all previously bound plugins in reverse order
-        for (bound_plugin, bound_interfaces, _) in bound_plugins_with_interfaces.iter().rev() {
-            debug!(
-                plugin_id = bound_plugin.id(),
-                "calling on_workload_unbind for cleanup after component bind failure"
-            );
-            if let Err(cleanup_err) = bound_plugin
-                .on_workload_unbind(workload_id, bound_interfaces.clone())
-                .await
-            {
-                warn!(
-                    plugin_id = bound_plugin.id(),
-                    error = ?cleanup_err,
-                    "failed to cleanup plugin after component bind failure"
-                );
-            }
-        }
-        bail!(e)
-    } else {
-        trace!(
-            plugin_id = plugin_id,
-            component_id = workload_component.id(),
-            "successfully bound plugin to component"
-        );
-        workload_component.add_plugin(plugin_id, p);
-        plugin_component_ids.push(workload_component.id().to_string());
-
-        // Remove matched interfaces from unmatched set
-        if let Some(unmatched) = unmatched_interfaces.get_mut(component_id) {
-            for interface in matching_interfaces.iter() {
-                unmatched.remove(interface);
-            }
-        }
-    }
-
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn bind_plugin_to_service(
-    p: Arc<dyn HostPlugin>,
-    plugin_id: &'static str,
-    workload_id: &str,
-    service_id: &IdFlavor,
-    workload_service: &mut WorkloadService,
-    matching_interfaces: &HashSet<WitInterface>,
-    bound_plugins_with_interfaces: &mut Vec<BoundPluginWithInterfaces>,
-    unmatched_interfaces: &mut HashMap<IdFlavor, HashSet<WitInterface>>,
-    plugin_component_ids: &mut Vec<String>,
-) -> anyhow::Result<()> {
-    debug!(
-        plugin_id = plugin_id,
-        component_id = workload_service.id(),
-        interfaces = ?matching_interfaces,
-        "binding plugin to workload service"
-    );
-
-    if let Err(e) = p
-        .on_service_bind(workload_service, matching_interfaces.clone())
-        .await
-    {
-        tracing::error!(
-            plugin_id = plugin_id,
-            component_id = workload_service.id(),
-            err = ?e,
-            "failed to bind workload service to plugin"
-        );
-        // Clean up all previously bound plugins in reverse order
-        for (bound_plugin, bound_interfaces, _) in bound_plugins_with_interfaces.iter().rev() {
-            debug!(
-                plugin_id = bound_plugin.id(),
-                "calling on_workload_unbind for cleanup after service bind failure"
-            );
-            if let Err(cleanup_err) = bound_plugin
-                .on_workload_unbind(workload_id, bound_interfaces.clone())
-                .await
-            {
-                warn!(
-                    plugin_id = bound_plugin.id(),
-                    error = ?cleanup_err,
-                    "failed to cleanup plugin after service bind failure"
-                );
-            }
-        }
-        bail!(e)
-    } else {
-        trace!(
-            plugin_id = plugin_id,
-            component_id = workload_service.id(),
-            "successfully bound plugin to service"
-        );
-        workload_service.add_plugin(plugin_id, p);
-        plugin_component_ids.push(workload_service.id().to_string());
-
-        // Remove matched interfaces from unmatched set
-        if let Some(unmatched) = unmatched_interfaces.get_mut(service_id) {
-            for interface in matching_interfaces.iter() {
-                unmatched.remove(interface);
-            }
-        }
-    }
-
-    Ok(())
-}
-
 /// Performs a topological sort on components based on their inter-component dependencies.
 ///
 /// This function uses Kahn's algorithm to produce an ordering where components
@@ -1800,8 +1717,7 @@ mod tests {
         world: WitWorld,
         call_records: Arc<Mutex<Vec<CallRecord>>>,
         on_workload_bind_count: Arc<AtomicUsize>,
-        on_component_bind_count: Arc<AtomicUsize>,
-        on_service_bind_count: Arc<AtomicUsize>,
+        on_workload_item_bind_count: Arc<AtomicUsize>,
         on_workload_resolved_count: Arc<AtomicUsize>,
     }
 
@@ -1816,8 +1732,7 @@ mod tests {
                 },
                 call_records: Arc::new(Mutex::new(Vec::new())),
                 on_workload_bind_count: Arc::new(AtomicUsize::new(0)),
-                on_component_bind_count: Arc::new(AtomicUsize::new(0)),
-                on_service_bind_count: Arc::new(AtomicUsize::new(0)),
+                on_workload_item_bind_count: Arc::new(AtomicUsize::new(0)),
                 on_workload_resolved_count: Arc::new(AtomicUsize::new(0)),
             }
         }
@@ -1826,8 +1741,7 @@ mod tests {
         fn get_call_count(&self, method: &str) -> usize {
             match method {
                 "on_workload_bind" => self.on_workload_bind_count.load(Ordering::SeqCst),
-                "on_component_bind" => self.on_component_bind_count.load(Ordering::SeqCst),
-                "on_service_bind" => self.on_service_bind_count.load(Ordering::SeqCst),
+                "on_workload_item_bind" => self.on_workload_item_bind_count.load(Ordering::SeqCst),
                 "on_workload_resolved" => self.on_workload_resolved_count.load(Ordering::SeqCst),
                 _ => 0,
             }
@@ -1864,31 +1778,17 @@ mod tests {
             Ok(())
         }
 
-        async fn on_component_bind(
+        async fn on_workload_item_bind<'a>(
             &self,
-            component: &mut WorkloadComponent,
+            item: &mut WorkloadItem<'a>,
             interfaces: HashSet<WitInterface>,
         ) -> anyhow::Result<()> {
-            self.on_component_bind_count.fetch_add(1, Ordering::SeqCst);
+            self.on_workload_item_bind_count
+                .fetch_add(1, Ordering::SeqCst);
             self.call_records.lock().unwrap().push(CallRecord {
                 plugin_id: self.id.to_string(),
-                method: "on_component_bind".to_string(),
-                component_id: Some(component.id().to_string()),
-                interfaces: interfaces.iter().map(|i| i.to_string()).collect(),
-            });
-            Ok(())
-        }
-
-        async fn on_service_bind(
-            &self,
-            service: &mut WorkloadService,
-            interfaces: HashSet<WitInterface>,
-        ) -> anyhow::Result<()> {
-            self.on_service_bind_count.fetch_add(1, Ordering::SeqCst);
-            self.call_records.lock().unwrap().push(CallRecord {
-                plugin_id: self.id.to_string(),
-                method: "on_service_bind".to_string(),
-                component_id: Some(service.id().to_string()),
+                method: "on_workload_item_bind".to_string(),
+                component_id: Some(item.id().to_string()),
                 interfaces: interfaces.iter().map(|i| i.to_string()).collect(),
             });
             Ok(())
@@ -1988,7 +1888,7 @@ mod tests {
     }
 
     /// Tests basic plugin binding with one plugin and one component.
-    /// Verifies that `on_workload_bind` is called before `on_component_bind`.
+    /// Verifies that `on_workload_bind` is called before `on_workload_item_bind`.
     #[tokio::test]
     async fn test_single_plugin_single_component() {
         // Use the actual interfaces that http_counter.wasm uses
@@ -2027,7 +1927,7 @@ mod tests {
         assert_eq!(plugin.get_call_count("on_workload_bind"), 1);
 
         // Verify plugin was called once for component binding
-        assert_eq!(plugin.get_call_count("on_component_bind"), 1);
+        assert_eq!(plugin.get_call_count("on_workload_item_bind"), 1);
 
         // Verify bound_plugins contains our plugin with the component
         assert_eq!(bound_plugins.len(), 1);
@@ -2038,7 +1938,7 @@ mod tests {
         let records = plugin.get_call_records();
         assert_eq!(records.len(), 2);
         assert_eq!(records[0].method, "on_workload_bind");
-        assert_eq!(records[1].method, "on_component_bind");
+        assert_eq!(records[1].method, "on_workload_item_bind");
         assert_eq!(records[1].component_id.as_ref().unwrap(), &component_ids[0]);
     }
 
@@ -2192,7 +2092,7 @@ mod tests {
     }
 
     /// Tests that plugin callbacks are invoked in the correct order:
-    /// `on_workload_bind` first, then `on_component_bind` for each component.
+    /// `on_workload_bind` first, then `on_workload_item_bind` for each component.
     #[tokio::test]
     async fn test_plugin_callback_order() {
         let interface1 = WitInterface::from("test:interface/handler@0.1.0");
@@ -2232,11 +2132,11 @@ mod tests {
                 "on_workload_bind should be called before component bindings"
             );
 
-            // All subsequent calls should be on_component_bind
+            // All subsequent calls should be on_workload_item_bind
             for record in records.iter().skip(1) {
                 assert_eq!(
-                    record.method, "on_component_bind",
-                    "All calls after on_workload_bind should be on_component_bind"
+                    record.method, "on_workload_item_bind",
+                    "All calls after on_workload_bind should be on_workload_item_bind"
                 );
             }
         }
@@ -2446,13 +2346,13 @@ mod tests {
         assert_eq!(logging_plugin.get_call_count("on_workload_bind"), 1);
 
         // Verify plugin was called once for component binding
-        assert_eq!(logging_plugin.get_call_count("on_component_bind"), 1);
+        assert_eq!(logging_plugin.get_call_count("on_workload_item_bind"), 1);
 
         // Verify plugin was called once for workload binding
         assert_eq!(messaging_plugin.get_call_count("on_workload_bind"), 0);
 
         // Verify plugin was called once for component binding
-        assert_eq!(messaging_plugin.get_call_count("on_component_bind"), 0);
+        assert_eq!(messaging_plugin.get_call_count("on_workload_item_bind"), 0);
 
         // Verify bound_plugins contains our plugin with the component
         assert_eq!(bound_plugins.len(), 1);
@@ -2494,11 +2394,8 @@ mod tests {
         // Verify plugin was called once for workload binding
         assert_eq!(plugin.get_call_count("on_workload_bind"), 1);
 
-        // Verify plugin was called once for component binding
-        assert_eq!(plugin.get_call_count("on_component_bind"), 0);
-
         // Verify plugin was called once for service binding
-        assert_eq!(plugin.get_call_count("on_service_bind"), 1);
+        assert_eq!(plugin.get_call_count("on_workload_item_bind"), 1);
 
         // Verify bound_plugins contains our plugin with the component
         assert_eq!(bound_plugins.len(), 1);
