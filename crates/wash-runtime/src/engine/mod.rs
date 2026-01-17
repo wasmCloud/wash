@@ -241,8 +241,7 @@ impl Engine {
             }
         }
 
-        // Create the WorkloadService with volume mounts
-        Ok(WorkloadService::new(
+        let service = WorkloadService::new(
             workload_id.as_ref(),
             workload_name.as_ref(),
             workload_namespace.as_ref(),
@@ -252,7 +251,19 @@ impl Engine {
             service.local_resources,
             service.max_restarts,
             loopback,
-        ))
+        );
+
+        let world = service.world();
+
+        if !world.exports.iter().any(|iface| {
+            iface.package == "wasi" && iface.namespace == "cli" && iface.interfaces.contains("run")
+        }) && world.exports.len() != 1
+        {
+            bail!("Service must export a single interface with the 'run' function");
+        }
+
+        // Create the WorkloadService with volume mounts
+        Ok(service)
     }
 
     /// Initialize a component that is a part of a workload, add wasi@0.2 interfaces (and

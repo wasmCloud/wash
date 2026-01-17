@@ -1216,6 +1216,7 @@ impl UnresolvedWorkload {
 
         if let Some(service) = self.service.as_ref() {
             let world = service.world();
+
             trace!(?world, "comparing service world to host interfaces");
             let required_interfaces: HashSet<WitInterface> = host_interfaces
                 .iter()
