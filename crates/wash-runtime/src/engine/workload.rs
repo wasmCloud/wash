@@ -1804,7 +1804,7 @@ mod tests {
     const HTTP_COUNTER_WASM: &[u8] = include_bytes!("../../tests/fixtures/http_counter.wasm");
 
     const MESSAGE_HANDLER_WASM: &[u8] =
-        include_bytes!("../../tests/fixtures/messaging_handling.wasm");
+        include_bytes!("../../tests/fixtures/messaging_handler.wasm");
 
     const SERVICE_WASM: &[u8] = include_bytes!("../../tests/fixtures/cpu-usage-service.wasm");
 
