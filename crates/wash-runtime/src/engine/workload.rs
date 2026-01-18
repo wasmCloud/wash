@@ -338,10 +338,23 @@ impl WorkloadComponent {
     }
 }
 
+/// Represents an item within a workload, such as a component or a service.
 #[derive(Debug)]
 pub enum WorkloadItem<'a> {
     Component(&'a mut WorkloadComponent),
     Service(&'a mut WorkloadService),
+}
+
+impl<'a> WorkloadItem<'a> {
+    /// Returns true if the item is a component.
+    pub fn is_component(&self) -> bool {
+        matches!(self, WorkloadItem::Component(_))
+    }
+
+    /// Returns true if the item is a service.
+    pub fn is_service(&self) -> bool {
+        matches!(self, WorkloadItem::Service(_))
+    }
 }
 
 impl<'a> Deref for WorkloadItem<'a> {
