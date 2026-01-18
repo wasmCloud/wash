@@ -25,6 +25,7 @@ use std::future::Future;
 use std::path::PathBuf;
 use std::{collections::HashMap, path::Path};
 
+use crate::engine::workload::WorkloadItem;
 use crate::{
     engine::workload::{ResolvedWorkload, UnresolvedWorkload, WorkloadComponent},
     wit::WitWorld,
@@ -115,7 +116,7 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
         Ok(())
     }
 
-    /// Called when a [`WorkloadComponent`] is being bound to this plugin.
+    /// Called when a [`WorkloadComponent`] or [`WorkloadService`] is being bound to this plugin.
     ///
     /// This method is called when a workload requires interfaces that this
     /// plugin provides. The plugin should configure the component's linker
@@ -130,9 +131,9 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
     ///
     /// # Errors
     /// Returns an error if the plugin cannot bind to the component.
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        _component: &mut WorkloadComponent,
+        _item: &mut WorkloadItem<'a>,
         _interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         Ok(())

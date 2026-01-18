@@ -22,7 +22,7 @@ fn workspace_dir() -> anyhow::Result<PathBuf> {
     }
 }
 
-fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
+fn build_fixtures_rust(workspace_dir: &Path, include_list: &[&str]) -> anyhow::Result<()> {
     let examples_dir = workspace_dir.join("examples");
     let fixtures_dir = workspace_dir.join("crates/wash-runtime/tests/fixtures");
 
@@ -39,14 +39,6 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
         println!("No examples dir found at {}", examples_dir.display());
         return Ok(());
     }
-
-    let include_list = [
-        "http-counter",
-        "cron-service",
-        "cron-component",
-        "http-blobstore",
-        "http-webgpu",
-    ];
 
     // Iterate through example directories
     for entry in fs::read_dir(&examples_dir)? {
@@ -108,19 +100,14 @@ fn build_fixtures_rust(workspace_dir: &Path) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn check_and_rebuild_fixtures(workspace_dir: &Path) -> anyhow::Result<()> {
+fn check_and_rebuild_fixtures(
+    workspace_dir: &Path,
+    tracked_examples: &[&str],
+) -> anyhow::Result<()> {
     let examples_dir = workspace_dir.join("examples");
 
     // Tell cargo to rerun this build script if (only) example source files change
     if examples_dir.exists() {
-        // Track specific example directories we care about
-        let tracked_examples = [
-            "http-counter",
-            "cron-service",
-            "cron-component",
-            "http-blobstore",
-            "http-webgpu",
-        ];
         for example in tracked_examples {
             let example_dir = examples_dir.join(example);
             if example_dir.exists() {
@@ -143,7 +130,7 @@ fn check_and_rebuild_fixtures(workspace_dir: &Path) -> anyhow::Result<()> {
         }
     }
 
-    build_fixtures_rust(workspace_dir)?;
+    build_fixtures_rust(workspace_dir, tracked_examples)?;
 
     Ok(())
 }
@@ -154,8 +141,20 @@ fn main() {
     );
     let workspace_dir = workspace_dir().expect("failed to get workspace dir");
 
+    // Track specific example directories we care about
+    let tracked_examples = [
+        "http-counter",
+        "cron-service",
+        "cron-component",
+        "http-blobstore",
+        "http-webgpu",
+        "cpu-usage-service",
+        "messaging-handler",
+    ];
+
     // Rebuild fixtures if examples changed
-    check_and_rebuild_fixtures(&workspace_dir).expect("failed to check/rebuild fixtures");
+    check_and_rebuild_fixtures(&workspace_dir, &tracked_examples)
+        .expect("failed to check/rebuild fixtures");
 
     let top_proto_dir = workspace_dir.join("proto");
     let proto_dir = top_proto_dir.join("wasmcloud/runtime/v2");

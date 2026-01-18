@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 const PLUGIN_KEYVALUE_ID: &str = "wasi-keyvalue";
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
-use crate::engine::workload::WorkloadComponent;
+use crate::engine::workload::WorkloadItem;
 use crate::plugin::{HostPlugin, lock_root};
 use crate::wit::{WitInterface, WitWorld};
 use futures::StreamExt;
@@ -457,9 +457,9 @@ impl HostPlugin for FilesystemKeyValue {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         // Check if any of the interfaces are wasi:keyvalue related
@@ -476,10 +476,10 @@ impl HostPlugin for FilesystemKeyValue {
         }
 
         tracing::debug!(
-            workload_id = component.id(),
+            workload_id = component_handle.id(),
             "Adding keyvalue interfaces to linker for workload"
         );
-        let linker = component.linker();
+        let linker = component_handle.linker();
 
         bindings::wasi::keyvalue::store::add_to_linker::<_, SharedCtx>(linker, extract_active_ctx)?;
         bindings::wasi::keyvalue::atomics::add_to_linker::<_, SharedCtx>(
@@ -488,7 +488,7 @@ impl HostPlugin for FilesystemKeyValue {
         )?;
         bindings::wasi::keyvalue::batch::add_to_linker::<_, SharedCtx>(linker, extract_active_ctx)?;
 
-        let id = component.id();
+        let id = component_handle.id();
         tracing::debug!(
             workload_id = id,
             "Successfully added keyvalue interfaces to linker for workload"
