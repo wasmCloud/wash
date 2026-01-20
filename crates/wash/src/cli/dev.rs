@@ -204,6 +204,7 @@ impl CliCommand for DevCommand {
 
         // Build and start the host
         let host = host_builder.build()?.start().await?;
+        host.log_interfaces();
 
         // First run
         let workload = create_workload(&host, &config, wasm_bytes.into()).await?;
