@@ -32,6 +32,7 @@ async fn router(req: Request<Body>) -> Result<Response<Body>, wstd::http::Error>
 async fn home(_req: Request<Body>) -> Result<Response<Body>, wstd::http::Error> {
     Response::builder()
         .status(StatusCode::OK)
+        .header("Content-Type", "text/html")
         .body(UI_HTML.into())
         .map_err(Into::into)
 }
