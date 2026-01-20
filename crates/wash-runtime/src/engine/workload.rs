@@ -622,11 +622,15 @@ impl ResolvedWorkload {
 
             let component = workload_component.metadata.component.clone();
             let linker = &mut workload_component.metadata.linker;
+
+            // TODO: only triggerable components (e.g. http-handler, messaging handler) should have linked components
+            let linked_components = self.components.read().await.keys().cloned().collect();
+
             let res = match self
                 .resolve_component_imports(&component, linker, interface_map)
                 .await
             {
-                Ok(linked_components) => {
+                Ok(_) => {
                     workload_component.linked_components = linked_components;
                     Ok(())
                 }
@@ -641,6 +645,8 @@ impl ResolvedWorkload {
             res?;
         }
 
+        let linked_components = self.components.read().await.keys().cloned().collect();
+
         if let Some(mut service) = self.service.take() {
             let component = service.metadata.component.clone();
             let linker = &mut service.metadata.linker;
@@ -649,7 +655,7 @@ impl ResolvedWorkload {
                 .resolve_component_imports(&component, linker, interface_map)
                 .await
             {
-                Ok(linked_components) => {
+                Ok(_) => {
                     service.metadata.linked_components = linked_components;
                     Ok(())
                 }
