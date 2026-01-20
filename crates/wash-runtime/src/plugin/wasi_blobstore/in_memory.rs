@@ -337,7 +337,11 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
                 Some(object_data) => {
                     let start_idx = start.min(object_data.data.len() as u64) as usize;
                     let end_idx = end.min(object_data.data.len() as u64) as usize;
-                    let data_slice = object_data.data[start_idx..end_idx].to_vec();
+                    let data_slice = object_data
+                        .data
+                        .get(start_idx..end_idx)
+                        .unwrap_or_default()
+                        .to_vec();
 
                     tracing::debug!(
                         container = container_name,
