@@ -51,6 +51,7 @@ mod bindings {
 }
 
 const CALLER_WASM: &[u8] = include_bytes!("fixtures/inter_component_call_caller.wasm");
+const MIDDLEWARE_WASM: &[u8] = include_bytes!("fixtures/inter_component_call_middleware.wasm");
 const CALLEE_WASM: &[u8] = include_bytes!("fixtures/inter_component_call_callee.wasm");
 
 #[derive(Clone)]
@@ -61,6 +62,7 @@ pub struct PerComponentInfo {
 #[derive(Default)]
 pub struct CustomLogging {
     tracker: Mutex<HashMap<String, PerComponentInfo>>,
+    prev_ctx_id: Mutex<Option<String>>,
 }
 
 impl<'a> bindings::wasi::logging::logging::Host for ActiveCtx<'a> {
@@ -79,6 +81,18 @@ impl<'a> bindings::wasi::logging::logging::Host for ActiveCtx<'a> {
         if !per_component_info.is_some_and(|info| info.workload_id == &*self.workload_id) {
             return Err(anyhow::anyhow!("workload ID mismatch"));
         }
+
+        let prev_ctx_id = plugin.prev_ctx_id.lock().await.clone();
+        match (prev_ctx_id, &self.id) {
+            (Some(prev_ctx_id), ctx_id) => {
+                if prev_ctx_id == *ctx_id {
+                    panic!("same context");
+                }
+            }
+            (_, _) => {}
+        }
+
+        *plugin.prev_ctx_id.lock().await = Some(self.id.clone());
 
         match level {
             Level::Critical => tracing::error!(id = &self.id, context, "{message}"),
@@ -211,6 +225,20 @@ async fn test_inter_component_call() -> Result<()> {
                         allowed_hosts: vec![],
                     },
                     pool_size: 1,
+                    max_invocations: 100,
+                },
+                Component {
+                    name: "middleware".to_string(),
+                    bytes: bytes::Bytes::from_static(MIDDLEWARE_WASM),
+                    local_resources: LocalResources {
+                        memory_limit_mb: 256,
+                        cpu_limit: 2,
+                        config: HashMap::new(),
+                        environment: HashMap::new(),
+                        volume_mounts: vec![],
+                        allowed_hosts: vec![],
+                    },
+                    pool_size: 2,
                     max_invocations: 100,
                 },
                 Component {

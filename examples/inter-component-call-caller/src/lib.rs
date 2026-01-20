@@ -12,13 +12,13 @@ use bindings::{
     },
 };
 
-use crate::bindings::wasmcloud::example::receiver;
+use crate::bindings::wasmcloud::example::middleware;
 
 struct Component;
 
 impl Guest for Component {
     fn handle(_request: IncomingRequest, response_out: ResponseOutparam) {
-        match receiver::invoke() {
+        match middleware::invoke() {
             Ok(_) => {
                 let response = OutgoingResponse::new(Fields::new());
                 response.set_status_code(200).unwrap();
