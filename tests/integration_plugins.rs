@@ -45,8 +45,6 @@ async fn test_plugin_test_inspect_comprehensive() -> Result<()> {
     // Test 1: Basic plugin test without any command or hook flags
     eprintln!("🔍 Test 1: Basic plugin test (help)");
 
-    let oauth_plugin_path = PathBuf::from("plugins/oauth");
-
     let test_cmd_basic = TestCommand {
         args: vec!["--help".to_string()],
         hooks: vec![],
