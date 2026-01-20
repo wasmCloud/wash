@@ -765,7 +765,6 @@ dependencies = [
  "image",
  "qrcode 0.14.1",
  "serde",
- "serde_json",
  "wstd",
 ]
 
