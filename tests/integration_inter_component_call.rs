@@ -22,7 +22,7 @@ use wash_runtime::{
     engine::{
         Engine,
         ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
-        workload::{ResolvedWorkload, WorkloadComponent},
+        workload::{ResolvedWorkload, WorkloadItem},
     },
     host::{
         HostApi, HostBuilder,
@@ -105,9 +105,9 @@ impl HostPlugin for CustomLogging {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        workload_handle: &mut WorkloadComponent,
+        workload_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<wash_runtime::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         // Ensure exactly one interface: "wasi:logging/logging"

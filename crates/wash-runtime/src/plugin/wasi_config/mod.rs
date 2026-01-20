@@ -26,7 +26,7 @@ use tokio::sync::RwLock;
 use crate::{
     engine::{
         ctx::{ActiveCtx, SharedCtx, extract_active_ctx},
-        workload::WorkloadComponent,
+        workload::WorkloadItem,
     },
     plugin::HostPlugin,
     wit::{WitInterface, WitWorld},
@@ -106,9 +106,9 @@ impl HostPlugin for DynamicConfig {
             exports: HashSet::new(),
         }
     }
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component_handle: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         // Find the "wasi:config/store" interface, if present

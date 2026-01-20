@@ -2,10 +2,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
-use crate::engine::workload::{ResolvedWorkload, WorkloadComponent};
+use crate::engine::workload::{ResolvedWorkload, WorkloadItem};
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
-use anyhow::Context;
+use anyhow::{Context, bail};
 use async_nats::Subscriber;
 use futures::stream::StreamExt;
 use tokio::sync::RwLock;
@@ -124,9 +124,9 @@ impl HostPlugin for NatsMessaging {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component_handle: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: std::collections::HashSet<crate::wit::WitInterface>,
     ) -> anyhow::Result<()> {
         let Some(interface) = interfaces
@@ -150,6 +150,11 @@ impl HostPlugin for NatsMessaging {
                 Some(subs) => subs.split(',').map(|s| s.to_string()).collect(),
                 None => vec![],
             };
+
+            let WorkloadItem::Component(component_handle) = component_handle else {
+                bail!("Service can not be tracked");
+            };
+
             self.tracker.write().await.add_component(
                 component_handle,
                 ComponentData {
