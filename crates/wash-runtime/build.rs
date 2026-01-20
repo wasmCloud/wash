@@ -1,3 +1,6 @@
+// Build scripts commonly use expect() since panics produce clear compile-time errors
+#![allow(clippy::expect_used)]
+
 use std::env;
 use std::fs::{self};
 use std::path::{Path, PathBuf};
@@ -80,7 +83,8 @@ fn build_fixtures_rust(workspace_dir: &Path, include_list: &[&str]) -> anyhow::R
                         let wasm_path = wasm_entry.path();
 
                         if wasm_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-                            let dest = fixtures_dir.join(wasm_path.file_name().unwrap());
+                            let dest = fixtures_dir
+                                .join(wasm_path.file_name().expect("wasm file should have a name"));
                             fs::copy(&wasm_path, &dest)?;
                         }
                     }
@@ -162,7 +166,7 @@ fn main() {
     let proto_dir_files = fs::read_dir(proto_dir).expect("failed to list files in `proto_dir`");
     let proto_files: Vec<PathBuf> = proto_dir_files
         .into_iter()
-        .map(|file| file.unwrap().path())
+        .map(|file| file.expect("failed to read proto file").path())
         .collect();
 
     let descriptor_file = out_dir.join("runtime.bin");

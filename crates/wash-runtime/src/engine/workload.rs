@@ -875,7 +875,7 @@ impl ResolvedWorkload {
                                             })
                                         },
                                     )
-                                    .expect("failed to create async func");
+                                    .context("failed to create async func")?;
                             }
                             ComponentItem::Resource(resource_ty) => {
                                 let (item, _idx) = match plugin_component
@@ -1626,15 +1626,12 @@ fn topological_sort_components(
     let mut in_degree: HashMap<Arc<str>, usize> = HashMap::new();
 
     for (component_id, deps) in dependencies {
-        // Initialize entry for this component
-        in_degree.entry(component_id.clone()).or_insert(0);
-
         // Count only dependencies that are part of this workload
         let dep_count = deps
             .iter()
             .filter(|d| dependencies.contains_key(*d))
             .count();
-        *in_degree.get_mut(component_id).unwrap() = dep_count;
+        in_degree.insert(component_id.clone(), dep_count);
     }
 
     // Start with components that have no dependencies (in-degree == 0)
@@ -1708,6 +1705,7 @@ impl std::fmt::Display for IdFlavor {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use crate::plugin::HostPlugin;

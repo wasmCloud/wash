@@ -573,6 +573,7 @@ pub async fn load_lock_file(project_dir: impl AsRef<Path>) -> Result<LockFile> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
     use std::collections::HashMap;
