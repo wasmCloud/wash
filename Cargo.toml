@@ -21,7 +21,7 @@ members = [
 package.authors = ["The wasmCloud Team"]
 package.edition = "2024"
 package.rust-version = "1.91.0"
-package.version = "2.0.0-rc.5"
+package.version = "2.0.0-rc.6"
 
 [workspace.lints.rust]
 warnings = 'deny' # Treat all warnings as errors
@@ -161,7 +161,7 @@ wasm-pkg-core = { version = "0.10.0", default-features = false }
 wasm-metadata = { version = "0.239.0", default-features = false, features = ["oci"] }
 wasmcloud = { path = "crates/wasmcloud", default-features = false }
 wasmtime = { version = "38", default-features = false }
-wasmtime-wasi = { version = "2.0.0-rc.5", package = "wash-wasi", path = "crates/wasi", default-features = false }
+wasmtime-wasi = { package = "wash-wasi", path = "crates/wasi", default-features = false }
 wasmtime-wasi-io = { version = "38", default-features = false }
 wasmtime-wasi-http = { version = "38", default-features = false }
 which = { version = "6.0.3", default-features = false }
