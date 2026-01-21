@@ -154,6 +154,7 @@ fn main() {
         "http-webgpu",
         "cpu-usage-service",
         "messaging-handler",
+        "grpc-hello-world",
     ];
 
     // Rebuild fixtures if examples changed
@@ -191,7 +192,8 @@ fn main() {
         .expect("failed to build Runtime API protos");
 
     // Compile test proto files if they exist
-    let crate_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
+    let crate_dir =
+        PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set by cargo"));
     let test_proto_file = crate_dir.join("tests/proto/helloworld.proto");
 
     println!("cargo:rerun-if-changed={}", test_proto_file.display());

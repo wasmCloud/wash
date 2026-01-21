@@ -22,7 +22,7 @@ use wash_runtime::{
         HostApi, HostBuilder,
         http::{DevRouter, HttpServer},
     },
-    plugin::{wasi_config::WasiConfig, wasi_logging::WasiLogging},
+    plugin::{wasi_config::DynamicConfig, wasi_logging::TracingLogger},
     types::{Component, LocalResources, Workload, WorkloadStartRequest},
     wit::WitInterface,
 };
@@ -267,8 +267,8 @@ async fn test_grpc_client_concurrent() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(WasiLogging {}))?
-        .with_plugin(Arc::new(WasiConfig::default()))?
+        .with_plugin(Arc::new(TracingLogger::default()))?
+        .with_plugin(Arc::new(DynamicConfig::default()))?
         .with_http_handler(Arc::new(http_plugin))
         .build()?;
 
@@ -345,8 +345,8 @@ async fn test_grpc_client_error_handling() -> Result<()> {
 
     let host = HostBuilder::new()
         .with_engine(engine.clone())
-        .with_plugin(Arc::new(WasiLogging {}))?
-        .with_plugin(Arc::new(WasiConfig::default()))?
+        .with_plugin(Arc::new(TracingLogger::default()))?
+        .with_plugin(Arc::new(DynamicConfig::default()))?
         .with_http_handler(Arc::new(http_plugin))
         .build()?;
 
@@ -407,6 +407,7 @@ async fn start_grpc_hello_workload(
             annotations: HashMap::new(),
             service: None,
             components: vec![Component {
+                name: "grpc-hello-world".to_string(),
                 bytes: bytes::Bytes::from_static(GRPC_HELLO_WORLD_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,

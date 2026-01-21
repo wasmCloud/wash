@@ -278,11 +278,18 @@ pub fn send_request(
         use_tls = config.use_tls,
         "sending gRPC request with HTTP/2 client"
     );
-    let clients = GRPC_CLIENTS.get().expect("gRPC clients not initialized");
+    let clients = match GRPC_CLIENTS.get() {
+        Some(c) => c,
+        None => {
+            return Err(
+                wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError.into(),
+            );
+        }
+    };
     let between_bytes_timeout = config.between_bytes_timeout;
 
     Ok(HostFutureIncomingResponse::Pending(
-        wasmtime_wasi::runtime::spawn(async move {
+        wasmtime_wasi_upstream::runtime::spawn(async move {
             match clients.request(request).await {
                 Ok(resp) => Ok(Ok(IncomingResponse {
                     resp: resp.map(|body| {
