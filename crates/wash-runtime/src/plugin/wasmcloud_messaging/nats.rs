@@ -40,7 +40,7 @@ pub struct NatsMessaging {
 impl NatsMessaging {
     pub fn new(client: Arc<async_nats::Client>) -> Self {
         Self {
-            client: client.clone(),
+            client,
             tracker: Arc::new(RwLock::new(WorkloadTracker::default())),
         }
     }

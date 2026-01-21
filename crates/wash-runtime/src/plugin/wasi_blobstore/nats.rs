@@ -78,9 +78,9 @@ pub struct NatsBlobstore {
 }
 
 impl NatsBlobstore {
-    pub fn new(client: Arc<async_nats::Client>) -> Self {
+    pub fn new(client: &async_nats::Client) -> Self {
         Self {
-            client: async_nats::jetstream::new((*client).clone()).into(),
+            client: async_nats::jetstream::new(client.clone()).into(),
             tracker: Arc::default(),
         }
     }
