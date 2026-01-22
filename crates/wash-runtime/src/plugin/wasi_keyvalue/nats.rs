@@ -58,11 +58,11 @@ impl WasiKeyvalueMetrics {
 }
 
 impl NatsKeyValue {
-    pub fn new(client: Arc<async_nats::Client>) -> Self {
+    pub fn new(client: &async_nats::Client) -> Self {
         let meter = opentelemetry::global::meter("wasi-keyvalue");
         let metrics = WasiKeyvalueMetrics::new(&meter);
         Self {
-            client: async_nats::jetstream::new((*client).clone()).into(),
+            client: async_nats::jetstream::new(client.clone()).into(),
             metrics: Arc::new(metrics),
         }
     }

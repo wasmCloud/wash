@@ -68,13 +68,13 @@ impl CliCommand for HostCommand {
             .with_plugin(Arc::new(plugin::wasi_config::DynamicConfig::new(true)))?
             .with_plugin(Arc::new(plugin::wasi_logging::TracingLogger::default()))?
             .with_plugin(Arc::new(plugin::wasi_blobstore::NatsBlobstore::new(
-                data_nats_client.clone(),
+                &data_nats_client,
             )))?
             .with_plugin(Arc::new(plugin::wasmcloud_messaging::NatsMessaging::new(
                 data_nats_client.clone(),
             )))?
             .with_plugin(Arc::new(plugin::wasi_keyvalue::NatsKeyValue::new(
-                data_nats_client.clone(),
+                &data_nats_client,
             )))?;
 
         if let Some(host_name) = &self.host_name {

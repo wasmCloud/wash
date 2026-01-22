@@ -101,7 +101,7 @@ impl Default for AllowedNetworkUses {
 }
 
 impl AllowedNetworkUses {
-    pub(crate) fn check_allowed_udp(&self) -> std::io::Result<()> {
+    pub(crate) fn check_allowed_udp(self) -> std::io::Result<()> {
         if !self.udp {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
@@ -112,7 +112,7 @@ impl AllowedNetworkUses {
         Ok(())
     }
 
-    pub(crate) fn check_allowed_tcp(&self) -> std::io::Result<()> {
+    pub(crate) fn check_allowed_tcp(self) -> std::io::Result<()> {
         if !self.tcp {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
