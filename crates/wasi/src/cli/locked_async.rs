@@ -1,3 +1,5 @@
+#![allow(unsafe_code)] // Pin projections require unsafe
+
 use crate::cli::{IsTerminal, StdinStream, StdoutStream};
 use crate::p2;
 use bytes::Bytes;
