@@ -7,7 +7,7 @@ spec:
   template:
     spec:
       hostSelector:
-        hostgroup: public-ingress
+        hostgroup: default
       components:
         - name: hello-world
           image: ghcr.io/wasmcloud/components/hello-world:0.1.0
