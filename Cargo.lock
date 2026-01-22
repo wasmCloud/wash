@@ -6381,6 +6381,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "uuid",
+ "walkdir",
  "wash-runtime",
  "wash-wasi",
  "wasm-metadata 0.239.0",
