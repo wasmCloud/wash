@@ -8,8 +8,12 @@ interface types {
         /// Default fallback
         unknown,
         /// Called before `wash doctor` runs, useful for preflight checks for plugins
+        /// This hook is deprecated and will be removed in future versions.
+        /// @deprecated(version = 0.0.2)
         before-doctor,
         /// Called after `wash doctor` runs, useful to examine results and offer recommendations
+        /// This hook is deprecated and will be removed in future versions.
+        /// @deprecated(version = 0.0.2)
         after-doctor,
         /// Called before `wash build` runs
         before-build,

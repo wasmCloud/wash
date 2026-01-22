@@ -67,7 +67,6 @@ etcetera = { workspace = true }
 figment = { workspace = true, features = ["json", "env", "yaml", "toml"] }
 flate2 = { workspace = true, features = ["rust_backend"] }
 humantime = { workspace = true }
-notify = { workspace = true, features = ["macos_fsevent"] }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -86,7 +85,6 @@ wasm-pkg-core = { workspace = true }
 wash-runtime = { workspace = true, features = ["washlet", "oci", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue"] }
 wasmtime = { workspace = true }
 wasmtime-wasi = { workspace = true }
-which = { workspace = true }
 wit-component = { workspace = true }
 
 # Enable WebGPU support on non-Windows platforms
@@ -164,7 +162,6 @@ wasmtime = { version = "38", default-features = false }
 wasmtime-wasi = { package = "wash-wasi", path = "crates/wasi", default-features = false }
 wasmtime-wasi-io = { version = "38", default-features = false }
 wasmtime-wasi-http = { version = "38", default-features = false }
-which = { version = "6.0.3", default-features = false }
 wit-component = { version = "0.235.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
 wat = { version = "1.239.0", default-features = false }
