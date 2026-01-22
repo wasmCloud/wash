@@ -788,7 +788,7 @@ impl HostBuilder {
         self
     }
 
-    pub fn with_plugin<T: HostPlugin>(mut self, plugin: Arc<T>) -> anyhow::Result<Self> {
+    pub fn with_plugin(mut self, plugin: Arc<dyn HostPlugin>) -> anyhow::Result<Self> {
         let plugin_id = plugin.id();
 
         // Check for duplicate plugin IDs

@@ -511,7 +511,7 @@ impl Descriptor {
     pub(crate) async fn get_flags(&self) -> Result<DescriptorFlags, ErrorCode> {
         use system_interface::fs::{FdFlags, GetSetFdFlags};
 
-        fn get_from_fdflags(flags: FdFlags) -> DescriptorFlags {
+        fn get_from_fdflags(flags: &FdFlags) -> DescriptorFlags {
             let mut out = DescriptorFlags::empty();
             if flags.contains(FdFlags::DSYNC) {
                 out |= DescriptorFlags::REQUESTED_WRITE_SYNC;
@@ -527,7 +527,7 @@ impl Descriptor {
         match self {
             Self::File(f) => {
                 let flags = f.run_blocking(|f| f.get_fd_flags()).await?;
-                let mut flags = get_from_fdflags(flags);
+                let mut flags = get_from_fdflags(&flags);
                 if f.open_mode.contains(OpenMode::READ) {
                     flags |= DescriptorFlags::READ;
                 }
@@ -538,7 +538,7 @@ impl Descriptor {
             }
             Self::Dir(d) => {
                 let flags = d.run_blocking(|d| d.get_fd_flags()).await?;
-                let mut flags = get_from_fdflags(flags);
+                let mut flags = get_from_fdflags(&flags);
                 if d.open_mode.contains(OpenMode::READ) {
                     flags |= DescriptorFlags::READ;
                 }
