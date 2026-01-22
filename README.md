@@ -53,31 +53,25 @@ cargo install --path .
 
 Note: This quickstart requires the [Rust toolchain](https://www.rust-lang.org/tools/install) and the `wasm32-wasip2` target for Rust: `rustup target add wasm32-wasip2`
 
-1. **Check your environment:**
-
-   ```bash
-   wash doctor
-   ```
-
-2. **Create a new component:**
+1. **Create a new component:**
 
    ```bash
    wash new https://github.com/wasmCloud/wash.git --subfolder examples/http-hello-world
    ```
 
-3. **Build your component:**
+2. **Build your component:**
 
    ```bash
    wash -C ./http-hello-world build
    ```
 
-4. **Start a development loop**
+3. **Start a development loop**
 
    ```bash
    wash -C ./http-hello-world dev
    ```
 
-5. **Keep wash updated:**
+4. **Keep wash updated:**
 
    ```bash
    wash update
@@ -91,7 +85,6 @@ Note: This quickstart requires the [Rust toolchain](https://www.rust-lang.org/to
 | `wash config`     | View and manage wash configuration                              |
 | `wash completion` | Generate shell completion scripts for wash                      |
 | `wash dev`        | Start a development server for a Wasm component with hot-reload |
-| `wash doctor`     | Check the health of your wash installation and environment      |
 | `wash host`       | Act as a host.                                                  |
 | `wash inspect`    | Inspect a Wasm component's embedded WIT interfaces              |
 | `wash new`        | Create a new project from a template or git repository          |

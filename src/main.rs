@@ -91,9 +91,6 @@ enum WashCliCommand {
     /// Start a development server for a Wasm component
     #[clap(name = "dev")]
     Dev(wash::cli::dev::DevCommand),
-    /// Check the health of your wash installation and environment
-    #[clap(name = "doctor")]
-    Doctor(wash::cli::doctor::DoctorCommand),
     /// Inspect a Wasm component's embedded WIT
     #[clap(name = "inspect", hide = true)]
     Inspect(wash::cli::inspect::InspectCommand),
@@ -143,7 +140,6 @@ impl CliCommand for WashCliCommand {
             }
             WashCliCommand::Config(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Dev(cmd) => cmd.handle(ctx).await,
-            WashCliCommand::Doctor(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Inspect(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Host(cmd) => cmd.handle(ctx).await,
             WashCliCommand::New(cmd) => cmd.handle(ctx).await,
@@ -160,7 +156,6 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Completion(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Dev(cmd) => cmd.enable_pre_hook(),
-            WashCliCommand::Doctor(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Inspect(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Host(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::New(cmd) => cmd.enable_pre_hook(),
@@ -176,7 +171,6 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Completion(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Dev(cmd) => cmd.enable_post_hook(),
-            WashCliCommand::Doctor(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Inspect(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Host(cmd) => cmd.enable_post_hook(),
             WashCliCommand::New(cmd) => cmd.enable_post_hook(),

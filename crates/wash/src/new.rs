@@ -53,8 +53,7 @@ pub(crate) async fn extract_subfolder(
 
 /// Clone a repository from a git URL
 ///
-/// NOTE: This requires the `git` command to be available in the system PATH. This should
-/// already be checked by the doctor command.
+/// NOTE: This requires the `git` command to be available in the system PATH.
 #[instrument(level = "debug", skip_all)]
 pub(crate) async fn clone_template(
     url: &str,

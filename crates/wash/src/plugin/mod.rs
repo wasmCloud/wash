@@ -613,7 +613,7 @@ pub(crate) fn sanitize_plugin_name(name: &str) -> String {
 
 /// Built-in wash commands that cannot be overridden by plugins
 const BUILT_IN_COMMANDS: &[&str] = &[
-    "build", "config", "dev", "doctor", "inspect", "new", "oci", "docker", // alias for oci
+    "build", "config", "dev", "host", "inspect", "new", "oci", "docker", // alias for oci
     "plugin", "update", "upgrade", // alias for update
 ];
 

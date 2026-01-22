@@ -41,7 +41,6 @@ pub mod component_build;
 pub mod config;
 /// Developer hot-reload loop for Wasm components
 pub mod dev;
-pub mod doctor;
 pub mod host;
 pub mod inspect;
 pub mod new;
