@@ -20,6 +20,7 @@ pub struct WebGpu {
 }
 
 /// Backend options for the WasiWebGpu plugin
+#[derive(Clone, Copy)]
 pub enum WebGpuBackend {
     /// Backend with all available features
     All,

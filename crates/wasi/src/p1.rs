@@ -197,7 +197,7 @@ enum BlockingMode {
     NonBlocking,
 }
 impl BlockingMode {
-    fn from_fdflags(flags: &types::Fdflags) -> Self {
+    fn from_fdflags(flags: types::Fdflags) -> Self {
         if flags.contains(types::Fdflags::NONBLOCK) {
             BlockingMode::NonBlocking
         } else {
@@ -1526,7 +1526,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for WasiP1Ctx {
             return Err(types::Errno::Inval.into());
         }
         *append = flags.contains(types::Fdflags::APPEND);
-        *blocking_mode = BlockingMode::from_fdflags(&flags);
+        *blocking_mode = BlockingMode::from_fdflags(flags);
         Ok(())
     }
 
@@ -2189,7 +2189,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for WasiP1Ctx {
                 fd,
                 position: Default::default(),
                 append: fdflags.contains(types::Fdflags::APPEND),
-                blocking_mode: BlockingMode::from_fdflags(&fdflags),
+                blocking_mode: BlockingMode::from_fdflags(fdflags),
             }),
         };
         let fd = t.descriptors.push(desc)?;
