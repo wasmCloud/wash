@@ -1,3 +1,5 @@
+#![allow(unsafe_code)] // Pin projections require unsafe
+
 //! Handling for standard in using a worker task.
 //!
 //! Standard input is a global singleton resource for the entire program which

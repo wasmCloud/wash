@@ -1,3 +1,5 @@
+#![allow(unsafe_code)] // Required for WASIp1 bindings
+
 //! Bindings for WASIp1 aka Preview 1 aka `wasi_snapshot_preview1`.
 //!
 //! This module contains runtime support for configuring and executing

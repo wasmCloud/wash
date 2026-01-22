@@ -1,3 +1,5 @@
+#![allow(unsafe_code)] // Socket operations require unsafe
+
 use crate::runtime::with_ambient_tokio_runtime;
 use crate::sockets::util::{
     ErrorCode, get_unicast_hop_limit, is_valid_address_family, is_valid_remote_address,
