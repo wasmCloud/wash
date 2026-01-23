@@ -298,6 +298,11 @@ async fn workload_start(
         anyhow::bail!("workload is required");
     };
 
+    let workload_id = req.workload_id.clone();
+    if workload_id.is_empty() {
+        anyhow::bail!("workload_id is required");
+    }
+
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
@@ -307,7 +312,7 @@ async fn workload_start(
                 Err(e) => {
                     return Ok(types::v2::WorkloadStartResponse {
                         workload_status: Some(types::v2::WorkloadStatus {
-                            workload_id: "".into(),
+                            workload_id: workload_id.clone(),
                             workload_state: types::v2::WorkloadState::Error.into(),
                             message: format!(
                                 "failed to pull component image {}: {}",
@@ -348,7 +353,7 @@ async fn workload_start(
             Err(e) => {
                 return Ok(types::v2::WorkloadStartResponse {
                     workload_status: Some(types::v2::WorkloadStatus {
-                        workload_id: "".into(),
+                        workload_id: workload_id.clone(),
                         workload_state: types::v2::WorkloadState::Error.into(),
                         message: format!("failed to pull service image {}: {}", service.image, e),
                     }),
@@ -371,7 +376,7 @@ async fn workload_start(
     let volumes = volumes.into_iter().map(Into::into).collect();
 
     let request = crate::types::WorkloadStartRequest {
-        workload_id: uuid::Uuid::new_v4().to_string(),
+        workload_id: workload_id.clone(),
         workload: crate::types::Workload {
             namespace,
             name,
@@ -384,7 +389,7 @@ async fn workload_start(
     };
 
     info!(
-        worload_id=?request.workload_id,
+        worload_id=?workload_id,
         namespace=?request.workload.namespace,
         name=?request.workload.name,
         "Starting workload");
