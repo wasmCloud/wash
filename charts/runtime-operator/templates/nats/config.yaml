@@ -1,0 +1,29 @@
+{{- if .Values.nats.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats
+  namespace: {{ .Release.Namespace }}
+  labels:
+    wasmcloud.com/name: nats
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+data:
+  nats-server.conf: |
+    port: 4222
+    jetstream: enabled
+
+    tls {
+      cert_file: /nats-cert/tls.crt
+      key_file: /nats-cert/tls.key
+      ca_file: /nats-cert/ca.crt
+      verify_and_map: true
+    }
+
+    authorization {
+      users = [
+        { user: "wasmcloud-operator" },
+        { user: "wasmcloud-runtime" },
+        { user: "wasmcloud-data" }
+      ]
+    }
+{{- end }}

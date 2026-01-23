@@ -6,6 +6,19 @@ global:
     pullSecrets: []
   nameOverride: ""
   fullnameOverride: ""
+  certificates:
+    # -- Enable automatic generation of self-signed TLS certificates for the operator and runtime hosts
+    generate: true
+    # -- Name of the Kubernetes Secrets holding the Private CA certificate ( NATS )
+    caSecretName: wasmcloud-ca
+    # -- Name of the Kubernetes Secrets holding the TLS server certificates for NATS server (if enabled in this chart)
+    natsCertSecretName: wasmcloud-nats-tls
+    # -- Name of the Kubernetes Secrets holding the TLS client certificate for the operator
+    operatorCertSecretName: wasmcloud-operator-tls
+    # -- Name of the Kubernetes Secrets holding the TLS server certificates for control plane
+    runtimeCertSecretName: wasmcloud-runtime-tls
+    # -- Name of the Kubernetes Secrets holding the TLS server certificates for user data plane
+    dataCertSecretName: wasmcloud-data-tls
 
 # -- Values for installing a basic NATS Server with Ephemeral Storage. If you prefer to install NATS separately, set `enabled` to `false`.
 nats:

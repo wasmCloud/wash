@@ -1,0 +1,70 @@
+{{- if .Values.global.certificates.generate }}
+{{ $ca := genCA "wasmcloud CA" 365 }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.global.certificates.caSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $ca.Cert | b64enc }}
+  tls.key: {{ $ca.Key | b64enc }}
+---
+{{ $operatorCert := genSignedCert "wasmcloud-operator" nil nil 365 $ca }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.global.certificates.operatorCertSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $operatorCert.Cert | b64enc }}
+  tls.key: {{ $operatorCert.Key | b64enc }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+---
+{{ $runtimeCert := genSignedCert "wasmcloud-runtime" nil nil 365 $ca }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.global.certificates.runtimeCertSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $runtimeCert.Cert | b64enc }}
+  tls.key: {{ $runtimeCert.Key | b64enc }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+---
+{{ $dataCert := genSignedCert "wasmcloud-data" nil nil 365 $ca }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.global.certificates.dataCertSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $dataCert.Cert | b64enc }}
+  tls.key: {{ $dataCert.Key | b64enc }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+---
+{{ $natsCert := genSignedCert "nats-server" nil nil 365 $ca }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.global.certificates.natsCertSecretName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "runtime-operator.labels" . | nindent 4 }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $natsCert.Cert | b64enc }}
+  tls.key: {{ $natsCert.Key | b64enc }}
+  ca.crt: {{ $ca.Cert | b64enc }}
+{{- end }}
