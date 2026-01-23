@@ -262,6 +262,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 	}
 
 	req := &runtimev2.WorkloadStartRequest{
+		WorkloadId: string(workload.GetUID()),
 		Workload: &runtimev2.Workload{
 			Namespace:   workload.Namespace,
 			Name:        workload.Name,
