@@ -12,7 +12,7 @@ data:
   tls.crt: {{ $ca.Cert | b64enc }}
   tls.key: {{ $ca.Key | b64enc }}
 ---
-{{ $operatorCert := genSignedCert "wasmcloud-operator" nil nil 365 $ca }}
+{{ $operatorCert := genSignedCert "wasmcloud-operator" nil (list "wasmcloud-operator") 365 $ca }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -26,7 +26,7 @@ data:
   tls.key: {{ $operatorCert.Key | b64enc }}
   ca.crt: {{ $ca.Cert | b64enc }}
 ---
-{{ $runtimeCert := genSignedCert "wasmcloud-runtime" nil nil 365 $ca }}
+{{ $runtimeCert := genSignedCert "wasmcloud-runtime" nil (list "wasmcloud-runtime") 365 $ca }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -40,7 +40,7 @@ data:
   tls.key: {{ $runtimeCert.Key | b64enc }}
   ca.crt: {{ $ca.Cert | b64enc }}
 ---
-{{ $dataCert := genSignedCert "wasmcloud-data" nil nil 365 $ca }}
+{{ $dataCert := genSignedCert "wasmcloud-data" nil (list "wasmcloud-data") 365 $ca }}
 apiVersion: v1
 kind: Secret
 metadata:
@@ -54,7 +54,7 @@ data:
   tls.key: {{ $dataCert.Key | b64enc }}
   ca.crt: {{ $ca.Cert | b64enc }}
 ---
-{{ $natsCert := genSignedCert "nats-server" nil nil 365 $ca }}
+{{ $natsCert := genSignedCert "nats" nil (list "nats" "nats.svc.cluster.local") 365 $ca }}
 apiVersion: v1
 kind: Secret
 metadata:
