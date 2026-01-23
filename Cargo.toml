@@ -231,3 +231,5 @@ pkg-fmt = "bin"
 # this section is required for testing `wash-wasi`, it should be removed before release
 [patch.crates-io]
 wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v38.0.4" }
+# Pinned for async component support (fixes #187). Remove after https://github.com/bytecodealliance/rust-oci-wasm/issues/28
+oci-wasm = { git = "https://github.com/bytecodealliance/rust-oci-wasm", rev = "5ee16fa1" }
