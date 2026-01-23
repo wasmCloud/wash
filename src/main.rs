@@ -9,8 +9,8 @@ use tracing::{Level, error, info, instrument, trace, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 use wash::cli::{
-    CONFIG_DIR_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
-    plugin::ComponentPluginCommand,
+    CONFIG_DIR_NAME, CONFIG_FILE_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput,
+    OutputKind, plugin::ComponentPluginCommand,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -454,7 +454,9 @@ fn find_project_root() -> PathBuf {
     };
 
     loop {
-        if current_dir.join(CONFIG_DIR_NAME).exists() {
+        // Look for .wash/config.yaml (project config), not just .wash/ directory
+        let project_config = current_dir.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME);
+        if project_config.exists() {
             return current_dir;
         }
 
