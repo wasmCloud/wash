@@ -80,6 +80,7 @@ figment = { workspace = true, features = ["json", "env", "yaml", "toml"] }
 flate2 = { workspace = true, features = ["rust_backend"] }
 humantime = { workspace = true }
 reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+rustls = { workspace = true }
 semver = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true, features = ["std"] }
@@ -141,7 +142,7 @@ pbjson-types = { version = "0.8.0", default-features = false }
 pbjson-build = { version = "0.8.0", default-features = false }
 prost = { version = "0.14", default-features = false }
 reqwest = { version = "0.12.20", default-features = false, features = ["json", "rustls-tls"] }
-rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12", "aws_lc_rs"] }
 rustls-pemfile = { version = "2.2", default-features = false, features = ["std"] }
 schemars = { version = "0.8", default-features = false }
 git2 = { version = "0.19", default-features = false }

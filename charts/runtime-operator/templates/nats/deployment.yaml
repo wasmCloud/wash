@@ -32,6 +32,7 @@ spec:
         - name: nats
           image: {{ printf "%s/%s" $registry .Values.nats.image.repository }}:{{ .Values.nats.image.tag | default "latest" }}
           args:
+            - "-DV"
             - "-c"
             - "/nats-config/nats-server.conf"
           imagePullPolicy: {{ .Values.nats.image.pull_policy }}

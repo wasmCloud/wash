@@ -77,6 +77,10 @@ pub struct HostCommand {
 
 impl CliCommand for HostCommand {
     async fn handle(&self, _ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .map_err(|e| anyhow::anyhow!(format!("failed to install crypto provider: {e:?}")))?;
+
         let scheduler_nats_client = wash_runtime::washlet::connect_nats(
             self.scheduler_nats_url.clone(),
             wash_runtime::washlet::NatsConnectionOptions {
