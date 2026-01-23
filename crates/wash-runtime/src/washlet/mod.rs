@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -191,14 +192,43 @@ pub async fn run_cluster_host(
     })
 }
 
+/// Configuration options for NATS connections
+#[derive(Debug, Clone, Default)]
+pub struct NatsConnectionOptions {
+    /// Request timeout for NATS operations
+    pub request_timeout: Option<Duration>,
+    /// Path to TLS CA certificate file for NATS connection
+    pub tls_ca: Option<PathBuf>,
+    /// Enable TLS handshake first mode for NATS connection
+    pub tls_first: bool,
+    /// Path to NATS TLS certificate file
+    pub tls_cert: Option<PathBuf>,
+    /// Path to NATS TLS private key file
+    pub tls_key: Option<PathBuf>,
+}
+
 pub async fn connect_nats(
     addr: impl async_nats::ToServerAddrs,
-    request_timeout: Option<Duration>,
+    options: NatsConnectionOptions,
 ) -> Result<async_nats::Client, anyhow::Error> {
     let mut opts = async_nats::ConnectOptions::new();
-    if let Some(timeout) = request_timeout {
+
+    if let Some(timeout) = options.request_timeout {
         opts = opts.request_timeout(Some(timeout));
-    };
+    }
+
+    if let Some(ca_path) = options.tls_ca {
+        opts = opts.add_root_certificates(ca_path)
+    }
+
+    if options.tls_first {
+        opts = opts.tls_first();
+    }
+
+    if let (Some(cert_path), Some(key_path)) = (options.tls_cert, options.tls_key) {
+        opts = opts.add_client_certificate(cert_path, key_path)
+    }
+
     opts.connect(addr)
         .await
         .context("failed to connect to NATS")

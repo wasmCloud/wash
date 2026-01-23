@@ -23,6 +23,13 @@ spec:
         wasmcloud.com/hostgroup: {{ .name }}
         {{- include "runtime-operator.labels" $top | nindent 8 }}
     spec:
+      volumes:
+        - name: runtime-cert
+          secret:
+            secretName: {{ $top.Values.global.certificates.runtimeCertSecretName }}
+        - name: data-cert
+          secret:
+            secretName: {{ $top.Values.global.certificates.dataCertSecretName }}
       serviceAccountName: {{ include "runtime-operator.serviceAccountName" $top }}-runtime
       {{- include "runtime-operator.imagePullSecrets" $top | nindent 6 }}
       containers:
@@ -38,7 +45,13 @@ spec:
             - "--host-name=$(WASMCLOUD_HOST_IP)"
             - "--host-group={{ .name }}"
             - "--scheduler-nats-url=nats://nats:4222"
+            - "--scheduler-nats-tls-ca=/runtime-cert/ca.crt"
+            - "--scheduler-nats-tls-cert=/runtime-cert/tls.crt"
+            - "--scheduler-nats-tls-key=/runtime-cert/tls.key"
             - "--data-nats-url=nats://nats:4222"
+            - "--data-nats-tls-ca=/data-cert/ca.crt"
+            - "--data-nats-tls-cert=/data-cert/tls.crt"
+            - "--data-nats-tls-key=/data-cert/tls.key"
             {{- if and (.http) (.http.enabled) }}
             - "--http-addr=0.0.0.0:9191"
             {{- end }}
@@ -46,6 +59,13 @@ spec:
             - "--wasi-webgpu"
             {{- end }}
           imagePullPolicy: {{ $top.Values.runtime.image.pull_policy }}
+          volumeMounts:
+            - name: runtime-cert
+              mountPath: /runtime-cert
+              readOnly: true
+            - name: data-cert
+              mountPath: /data-cert
+              readOnly: true
           {{- with .resources }}
           resources:
             {{- toYaml . | nindent 12 }}
