@@ -61,6 +61,10 @@ func main() {
 		metricsAddr                 string
 		natsUrl                     string
 		natsCreds                   string
+		natsCa                      string
+		natsClientCert              string
+		natsClientKey               string
+		natsTLSFirst                bool
 		enableLeaderElection        bool
 		probeAddr                   string
 		secureMetrics               bool
@@ -75,6 +79,10 @@ func main() {
 		"Use :8443 for HTTPS or :8080 for HTTP, or leave as 0 to disable the metrics service.")
 	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8082", "The address the probe endpoint binds to.")
 	flag.StringVar(&natsCreds, "nats-creds", "", "Path to NATS credentials file.")
+	flag.StringVar(&natsCa, "nats-ca", "", "Path to TLS CA pem")
+	flag.StringVar(&natsClientCert, "nats-client-cert", "", "Path to TLS client certificate pem")
+	flag.StringVar(&natsClientKey, "nats-client-key", "", "Path to TLS client key pem")
+	flag.BoolVar(&natsTLSFirst, "nats-tls-first", false, "Skip NATS Server discovery during TLS")
 	flag.StringVar(&natsUrl, "nats-url", wasmbus.NatsDefaultURL, "The nats server address to connect to.")
 	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
 		"Enable leader election for controller manager. "+
@@ -123,6 +131,18 @@ func main() {
 
 	if natsCreds != "" {
 		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.UserCredentials(natsCreds))
+	}
+
+	if natsCa != "" {
+		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.RootCAs(natsCa))
+	}
+
+	if natsClientCert != "" && natsClientKey != "" {
+		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.ClientCert(natsClientCert, natsClientKey))
+	}
+
+	if natsTLSFirst {
+		operatorCfg.NatsOptions = append(operatorCfg.NatsOptions, nats.TLSHandshakeFirst())
 	}
 
 	// if the enable-http2 flag is false (the default), http/2 should be disabled
