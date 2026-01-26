@@ -662,7 +662,14 @@ impl HostApi for Host {
                 },
             })
         } else {
-            anyhow::bail!("Workload not found: {}", request.workload_id)
+            let message = format!("Workload not found: {}", request.workload_id);
+            Ok(WorkloadStatusResponse {
+                workload_status: WorkloadStatus {
+                    workload_id: request.workload_id,
+                    message,
+                    workload_state: WorkloadState::NotFound,
+                },
+            })
         }
     }
 
@@ -731,7 +738,7 @@ impl HostApi for Host {
                 "Workload stopped successfully".to_string(),
             )
         } else {
-            (WorkloadState::Unspecified, "Workload not found".to_string())
+            (WorkloadState::NotFound, "Workload not found".to_string())
         };
 
         Ok(WorkloadStopResponse {

@@ -35,13 +35,15 @@ pub struct Workload {
 
 /// The current state of a workload in its lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(i32)]
 pub enum WorkloadState {
-    Unspecified,
-    Starting,
-    Running,
-    Completed,
-    Stopping,
-    Error,
+    Unspecified = 0,
+    Starting = 1,
+    Running = 2,
+    Completed = 3,
+    Stopping = 4,
+    Error = 5,
+    NotFound = 6,
 }
 
 /// Configuration for a long-running service component that handles requests.
