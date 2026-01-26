@@ -3,10 +3,15 @@ use std::{
     path::PathBuf,
 };
 
+use anyhow::Context;
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use clap_complete::generate;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use tracing::{Level, error, info, instrument, trace, warn};
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{
+    EnvFilter, Layer, Registry, filter::Directive, layer::SubscriberExt, util::SubscriberInitExt,
+};
 
 use wash::cli::{
     CONFIG_DIR_NAME, CONFIG_FILE_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput,
@@ -199,8 +204,16 @@ async fn main() {
     // Auto-detect non-interactive mode if stdin is not a TTY or flag is set
     let non_interactive = non_interactive_flag || !std::io::stdin().is_terminal();
 
+    let (mut stdout, mut stderr) = (Box::new(std::io::stdout()), Box::new(std::io::stderr()));
+
     // Initialize tracing as early as possible, with the specified log level
-    let (mut stdout, mut stderr) = initialize_tracing(global_args.log_level, global_args.verbose);
+    if let Err(e) = initialize_tracing(global_args.log_level, global_args.verbose) {
+        exit_with_output(
+            &mut stderr,
+            CommandOutput::error(format!("failed to initialize tracing: {e:?}"), None)
+                .with_output_kind(global_args.output),
+        );
+    }
 
     // Check if project path exists
     if !global_args.project_path.exists() {
@@ -381,10 +394,44 @@ where
 /// Initialize tracing with a custom format
 ///
 /// Returns a tuple of stdout and stderr writers for consistency with the previous API.
-fn initialize_tracing(
-    log_level: Level,
-    verbose: bool,
-) -> (Box<dyn std::io::Write>, Box<dyn std::io::Write>) {
+fn initialize_tracing(log_level: Level, verbose: bool) -> anyhow::Result<()> {
+    let log_exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .build()?;
+    let log_provider = opentelemetry_sdk::logs::LoggerProviderBuilder::default()
+        .with_simple_exporter(log_exporter)
+        .build();
+    let filter_otel_logs = EnvFilter::new("info")
+        //        .add_directive(directive("off")?)
+        .add_directive(directive("wasmcloud=info")?)
+        .add_directive(directive("wrpc=info")?)
+        .add_directive(directive("wash_runtime=debug")?);
+
+    let otel_logs_layer =
+        OpenTelemetryTracingBridge::new(&log_provider).with_filter(filter_otel_logs);
+
+    let tracer_exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()?;
+    let tracer_provider = opentelemetry_sdk::trace::TracerProviderBuilder::default()
+        .with_simple_exporter(tracer_exporter)
+        .build();
+
+    let filter_otel_traces = EnvFilter::new("info")
+        //        .add_directive(directive("off")?)
+        .add_directive(directive("wasmcloud=info")?)
+        .add_directive(directive("wrpc=info")?)
+        .add_directive(directive("control_host=info")?);
+
+    let otel_tracer_layer = tracing_opentelemetry::layer()
+        .with_tracer(tracer_provider.tracer("wash"))
+        .with_error_records_to_exceptions(true)
+        .with_error_fields_to_exceptions(true)
+        .with_error_events_to_status(true)
+        .with_error_events_to_exceptions(true)
+        .with_location(true)
+        .with_filter(filter_otel_traces);
+
     // Display logs in a compact, CLI-friendly format
     if verbose {
         // Enable dynamic filtering from `RUST_LOG`, fallback to "info"
@@ -402,9 +449,12 @@ fn initialize_tracing(
             .with_ansi(true); // Color output for TTY
 
         // Register all layers with the subscriber
-        Registry::default().with(env_filter).with(fmt_layer).init();
-
-        (Box::new(std::io::stdout()), Box::new(std::io::stderr()))
+        Registry::default()
+            .with(env_filter)
+            .with(otel_logs_layer)
+            .with(otel_tracer_layer)
+            .with(fmt_layer)
+            .init();
     } else {
         // Enable dynamic filtering from `RUST_LOG`, fallback to "info", but always set wasm_pkg_client=error
         #[allow(clippy::expect_used)] // Static directive strings are always valid
@@ -427,10 +477,23 @@ fn initialize_tracing(
             .with_ansi(true);
 
         // Register all layers with the subscriber
-        Registry::default().with(env_filter).with(fmt_layer).init();
-
-        (Box::new(std::io::stdout()), Box::new(std::io::stderr()))
+        Registry::default()
+            .with(env_filter)
+            .with(otel_logs_layer)
+            .with(otel_tracer_layer)
+            .with(fmt_layer)
+            .init();
     }
+
+    Ok(())
+}
+
+/// Helper function to reduce duplication and code size for parsing directives
+fn directive(directive: impl AsRef<str>) -> anyhow::Result<Directive> {
+    directive
+        .as_ref()
+        .parse()
+        .with_context(|| format!("failed to parse filter: {}", directive.as_ref()))
 }
 
 /// Helper function to ensure that we're exiting the program consistently and with the correct output format.
