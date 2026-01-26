@@ -204,6 +204,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 		}
 
 		witWorld.Components = append(witWorld.Components, &runtimev2.Component{
+			Name:            c.Name,
 			Image:           c.Image,
 			ImagePullSecret: imagePullSecret,
 			PoolSize:        c.PoolSize,
@@ -261,6 +262,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 	}
 
 	req := &runtimev2.WorkloadStartRequest{
+		WorkloadId: string(workload.GetUID()),
 		Workload: &runtimev2.Workload{
 			Namespace:   workload.Namespace,
 			Name:        workload.Name,

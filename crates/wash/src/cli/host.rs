@@ -1,10 +1,9 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::Context as _;
 use clap::Args;
 use tracing::info;
-#[cfg(not(target_os = "windows"))]
-use wash_runtime::plugin::wasi_webgpu::WasiWebGpu;
+use wash_runtime::plugin::{self};
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 
@@ -18,9 +17,41 @@ pub struct HostCommand {
     #[clap(long = "scheduler-nats-url", default_value = "nats://localhost:4222")]
     pub scheduler_nats_url: String,
 
+    /// Path to TLS CA certificate file for NATS Scheduler connection
+    #[clap(long = "scheduler-nats-tls-ca")]
+    pub scheduler_nats_tls_ca: Option<PathBuf>,
+
+    /// Enable TLS handshake first mode for NATS Scheduler connection
+    #[clap(long = "scheduler-nats-tls-first", default_value_t = false)]
+    pub scheduler_nats_tls_first: bool,
+
+    /// Path to NATS TLS certificate file for NATS Scheduler connection
+    #[clap(long = "scheduler-nats-tls-cert")]
+    pub scheduler_nats_tls_cert: Option<PathBuf>,
+
+    /// Path to NATS TLS private key file for NATS Scheduler connection
+    #[clap(long = "scheduler-nats-tls-key")]
+    pub scheduler_nats_tls_key: Option<PathBuf>,
+
     /// NATS URL for Data Plane communications
     #[clap(long = "data-nats-url", default_value = "nats://localhost:4222")]
     pub data_nats_url: String,
+
+    /// The path to TLS CA certificate file for NATS Data connection
+    #[clap(long = "data-nats-tls-ca")]
+    pub data_nats_tls_ca: Option<PathBuf>,
+
+    /// Enable TLS handshake first mode for NATS Data connection
+    #[clap(long = "data-nats-tls-first", default_value_t = false)]
+    pub data_nats_tls_first: bool,
+
+    /// Path to NATS TLS certificate file for NATS Data connection
+    #[clap(long = "data-nats-tls-cert")]
+    pub data_nats_tls_cert: Option<PathBuf>,
+
+    /// Path to NATS TLS private key file for NATS Data connection
+    #[clap(long = "data-nats-tls-key")]
+    pub data_nats_tls_key: Option<PathBuf>,
 
     /// The host name to assign to the host
     #[clap(long = "host-name")]
@@ -46,15 +77,35 @@ pub struct HostCommand {
 
 impl CliCommand for HostCommand {
     async fn handle(&self, _ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let scheduler_nats_client =
-            wash_runtime::washlet::connect_nats(self.scheduler_nats_url.clone(), None)
-                .await
-                .context("failed to connect to NATS Scheduler URL")?;
+        rustls::crypto::aws_lc_rs::default_provider()
+            .install_default()
+            .map_err(|e| anyhow::anyhow!(format!("failed to install crypto provider: {e:?}")))?;
 
-        let data_nats_client =
-            wash_runtime::washlet::connect_nats(self.data_nats_url.clone(), None)
-                .await
-                .context("failed to connect to NATS")?;
+        let scheduler_nats_client = wash_runtime::washlet::connect_nats(
+            self.scheduler_nats_url.clone(),
+            wash_runtime::washlet::NatsConnectionOptions {
+                request_timeout: None,
+                tls_ca: self.scheduler_nats_tls_ca.clone(),
+                tls_first: self.scheduler_nats_tls_first,
+                tls_cert: self.scheduler_nats_tls_cert.clone(),
+                tls_key: self.scheduler_nats_tls_key.clone(),
+            },
+        )
+        .await
+        .context("failed to connect to NATS Scheduler URL")?;
+
+        let data_nats_client = wash_runtime::washlet::connect_nats(
+            self.data_nats_url.clone(),
+            wash_runtime::washlet::NatsConnectionOptions {
+                request_timeout: None,
+                tls_ca: self.data_nats_tls_ca.clone(),
+                tls_first: self.data_nats_tls_first,
+                tls_cert: self.data_nats_tls_cert.clone(),
+                tls_key: self.data_nats_tls_key.clone(),
+            },
+        )
+        .await
+        .context("failed to connect to NATS")?;
         let data_nats_client = Arc::new(data_nats_client);
 
         let host_config = wash_runtime::host::HostConfig {
@@ -66,27 +117,17 @@ impl CliCommand for HostCommand {
             .with_host_config(host_config)
             .with_nats_client(Arc::new(scheduler_nats_client))
             .with_host_group(self.host_group.clone())
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_config::WasiConfig::default(),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_logging::TracingLogging::default(),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_blobstore::WasiBlobstore::new(
-                    data_nats_client.clone(),
-                ),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasmcloud_messaging::WasmcloudMessaging::new(
-                    data_nats_client.clone(),
-                ),
-            ))?
-            .with_plugin(Arc::new(
-                wash_runtime::washlet::plugins::wasi_keyvalue::WasiKeyvalue::new(
-                    data_nats_client.clone(),
-                ),
-            ))?;
+            .with_plugin(Arc::new(plugin::wasi_config::DynamicConfig::new(true)))?
+            .with_plugin(Arc::new(plugin::wasi_logging::TracingLogger::default()))?
+            .with_plugin(Arc::new(plugin::wasi_blobstore::NatsBlobstore::new(
+                &data_nats_client,
+            )))?
+            .with_plugin(Arc::new(plugin::wasmcloud_messaging::NatsMessaging::new(
+                data_nats_client.clone(),
+            )))?
+            .with_plugin(Arc::new(plugin::wasi_keyvalue::NatsKeyValue::new(
+                &data_nats_client,
+            )))?;
 
         if let Some(host_name) = &self.host_name {
             cluster_host_builder = cluster_host_builder.with_host_name(host_name);
@@ -103,8 +144,8 @@ impl CliCommand for HostCommand {
         #[cfg(not(target_os = "windows"))]
         if self.wasi_webgpu {
             tracing::info!("WASI WebGPU support enabled");
-            cluster_host_builder =
-                cluster_host_builder.with_plugin(Arc::new(WasiWebGpu::default()))?;
+            cluster_host_builder = cluster_host_builder
+                .with_plugin(Arc::new(plugin::wasi_webgpu::WebGpu::default()))?;
         }
 
         let cluster_host = cluster_host_builder

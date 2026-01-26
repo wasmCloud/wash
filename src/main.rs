@@ -9,8 +9,8 @@ use tracing::{Level, error, info, instrument, trace, warn};
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 
 use wash::cli::{
-    CONFIG_DIR_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput, OutputKind,
-    plugin::ComponentPluginCommand,
+    CONFIG_DIR_NAME, CONFIG_FILE_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput,
+    OutputKind, plugin::ComponentPluginCommand,
 };
 
 #[derive(Debug, Clone, Parser)]
@@ -91,9 +91,6 @@ enum WashCliCommand {
     /// Start a development server for a Wasm component
     #[clap(name = "dev")]
     Dev(wash::cli::dev::DevCommand),
-    /// Check the health of your wash installation and environment
-    #[clap(name = "doctor")]
-    Doctor(wash::cli::doctor::DoctorCommand),
     /// Inspect a Wasm component's embedded WIT
     #[clap(name = "inspect", hide = true)]
     Inspect(wash::cli::inspect::InspectCommand),
@@ -143,7 +140,6 @@ impl CliCommand for WashCliCommand {
             }
             WashCliCommand::Config(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Dev(cmd) => cmd.handle(ctx).await,
-            WashCliCommand::Doctor(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Inspect(cmd) => cmd.handle(ctx).await,
             WashCliCommand::Host(cmd) => cmd.handle(ctx).await,
             WashCliCommand::New(cmd) => cmd.handle(ctx).await,
@@ -160,7 +156,6 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Completion(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Dev(cmd) => cmd.enable_pre_hook(),
-            WashCliCommand::Doctor(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Inspect(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::Host(cmd) => cmd.enable_pre_hook(),
             WashCliCommand::New(cmd) => cmd.enable_pre_hook(),
@@ -176,7 +171,6 @@ impl CliCommand for WashCliCommand {
             WashCliCommand::Completion(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Config(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Dev(cmd) => cmd.enable_post_hook(),
-            WashCliCommand::Doctor(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Inspect(cmd) => cmd.enable_post_hook(),
             WashCliCommand::Host(cmd) => cmd.enable_post_hook(),
             WashCliCommand::New(cmd) => cmd.enable_post_hook(),
@@ -413,25 +407,14 @@ fn initialize_tracing(
         (Box::new(std::io::stdout()), Box::new(std::io::stderr()))
     } else {
         // Enable dynamic filtering from `RUST_LOG`, fallback to "info", but always set wasm_pkg_client=error
+        #[allow(clippy::expect_used)] // Static directive strings are always valid
         let env_filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| EnvFilter::new(log_level.as_str()))
             // async_nats prints out on connect
-            .add_directive(
-                "async_nats=error"
-                    .parse()
-                    .expect("failed to parse async_nats directive"),
-            )
+            .add_directive("async_nats=error".parse().expect("valid directive"))
             // wasm_pkg_client/core are a little verbose so we set them to error level in non-verbose mode
-            .add_directive(
-                "wasm_pkg_client=error"
-                    .parse()
-                    .expect("failed to parse wasm_pkg_client directive"),
-            )
-            .add_directive(
-                "wasm_pkg_core=error"
-                    .parse()
-                    .expect("failed to parse wasm_pkg_core directive"),
-            );
+            .add_directive("wasm_pkg_client=error".parse().expect("valid directive"))
+            .add_directive("wasm_pkg_core=error".parse().expect("valid directive"));
 
         let fmt_layer = tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
@@ -451,6 +434,7 @@ fn initialize_tracing(
 }
 
 /// Helper function to ensure that we're exiting the program consistently and with the correct output format.
+#[allow(clippy::expect_used)] // Panicking on stdout failure during exit is acceptable
 fn exit_with_output(stdout: &mut impl std::io::Write, output: CommandOutput) -> ! {
     let (message, success) = output.render();
     writeln!(stdout, "{message}").expect("failed to write output to stdout");
@@ -470,7 +454,9 @@ fn find_project_root() -> PathBuf {
     };
 
     loop {
-        if current_dir.join(CONFIG_DIR_NAME).exists() {
+        // Look for .wash/config.yaml (project config), not just .wash/ directory
+        let project_config = current_dir.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME);
+        if project_config.exists() {
             return current_dir;
         }
 

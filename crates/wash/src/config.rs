@@ -2,7 +2,10 @@
 //! wash configuration, including loading, saving, and merging configurations
 //! with explicit defaults.
 
-use std::path::{Path, PathBuf};
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, bail};
 use figment::{
@@ -11,13 +14,10 @@ use figment::{
 };
 use serde::{Deserialize, Serialize};
 use tracing::info;
+use wash_runtime::wit::WitInterface;
 
 use crate::{
     cli::{CONFIG_DIR_NAME, CONFIG_FILE_NAME, VALID_CONFIG_FILES},
-    component_build::{
-        BuildConfig, CustomBuildConfig, ProjectType, RustBuildConfig, TinyGoBuildConfig,
-        TypeScriptBuildConfig,
-    },
     wit::WitConfig,
 };
 
@@ -36,6 +36,10 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub build: Option<BuildConfig>,
 
+    /// Wash dev configuration (default: empty/optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dev: Option<DevConfig>,
+
     /// WIT dependency management configuration (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wit: Option<WitConfig>,
@@ -48,6 +52,7 @@ impl Default for Config {
         Config {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             build: None,
+            dev: None,
             wit: None,
         }
     }
@@ -63,6 +68,103 @@ impl Config {
         }
         PathBuf::from("wit")
     }
+
+    /// Get the development configuration, defaulting to [DevConfig::default()] if not set
+    pub fn dev(&self) -> DevConfig {
+        self.dev.clone().unwrap_or_default()
+    }
+
+    pub fn build(&self) -> BuildConfig {
+        self.build.clone().unwrap_or_default()
+    }
+}
+
+/// Configuration for building WebAssembly components
+///
+/// # Example
+///
+/// ```yaml
+/// build:
+///   command: cargo build --target wasm32-wasip2 --release
+///   component_path: target/wasm32-wasip2/release/my_component.wasm
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BuildConfig {
+    /// Command to build the component
+    pub command: Option<String>,
+    /// Environment variables to set when running the build command
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+    /// Expected path to the built Wasm component artifact
+    /// If not specified, defaults to `<project-dir>.wasm`.
+    /// Relative paths are resolved against the project directory.
+    /// Exposed to build commands via `WASH_COMPONENT_PATH` env var.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevVolume {
+    /// Host path to mount
+    pub host_path: PathBuf,
+    /// Guest path inside the dev environment
+    pub guest_path: PathBuf,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DevComponent {
+    /// Name of the component
+    pub name: String,
+    /// Path to the component file
+    pub file: PathBuf,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct DevConfig {
+    /// Command to run the component in dev mode
+    /// If not specified, defaults to 'build.command'.
+    pub command: Option<String>,
+    /// Address for the dev server to bind to (default: "0.0.0.0:8000")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub address: Option<String>,
+
+    /// Whether the component under development should be treated as a service
+    #[serde(default)]
+    pub service: bool,
+    /// Optional path to a wasm component to be used as a service
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_file: Option<PathBuf>,
+
+    /// Additional components to load alongside the main component
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub components: Vec<DevComponent>,
+
+    /// Volumes to mount into the dev environment
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub volumes: Vec<DevVolume>,
+
+    /// Host interfaces configuration
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub host_interfaces: Vec<WitInterface>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_cert_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_key_path: Option<PathBuf>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tls_ca_path: Option<PathBuf>,
+
+    /// Enable WASI WebGPU support in the dev environment. Only supported on non-Windows platforms.
+    #[serde(default)]
+    pub wasi_webgpu: bool,
+
+    /// Optional path for WASI keyvalue filesystem storage. If not set, an in-memory store is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasi_keyvalue_path: Option<PathBuf>,
+
+    /// Optional path for WASI blobstore filesystem storage. If not set, an in-memory store is used.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wasi_blobstore_path: Option<PathBuf>,
 }
 
 /// Load configuration with hierarchical merging
@@ -185,76 +287,6 @@ pub async fn save_config(config: &Config, path: &Path) -> Result<()> {
         .await
         .with_context(|| format!("failed to write config file: {}", path.display()))?;
 
-    Ok(())
-}
-
-/// Generate project-specific configuration after successful build
-pub async fn generate_project_config<T>(
-    project_dir: &Path,
-    project_type: &ProjectType,
-    build_args: T,
-) -> Result<()>
-where
-    T: Serialize,
-{
-    let config_path = local_config_path(project_dir);
-
-    // Don't overwrite existing config
-    if config_path.exists() {
-        return Ok(());
-    }
-
-    let mut config = Config::default();
-
-    // Create a figment from the build args and extract relevant config
-    let figment = Figment::new().merge(figment::providers::Serialized::defaults(build_args));
-
-    // Try to extract build configuration from the CLI args
-    match project_type {
-        ProjectType::Rust => {
-            if let Ok(rust_config) = figment.extract::<RustBuildConfig>() {
-                config.build = Some(BuildConfig {
-                    rust: Some(rust_config),
-                    ..Default::default()
-                });
-            }
-        }
-        ProjectType::Go => {
-            if let Ok(tinygo_config) = figment.extract::<TinyGoBuildConfig>() {
-                config.build = Some(BuildConfig {
-                    tinygo: Some(tinygo_config),
-                    ..Default::default()
-                });
-            }
-        }
-        ProjectType::TypeScript => {
-            if let Ok(ts_config) = figment.extract::<TypeScriptBuildConfig>() {
-                config.build = Some(BuildConfig {
-                    typescript: Some(ts_config),
-                    ..Default::default()
-                });
-            }
-        }
-        ProjectType::Custom => {
-            if let Ok(custom_config) = figment.extract::<CustomBuildConfig>() {
-                config.build = Some(BuildConfig {
-                    custom: Some(custom_config),
-                    ..Default::default()
-                });
-            }
-        }
-        ProjectType::Unknown => {
-            // Unknown project type, skip config generation
-            return Ok(());
-        }
-    }
-
-    save_config(&config, &config_path).await?;
-
-    info!(
-        "Generated project configuration at {}",
-        config_path.display()
-    );
     Ok(())
 }
 

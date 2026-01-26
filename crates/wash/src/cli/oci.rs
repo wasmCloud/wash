@@ -55,6 +55,11 @@ pub struct PullCommand {
     /// Use HTTP or HTTPS protocol
     #[clap(long = "insecure", default_value_t = false)]
     insecure: bool,
+    /// Username for basic authentication
+    user: Option<String>,
+    /// Password for basic authentication
+    #[clap(short, long)]
+    password: Option<String>,
 }
 
 impl PullCommand {
@@ -63,21 +68,34 @@ impl PullCommand {
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let mut oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
         oci_config.insecure = self.insecure;
+
+        if let Some(ref user) = self.user
+            && let Some(ref password) = self.password
+        {
+            oci_config.credentials = Some((user.clone(), password.clone()));
+        } else if self.user.as_ref().or(self.password.as_ref()).is_some() {
+            tracing::warn!("username or password provided without the other");
+        }
+
         let (c, digest) = pull_component(&self.reference, oci_config).await?;
 
+        // Resolve component path relative to project directory if not absolute
+        let component_path = if self.component_path.is_absolute() {
+            self.component_path.clone()
+        } else {
+            ctx.project_dir().join(&self.component_path)
+        };
+
         // Write the component to the specified output path
-        tokio::fs::write(&self.component_path, &c)
+        tokio::fs::write(&component_path, &c)
             .await
             .context("failed to write pulled component to output path")?;
 
         Ok(CommandOutput::ok(
-            format!(
-                "Pulled and saved component to {}",
-                self.component_path.display()
-            ),
+            format!("Pulled and saved component to {}", component_path.display()),
             Some(serde_json::json!({
                 "message": "OCI command executed successfully.",
-                "output_path": self.component_path.to_string_lossy(),
+                "output_path": component_path.to_string_lossy(),
                 "bytes": c.len(),
                 "digest": digest,
                 "success": true,
@@ -97,13 +115,26 @@ pub struct PushCommand {
     /// Use HTTP or HTTPS protocol
     #[clap(long = "insecure", default_value_t = false)]
     insecure: bool,
+    #[clap(short, long)]
+    /// Username for basic authentication
+    user: Option<String>,
+    /// Password for basic authentication
+    #[clap(short, long)]
+    password: Option<String>,
 }
 
 impl PushCommand {
     /// Handle the OCI command
     #[instrument(level = "debug", skip_all, name = "oci")]
     pub async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
-        let component = tokio::fs::read(&self.component_path)
+        // Resolve component path relative to project directory if not absolute
+        let component_path = if self.component_path.is_absolute() {
+            self.component_path.clone()
+        } else {
+            ctx.project_dir().join(&self.component_path)
+        };
+
+        let component = tokio::fs::read(&component_path)
             .await
             .context("failed to read component file")?;
 
@@ -158,6 +189,14 @@ impl PushCommand {
 
         let mut oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
         oci_config.insecure = self.insecure;
+
+        if let Some(ref user) = self.user
+            && let Some(ref password) = self.password
+        {
+            oci_config.credentials = Some((user.clone(), password.clone()));
+        } else if self.user.as_ref().or(self.password.as_ref()).is_some() {
+            tracing::warn!("username or password provided without the other");
+        }
 
         let digest = push_component(
             &self.reference,

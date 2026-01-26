@@ -11,6 +11,9 @@ categories = ["wasm"]
 [lib]
 path = "src/lib.rs"
 
+[lints]
+workspace = true
+
 [features]
 default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
@@ -83,4 +86,5 @@ pbjson-build = { workspace = true, default-features = true }
 tokio = { workspace = true, features = ["full"] }
 tracing-subscriber = { workspace = true }
 reqwest = { workspace = true }
+wat = { workspace = true }
 gag = "1.0"

@@ -25,7 +25,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::engine::ctx::Ctx;
+use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
 use anyhow::{Context, ensure};
@@ -290,7 +290,7 @@ impl HostHandler for NullServer {
 
 /// A map from host header to resolved workload handles and their associated component id
 pub type WorkloadHandles =
-    Arc<RwLock<HashMap<String, (ResolvedWorkload, InstancePre<Ctx>, String)>>>;
+    Arc<RwLock<HashMap<String, (ResolvedWorkload, InstancePre<SharedCtx>, String)>>>;
 
 /// HTTP server plugin that handles incoming HTTP requests for WebAssembly components.
 ///
@@ -536,6 +536,16 @@ async fn run_http_server<T: Router>(
     Ok(())
 }
 
+/// Build an error response with the given status code.
+/// Building HTTP responses with valid status codes is infallible.
+#[allow(clippy::expect_used)]
+fn error_response(status: u16) -> hyper::Response<HyperOutgoingBody> {
+    hyper::Response::builder()
+        .status(status)
+        .body(HyperOutgoingBody::default())
+        .expect("building HTTP response with valid status code should never fail")
+}
+
 /// Handle individual HTTP requests by looking up workload and invoking component
 async fn handle_http_request<T: Router>(
     handler: Arc<T>,
@@ -546,10 +556,7 @@ async fn handle_http_request<T: Router>(
     let uri = req.uri().clone();
 
     let Ok(workload_id) = handler.route_incoming_request(&req) else {
-        return Ok(hyper::Response::builder()
-            .status(400)
-            .body(HyperOutgoingBody::default())
-            .expect("failed to build 400 response"));
+        return Ok(error_response(400));
     };
 
     debug!(
@@ -574,21 +581,15 @@ async fn handle_http_request<T: Router>(
                 Ok(resp) => resp,
                 Err(e) => {
                     error!(err = ?e, host = %workload_id, "failed to invoke component");
-                    hyper::Response::builder()
-                        .status(500)
-                        .body(HyperOutgoingBody::default())
-                        // TODO: Add in the actual error message in the response body
-                        // .body(HyperOutgoingBody::new(e.to_string()))
-                        .expect("failed to build 500 response")
+                    // TODO: Add in the actual error message in the response body
+                    // .body(HyperOutgoingBody::new(e.to_string()))
+                    error_response(500)
                 }
             }
         }
         None => {
             warn!(host = %workload_id, "No workload bound to host header or wildcard '*'");
-            hyper::Response::builder()
-                .status(404)
-                .body(HyperOutgoingBody::default())
-                .expect("failed to build 404 response")
+            error_response(404)
         }
     };
 
@@ -598,7 +599,7 @@ async fn handle_http_request<T: Router>(
 /// Invoke the component handler for the given workload
 async fn invoke_component_handler(
     workload_handle: ResolvedWorkload,
-    instance_pre: InstancePre<Ctx>,
+    instance_pre: InstancePre<SharedCtx>,
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
@@ -610,8 +611,8 @@ async fn invoke_component_handler(
 
 /// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)
 pub async fn handle_component_request(
-    mut store: Store<Ctx>,
-    pre: InstancePre<Ctx>,
+    mut store: Store<SharedCtx>,
+    pre: InstancePre<SharedCtx>,
     req: hyper::Request<hyper::body::Incoming>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     let (sender, receiver) = tokio::sync::oneshot::channel();

@@ -13,6 +13,7 @@ service WorkloadService {
 
 message WorkloadStartRequest {
   Workload workload = 1;
+  string workload_id = 2;
 }
 
 message WorkloadStatus {

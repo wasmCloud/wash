@@ -423,8 +423,7 @@ function Install-Wash {
     Write-Info "Next steps:"
     Write-Host "  1. Add $InstallDir to your PATH if not already included"
     Write-Host "  2. Run 'wash --help' to see available commands"
-    Write-Host "  3. Run 'wash doctor' to verify your environment"
-    Write-Host "  4. Run 'wash new' to create your first WebAssembly component"
+    Write-Host "  3. Run 'wash new' to create your first WebAssembly component"
     Write-Host ""
     
     # Handle PATH addition

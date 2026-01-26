@@ -16,7 +16,7 @@ use wash_runtime::{
     types::{Component, Service, Workload, WorkloadStartRequest},
 };
 
-const CRON_SERVICE_WASM: &[u8] = include_bytes!("fixtures/cron_service.wasm");
+const CRON_SERVICE_WASM: &[u8] = include_bytes!("fixtures/cron-service.wasm");
 
 const CRON_COMPONENT_WASM: &[u8] = include_bytes!("fixtures/cron_component.wasm");
 
@@ -52,6 +52,7 @@ async fn test_cron_service_integration() -> Result<()> {
                 max_restarts: 0,
             }),
             components: vec![Component {
+                name: "cron-component".to_string(),
                 bytes: bytes::Bytes::from_static(CRON_COMPONENT_WASM),
                 local_resources: Default::default(),
                 max_invocations: 1,

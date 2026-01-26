@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,8 +13,6 @@ use opentelemetry_semantic_conventions::resource;
 use sysinfo::System;
 use tokio::sync::oneshot;
 use tracing::{debug, info};
-
-pub mod plugins;
 
 pub const HOST_API_PREFIX: &str = "runtime.host";
 pub const OPERATOR_API_PREFIX: &str = "runtime.operator";
@@ -142,6 +141,8 @@ pub async fn run_cluster_host(
         version=?host.version(),
         "Host started");
 
+    host.log_interfaces();
+
     let task = tokio::task::spawn(async move {
         let host_subject = host_subject(host_id.as_ref());
 
@@ -191,14 +192,43 @@ pub async fn run_cluster_host(
     })
 }
 
+/// Configuration options for NATS connections
+#[derive(Debug, Clone, Default)]
+pub struct NatsConnectionOptions {
+    /// Request timeout for NATS operations
+    pub request_timeout: Option<Duration>,
+    /// Path to TLS CA certificate file for NATS connection
+    pub tls_ca: Option<PathBuf>,
+    /// Enable TLS handshake first mode for NATS connection
+    pub tls_first: bool,
+    /// Path to NATS TLS certificate file
+    pub tls_cert: Option<PathBuf>,
+    /// Path to NATS TLS private key file
+    pub tls_key: Option<PathBuf>,
+}
+
 pub async fn connect_nats(
     addr: impl async_nats::ToServerAddrs,
-    request_timeout: Option<Duration>,
+    options: NatsConnectionOptions,
 ) -> Result<async_nats::Client, anyhow::Error> {
     let mut opts = async_nats::ConnectOptions::new();
-    if let Some(timeout) = request_timeout {
+
+    if let Some(timeout) = options.request_timeout {
         opts = opts.request_timeout(Some(timeout));
-    };
+    }
+
+    if let Some(ca_path) = options.tls_ca {
+        opts = opts.add_root_certificates(ca_path)
+    }
+
+    if options.tls_first {
+        opts = opts.tls_first();
+    }
+
+    if let (Some(cert_path), Some(key_path)) = (options.tls_cert, options.tls_key) {
+        opts = opts.add_client_certificate(cert_path, key_path)
+    }
+
     opts.connect(addr)
         .await
         .context("failed to connect to NATS")
@@ -298,6 +328,11 @@ async fn workload_start(
         anyhow::bail!("workload is required");
     };
 
+    let workload_id = req.workload_id.clone();
+    if workload_id.is_empty() {
+        anyhow::bail!("workload_id is required");
+    }
+
     let (components, host_interfaces) = if let Some(wit_world) = wit_world {
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
@@ -307,7 +342,7 @@ async fn workload_start(
                 Err(e) => {
                     return Ok(types::v2::WorkloadStartResponse {
                         workload_status: Some(types::v2::WorkloadStatus {
-                            workload_id: "".into(),
+                            workload_id: workload_id.clone(),
                             workload_state: types::v2::WorkloadState::Error.into(),
                             message: format!(
                                 "failed to pull component image {}: {}",
@@ -318,6 +353,7 @@ async fn workload_start(
                 }
             };
             pulled_components.push(crate::types::Component {
+                name: component.name.clone(),
                 bytes: bytes.0.into(),
                 local_resources: component
                     .local_resources
@@ -347,7 +383,7 @@ async fn workload_start(
             Err(e) => {
                 return Ok(types::v2::WorkloadStartResponse {
                     workload_status: Some(types::v2::WorkloadStatus {
-                        workload_id: "".into(),
+                        workload_id: workload_id.clone(),
                         workload_state: types::v2::WorkloadState::Error.into(),
                         message: format!("failed to pull service image {}: {}", service.image, e),
                     }),
@@ -370,7 +406,7 @@ async fn workload_start(
     let volumes = volumes.into_iter().map(Into::into).collect();
 
     let request = crate::types::WorkloadStartRequest {
-        workload_id: uuid::Uuid::new_v4().to_string(),
+        workload_id: workload_id.clone(),
         workload: crate::types::Workload {
             namespace,
             name,
@@ -383,7 +419,7 @@ async fn workload_start(
     };
 
     info!(
-        worload_id=?request.workload_id,
+        worload_id=?workload_id,
         namespace=?request.workload.namespace,
         name=?request.workload.name,
         "Starting workload");

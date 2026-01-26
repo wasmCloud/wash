@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <body>
+    <input type="text" id="text" value="Hello, World!" />
+    <button onclick="generateQRCode()">Generate QR Code</button>
+    <br />
+    <div id="qrcode"></div>
+    <script>
+      async function generateQRCode() {
+        const text = document.getElementById("text").value;
+        const response = await fetch("/qrcode", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ payload: text }),
+        });
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const img = document.createElement("img");
+        img.src = url;
+        const qrcodeDiv = document.getElementById("qrcode");
+        qrcodeDiv.innerHTML = "";
+        qrcodeDiv.appendChild(img);
+      }
+    </script>
+  </body>
+</html>

@@ -3,7 +3,6 @@
 use anyhow::{Context, bail};
 use clap::Args;
 use serde_json::json;
-use std::path::PathBuf;
 use tracing::{info, instrument};
 
 use crate::{
@@ -35,7 +34,8 @@ impl CliCommand for NewCommand {
     #[instrument(level = "debug", skip(self, ctx), name = "new")]
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         let project_name = self.get_project_name();
-        let output_dir = PathBuf::from(&project_name);
+        // Explicitly use project_dir from context instead of relying on working directory
+        let output_dir = ctx.project_dir().join(&project_name);
 
         if output_dir.exists() {
             bail!("Output directory already exists: {}", output_dir.display());

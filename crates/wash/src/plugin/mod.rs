@@ -14,7 +14,6 @@ use crate::{
     },
 };
 use anyhow::{Context as _, bail};
-use bytes::Bytes;
 use std::{
     collections::{HashMap, HashSet},
     path::{Path, PathBuf},
@@ -24,8 +23,8 @@ use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument};
 use wash_runtime::{
     engine::{
-        ctx::Ctx,
-        workload::{ResolvedWorkload, WorkloadComponent},
+        ctx::{SharedCtx, extract_active_ctx},
+        workload::{ResolvedWorkload, WorkloadItem},
     },
     host::HostApi,
     oci::{OciConfig, pull_component},
@@ -36,7 +35,6 @@ use wash_runtime::{
     },
     wit::{WitInterface, WitWorld},
 };
-use wasmtime::component::HasSelf;
 
 pub mod bindings;
 pub mod runner;
@@ -119,6 +117,7 @@ impl PluginManager {
                 annotations: HashMap::new(),
                 service: None,
                 components: vec![Component {
+                    name: plugin_name.to_string(),
                     bytes: plugin.into(),
                     local_resources: LocalResources {
                         volume_mounts: vec![VolumeMount {
@@ -256,9 +255,9 @@ impl HostPlugin for PluginManager {
         }
     }
 
-    async fn on_component_bind(
+    async fn on_workload_item_bind<'a>(
         &self,
-        component: &mut WorkloadComponent,
+        component_handle: &mut WorkloadItem<'a>,
         interfaces: HashSet<WitInterface>,
     ) -> anyhow::Result<()> {
         // Should only be asking for `wasmcloud:wash/types`
@@ -278,9 +277,9 @@ impl HostPlugin for PluginManager {
         );
 
         // Add the types interface (provides runner, context, etc. to components that import wasmcloud:wash/types)
-        bindings::wasmcloud::wash::types::add_to_linker::<_, HasSelf<Ctx>>(
-            component.linker(),
-            |ctx| ctx,
+        bindings::wasmcloud::wash::types::add_to_linker::<_, SharedCtx>(
+            component_handle.linker(),
+            extract_active_ctx,
         )?;
 
         Ok(())
@@ -442,12 +441,6 @@ impl PluginComponent {
             .map_err(|e| anyhow::anyhow!(e))
     }
 
-    /// Retrieve the original component [`Bytes`] of an installed plugin
-    pub async fn get_original_component(&self, ctx: &CliContext) -> anyhow::Result<Bytes> {
-        let path = self.path(ctx);
-        Ok(tokio::fs::read(path).await.map(Bytes::from_owner)?)
-    }
-
     pub fn metadata(&self) -> &Metadata {
         &self.metadata
     }
@@ -500,11 +493,10 @@ pub async fn install_plugin(
     let component_data =
         if options.source.starts_with("file://") || Path::new(&options.source).exists() {
             // Load from file
-            let file_path = if options.source.starts_with("file://") {
-                options.source.strip_prefix("file://").unwrap()
-            } else {
-                &options.source
-            };
+            let file_path = options
+                .source
+                .strip_prefix("file://")
+                .unwrap_or(&options.source);
 
             debug!(path = %file_path, "loading plugin from file");
             tokio::fs::read(file_path)
@@ -621,7 +613,7 @@ pub(crate) fn sanitize_plugin_name(name: &str) -> String {
 
 /// Built-in wash commands that cannot be overridden by plugins
 const BUILT_IN_COMMANDS: &[&str] = &[
-    "build", "config", "dev", "doctor", "inspect", "new", "oci", "docker", // alias for oci
+    "build", "config", "dev", "host", "inspect", "new", "oci", "docker", // alias for oci
     "plugin", "update", "upgrade", // alias for update
 ];
 

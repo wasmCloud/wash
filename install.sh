@@ -298,8 +298,7 @@ install_wash() {
     log_info "Next steps:"
     echo "  1. Add ${INSTALL_DIR} to your PATH if not already included" >&2
     echo "  2. Run 'wash --help' to see available commands" >&2
-    echo "  3. Run 'wash doctor' to verify your environment" >&2
-    echo "  4. Run 'wash new' to create your first WebAssembly component" >&2
+    echo "  3. Run 'wash new' to create your first WebAssembly component" >&2
 }
 
 # Parse command line arguments

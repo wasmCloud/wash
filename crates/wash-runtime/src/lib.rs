@@ -21,7 +21,7 @@ mod test {
     use std::sync::Arc;
 
     use crate::host::http::HttpServer;
-    use crate::plugin::wasi_config::WasiConfig;
+    use crate::plugin::wasi_config::DynamicConfig;
     use crate::{
         host::HostApi,
         types::{Workload, WorkloadStartRequest},
@@ -34,7 +34,7 @@ mod test {
         let engine = Engine::builder().build()?;
         let http_handler = crate::host::http::DevRouter::default();
         let http_plugin = HttpServer::new(http_handler, "127.0.0.1:8080".parse()?);
-        let wasi_config_plugin = WasiConfig::default();
+        let wasi_config_plugin = DynamicConfig::default();
 
         let host = HostBuilder::new()
             .with_engine(engine)

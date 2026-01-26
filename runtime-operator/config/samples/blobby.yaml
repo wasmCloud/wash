@@ -13,7 +13,7 @@ spec:
             - incoming-handler
           config:
             # public dns alias for 127.0.0.1
-            host: blobby.localhost.direct:8000
+            host: blobby.localhost.direct
         - namespace: wasi
           package: blobstore
           version: 0.2.0-draft

@@ -19,14 +19,28 @@ spec:
         wasmcloud.com/name: nats
         {{- include "runtime-operator.labels" . | nindent 8 }}
     spec:
+      volumes:
+        - name: nats-config
+          configMap:
+            name: nats
+        - name: nats-cert
+          secret:
+            secretName: {{ .Values.global.certificates.natsCertSecretName }}
       serviceAccountName: {{ include "runtime-operator.serviceAccountName" . }}-nats
       {{- include "runtime-operator.imagePullSecrets" . | nindent 6 }}
       containers:
         - name: nats
           image: {{ printf "%s/%s" $registry .Values.nats.image.repository }}:{{ .Values.nats.image.tag | default "latest" }}
           args:
-            - "-js"
+            - "-DV"
+            - "-c"
+            - "/nats-config/nats-server.conf"
           imagePullPolicy: {{ .Values.nats.image.pull_policy }}
+          volumeMounts:
+            - name: nats-config
+              mountPath: /nats-config
+            - name: nats-cert
+              mountPath: /nats-cert
           ports:
             - name: nats
               containerPort: 4222
