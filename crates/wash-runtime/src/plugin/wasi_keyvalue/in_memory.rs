@@ -494,56 +494,106 @@ impl HostPlugin for InMemoryKeyValue {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_wasi_keyvalue_creation() {
-        let keyvalue = InMemoryKeyValue::new();
-        assert!(keyvalue.storage.try_read().is_ok());
-    }
+    #[tokio::test]
+    async fn test_workload_isolation() {
+        let kv = InMemoryKeyValue::new();
 
-    #[test]
-    fn test_bucket_data_creation() {
-        let bucket = BucketData {
-            data: HashMap::new(),
-        };
+        // Two workloads writing to the same bucket name should be isolated
+        {
+            let mut storage = kv.storage.write().await;
+            let w1 = storage.entry("workload-1".to_string()).or_default();
+            w1.insert(
+                "default".to_string(),
+                BucketData {
+                    data: HashMap::from([("key".to_string(), b"w1-value".to_vec())]),
+                },
+            );
 
-        assert!(bucket.data.is_empty());
+            let w2 = storage.entry("workload-2".to_string()).or_default();
+            w2.insert(
+                "default".to_string(),
+                BucketData {
+                    data: HashMap::from([("key".to_string(), b"w2-value".to_vec())]),
+                },
+            );
+        }
+
+        let storage = kv.storage.read().await;
+        assert_eq!(storage["workload-1"]["default"].data["key"], b"w1-value");
+        assert_eq!(storage["workload-2"]["default"].data["key"], b"w2-value");
     }
 
     #[tokio::test]
-    async fn test_storage_operations() {
-        let keyvalue = InMemoryKeyValue::new();
+    async fn test_bucket_set_get_delete() {
+        let kv = InMemoryKeyValue::new();
+        let workload = "test-workload".to_string();
 
-        // Test write access
+        // Open/create bucket and set a key
         {
-            let mut storage = keyvalue.storage.write().await;
-            storage.insert("workload1".to_string(), HashMap::new());
+            let mut storage = kv.storage.write().await;
+            let ws = storage.entry(workload.clone()).or_default();
+            ws.insert(
+                "my-bucket".to_string(),
+                BucketData {
+                    data: HashMap::new(),
+                },
+            );
+            ws.get_mut("my-bucket")
+                .unwrap()
+                .data
+                .insert("counter".to_string(), b"42".to_vec());
         }
 
-        // Test read access
+        // Get the value back
         {
-            let storage = keyvalue.storage.read().await;
-            assert!(storage.contains_key("workload1"));
+            let storage = kv.storage.read().await;
+            let val = storage[&workload]["my-bucket"].data.get("counter");
+            assert_eq!(val, Some(&b"42".to_vec()));
+        }
+
+        // Delete the key
+        {
+            let mut storage = kv.storage.write().await;
+            storage
+                .get_mut(&workload)
+                .unwrap()
+                .get_mut("my-bucket")
+                .unwrap()
+                .data
+                .remove("counter");
+        }
+
+        // Confirm deleted
+        {
+            let storage = kv.storage.read().await;
+            assert!(!storage[&workload]["my-bucket"].data.contains_key("counter"));
         }
     }
 
-    #[test]
-    fn test_batch_operations_data_structures() {
-        // Test that we can create the data structures for batch operations
-        let key_values = [
-            ("key1".to_string(), b"value1".to_vec()),
-            ("key2".to_string(), b"value2".to_vec()),
-        ];
-        assert_eq!(key_values.len(), 2);
+    #[tokio::test]
+    async fn test_multiple_buckets_per_workload() {
+        let kv = InMemoryKeyValue::new();
+        let workload = "wl".to_string();
 
-        let keys = ["key1".to_string(), "key2".to_string()];
-        assert_eq!(keys.len(), 2);
+        {
+            let mut storage = kv.storage.write().await;
+            let ws = storage.entry(workload.clone()).or_default();
+            ws.insert(
+                "bucket-a".to_string(),
+                BucketData {
+                    data: HashMap::from([("k".to_string(), b"a".to_vec())]),
+                },
+            );
+            ws.insert(
+                "bucket-b".to_string(),
+                BucketData {
+                    data: HashMap::from([("k".to_string(), b"b".to_vec())]),
+                },
+            );
+        }
 
-        let results: Vec<Option<(String, Vec<u8>)>> = vec![
-            Some(("key1".to_string(), b"value1".to_vec())),
-            None, // key not found
-        ];
-        assert_eq!(results.len(), 2);
-        assert!(results[0].is_some());
-        assert!(results[1].is_none());
+        let storage = kv.storage.read().await;
+        assert_eq!(storage[&workload]["bucket-a"].data["k"], b"a");
+        assert_eq!(storage[&workload]["bucket-b"].data["k"], b"b");
     }
 }
