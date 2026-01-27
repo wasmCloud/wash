@@ -3701,18 +3701,13 @@ version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84dfad6042089c7fc1f6118b7040dc2eb4ab520abbf410b79dc481032af39570"
 dependencies = [
- "async-trait",
  "futures-channel",
  "futures-executor",
  "futures-util",
- "glob",
  "opentelemetry",
  "percent-encoding",
  "rand 0.8.5",
- "serde_json",
  "thiserror 2.0.18",
- "tokio",
- "tokio-stream",
 ]
 
 [[package]]
@@ -6584,9 +6579,6 @@ dependencies = [
  "oci-wasm 0.3.0",
  "opentelemetry",
  "opentelemetry-http",
- "opentelemetry-otlp",
- "opentelemetry-semantic-conventions",
- "opentelemetry_sdk",
  "pbjson 0.8.0",
  "pbjson-build 0.8.0",
  "pbjson-types 0.8.0",
