@@ -249,7 +249,7 @@ impl crate::p2::host::tcp::tcp::HostTcpSocket for WasiSocketsCtxView<'_> {
         wasmtime_wasi_io::poll::subscribe(self.table, this)
     }
 
-    async fn shutdown(
+    fn shutdown(
         &mut self,
         this: Resource<TcpSocket>,
         shutdown_type: ShutdownType,
@@ -273,8 +273,10 @@ impl crate::p2::host::tcp::tcp::HostTcpSocket for WasiSocketsCtxView<'_> {
                     TcpState::P2Streaming { tx, rx, .. } => {
                         match shutdown_type {
                             ShutdownType::Receive => {
-                                if let Some(mut rx) = rx.lock().await.take() {
-                                    rx.close();
+                                if let Ok(mut guard) = rx.try_lock() {
+                                    if let Some(mut rx) = guard.take() {
+                                        rx.close();
+                                    }
                                 }
                             }
                             ShutdownType::Send => {
@@ -282,8 +284,10 @@ impl crate::p2::host::tcp::tcp::HostTcpSocket for WasiSocketsCtxView<'_> {
                             }
                             ShutdownType::Both => {
                                 tx.lock().unwrap().take();
-                                if let Some(mut rx) = rx.lock().await.take() {
-                                    rx.close();
+                                if let Ok(mut guard) = rx.try_lock() {
+                                    if let Some(mut rx) = guard.take() {
+                                        rx.close();
+                                    }
                                 }
                             }
                         }
@@ -527,9 +531,7 @@ pub mod sync {
             self_: Resource<TcpSocket>,
             shutdown_type: ShutdownType,
         ) -> Result<(), SocketError> {
-            in_tokio(async {
-                AsyncHostTcpSocket::shutdown(self, self_, shutdown_type.into()).await
-            })
+            AsyncHostTcpSocket::shutdown(self, self_, shutdown_type.into())
         }
 
         fn drop(&mut self, rep: Resource<TcpSocket>) -> wasmtime::Result<()> {

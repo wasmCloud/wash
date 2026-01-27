@@ -24,7 +24,7 @@ mod bindings {
         world: "keyvalue",
         imports: { default: async | trappable },
         with: {
-            "wasi:keyvalue/store/bucket": crate::plugin::wasi_keyvalue::nats::BucketHandle,
+            "wasi:keyvalue/store.bucket": crate::plugin::wasi_keyvalue::nats::BucketHandle,
         },
     });
 }

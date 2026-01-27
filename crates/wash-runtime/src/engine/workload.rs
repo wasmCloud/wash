@@ -770,7 +770,7 @@ impl ResolvedWorkload {
                                 linker_instance
                                     .func_new_async(
                                         &export_name.clone(),
-                                        move |mut store, params, results| {
+                                        move |mut store, _func, params, results| {
                                             // TODO(#103): some kind of store data hashing mechanism
                                             // to detect a diff store to drop the old one
                                             let import_name = import_name.clone();

@@ -8,6 +8,7 @@
 //!
 //! Note: This is a basic integration test that verifies plugin loading and host functionality.
 //! Full component binding and request routing would require proper WIT interface configuration.
+//!
 #![cfg(feature = "wasi-webgpu")]
 
 use anyhow::{Context, Result};
