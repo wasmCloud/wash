@@ -40,6 +40,7 @@
 //! ```
 
 use anyhow::{Context, bail};
+use tracing::instrument;
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
 use wasmtime_wasi::sockets::loopback;
@@ -202,6 +203,7 @@ impl Engine {
         ))
     }
 
+    #[instrument(name = "initialize_service", skip_all)]
     fn initialize_service(
         &self,
         workload_id: impl AsRef<str>,
@@ -268,6 +270,7 @@ impl Engine {
 
     /// Initialize a component that is a part of a workload, add wasi@0.2 interfaces (and
     /// wasi:http if the `http` feature is enabled) to the linker.
+    #[instrument(name = "initialize_workload_component", skip_all, fields(component.name = %component.name))]
     fn initialize_workload_component(
         &self,
         workload_id: impl AsRef<str>,
@@ -278,8 +281,11 @@ impl Engine {
         loopback: Arc<std::sync::Mutex<loopback::Network>>,
     ) -> anyhow::Result<WorkloadComponent> {
         // Create a wasmtime component from the bytes
-        let wasmtime_component = Component::new(&self.inner, component.bytes)
-            .context("failed to create component from bytes")?;
+        let wasmtime_component = {
+            let _span = tracing::span!(tracing::Level::INFO, "parse_component_bytes").entered();
+            Component::new(&self.inner, component.bytes)
+                .context("failed to create component from bytes")?
+        };
 
         // Create a linker for this component
         let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);

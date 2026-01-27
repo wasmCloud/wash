@@ -609,6 +609,7 @@ impl CliContext {
 
     /// Call hooks for the specified hook type with the provided runtime context.
     /// This will execute ALL plugins that support the given hook type.
+    #[instrument(skip_all, fields(hook_type = ?hook_type))]
     pub async fn call_hooks(
         &self,
         hook_type: HookType,

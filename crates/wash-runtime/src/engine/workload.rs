@@ -10,7 +10,7 @@ use std::{
 
 use anyhow::{Context as _, bail, ensure};
 use tokio::{sync::RwLock, task::JoinHandle, time::timeout};
-use tracing::{debug, info, trace, warn};
+use tracing::{Instrument, debug, info, instrument, trace, warn};
 use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
@@ -459,6 +459,7 @@ pub struct ResolvedWorkload {
 
 impl ResolvedWorkload {
     /// Executes the service, if present, and returns whether it was run.
+    #[instrument(name="execute_service", skip_all, fields(workload.id = self.id.as_ref(), workload.name = self.name.as_ref(), workload.namespace = self.namespace.as_ref()))]
     pub(crate) async fn execute_service(&mut self) -> anyhow::Result<bool> {
         let service = self
             .service
@@ -522,6 +523,7 @@ impl ResolvedWorkload {
         &self.host_interfaces
     }
 
+    #[instrument(name="link_components", skip_all, fields(workload.id = self.id.as_ref(), workload.name = self.name.as_ref(), workload.namespace = self.namespace.as_ref()))]
     async fn link_components(&mut self) -> anyhow::Result<()> {
         // A map from component ID to its exported interfaces
         let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
@@ -1110,6 +1112,7 @@ impl ResolvedWorkload {
     /// This should be called when stopping a workload to ensure proper cleanup
     /// of plugin resources. Errors from individual plugin unbind operations are
     /// logged but do not prevent the overall unbind from completing.
+    #[instrument(name="unbind_all_plugins", skip_all, fields(workload.id = self.id.as_ref(), workload.name = self.name.as_ref()))]
     pub async fn unbind_all_plugins(&self) -> anyhow::Result<()> {
         trace!(
             workload_id = self.id.as_ref(),
@@ -1239,6 +1242,8 @@ impl UnresolvedWorkload {
 
     /// Bind this workload to the host plugins based on the requested
     /// interfaces. Returns a list of plugins and the component IDs they were bound to.
+    #[allow(clippy::type_complexity)]
+    #[instrument(skip_all)]
     pub async fn bind_plugins(
         &mut self,
         plugins: &HashMap<&'static str, Arc<dyn HostPlugin + 'static>>,
@@ -1333,9 +1338,16 @@ impl UnresolvedWorkload {
                     "binding plugin to workload"
                 );
 
+                let bind_span = tracing::span!(
+                    tracing::Level::INFO,
+                    "plugin_on_workload_bind",
+                    plugin_id = plugin_id,
+                );
+
                 // Call on_workload_bind with the workload and all matched interfaces
                 if let Err(e) = p
                     .on_workload_bind(self, plugin_matched_interfaces.clone())
+                    .instrument(bind_span)
                     .await
                 {
                     tracing::error!(
@@ -1390,8 +1402,14 @@ impl UnresolvedWorkload {
                         "binding plugin to workload item"
                     );
 
+                    let item_bind_span = tracing::span!(
+                        tracing::Level::INFO,
+                        "plugin_on_workload_item_bind",
+                        plugin_id = plugin_id,
+                    );
                     if let Err(e) = p
                         .on_workload_item_bind(&mut workload_item, matching_interfaces.clone())
+                        .instrument(item_bind_span)
                         .await
                     {
                         tracing::error!(
@@ -1488,6 +1506,7 @@ impl UnresolvedWorkload {
     /// - Plugin binding fails
     /// - Component linking fails
     /// - Plugin notification fails
+    #[instrument(name="resolve_workload", skip_all, fields(workload.id = self.id.as_ref(), workload.name = self.name.as_ref(), workload.namespace = self.namespace.as_ref()))]
     pub async fn resolve(
         mut self,
         plugins: Option<&HashMap<&'static str, Arc<dyn HostPlugin + 'static>>>,

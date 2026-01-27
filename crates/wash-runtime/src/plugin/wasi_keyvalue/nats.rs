@@ -22,7 +22,7 @@ const LIST_KEYS_BATCH_SIZE: usize = 1000;
 mod bindings {
     wasmtime::component::bindgen!({
         world: "keyvalue",
-        imports: { default: async | trappable },
+        imports: { default: async | trappable | tracing },
         with: {
             "wasi:keyvalue/store.bucket": crate::plugin::wasi_keyvalue::nats::BucketHandle,
         },

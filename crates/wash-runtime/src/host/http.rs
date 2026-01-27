@@ -32,7 +32,8 @@ use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, warn};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 use wasmtime::Store;
 use wasmtime::component::InstancePre;
 use wasmtime_wasi_http::{
@@ -494,7 +495,20 @@ async fn run_http_server<T: Router>(
                                 let handles = handles_clone.clone();
                                 let handler = handler_clone.clone();
                                 async move {
-                                    handle_http_request(handler, req, handles).await
+                                    let extractor = opentelemetry_http::HeaderExtractor(req.headers());
+                                    let remote_context =
+                                        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
+
+                                    let span = tracing::span!(
+                                        tracing::Level::INFO,
+                                        "incoming_http_request",
+                                        http.method = %req.method(),
+                                        http.uri = %req.uri(),
+                                        http.host = %req.headers().get(hyper::header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("unknown"),
+                                    );
+                                    span.set_parent(remote_context);
+
+                                    handle_http_request(handler, req, handles).instrument(span).await
                                 }
                             });
 
@@ -577,10 +591,20 @@ async fn handle_http_request<T: Router>(
 
     let response = match workload_handle {
         Some((handle, instance_pre, component_id)) => {
-            match invoke_component_handler(handle, instance_pre, &component_id, req).await {
+            let req_span = tracing::span!(
+                tracing::Level::INFO,
+                "invoke_component_handler",
+                workload.name = handle.name(),
+                workload.namespace = handle.namespace(),
+                workload.id = handle.id(),
+            );
+            match invoke_component_handler(handle, instance_pre, &component_id, req)
+                .instrument(req_span)
+                .await
+            {
                 Ok(resp) => resp,
                 Err(e) => {
-                    error!(err = ?e, host = %workload_id, "failed to invoke component");
+                    error!(err = ?e, "failed to invoke component");
                     // TODO: Add in the actual error message in the response body
                     // .body(HyperOutgoingBody::new(e.to_string()))
                     error_response(500)
@@ -630,17 +654,20 @@ pub async fn handle_component_request(
     // Run the http request itself in a separate task so the task can
     // optionally continue to execute beyond after the initial
     // headers/response code are sent.
-    let task: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
-        // Run the http request itself by instantiating and calling the component
-        let proxy = pre.instantiate_async(&mut store).await?;
+    let task: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(
+        async move {
+            // Run the http request itself by instantiating and calling the component
+            let proxy = pre.instantiate_async(&mut store).await?;
 
-        proxy
-            .wasi_http_incoming_handler()
-            .call_handle(&mut store, req, out)
-            .await?;
+            proxy
+                .wasi_http_incoming_handler()
+                .call_handle(&mut store, req, out)
+                .await?;
 
-        Ok(())
-    });
+            Ok(())
+        }
+        .in_current_span(),
+    );
 
     match receiver.await {
         // If the client calls `response-outparam::set` then one of these

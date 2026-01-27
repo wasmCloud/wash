@@ -4,7 +4,7 @@ use anyhow::{Context as _, bail, ensure};
 use bytes::Bytes;
 use clap::Args;
 use tokio::{select, sync::mpsc};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 use wash_runtime::{
     host::{Host, HostApi},
     plugin::{self},
@@ -359,6 +359,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
 }
 
 /// Reload the component in the host, stopping the previous workload if needed
+#[instrument(name = "reload_component", skip_all, fields(workload_id = ?workload_id))]
 async fn reload_component(
     host: Arc<Host>,
     workload: &Workload,

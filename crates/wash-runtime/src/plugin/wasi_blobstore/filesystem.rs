@@ -11,7 +11,7 @@ use crate::plugin::{HostPlugin, lock_root};
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::Context;
 use tokio::sync::RwLock;
-use tracing::debug;
+use tracing::{debug, instrument};
 use wasmtime::component::Resource;
 use wasmtime_wasi::p2::pipe::{AsyncReadStream, AsyncWriteStream};
 use wasmtime_wasi::p2::{InputStream, OutputStream};
@@ -21,7 +21,7 @@ const PLUGIN_BLOBSTORE_ID: &str = "wasi-blobstore";
 mod bindings {
     wasmtime::component::bindgen!({
         world: "blobstore",
-        imports: { default: async | trappable },
+        imports: { default: async | trappable | tracing },
         with: {
             "wasi:io": ::wasmtime_wasi_io::bindings::wasi::io,
             "wasi:blobstore/container.container": crate::plugin::wasi_blobstore::filesystem::ContainerData,
@@ -87,6 +87,7 @@ impl FilesystemBlobstore {
 
 // Implementation for the main blobstore interface
 impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
+    #[instrument(skip(self))]
     async fn create_container(
         &mut self,
         name: ContainerName,
@@ -111,6 +112,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         Ok(Ok(resource))
     }
 
+    #[instrument(skip(self))]
     async fn get_container(
         &mut self,
         name: ContainerName,
@@ -136,6 +138,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         Ok(Ok(resource))
     }
 
+    #[instrument(skip(self))]
     async fn delete_container(
         &mut self,
         name: ContainerName,
@@ -158,6 +161,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         Ok(Ok(()))
     }
 
+    #[instrument(skip(self))]
     async fn container_exists(
         &mut self,
         name: ContainerName,
@@ -173,6 +177,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         Ok(Ok(path.exists()))
     }
 
+    #[instrument(skip(self))]
     async fn copy_object(
         &mut self,
         src: ObjectId,
@@ -213,6 +218,7 @@ impl<'a> bindings::wasi::blobstore::blobstore::Host for ActiveCtx<'a> {
         }
     }
 
+    #[instrument(skip(self))]
     async fn move_object(
         &mut self,
         src: ObjectId,
@@ -275,6 +281,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         }))
     }
 
+    #[instrument(skip(self, container))]
     async fn get_data(
         &mut self,
         container: Resource<ContainerData>,
@@ -297,6 +304,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         Ok(Ok(resource))
     }
 
+    #[instrument(skip(self, container, data))]
     async fn write_data(
         &mut self,
         container: Resource<ContainerData>,
@@ -318,6 +326,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         Ok(Ok(()))
     }
 
+    #[instrument(skip(self, container))]
     async fn list_objects(
         &mut self,
         container: Resource<ContainerData>,
@@ -347,6 +356,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         Ok(Ok(resource))
     }
 
+    #[instrument(skip(self, container))]
     async fn delete_object(
         &mut self,
         container: Resource<ContainerData>,
@@ -363,6 +373,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         }
     }
 
+    #[instrument(skip(self, container))]
     async fn delete_objects(
         &mut self,
         container: Resource<ContainerData>,
@@ -382,6 +393,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         Ok(Ok(()))
     }
 
+    #[instrument(skip(self, container))]
     async fn has_object(
         &mut self,
         container: Resource<ContainerData>,
@@ -417,6 +429,7 @@ impl<'a> bindings::wasi::blobstore::container::HostContainer for ActiveCtx<'a> {
         }))
     }
 
+    #[instrument(skip(self, container))]
     async fn clear(
         &mut self,
         container: Resource<ContainerData>,
@@ -529,6 +542,7 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
         Ok(Ok(resource))
     }
 
+    #[instrument(skip_all)]
     async fn finish(
         &mut self,
         outgoing_value: Resource<OutgoingValueHandle>,
@@ -582,6 +596,7 @@ impl<'a> bindings::wasi::blobstore::types::HostOutgoingValue for ActiveCtx<'a> {
 }
 
 impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
+    #[instrument(skip_all)]
     async fn incoming_value_consume_sync(
         &mut self,
         incoming_value: Resource<IncomingValueHandle>,
@@ -625,6 +640,7 @@ impl<'a> bindings::wasi::blobstore::types::HostIncomingValue for ActiveCtx<'a> {
         Ok(Ok(buf))
     }
 
+    #[instrument(skip_all)]
     async fn incoming_value_consume_async(
         &mut self,
         incoming_value: Resource<IncomingValueHandle>,

@@ -63,6 +63,7 @@ pbjson-types = { workspace = true, default-features = true }
 prost = { workspace = true, default-features = true }
 tonic-prost = { workspace = true, default-features = true }
 opentelemetry = { workspace = true, features = ["trace", "metrics", "logs"] }
+opentelemetry-http = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic", "trace", "metrics", "logs"] }
 opentelemetry-semantic-conventions = { workspace = true, features = [
     "semconv_experimental",

@@ -108,7 +108,7 @@ pub async fn build_dev_component(
 /// This is the main public interface for building components that can be reused
 /// throughout the project. It handles project detection, tool validation, and
 /// the actual build process.
-#[instrument(level = "debug", skip(ctx, config), name = "perform_component_build")]
+#[instrument(skip(ctx, config), name = "perform_component_build")]
 pub async fn perform_component_build(
     ctx: &CliContext,
     config: &Config,

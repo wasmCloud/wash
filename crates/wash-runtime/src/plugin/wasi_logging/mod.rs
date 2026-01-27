@@ -19,7 +19,7 @@ const PLUGIN_LOGGING_ID: &str = "wasi-logging";
 mod bindings {
     crate::wasmtime::component::bindgen!({
         world: "logging",
-        imports: { default: async | trappable },
+        imports: { default: async | trappable | tracing },
     });
 }
 
