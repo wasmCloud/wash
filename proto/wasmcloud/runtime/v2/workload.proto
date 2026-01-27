@@ -38,6 +38,8 @@ enum WorkloadState {
   WORKLOAD_STATE_STOPPING = 4;
   // Workload failed to start or stopped due to an error
   WORKLOAD_STATE_ERROR = 5;
+  // Workload not found
+  WORKLOAD_STATE_NOT_FOUND = 6;
 }
 
 // Service as in: A Wasm Component that bridges the Unix Model to WASI Component Model.
