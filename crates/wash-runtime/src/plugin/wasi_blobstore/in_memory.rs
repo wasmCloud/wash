@@ -990,59 +990,126 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_wasi_blobstore_creation() {
+    fn test_default_max_object_size() {
         let blobstore = InMemoryBlobstore::new(None);
-        assert!(blobstore.storage.try_read().is_ok());
+        assert_eq!(blobstore.max_object_size, 1_000_000);
     }
 
     #[test]
-    fn test_get_timestamp() {
-        let timestamp = InMemoryBlobstore::get_timestamp();
-        assert!(timestamp > 0);
+    fn test_custom_max_object_size() {
+        let blobstore = InMemoryBlobstore::new(Some(512));
+        assert_eq!(blobstore.max_object_size, 512);
     }
 
     #[test]
-    fn test_object_data_creation() {
-        let data = ObjectData {
-            name: "test.txt".to_string(),
-            container: "test-container".to_string(),
-            data: b"hello world".to_vec(),
-            created_at: InMemoryBlobstore::get_timestamp(),
-        };
-
-        assert_eq!(data.name, "test.txt");
-        assert_eq!(data.container, "test-container");
-        assert_eq!(data.data, b"hello world");
-        assert!(data.created_at > 0);
-    }
-
-    #[test]
-    fn test_container_data_creation() {
-        let container = ContainerData {
-            name: "test-container".to_string(),
-            created_at: InMemoryBlobstore::get_timestamp(),
-            objects: HashMap::new(),
-        };
-
-        assert_eq!(container.name, "test-container");
-        assert!(container.created_at > 0);
-        assert!(container.objects.is_empty());
+    fn test_timestamps_are_monotonic() {
+        let t1 = InMemoryBlobstore::get_timestamp();
+        let t2 = InMemoryBlobstore::get_timestamp();
+        assert!(t2 >= t1);
     }
 
     #[tokio::test]
-    async fn test_storage_operations() {
+    async fn test_workload_isolation() {
         let blobstore = InMemoryBlobstore::new(None);
 
-        // Test write access
+        // Two workloads should have independent storage
         {
             let mut storage = blobstore.storage.write().await;
-            storage.insert("workload1".to_string(), HashMap::new());
+            let w1 = storage.entry("workload-1".to_string()).or_default();
+            w1.insert(
+                "bucket-a".to_string(),
+                ContainerData {
+                    name: "bucket-a".to_string(),
+                    created_at: 0,
+                    objects: HashMap::from([(
+                        "key".to_string(),
+                        ObjectData {
+                            name: "key".to_string(),
+                            container: "bucket-a".to_string(),
+                            data: b"w1-data".to_vec(),
+                            created_at: 0,
+                        },
+                    )]),
+                },
+            );
+
+            let w2 = storage.entry("workload-2".to_string()).or_default();
+            w2.insert(
+                "bucket-a".to_string(),
+                ContainerData {
+                    name: "bucket-a".to_string(),
+                    created_at: 0,
+                    objects: HashMap::new(),
+                },
+            );
         }
 
-        // Test read access
+        let storage = blobstore.storage.read().await;
+        // workload-1 has an object, workload-2 does not (same container name, different data)
+        assert_eq!(storage["workload-1"]["bucket-a"].objects.len(), 1);
+        assert_eq!(storage["workload-2"]["bucket-a"].objects.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_container_crud() {
+        let blobstore = InMemoryBlobstore::new(None);
+        let workload = "test-workload".to_string();
+
+        // Create container
+        {
+            let mut storage = blobstore.storage.write().await;
+            let ws = storage.entry(workload.clone()).or_default();
+            ws.insert(
+                "my-container".to_string(),
+                ContainerData {
+                    name: "my-container".to_string(),
+                    created_at: InMemoryBlobstore::get_timestamp(),
+                    objects: HashMap::new(),
+                },
+            );
+        }
+
+        // Verify exists
         {
             let storage = blobstore.storage.read().await;
-            assert!(storage.contains_key("workload1"));
+            assert!(storage[&workload].contains_key("my-container"));
+        }
+
+        // Add object to container
+        {
+            let mut storage = blobstore.storage.write().await;
+            let container = storage
+                .get_mut(&workload)
+                .unwrap()
+                .get_mut("my-container")
+                .unwrap();
+            container.objects.insert(
+                "file.txt".to_string(),
+                ObjectData {
+                    name: "file.txt".to_string(),
+                    container: "my-container".to_string(),
+                    data: b"hello world".to_vec(),
+                    created_at: InMemoryBlobstore::get_timestamp(),
+                },
+            );
+        }
+
+        // Read back object data
+        {
+            let storage = blobstore.storage.read().await;
+            let obj = &storage[&workload]["my-container"].objects["file.txt"];
+            assert_eq!(obj.data, b"hello world");
+        }
+
+        // Delete container
+        {
+            let mut storage = blobstore.storage.write().await;
+            storage.get_mut(&workload).unwrap().remove("my-container");
+        }
+
+        {
+            let storage = blobstore.storage.read().await;
+            assert!(!storage[&workload].contains_key("my-container"));
         }
     }
 }
