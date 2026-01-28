@@ -6,11 +6,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use anyhow::{Context, Result};
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::time::timeout;
-
-mod common;
-use common::find_available_port;
 
 use wash_runtime::{
     engine::Engine,
@@ -82,18 +79,21 @@ fn http_counter_host_interfaces(http_host_config: &str) -> Vec<WitInterface> {
 }
 
 /// Build and start a host with the standard set of plugins (HTTP, blobstore, keyvalue, logging, config).
-async fn start_host_with_all_plugins(addr: SocketAddr) -> Result<impl HostApi> {
+async fn start_host_with_all_plugins(addr: &str) -> Result<(std::net::SocketAddr, impl HostApi)> {
     let engine = Engine::builder().build()?;
+    let http_server = HttpServer::new(DevRouter::default(), addr.parse()?).await?;
+    let bound_addr = http_server.addr();
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr)))
+        .with_http_handler(Arc::new(http_server))
         .with_plugin(Arc::new(InMemoryBlobstore::new(None)))?
         .with_plugin(Arc::new(InMemoryKeyValue::new()))?
         .with_plugin(Arc::new(TracingLogger::default()))?
         .with_plugin(Arc::new(DynamicConfig::default()))?
         .build()?;
 
-    host.start().await.context("Failed to start host")
+    let host = host.start().await.context("Failed to start host")?;
+    Ok((bound_addr, host))
 }
 
 /// Create a workload start request for the http-counter component.
@@ -127,9 +127,7 @@ async fn test_http_counter_integration() -> Result<()> {
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
         .init();
 
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let host = start_host_with_all_plugins(addr).await?;
+    let (addr, host) = start_host_with_all_plugins("127.0.0.1:0").await?;
 
     let req = http_counter_workload_request(
         "foo",
@@ -234,9 +232,7 @@ async fn test_http_counter_integration() -> Result<()> {
 
 #[tokio::test]
 async fn test_http_counter_error_scenarios() -> Result<()> {
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let host = start_host_with_all_plugins(addr).await?;
+    let (addr, host) = start_host_with_all_plugins("127.0.0.1:0").await?;
 
     let req = http_counter_workload_request("error-test", LocalResources::default());
 
@@ -267,14 +263,9 @@ async fn test_http_counter_error_scenarios() -> Result<()> {
 
 #[tokio::test]
 async fn test_http_counter_plugin_isolation() -> Result<()> {
-    let port1 = find_available_port().await?;
-    let port2 = find_available_port().await?;
-    let addr1: SocketAddr = format!("127.0.0.1:{port1}").parse().unwrap();
-    let addr2: SocketAddr = format!("127.0.0.1:{port2}").parse().unwrap();
-
     // Two independent hosts should start without interference
-    let _host1 = start_host_with_all_plugins(addr1).await?;
-    let _host2 = start_host_with_all_plugins(addr2).await?;
+    let (_addr1, _host1) = start_host_with_all_plugins("127.0.0.1:0").await?;
+    let (_addr2, _host2) = start_host_with_all_plugins("127.0.0.1:0").await?;
 
     Ok(())
 }

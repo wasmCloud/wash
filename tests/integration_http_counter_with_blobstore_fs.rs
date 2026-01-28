@@ -7,11 +7,8 @@
 //! 4. Testing the component resolution system that links them together
 
 use anyhow::{Context, Result};
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::time::timeout;
-
-mod common;
-use common::find_available_port;
 
 use wash_runtime::{
     engine::Engine,
@@ -50,9 +47,8 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
     let engine = Engine::builder().build()?;
 
     // Create HTTP server plugin on a dynamically allocated port
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(DevRouter::default(), addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
+    let addr = http_plugin.addr();
 
     // Create keyvalue plugin for counter persistence (still using built-in)
     let keyvalue_plugin = InMemoryKeyValue::new();
@@ -390,12 +386,12 @@ async fn test_component_resolution_with_multiple_providers() -> Result<()> {
 
     // For now, we'll just verify the basic setup works
     let engine = Engine::builder().build()?;
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
 
     let host = HostBuilder::new()
         .with_engine(engine)
-        .with_http_handler(Arc::new(HttpServer::new(DevRouter::default(), addr)))
+        .with_http_handler(Arc::new(
+            HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?,
+        ))
         .with_plugin(Arc::new(InMemoryKeyValue::new()))?
         .with_plugin(Arc::new(TracingLogger::default()))?
         .build()?;

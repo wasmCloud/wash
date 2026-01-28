@@ -119,7 +119,7 @@ impl CliCommand for DevCommand {
         } else {
             debug!("No TLS configuration provided - server will use HTTP");
             let http_server =
-                wash_runtime::host::http::HttpServer::new(http_handler, http_addr.parse()?);
+                wash_runtime::host::http::HttpServer::new(http_handler, http_addr.parse()?).await?;
             host_builder = host_builder.with_http_handler(Arc::new(http_server));
             "http"
         };
