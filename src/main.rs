@@ -409,7 +409,8 @@ fn initialize_observability(
     verbose: bool,
 ) -> anyhow::Result<Box<dyn FnOnce()>> {
     // STDERR logging layer
-    let mut fmt_filter = EnvFilter::from_default_env();
+    let mut fmt_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level.as_str()));
     if !verbose {
         // async_nats prints out on connect
         fmt_filter = fmt_filter
