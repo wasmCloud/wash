@@ -7,12 +7,8 @@ use crate::oci::{self, OciConfig};
 use crate::plugin::HostPlugin;
 use anyhow::Context as _;
 use futures::StreamExt as _;
-use opentelemetry::KeyValue;
-use opentelemetry_sdk::resource::{Resource, ResourceBuilder};
-use opentelemetry_semantic_conventions::resource;
-use sysinfo::System;
 use tokio::sync::oneshot;
-use tracing::{debug, info};
+use tracing::{debug, info, instrument};
 
 pub const HOST_API_PREFIX: &str = "runtime.host";
 pub const OPERATOR_API_PREFIX: &str = "runtime.operator";
@@ -207,6 +203,7 @@ pub struct NatsConnectionOptions {
     pub tls_key: Option<PathBuf>,
 }
 
+#[instrument(skip_all)]
 pub async fn connect_nats(
     addr: impl async_nats::ToServerAddrs,
     options: NatsConnectionOptions,
@@ -256,6 +253,7 @@ fn from_api<'de, T: serde::Deserialize<'de>>(bytes: &'de [u8]) -> Result<T, anyh
     serde_json::from_slice(bytes).map_err(anyhow::Error::new)
 }
 
+#[instrument(level = "debug", skip_all, fields(subject = %msg.subject))]
 async fn handle_command(
     host: &impl HostApi,
     msg: &async_nats::Message,
@@ -305,12 +303,18 @@ fn image_pull_secret_to_oci_config(
     oci_config
 }
 
+#[instrument(level = "debug", skip_all)]
 async fn host_heartbeat(host: &impl HostApi) -> anyhow::Result<types::v2::HostHeartbeat> {
     let hb = host.heartbeat().await?;
 
     Ok(hb.into())
 }
 
+#[instrument(skip_all, fields(
+    workload_id = %req.workload_id,
+    workload.name=?req.workload.as_ref().map(|w| &w.name).unwrap_or(&"<none>".to_string()),
+    workload.namespace=?req.workload.as_ref().map(|w| &w.namespace).unwrap_or(&"<none>".to_string())),
+    )]
 async fn workload_start(
     host: &impl HostApi,
     req: types::v2::WorkloadStartRequest,
@@ -427,6 +431,7 @@ async fn workload_start(
     Ok(host.workload_start(request).await?.into())
 }
 
+#[instrument(skip_all, fields(workload_id = %req.workload_id))]
 async fn workload_stop(
     host: &impl HostApi,
     req: types::v2::WorkloadStopRequest,
@@ -438,6 +443,7 @@ async fn workload_stop(
     host.workload_stop(req.into()).await.map(|resp| resp.into())
 }
 
+#[instrument(skip_all, fields(workload_id = %req.workload_id))]
 async fn workload_status(
     host: &impl HostApi,
     req: types::v2::WorkloadStatusRequest,
@@ -449,52 +455,6 @@ async fn workload_status(
     host.workload_status(req.into())
         .await
         .map(|resp| resp.into())
-}
-
-/// Creates a tracing span for a host invocation with relevant attributes.
-/// Use when calling components from plugins (component exported interface) to
-/// ensure consistent tracing.
-pub fn host_invocation_span(
-    workload_namespace: impl AsRef<str>,
-    workload_name: impl AsRef<str>,
-    component_id: impl AsRef<str>,
-    plugin_id: impl AsRef<str>,
-    plugin_operation: impl AsRef<str>,
-) -> tracing::Span {
-    tracing::span!(
-        tracing::Level::INFO,
-        "HostInvocation",
-        component_id = component_id.as_ref(),
-        workload_namespace = workload_namespace.as_ref(),
-        workload_name = workload_name.as_ref(),
-        plugin_id = plugin_id.as_ref(),
-        plugin_operation = plugin_operation.as_ref(),
-    )
-}
-
-pub fn resource_builder() -> ResourceBuilder {
-    Resource::builder()
-        .with_attribute(KeyValue::new(
-            resource::SERVICE_NAME.to_string(),
-            "wash-host",
-        ))
-        .with_attribute(KeyValue::new(
-            resource::SERVICE_INSTANCE_ID.to_string(),
-            uuid::Uuid::new_v4().to_string(),
-        ))
-        .with_attribute(KeyValue::new(
-            resource::SERVICE_VERSION.to_string(),
-            env!("CARGO_PKG_VERSION"),
-        ))
-        .with_attributes(vec![
-            KeyValue::new("host.version", env!("CARGO_PKG_VERSION")),
-            KeyValue::new("host.hostname", System::host_name().unwrap_or_default()),
-            KeyValue::new(
-                "host.kernel_version",
-                System::kernel_version().unwrap_or_default(),
-            ),
-            KeyValue::new("host.os_version", System::os_version().unwrap_or_default()),
-        ])
 }
 
 impl From<types::v2::WitInterface> for crate::wit::WitInterface {

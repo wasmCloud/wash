@@ -9,15 +9,15 @@ use anyhow::{Context, bail};
 use async_nats::Subscriber;
 use futures::stream::StreamExt;
 use tokio::sync::RwLock;
-use tracing::{debug, instrument, warn};
+use tracing::{Instrument, debug, instrument, warn};
 
 const PLUGIN_MESSAGING_ID: &str = "wasmcloud-messaging";
 
 mod bindings {
     crate::wasmtime::component::bindgen!({
         world: "messaging",
-        imports: { default: async | trappable },
-        exports: { default: async },
+        imports: { default: async | trappable | tracing },
+        exports: { default: async | tracing },
     });
 }
 
@@ -47,7 +47,7 @@ impl NatsMessaging {
 }
 
 impl<'a> Host for ActiveCtx<'a> {
-    #[instrument(level = "debug", skip_all, fields(subject = %subject, timeout_ms))]
+    #[instrument(skip_all, fields(subject = %subject, timeout_ms))]
     async fn request(
         &mut self,
         subject: String,
@@ -80,7 +80,7 @@ impl<'a> Host for ActiveCtx<'a> {
         }))
     }
 
-    #[instrument(level = "debug", skip_all, fields(subject = %msg.subject, reply_to = %msg.reply_to.as_deref().unwrap_or("<none>")))]
+    #[instrument(skip_all, fields(subject = %msg.subject, reply_to = %msg.reply_to.as_deref().unwrap_or("<none>")))]
     async fn publish(&mut self, msg: types::BrokerMessage) -> anyhow::Result<Result<(), String>> {
         let Some(plugin) = self.get_plugin::<NatsMessaging>(PLUGIN_MESSAGING_ID) else {
             return Ok(Err("plugin not available".to_string()));
@@ -222,6 +222,7 @@ impl HostPlugin for NatsMessaging {
                                 msg
                             }
                         };
+
                         let mut store = match workload.new_store(&component_id).await {
                             Err(e) => {
                                 warn!("failed to create store for component {component_id}: {e}");
@@ -242,9 +243,17 @@ impl HostPlugin for NatsMessaging {
                             reply_to,
                             body: msg.payload.into(),
                         };
+
+                        let span = tracing::span!(
+                            tracing::Level::INFO,
+                            "incoming_wasmcloud_message",
+                            subject = %msg.subject,
+                            reply_to = %msg.reply_to.as_deref().unwrap_or("<none>"),
+                        );
+
                         match proxy
                         .wasmcloud_messaging_handler()
-                        .call_handle_message(store, &msg).await {
+                        .call_handle_message(store, &msg).instrument(span).await {
                             Ok(_) => {
                                 debug!("Message handled successfully");
                             }

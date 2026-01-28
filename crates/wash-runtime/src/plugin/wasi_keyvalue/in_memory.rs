@@ -24,7 +24,7 @@ use crate::{
 mod bindings {
     wasmtime::component::bindgen!({
         world: "keyvalue",
-        imports: { default: async | trappable },
+        imports: { default: async | trappable | tracing },
         with: {
             "wasi:keyvalue/store.bucket": crate::plugin::wasi_keyvalue::in_memory::BucketHandle,
         },

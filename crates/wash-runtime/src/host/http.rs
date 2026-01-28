@@ -30,9 +30,10 @@ use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
+use opentelemetry::context::FutureExt;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, instrument, warn};
 use wasmtime::Store;
 use wasmtime::component::InstancePre;
 use wasmtime_wasi_http::{
@@ -494,7 +495,11 @@ async fn run_http_server<T: Router>(
                                 let handles = handles_clone.clone();
                                 let handler = handler_clone.clone();
                                 async move {
-                                    handle_http_request(handler, req, handles).await
+                                    let extractor = opentelemetry_http::HeaderExtractor(req.headers());
+                                    let remote_context =
+                                        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
+
+                                    handle_http_request(handler, req, handles).with_context(remote_context).await
                                 }
                             });
 
@@ -547,6 +552,11 @@ fn error_response(status: u16) -> hyper::Response<HyperOutgoingBody> {
 }
 
 /// Handle individual HTTP requests by looking up workload and invoking component
+#[instrument(skip_all, fields(
+    http.method = %req.method(),
+    http.uri = %req.uri(),
+    http.host = %req.headers().get(hyper::header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("unknown"),
+))]
 async fn handle_http_request<T: Router>(
     handler: Arc<T>,
     req: hyper::Request<hyper::body::Incoming>,
@@ -577,10 +587,20 @@ async fn handle_http_request<T: Router>(
 
     let response = match workload_handle {
         Some((handle, instance_pre, component_id)) => {
-            match invoke_component_handler(handle, instance_pre, &component_id, req).await {
+            let req_span = tracing::span!(
+                tracing::Level::INFO,
+                "invoke_component_handler",
+                workload.name = handle.name(),
+                workload.namespace = handle.namespace(),
+                workload.id = handle.id(),
+            );
+            match invoke_component_handler(handle, instance_pre, &component_id, req)
+                .instrument(req_span)
+                .await
+            {
                 Ok(resp) => resp,
                 Err(e) => {
-                    error!(err = ?e, host = %workload_id, "failed to invoke component");
+                    error!(err = ?e, "failed to invoke component");
                     // TODO: Add in the actual error message in the response body
                     // .body(HyperOutgoingBody::new(e.to_string()))
                     error_response(500)
@@ -630,17 +650,20 @@ pub async fn handle_component_request(
     // Run the http request itself in a separate task so the task can
     // optionally continue to execute beyond after the initial
     // headers/response code are sent.
-    let task: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
-        // Run the http request itself by instantiating and calling the component
-        let proxy = pre.instantiate_async(&mut store).await?;
+    let task: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(
+        async move {
+            // Run the http request itself by instantiating and calling the component
+            let proxy = pre.instantiate_async(&mut store).await?;
 
-        proxy
-            .wasi_http_incoming_handler()
-            .call_handle(&mut store, req, out)
-            .await?;
+            proxy
+                .wasi_http_incoming_handler()
+                .call_handle(&mut store, req, out)
+                .await?;
 
-        Ok(())
-    });
+            Ok(())
+        }
+        .in_current_span(),
+    );
 
     match receiver.await {
         // If the client calls `response-outparam::set` then one of these
@@ -674,13 +697,17 @@ async fn load_tls_config(
     ca_path: Option<&Path>,
 ) -> anyhow::Result<ServerConfig> {
     // Load certificate chain
-    let cert_data = tokio::fs::read(cert_path)
-        .await
-        .with_context(|| format!("Failed to read certificate file: {}", cert_path.display()))?;
+    let cert_data = tokio::fs::read(cert_path).await.context(format!(
+        "Failed to read certificate file: {}",
+        cert_path.display()
+    ))?;
     let mut cert_reader = std::io::Cursor::new(cert_data);
     let cert_chain: Vec<CertificateDer<'static>> = certs(&mut cert_reader)
         .collect::<Result<Vec<_>, _>>()
-        .with_context(|| format!("Failed to parse certificate file: {}", cert_path.display()))?;
+        .context(format!(
+            "Failed to parse certificate file: {}",
+            cert_path.display()
+        ))?;
 
     ensure!(
         !cert_chain.is_empty(),
@@ -689,29 +716,33 @@ async fn load_tls_config(
     );
 
     // Load private key
-    let key_data = tokio::fs::read(key_path)
-        .await
-        .with_context(|| format!("Failed to read private key file: {}", key_path.display()))?;
+    let key_data = tokio::fs::read(key_path).await.context(format!(
+        "Failed to read private key file: {}",
+        key_path.display()
+    ))?;
     let mut key_reader = std::io::Cursor::new(key_data);
     let key = private_key(&mut key_reader)
-        .with_context(|| format!("Failed to parse private key file: {}", key_path.display()))?
+        .context(format!(
+            "Failed to parse private key file: {}",
+            key_path.display()
+        ))?
         .ok_or_else(|| anyhow::anyhow!("No private key found in file: {}", key_path.display()))?;
 
     // Create rustls server config
     let config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
-        .with_context(|| "Failed to create TLS configuration")?;
+        .context("Failed to create TLS configuration")?;
 
     // If CA is provided, configure client certificate verification
     if let Some(ca_path) = ca_path {
         let ca_data = tokio::fs::read(ca_path)
             .await
-            .with_context(|| format!("Failed to read CA file: {}", ca_path.display()))?;
+            .context(format!("Failed to read CA file: {}", ca_path.display()))?;
         let mut ca_reader = std::io::Cursor::new(ca_data);
         let ca_certs: Vec<CertificateDer<'static>> = certs(&mut ca_reader)
             .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("Failed to parse CA file: {}", ca_path.display()))?;
+            .context(format!("Failed to parse CA file: {}", ca_path.display()))?;
 
         ensure!(
             !ca_certs.is_empty(),

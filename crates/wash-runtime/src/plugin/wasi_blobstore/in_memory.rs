@@ -29,7 +29,7 @@ use crate::{
 mod bindings {
     wasmtime::component::bindgen!({
         world: "blobstore",
-        imports: { default: async | trappable },
+        imports: { default: async | trappable | tracing },
         with: {
             "wasi:io": ::wasmtime_wasi_io::bindings::wasi::io,
             "wasi:blobstore/container.container": String,

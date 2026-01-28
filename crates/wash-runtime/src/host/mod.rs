@@ -48,7 +48,7 @@ use std::time::Duration;
 use anyhow::{Context, bail};
 use names::{Generator, Name};
 use tokio::sync::RwLock;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 use wasmtime::component::Component;
 
 use crate::engine::workload::ResolvedWorkload;
@@ -531,7 +531,7 @@ impl Host {
             .await?;
 
         // If the service didn't run and we had one, warn
-        if resolved_workload.execute_service().await? != service_present {
+        if service_present && !resolved_workload.execute_service().await? {
             warn!(
                 workload_id = request.workload_id,
                 "service did not properly execute"
@@ -605,6 +605,7 @@ impl HostApi for Host {
     }
 
     /// Start a workload
+    #[instrument(skip_all, fields(workload.id = request.workload_id, workload.name = request.workload.name, workload.namespace = request.workload.namespace))]
     async fn workload_start(
         &self,
         request: WorkloadStartRequest,
@@ -648,6 +649,7 @@ impl HostApi for Host {
         })
     }
 
+    #[instrument(skip_all, fields(workload.id = request.workload_id))]
     async fn workload_status(
         &self,
         request: WorkloadStatusRequest,
@@ -673,6 +675,7 @@ impl HostApi for Host {
         }
     }
 
+    #[instrument(skip_all, fields(workload.id = request.workload_id))]
     async fn workload_stop(
         &self,
         request: WorkloadStopRequest,

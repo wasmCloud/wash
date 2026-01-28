@@ -14,6 +14,7 @@ use crate::engine::workload::WorkloadItem;
 use crate::plugin::{HostPlugin, lock_root};
 use crate::wit::{WitInterface, WitWorld};
 use futures::StreamExt;
+use tracing::instrument;
 use wasmtime::component::Resource;
 
 const LIST_KEYS_BATCH_SIZE: usize = 1000;
@@ -21,7 +22,7 @@ const LIST_KEYS_BATCH_SIZE: usize = 1000;
 mod bindings {
     wasmtime::component::bindgen!({
         world: "keyvalue",
-        imports: { default: async | trappable },
+        imports: { default: async | trappable | tracing },
         with: {
             "wasi:keyvalue/store.bucket": crate::plugin::wasi_keyvalue::filesystem::BucketHandle,
         },
@@ -77,6 +78,7 @@ impl FilesystemKeyValue {
 
 // Implementation for the store interface
 impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
+    #[instrument(skip(self))]
     async fn open(
         &mut self,
         identifier: String,
@@ -109,6 +111,7 @@ impl<'a> bindings::wasi::keyvalue::store::Host for ActiveCtx<'a> {
 
 // Resource host trait implementations for bucket
 impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
+    #[instrument(skip(self, bucket))]
     async fn get(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -137,6 +140,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         Ok(Ok(entry))
     }
 
+    #[instrument(skip(self, bucket, value))]
     async fn set(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -165,6 +169,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         }
     }
 
+    #[instrument(skip(self, bucket))]
     async fn delete(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -191,6 +196,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         }
     }
 
+    #[instrument(skip(self, bucket))]
     async fn exists(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -217,6 +223,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
         Ok(Ok(path.exists()))
     }
 
+    #[instrument(skip(self, bucket))]
     async fn list_keys(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -280,6 +287,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
 
 // Implementation for the atomics interface
 impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
+    #[instrument(skip(self, bucket))]
     async fn increment(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -321,6 +329,8 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
 
 // Implementation for the batch interface
 impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
+    #[instrument(skip(self, bucket, keys))]
+    #[allow(clippy::type_complexity)]
     async fn get_many(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -363,6 +373,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         Ok(Ok(result))
     }
 
+    #[instrument(skip(self, bucket, key_values))]
     async fn set_many(
         &mut self,
         bucket: Resource<BucketHandle>,
@@ -404,6 +415,7 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         Ok(Ok(()))
     }
 
+    #[instrument(skip(self, bucket, keys))]
     async fn delete_many(
         &mut self,
         bucket: Resource<BucketHandle>,
