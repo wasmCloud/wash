@@ -82,7 +82,7 @@ impl Greeter for TestGreeterService {
         self.requests.lock().await.push(name.clone());
 
         println!(
-            "  📥 gRPC server received request #{}: name={}",
+            "  gRPC server received request #{}: name={}",
             request_num, name
         );
         tracing::info!(request_num, name, "gRPC server received request");
@@ -126,7 +126,7 @@ async fn test_grpc_client_basic() -> Result<()> {
         .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
-    println!("║           🧪 gRPC CLIENT PLUGIN - BASIC TEST                          ║");
+    println!("║           gRPC CLIENT PLUGIN - BASIC TEST                          ║");
     println!("╚═══════════════════════════════════════════════════════════════════════╝\n");
 
     // Start test gRPC server
@@ -164,7 +164,7 @@ async fn test_grpc_client_basic() -> Result<()> {
 
     // Verify no requests before invocation
     let initial_count = greeter_service.get_request_count().await;
-    println!("📊 Initial gRPC request count: {initial_count}");
+    println!("Initial gRPC request count: {initial_count}");
     assert_eq!(
         initial_count, 0,
         "Server should not have received any requests yet"
@@ -196,7 +196,7 @@ async fn test_grpc_client_basic() -> Result<()> {
     let final_count = greeter_service.get_request_count().await;
     let requests = greeter_service.get_requests().await;
 
-    println!("\n📊 Verification Results:");
+    println!("\nVerification Results:");
     println!("  - Final gRPC request count: {final_count}");
     println!("  - gRPC requests received: {:?}", requests);
 
@@ -222,7 +222,7 @@ async fn test_grpc_client_basic() -> Result<()> {
         body
     );
 
-    println!("\n✅ Verification complete:");
+    println!("\nVerification complete:");
     println!("  ✓ Component received HTTP request");
     println!("  ✓ Component made gRPC call to test server");
     println!("  ✓ HTTP/2 protocol enforced for gRPC");
@@ -230,7 +230,7 @@ async fn test_grpc_client_basic() -> Result<()> {
     println!("  ✓ gRPC server successfully received and processed request");
     println!("  ✓ Component returned gRPC response via HTTP\n");
 
-    println!("✅ Basic gRPC test passed!\n");
+    println!(" Basic gRPC test passed!\n");
     Ok(())
 }
 
@@ -245,7 +245,7 @@ async fn test_grpc_client_concurrent() -> Result<()> {
         .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
-    println!("║           🧪 gRPC CLIENT PLUGIN - CONCURRENT TEST                     ║");
+    println!("║            gRPC CLIENT PLUGIN - CONCURRENT TEST                     ║");
     println!("╚═══════════════════════════════════════════════════════════════════════╝\n");
 
     // Start test gRPC server
@@ -316,7 +316,7 @@ async fn test_grpc_client_concurrent() -> Result<()> {
         final_count
     );
 
-    println!("\n✅ Concurrent gRPC test passed!\n");
+    println!("\nConcurrent gRPC test passed!\n");
     Ok(())
 }
 
@@ -331,7 +331,7 @@ async fn test_grpc_client_error_handling() -> Result<()> {
         .try_init();
 
     println!("\n╔═══════════════════════════════════════════════════════════════════════╗");
-    println!("║           🧪 gRPC CLIENT PLUGIN - ERROR HANDLING TEST                 ║");
+    println!("║           gRPC CLIENT PLUGIN - ERROR HANDLING TEST                 ║");
     println!("╚═══════════════════════════════════════════════════════════════════════╝\n");
 
     let http_port = find_available_port().await?;
@@ -383,7 +383,7 @@ async fn test_grpc_client_error_handling() -> Result<()> {
         status
     );
 
-    println!("✅ Error handling test passed!\n");
+    println!("Error handling test passed!\n");
     Ok(())
 }
 

@@ -288,27 +288,32 @@ pub fn send_request(
     };
     let between_bytes_timeout = config.between_bytes_timeout;
 
-    Ok(HostFutureIncomingResponse::Pending(
-        wasmtime_wasi_upstream::runtime::spawn(async move {
-            match clients.request(request).await {
-                Ok(resp) => Ok(Ok(IncomingResponse {
-                    resp: resp.map(|body| {
-                        body.map_err(|e| {
-                            tracing::warn!(?e, "gRPC body error");
-                            wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError
-                        })
-                        .boxed()
-                    }),
-                    worker: None,
-                    between_bytes_timeout,
-                })),
-                Err(e) => {
-                    tracing::warn!(?e, "gRPC request failed");
-                    Ok(Err(
-                        wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError,
-                    ))
-                }
+    let wash_handle = wasmtime_wasi::runtime::spawn(async move {
+        match clients.request(request).await {
+            Ok(resp) => Ok(Ok(IncomingResponse {
+                resp: resp.map(|body| {
+                    body.map_err(|e| {
+                        tracing::warn!(?e, "gRPC body error");
+                        wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError
+                    })
+                    .boxed_unsync()
+                }),
+                worker: None,
+                between_bytes_timeout,
+            })),
+            Err(e) => {
+                tracing::warn!(?e, "gRPC request failed");
+                Ok(Err(
+                    wasmtime_wasi_http::bindings::http::types::ErrorCode::HttpProtocolError,
+                ))
             }
-        }),
-    ))
+        }
+    });
+
+    // Convert wash_wasi handle to wasmtime_wasi_upstream handle
+    let inner_handle = wash_handle.into_inner();
+    let upstream_handle =
+        wasmtime_wasi_upstream::runtime::AbortOnDropJoinHandle::from(inner_handle);
+
+    Ok(HostFutureIncomingResponse::Pending(upstream_handle))
 }
