@@ -535,6 +535,7 @@ impl From<crate::types::HostHeartbeat> for types::v2::HostHeartbeat {
             system_memory_free: hb.system_memory_free,
             labels: hb.labels,
             friendly_name: hb.friendly_name,
+            http_port: hb.http_port.into(),
         }
     }
 }

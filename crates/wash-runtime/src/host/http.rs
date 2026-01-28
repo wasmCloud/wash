@@ -228,16 +228,23 @@ impl Router for DevRouter {
 /// Use this trait to implement custom HTTP server transport
 #[async_trait::async_trait]
 pub trait HostHandler: Send + Sync + 'static {
+    /// Start the HTTP server
     async fn start(&self) -> anyhow::Result<()>;
+    /// Stop the HTTP server
     async fn stop(&self) -> anyhow::Result<()>;
+    /// Get the port on which the HTTP server is listening
+    fn port(&self) -> u16;
 
+    /// Register a workload
     async fn on_workload_resolved(
         &self,
         resolved_handle: &ResolvedWorkload,
         component_id: &str,
     ) -> anyhow::Result<()>;
+    /// Unregister a workload
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()>;
 
+    /// Handle an outgoing HTTP request from a workload
     fn outgoing_request(
         &self,
         workload_id: &str,
@@ -263,6 +270,10 @@ impl HostHandler for NullServer {
 
     async fn stop(&self) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    fn port(&self) -> u16 {
+        0
     }
 
     async fn on_workload_resolved(
@@ -414,6 +425,10 @@ impl<T: Router> HostHandler for HttpServer<T> {
             let _ = tx.send(()).await;
         }
         Ok(())
+    }
+
+    fn port(&self) -> u16 {
+        self.addr.port()
     }
 
     async fn on_workload_resolved(

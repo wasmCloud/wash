@@ -133,6 +133,7 @@ pub struct HostPathVolume {
 pub struct HostHeartbeat {
     pub id: String,
     pub hostname: String,
+    pub http_port: u16,
     pub friendly_name: String,
     pub version: String,
     pub labels: HashMap<String, String>,

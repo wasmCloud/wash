@@ -147,7 +147,7 @@ func (h *hostStatusUpdater) Start(ctx context.Context) error {
 			},
 			HostID:   req.Id,
 			Hostname: req.Hostname,
-			HTTPPort: 9191,
+			HTTPPort: req.HttpPort,
 		}
 		_, err := controllerutil.CreateOrUpdate(ctx, h.client, host, func() error {
 			host.Status.LastSeen = metav1.Now()
