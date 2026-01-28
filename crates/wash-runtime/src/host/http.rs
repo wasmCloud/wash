@@ -303,6 +303,7 @@ pub struct HttpServer<T: Router> {
     workload_handles: WorkloadHandles,
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
+    listener: Arc<tokio::sync::Mutex<Option<TcpListener>>>,
 }
 
 impl<T: Router> std::fmt::Debug for HttpServer<T> {
@@ -314,22 +315,31 @@ impl<T: Router> std::fmt::Debug for HttpServer<T> {
 }
 
 impl<T: Router> HttpServer<T> {
-    /// Creates a new HTTP server listening on the specified address.
+    /// Creates a new HTTP server that eagerly binds to the specified address.
+    ///
+    /// The socket is bound immediately so the port is reserved. Use port `0`
+    /// to let the OS pick a free port, then call [`addr()`](Self::addr) to
+    /// discover the actual address.
     ///
     /// # Arguments
     /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
-    ///
-    /// # Returns
-    /// A new `HttpServer` instance configured for HTTP connections.
-    pub fn new(router: T, addr: SocketAddr) -> Self {
-        Self {
+    pub async fn new(router: T, addr: SocketAddr) -> anyhow::Result<Self> {
+        let listener = TcpListener::bind(addr).await?;
+        let addr = listener.local_addr()?;
+        Ok(Self {
             router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: None,
-        }
+            listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
+        })
+    }
+
+    /// Returns the actual bound address (useful when binding to port 0).
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
     }
 
     /// Creates a new HTTPS server with TLS support.
@@ -356,12 +366,15 @@ impl<T: Router> HttpServer<T> {
         let tls_config = load_tls_config(cert_path, key_path, ca_path).await?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
+        let listener = TcpListener::bind(addr).await?;
+        let addr = listener.local_addr()?;
         Ok(Self {
             router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
+            listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
         })
     }
 }
@@ -378,7 +391,12 @@ impl<T: Router> HostHandler for HttpServer<T> {
         // Store the shutdown sender
         *shutdown_tx_clone.write().await = Some(shutdown_tx);
 
-        let listener = TcpListener::bind(addr).await?;
+        let listener = self
+            .listener
+            .lock()
+            .await
+            .take()
+            .context("HTTP server listener already consumed")?;
         info!(addr = ?addr, "HTTP server listening");
         // Start the HTTP server, any incoming requests call Host::handle and then it's routed
         // to the workload based on host header.

@@ -9,14 +9,10 @@
 use anyhow::{Context, Result};
 use std::{
     collections::{HashMap, HashSet},
-    net::SocketAddr,
     sync::Arc,
     time::Duration,
 };
 use tokio::{sync::Mutex, time::timeout};
-
-mod common;
-use common::find_available_port;
 
 use wash_runtime::{
     engine::{
@@ -174,9 +170,8 @@ async fn test_inter_component_call() -> Result<()> {
     let engine = Engine::builder().build()?;
 
     // Create HTTP server plugin on a dynamically allocated port
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_plugin = HttpServer::new(DevRouter::default(), addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
+    let addr = http_plugin.addr();
 
     // Create keyvalue plugin for counter persistence (still using built-in)
     let keyvalue_plugin = InMemoryKeyValue::new();
