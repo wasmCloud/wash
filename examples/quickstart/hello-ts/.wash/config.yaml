@@ -1,0 +1,3 @@
+build:
+  command: npm run install-and-build
+  component_path: dist/hello_ts.wasm
