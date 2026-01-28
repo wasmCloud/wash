@@ -1,3 +1,4 @@
+use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -110,12 +111,6 @@ pub struct ClusterHost {
     prepared_host: Host,
     nats_client: Arc<async_nats::Client>,
     heartbeat_interval: Duration,
-}
-
-impl ClusterHost {
-    pub fn host(&self) -> &Host {
-        &self.prepared_host
-    }
 }
 
 pub async fn run_cluster_host(

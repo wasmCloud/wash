@@ -61,6 +61,7 @@ mod sysinfo;
 use sysinfo::SystemMonitor;
 
 pub mod http;
+pub mod transport;
 
 /// The API for interacting with a wasmcloud host.
 ///

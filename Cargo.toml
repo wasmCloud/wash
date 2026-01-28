@@ -177,6 +177,7 @@ wasmtime-wasi-io = { version = "41", default-features = false }
 wasmtime-wasi-http = { version = "41", default-features = false }
 wit-component = { version = "0.244.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
+wasmtime-wasi-upstream = { package = "wasmtime-wasi", version = "41" }
 wat = { version = "1.244.0", default-features = false }
 
 # wasmtime-wasi deps
