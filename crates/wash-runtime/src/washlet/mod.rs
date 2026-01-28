@@ -310,7 +310,11 @@ async fn host_heartbeat(host: &impl HostApi) -> anyhow::Result<types::v2::HostHe
     Ok(hb.into())
 }
 
-#[instrument(skip_all, fields(workload_id = %req.workload_id, workload.name=?req.workload.as_ref().map(|w| &w.name), workload.namespace=?req.workload.as_ref().map(|w| &w.namespace)))]
+#[instrument(skip_all, fields(
+    workload_id = %req.workload_id,
+    workload.name=?req.workload.as_ref().map(|w| &w.name).unwrap_or(&"<none>".to_string()),
+    workload.namespace=?req.workload.as_ref().map(|w| &w.namespace).unwrap_or(&"<none>".to_string())),
+    )]
 async fn workload_start(
     host: &impl HostApi,
     req: types::v2::WorkloadStartRequest,
