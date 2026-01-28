@@ -588,6 +588,7 @@ impl HostApi for Host {
             id: self.id.clone(),
             hostname: self.hostname.clone(),
             friendly_name: self.friendly_name.clone(),
+            http_port: self.http_handler.port(),
             version: self.version.clone(),
             labels: self.labels.clone(),
             started_at: self.started_at,
