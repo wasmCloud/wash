@@ -11,10 +11,10 @@ wasmtime::component::bindgen!({
     imports: { default: async },
     exports: { default: async },
     with: {
-        "wasmcloud:wash/types/runner": crate::plugin::runner::Runner,
-        "wasmcloud:wash/types/project-config": crate::plugin::runner::ProjectConfig,
-        "wasmcloud:wash/types/plugin-config": crate::plugin::runner::PluginConfig,
-        "wasmcloud:wash/types/context": crate::plugin::runner::Context,
+        "wasmcloud:wash/types.runner": crate::plugin::runner::Runner,
+        "wasmcloud:wash/types.project-config": crate::plugin::runner::ProjectConfig,
+        "wasmcloud:wash/types.plugin-config": crate::plugin::runner::PluginConfig,
+        "wasmcloud:wash/types.context": crate::plugin::runner::Context,
     }
 });
 

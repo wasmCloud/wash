@@ -1376,4 +1376,38 @@ impl TcpSocket {
             }
         }
     }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn tcp_stream_arc(&self) -> Result<&Arc<tokio::net::TcpStream>, ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.tcp_stream_arc(),
+            Self::Loopback(_) | Self::Unspecified { .. } => todo!("loopback tcp_stream_arc"),
+        }
+    }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn tcp_listener_arc(&self) -> Result<&Arc<tokio::net::TcpListener>, ErrorCode> {
+        match self {
+            Self::Network(socket) => socket.tcp_listener_arc(),
+            Self::Loopback(_) | Self::Unspecified { .. } => todo!("loopback tcp_listener_arc"),
+        }
+    }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn non_inherited_options(&self) -> &NonInheritedOptions {
+        match self {
+            Self::Network(socket) | Self::Unspecified { net: socket, .. } => {
+                socket.non_inherited_options()
+            }
+            Self::Loopback(_) => todo!("loopback non_inherited_options"),
+        }
+    }
+
+    #[cfg(feature = "p3")]
+    pub(crate) fn start_receive(&mut self) -> Option<&Arc<tokio::net::TcpStream>> {
+        match self {
+            Self::Network(socket) => socket.start_receive(),
+            Self::Loopback(_) | Self::Unspecified { .. } => todo!("loopback start_receive"),
+        }
+    }
 }

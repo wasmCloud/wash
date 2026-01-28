@@ -85,7 +85,7 @@ pub(crate) fn lower(store: &mut StoreContextMut<SharedCtx>, v: &Val) -> anyhow::
         Val::Flags(v) => Ok(Val::Flags(v.clone())),
         &Val::Resource(any) => {
             if let Ok(res) = any
-                .try_into_resource::<wasmtime_wasi::p2::bindings::io::streams::OutputStream>(
+                .try_into_resource::<wasmtime_wasi_io::bindings::wasi::io::streams::OutputStream>(
                     store.as_context_mut(),
                 )
             {
@@ -203,7 +203,7 @@ pub(crate) fn lift(store: &mut StoreContextMut<SharedCtx>, v: Val) -> anyhow::Re
         Val::Flags(v) => Ok(Val::Flags(v)),
         Val::Resource(any) => {
             if let Ok(res) = any
-                .try_into_resource::<wasmtime_wasi::p2::bindings::io::streams::OutputStream>(
+                .try_into_resource::<wasmtime_wasi_io::bindings::wasi::io::streams::OutputStream>(
                     store.as_context_mut(),
                 )
             {
@@ -215,7 +215,7 @@ pub(crate) fn lift(store: &mut StoreContextMut<SharedCtx>, v: Val) -> anyhow::Re
                     resource.try_into_resource_any(store.as_context_mut())?,
                 ))
             } else if let Ok(res) = any
-                .try_into_resource::<wasmtime_wasi::p2::bindings::io::streams::InputStream>(
+                .try_into_resource::<wasmtime_wasi_io::bindings::wasi::io::streams::InputStream>(
                     store.as_context_mut(),
                 )
             {

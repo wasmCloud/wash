@@ -23,11 +23,11 @@ mod bindings {
         world: "blobstore",
         imports: { default: async | trappable },
         with: {
-            "wasi:io": ::wasmtime_wasi::p2::bindings::io,
-            "wasi:blobstore/container/container": crate::plugin::wasi_blobstore::filesystem::ContainerData,
-            "wasi:blobstore/container/stream-object-names": crate::plugin::wasi_blobstore::filesystem::StreamObjectNamesHandle,
-            "wasi:blobstore/types/incoming-value": crate::plugin::wasi_blobstore::filesystem::IncomingValueHandle,
-            "wasi:blobstore/types/outgoing-value": crate::plugin::wasi_blobstore::filesystem::OutgoingValueHandle,
+            "wasi:io": ::wasmtime_wasi_io::bindings::wasi::io,
+            "wasi:blobstore/container.container": crate::plugin::wasi_blobstore::filesystem::ContainerData,
+            "wasi:blobstore/container.stream-object-names": crate::plugin::wasi_blobstore::filesystem::StreamObjectNamesHandle,
+            "wasi:blobstore/types.incoming-value": crate::plugin::wasi_blobstore::filesystem::IncomingValueHandle,
+            "wasi:blobstore/types.outgoing-value": crate::plugin::wasi_blobstore::filesystem::OutgoingValueHandle,
         },
     });
 }
