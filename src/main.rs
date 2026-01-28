@@ -496,8 +496,12 @@ fn initialize_observability(
 
     // Return a shutdown function to flush providers on exit
     let shutdown_fn = move || {
-        let _ = tracer_provider.shutdown();
-        let _ = log_provider.shutdown();
+        if let Err(e) = tracer_provider.shutdown() {
+            eprintln!("failed to shutdown tracer provider: {e}");
+        }
+        if let Err(e) = log_provider.shutdown() {
+            eprintln!("failed to shutdown log provider: {e}");
+        }
     };
 
     Ok(Box::new(shutdown_fn))
