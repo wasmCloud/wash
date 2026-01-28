@@ -1,7 +1,6 @@
 use std::{
     io::{BufWriter, IsTerminal},
     path::PathBuf,
-    str::FromStr,
 };
 
 use anyhow::Context;
@@ -52,8 +51,8 @@ struct Cli {
     #[clap(
         short = 'l',
         long = "log-level",
-        default_value_t = default_log_level(),
-        help = "Set the log level (trace, debug, info, warn, error)",
+        default_value_t = Level::INFO,
+        help = "Set the opentelemetry log level (trace, debug, info, warn, error)",
         global = true
     )]
     log_level: Level,
@@ -409,6 +408,37 @@ fn initialize_observability(
     ansi_colors: bool,
     verbose: bool,
 ) -> anyhow::Result<Box<dyn FnOnce()>> {
+    // STDERR logging layer
+    let mut fmt_filter = EnvFilter::from_default_env();
+    if !verbose {
+        // async_nats prints out on connect
+        fmt_filter = fmt_filter
+            .add_directive(directive("async_nats=error")?)
+            // wasm_pkg_client/core are a little verbose so we set them to error level in non-verbose mode
+            .add_directive(directive("wasm_pkg_client=error")?)
+            .add_directive(directive("wasm_pkg_core=error")?);
+    }
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_level(true)
+        .with_target(verbose)
+        .with_thread_ids(verbose)
+        .with_thread_names(verbose)
+        .with_file(verbose)
+        .with_line_number(verbose)
+        .with_ansi(ansi_colors)
+        .with_filter(fmt_filter);
+
+    let otel_enabled = std::env::vars().any(|(key, _)| key.starts_with("OTEL_"));
+    if !otel_enabled {
+        Registry::default().with(fmt_layer).init();
+
+        // No-op shutdown function
+        let shutdown_fn = || {};
+        return Ok(Box::new(shutdown_fn));
+    }
+
     let resource = Resource::builder()
         .with_attribute(KeyValue::new(
             resource::SERVICE_NAME.to_string(),
@@ -457,33 +487,10 @@ fn initialize_observability(
         .with_location(true)
         .with_filter(filter_otel_traces);
 
-    // STDOUT logging layer
-    let mut fmt_filter = EnvFilter::new(log_level.as_str());
-    if !verbose {
-        // async_nats prints out on connect
-        fmt_filter = fmt_filter
-            .add_directive(directive("async_nats=error")?)
-            // wasm_pkg_client/core are a little verbose so we set them to error level in non-verbose mode
-            .add_directive(directive("wasm_pkg_client=error")?)
-            .add_directive(directive("wasm_pkg_core=error")?);
-    }
-
-    let fmt_layer = tracing_subscriber::fmt::layer()
-        .with_writer(std::io::stdout)
-        .with_level(true)
-        .with_target(verbose)
-        .with_thread_ids(verbose)
-        .with_thread_names(verbose)
-        .with_file(verbose)
-        .with_line_number(verbose)
-        .with_ansi(ansi_colors)
-        .with_filter(fmt_filter);
-
-    // Register all layers with the subscriber
     Registry::default()
+        .with(fmt_layer)
         .with(otel_logs_layer)
         .with(otel_tracer_layer)
-        .with(fmt_layer)
         .init();
 
     // Return a shutdown function to flush providers on exit
@@ -538,13 +545,4 @@ fn find_project_root() -> PathBuf {
     }
 
     fallback
-}
-
-fn default_log_level() -> Level {
-    // try read from RUST_LOG env var
-    if let Ok(rust_log) = std::env::var("RUST_LOG") {
-        return Level::from_str(&rust_log).unwrap_or(Level::INFO);
-    }
-
-    Level::INFO
 }
