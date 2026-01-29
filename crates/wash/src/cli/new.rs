@@ -74,7 +74,12 @@ impl CliCommand for NewCommand {
             load_config(&ctx.user_config_path(), Some(&output_dir), None::<Config>)
                 .context("couldn't load template config")?;
 
-        if let Some(new_cmd) = template_config.new.and_then(|nc| nc.command) {
+        if let Some(new_cmd) = template_config.new.and_then(|nc| nc.command)
+            && ctx.request_confirmation(format!(
+                "Execute template setup command '{}'? This may modify the new project.",
+                new_cmd
+            ))?
+        {
             let (cmd_bin, first_arg) = {
                 #[cfg(not(windows))]
                 {
