@@ -25,7 +25,7 @@ services:
     volumes:
       - k3s:/var/lib/rancher/k3s
       # automatically load wasmcloud CRDs
-      - ../charts/runtime-operator/templates/crds/:/crds
+      - ../../charts/runtime-operator/templates/crds/:/crds
       # kubeconfig output
       - ./tmp:/output
       # scripts
