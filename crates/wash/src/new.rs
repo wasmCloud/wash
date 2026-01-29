@@ -6,16 +6,14 @@ use anyhow::{Context as _, bail};
 use tokio::process::Command;
 use tracing::{debug, error, info, instrument};
 
-use crate::cli::CliContext;
-
 /// Extract a specific subfolder from the cloned template
 #[instrument(level = "debug", skip_all)]
 pub(crate) async fn extract_subfolder(
-    ctx: &CliContext,
+    source_dir: &Path,
     output_dir: &Path,
     subfolder: &str,
 ) -> anyhow::Result<()> {
-    let subfolder_path = output_dir.join(subfolder);
+    let subfolder_path = source_dir.join(subfolder);
 
     if tokio::fs::metadata(&subfolder_path).await.is_err() {
         bail!("Subfolder '{subfolder}' does not exist in cloned repository");
@@ -31,21 +29,11 @@ pub(crate) async fn extract_subfolder(
 
     info!(subfolder = %subfolder, "extracting subfolder");
 
-    // Create temporary directory for extraction
-    let temp_dir = ctx.cache_dir().join("wash_new_temp_dir");
-
-    // Move subfolder contents to temp directory
-    copy_dir_recursive(&subfolder_path, &temp_dir).await?;
-
-    // Remove original directory
-    tokio::fs::remove_dir_all(output_dir)
+    // Move subfolder contents
+    tokio::fs::create_dir_all(&output_dir)
         .await
-        .context("failed to remove original directory")?;
-
-    // Move temp directory to final location
-    tokio::fs::rename(&temp_dir, output_dir)
-        .await
-        .context("failed to move extracted subfolder")?;
+        .context("failed to create output directory")?;
+    copy_dir_recursive(&subfolder_path, output_dir).await?;
 
     info!(subfolder, "successfully extracted subfolder",);
     Ok(())

@@ -40,6 +40,10 @@ pub struct Config {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dev: Option<DevConfig>,
 
+    /// Wash new configuration (default: empty/optional)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new: Option<NewConfig>,
+
     /// WIT dependency management configuration (default: empty/optional)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wit: Option<WitConfig>,
@@ -52,6 +56,7 @@ impl Default for Config {
         Config {
             version: Some(env!("CARGO_PKG_VERSION").to_string()),
             build: None,
+            new: None,
             dev: None,
             wit: None,
         }
@@ -77,6 +82,13 @@ impl Config {
     pub fn build(&self) -> BuildConfig {
         self.build.clone().unwrap_or_default()
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct NewConfig {
+    /// Optional command to run after creating a new project
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
 }
 
 /// Configuration for building WebAssembly components
