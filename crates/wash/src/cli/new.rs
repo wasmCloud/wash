@@ -1,12 +1,16 @@
 //! CLI command for creating new component projects from git repositories
 
+use std::process::Stdio;
+
 use anyhow::{Context, bail};
 use clap::Args;
 use serde_json::json;
+use tokio::process::Command;
 use tracing::{info, instrument};
 
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
+    config::{Config, load_config},
     new::{clone_template, extract_subfolder},
 };
 
@@ -46,16 +50,62 @@ impl CliCommand for NewCommand {
             project_name, self.git
         );
 
+        let tempdir = tempfile::tempdir().context("failed to create temp dir")?;
+
         // Clone the repository
-        clone_template(&self.git, &output_dir, self.git_ref.as_deref())
+        clone_template(&self.git, tempdir.path(), self.git_ref.as_deref())
             .await
             .context("failed to clone git repository")?;
 
-        // Extract subfolder if specified
         if let Some(subfolder) = &self.subfolder {
+            // Extract subfolder if specified
             extract_subfolder(ctx, &output_dir, subfolder)
                 .await
                 .context("failed to extract subfolder")?;
+        } else {
+            // Move entire cloned repository to output directory
+            tokio::fs::rename(tempdir.path(), &output_dir)
+                .await
+                .context("failed to move cloned repository to output directory")?;
+        }
+
+        // Check if the output directory has a wash config
+        let template_config =
+            load_config(&ctx.user_config_path(), Some(&output_dir), None::<Config>)
+                .context("couldn't load template config")?;
+
+        if let Some(new_cmd) = template_config.new.and_then(|nc| nc.command) {
+            let (cmd_bin, first_arg) = {
+                #[cfg(not(windows))]
+                {
+                    ("sh".to_string(), "-c".to_string())
+                }
+
+                #[cfg(windows)]
+                {
+                    ("cmd".to_string(), "/c".to_string())
+                }
+            };
+
+            let cmd_args = vec![first_arg, new_cmd.clone()];
+
+            info!(command = new_cmd, "executing new command");
+            let mut cmd = Command::new(cmd_bin)
+                .args(cmd_args)
+                .stderr(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .current_dir(&output_dir)
+                .spawn()
+                .context("failed to execute new command")?;
+
+            let exit_status = cmd
+                .wait()
+                .await
+                .context("failed to wait for new command to complete")?;
+
+            if !exit_status.success() {
+                bail!("new command '{}' failed", new_cmd);
+            }
         }
 
         Ok(CommandOutput::ok(
