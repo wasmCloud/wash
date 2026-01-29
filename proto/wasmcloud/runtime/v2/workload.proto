@@ -69,6 +69,7 @@ message Service {
   uint64 max_restarts = 3;
   // Optional credentials for pulling the image from a private registry
   ImagePullSecret image_pull_secret = 4;
+  ImagePullPolicy image_pull_policy = 5;
 }
 
 // Represents the WIT World (WebAssembly Interface Types)
@@ -91,6 +92,7 @@ message Component {
   // Optional credentials for pulling the image from a private registry
   ImagePullSecret image_pull_secret = 5;
   string name = 6;
+  ImagePullPolicy image_pull_policy = 7;
 }
 
 message LocalResources {
@@ -139,4 +141,15 @@ message HostPathVolume {
 message ImagePullSecret {
   string username = 1;
   string password = 2;
+}
+
+enum ImagePullPolicy {
+  // Default policy, fallthrough to the host's default pull policy
+  IMAGE_PULL_POLICY_UNSPECIFIED = 0;
+  // Always pull the image
+  IMAGE_PULL_POLICY_ALWAYS = 1;
+  // Pull the image if not present locally
+  IMAGE_PULL_POLICY_IF_NOT_PRESENT = 2;
+  // Never pull the image, use local copy only
+  IMAGE_PULL_POLICY_NEVER = 3;
 }
