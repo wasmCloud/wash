@@ -119,6 +119,7 @@ impl PluginManager {
                 components: vec![Component {
                     name: plugin_name.to_string(),
                     bytes: plugin.into(),
+                    digest: plugin_name.to_string(),
                     local_resources: LocalResources {
                         volume_mounts: vec![VolumeMount {
                             name: "plugin".to_string(),

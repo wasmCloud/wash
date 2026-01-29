@@ -51,6 +51,7 @@ pub enum WorkloadState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Service {
     pub bytes: Bytes,
+    pub digest: String,
     pub local_resources: LocalResources,
     pub max_restarts: u64,
 }
@@ -61,6 +62,7 @@ pub struct Service {
 pub struct Component {
     pub name: String,
     pub bytes: Bytes,
+    pub digest: String,
     pub local_resources: LocalResources,
     pub pool_size: i32,
     pub max_invocations: i32,

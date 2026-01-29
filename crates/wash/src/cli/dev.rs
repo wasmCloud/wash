@@ -254,11 +254,14 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
     // This populates host_interfaces which is checked bidirectionally during plugin binding
     let mut host_interfaces = dev_config.host_interfaces.clone();
 
+    let digest = uuid::Uuid::new_v4().to_string();
+
     let mut service: Option<Service> = None;
     let mut components = Vec::new();
     if dev_config.service {
         service = Some(Service {
             bytes,
+            digest,
             max_restarts: 0,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
@@ -284,6 +287,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
         components.push(Component {
             name: "wash-dev-component".to_string(),
             bytes,
+            digest,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
                 ..Default::default()
@@ -297,8 +301,11 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
                 format!("failed to read service file at {}", service_path.display())
             })?;
 
+            let service_digest = uuid::Uuid::new_v4().to_string();
+
             service = Some(Service {
                 bytes: Bytes::from(service_bytes),
+                digest: service_digest,
                 max_restarts: 0,
                 local_resources: LocalResources {
                     volume_mounts: volume_mounts.clone(),
@@ -318,6 +325,8 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
                 )
             })?;
 
+        let comp_digest = uuid::Uuid::new_v4().to_string();
+
         let comp_interfaces = host
             .intersect_interfaces(&comp_bytes)
             .context("failed to extract component interfaces")?;
@@ -336,6 +345,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
         components.push(Component {
             name: dev_component.name.clone(),
             bytes: Bytes::from(comp_bytes),
+            digest: comp_digest,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
                 ..Default::default()

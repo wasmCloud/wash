@@ -351,14 +351,14 @@ async fn workload_start(
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
             let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
-            let bytes = match oci::pull_component(
+            let (bytes, digest) = match oci::pull_component(
                 &component.image,
                 oci_config,
                 component.image_pull_policy().into(),
             )
             .await
             {
-                Ok(bytes) => bytes,
+                Ok(res) => res,
                 Err(e) => {
                     return Ok(types::v2::WorkloadStartResponse {
                         workload_status: Some(types::v2::WorkloadStatus {
@@ -374,7 +374,8 @@ async fn workload_start(
             };
             pulled_components.push(crate::types::Component {
                 name: component.name.clone(),
-                bytes: bytes.0.into(),
+                bytes: bytes.into(),
+                digest: digest.into(),
                 local_resources: component
                     .local_resources
                     .clone()
@@ -398,14 +399,14 @@ async fn workload_start(
 
     let service = if let Some(service) = service {
         let oci_config = image_pull_secret_to_oci_config(config, &service.image_pull_secret);
-        let bytes = match oci::pull_component(
+        let (bytes, digest) = match oci::pull_component(
             &service.image,
             oci_config,
             service.image_pull_policy().into(),
         )
         .await
         {
-            Ok(bytes) => bytes,
+            Ok(res) => res,
             Err(e) => {
                 return Ok(types::v2::WorkloadStartResponse {
                     workload_status: Some(types::v2::WorkloadStatus {
@@ -417,7 +418,8 @@ async fn workload_start(
             }
         };
         Some(crate::types::Service {
-            bytes: bytes.0.into(),
+            bytes: bytes.into(),
+            digest: digest.into(),
             local_resources: service
                 .local_resources
                 .clone()
