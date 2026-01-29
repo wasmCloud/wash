@@ -11,7 +11,7 @@ use tracing::{info, instrument};
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput},
     config::{Config, load_config},
-    new::{clone_template, extract_subfolder},
+    new::{clone_template, copy_dir_recursive, extract_subfolder},
 };
 
 /// Create a new component project from a git repository
@@ -63,10 +63,10 @@ impl CliCommand for NewCommand {
                 .await
                 .context("failed to extract subfolder")?;
         } else {
-            // Move entire cloned repository to output directory
-            tokio::fs::rename(tempdir.path(), &output_dir)
+            // Copy instead of move as we might be on a different filesystem
+            copy_dir_recursive(tempdir.path(), &output_dir)
                 .await
-                .context("failed to move cloned repository to output directory")?;
+                .context("failed to copy cloned repository to output directory")?;
         }
 
         // Check if the output directory has a wash config
