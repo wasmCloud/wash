@@ -59,7 +59,7 @@ impl CliCommand for NewCommand {
 
         if let Some(subfolder) = &self.subfolder {
             // Extract subfolder if specified
-            extract_subfolder(ctx, &output_dir, subfolder)
+            extract_subfolder(tempdir.path(), &output_dir, subfolder)
                 .await
                 .context("failed to extract subfolder")?;
         } else {
