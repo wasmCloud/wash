@@ -8,7 +8,7 @@ use crate::plugin::HostPlugin;
 use anyhow::Context as _;
 use futures::StreamExt as _;
 use tokio::sync::oneshot;
-use tracing::{debug, info, instrument};
+use tracing::{debug, error, info, instrument};
 
 pub const HOST_API_PREFIX: &str = "runtime.host";
 pub const OPERATOR_API_PREFIX: &str = "runtime.operator";
@@ -150,12 +150,21 @@ pub async fn run_cluster_host(
             .context("failed to subscribe for API requests")?;
         let mut heartbeat_timer = tokio::time::interval(heartbeat_interval);
 
+        let mut oci_cleanup_timer = tokio::time::interval(Duration::from_secs(300));
+
         loop {
             tokio::select! {
                 // Shutdown signal
                 _ = &mut one_shot_rx => {
                     api_subscription.unsubscribe().await.context("failed to unsubscribe from API requests")?;
                     return host.stop().await.context("failed to stop host");
+                }
+                // OCI cache cleanup
+                _ = oci_cleanup_timer.tick() => {
+                    if let Some(cache_dir) = host.config().oci_cache_dir.as_ref() &&
+                    let Err(e) = oci::cleanup_cache(cache_dir).await {
+                        error!("Error during OCI cache cleanup: {}", e);
+                    }
                 }
                 // Send heartbeat
                 _ = heartbeat_timer.tick() => {
@@ -297,6 +306,7 @@ fn image_pull_secret_to_oci_config(
         Some(creds) => oci::OciConfig::new_with_credentials(&creds.username, &creds.password),
         None => OciConfig::default(),
     };
+    oci_config.cache_dir = config.oci_cache_dir.clone();
     oci_config.insecure = config.allow_oci_insecure;
     oci_config.timeout = config.oci_pull_timeout;
 
@@ -341,7 +351,13 @@ async fn workload_start(
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
             let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
-            let bytes = match oci::pull_component(&component.image, oci_config).await {
+            let bytes = match oci::pull_component(
+                &component.image,
+                oci_config,
+                component.image_pull_policy().into(),
+            )
+            .await
+            {
                 Ok(bytes) => bytes,
                 Err(e) => {
                     return Ok(types::v2::WorkloadStartResponse {
@@ -382,7 +398,13 @@ async fn workload_start(
 
     let service = if let Some(service) = service {
         let oci_config = image_pull_secret_to_oci_config(config, &service.image_pull_secret);
-        let bytes = match oci::pull_component(&service.image, oci_config).await {
+        let bytes = match oci::pull_component(
+            &service.image,
+            oci_config,
+            service.image_pull_policy().into(),
+        )
+        .await
+        {
             Ok(bytes) => bytes,
             Err(e) => {
                 return Ok(types::v2::WorkloadStartResponse {
@@ -606,6 +628,17 @@ impl From<crate::types::WorkloadStatus> for types::v2::WorkloadStatus {
     }
 }
 
+impl From<types::v2::ImagePullPolicy> for crate::oci::OciPullPolicy {
+    fn from(policy: types::v2::ImagePullPolicy) -> Self {
+        match policy {
+            types::v2::ImagePullPolicy::Always => crate::oci::OciPullPolicy::Always,
+            types::v2::ImagePullPolicy::IfNotPresent => crate::oci::OciPullPolicy::IfNotPresent,
+            types::v2::ImagePullPolicy::Never => crate::oci::OciPullPolicy::Never,
+            _ => crate::oci::OciPullPolicy::IfNotPresent,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -615,7 +648,7 @@ mod tests {
     async fn test_image_pull_secret_to_oci_config_none() {
         let host_config = HostConfig {
             allow_oci_insecure: false,
-            oci_pull_timeout: None,
+            ..Default::default()
         };
         let secret: Option<types::v2::ImagePullSecret> = None;
         let config = image_pull_secret_to_oci_config(&host_config, &secret);
@@ -632,7 +665,7 @@ mod tests {
 
         let host_config = HostConfig {
             allow_oci_insecure: false,
-            oci_pull_timeout: None,
+            ..Default::default()
         };
         let config = image_pull_secret_to_oci_config(&host_config, &secret);
         assert_eq!(

@@ -39,7 +39,7 @@ use oci_wasm::{ToConfig, WASM_LAYER_MEDIA_TYPE, WasmConfig};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 use tracing::{debug, instrument, warn};
@@ -121,6 +121,12 @@ impl CacheManager {
     /// Create a new cache manager with the specified cache directory
     fn new(cache_dir: PathBuf) -> Self {
         Self { cache_dir }
+    }
+
+    /// Expire old artifacts from the cache
+    async fn expire_artifacts(&self) -> Result<()> {
+        // placeholder logic
+        Ok(())
     }
 
     /// Get the cache directory for a given OCI reference
@@ -286,6 +292,17 @@ impl CredentialResolver {
     }
 }
 
+/// OCI pull policy
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OciPullPolicy {
+    /// ️ Always pull the component from the registry
+    Always,
+    /// ️ Pull the component only if not present in cache
+    IfNotPresent,
+    /// ️ Never pull the component; use only cached version
+    Never,
+}
+
 /// Pull a WebAssembly component from an OCI registry
 ///
 /// This function pulls a WebAssembly component from an OCI-compliant registry,
@@ -313,13 +330,17 @@ impl CredentialResolver {
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
 ///     let config = OciConfig::default();
-///     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
+///     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config, OciPullPolicy::IfNotPresent).await?;
 ///     println!("Successfully pulled {} bytes", component_bytes.len());
 ///     Ok(())
 /// }
 /// ```
-#[instrument(skip(config), fields(reference = %reference))]
-pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u8>, String)> {
+#[instrument(skip(config), fields(reference = %reference, pull_policy = ?pull_policy))]
+pub async fn pull_component(
+    reference: &str,
+    config: OciConfig,
+    pull_policy: OciPullPolicy,
+) -> Result<(Vec<u8>, String)> {
     // Parse OCI reference
     let reference_parsed = Reference::try_from(reference)
         .with_context(|| format!("invalid OCI reference: {reference}"))?;
@@ -349,7 +370,7 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
         .map(|dir| CacheManager::new(dir.clone()));
     if let Some(cache_manager) = &cache_manager {
         // Check cache first
-        if cache_manager.is_cached(reference).await {
+        if pull_policy != OciPullPolicy::Always && cache_manager.is_cached(reference).await {
             debug!("Found cached artifact");
             let (component_data, digest) = cache_manager.read_cached(reference).await?;
 
@@ -363,6 +384,10 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
 
             debug!("Cached artifact expired; pulling new component version");
         }
+    }
+
+    if pull_policy == OciPullPolicy::Never {
+        bail!("component not found in cache and pull policy is 'Never'");
     }
 
     // Pull the component using oci-client
@@ -613,6 +638,12 @@ pub async fn validate_component(data: &[u8]) -> Result<()> {
         .map(|_| ())
 }
 
+/// Cleanup cached OCI artifacts
+pub async fn cleanup_cache(cache_dir: impl AsRef<Path>) -> Result<()> {
+    let cache_manager = CacheManager::new(cache_dir.as_ref().to_path_buf());
+    cache_manager.expire_artifacts().await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -710,9 +741,10 @@ mod tests {
 
         // Pull the component anonymously
         for reference in references {
-            let (component_bytes, digest) = pull_component(reference, config.clone())
-                .await
-                .expect("Failed to pull component");
+            let (component_bytes, digest) =
+                pull_component(reference, config.clone(), OciPullPolicy::IfNotPresent)
+                    .await
+                    .expect("Failed to pull component");
 
             let res = validate_component(&component_bytes).await;
             assert!(

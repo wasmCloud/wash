@@ -5,7 +5,7 @@ use anyhow::Context as _;
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use tracing::instrument;
-use wash_runtime::oci::{OciConfig, pull_component, push_component};
+use wash_runtime::oci::{OciConfig, OciPullPolicy, pull_component, push_component};
 use wasm_metadata::Payload;
 
 pub(crate) const OCI_CACHE_DIR: &str = "oci";
@@ -77,7 +77,8 @@ impl PullCommand {
             tracing::warn!("username or password provided without the other");
         }
 
-        let (c, digest) = pull_component(&self.reference, oci_config).await?;
+        let (c, digest) =
+            pull_component(&self.reference, oci_config, OciPullPolicy::Always).await?;
 
         // Resolve component path relative to project directory if not absolute
         let component_path = if self.component_path.is_absolute() {

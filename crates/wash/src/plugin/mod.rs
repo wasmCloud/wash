@@ -27,7 +27,7 @@ use wash_runtime::{
         workload::{ResolvedWorkload, WorkloadItem},
     },
     host::HostApi,
-    oci::{OciConfig, pull_component},
+    oci::{OciConfig, OciPullPolicy, pull_component},
     plugin::HostPlugin,
     types::{
         Component, HostPathVolume, LocalResources, Volume, VolumeMount, VolumeType, Workload,
@@ -506,7 +506,7 @@ pub async fn install_plugin(
             // Load from OCI registry
             debug!(reference = %options.source, "loading plugin from OCI registry");
             let oci_config = OciConfig::new_with_cache(ctx.cache_dir().join(OCI_CACHE_DIR));
-            pull_component(&options.source, oci_config)
+            pull_component(&options.source, oci_config, OciPullPolicy::Always)
                 .await
                 .with_context(|| {
                     format!(
