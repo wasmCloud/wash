@@ -340,7 +340,7 @@ impl Engine {
 /// for component execution.
 #[derive(Default)]
 pub struct EngineBuilder {
-    config: wasmtime::Config,
+    config: Option<wasmtime::Config>,
     use_pooling_allocator: Option<bool>,
     max_instances: Option<u32>,
 }
@@ -378,7 +378,7 @@ impl EngineBuilder {
     /// # Returns
     /// The builder instance for method chaining.
     pub fn with_config(mut self, config: wasmtime::Config) -> Self {
-        self.config = config;
+        self.config = Some(config);
         self
     }
 }
@@ -396,18 +396,25 @@ impl EngineBuilder {
     /// # Errors
     /// Returns an error if the wasmtime engine creation fails.
     pub fn build(mut self) -> anyhow::Result<Engine> {
-        // Async support must be enabled
-        self.config.async_support(true);
-        // The pooling allocator can be more efficient for workloads with many short-lived instances
-        if let Ok(true) = use_pooling_allocator_by_default(self.use_pooling_allocator) {
-            tracing::debug!("using pooling allocator by default");
-            self.config
-                .allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(
+        // If a custom config was provided, use it as-is
+        let config = if let Some(cfg) = self.config.take() {
+            cfg
+        } else {
+            let mut cfg = wasmtime::Config::default();
+            // Async support must be enabled
+            cfg.async_support(true);
+
+            // The pooling allocator can be more efficient for workloads with many short-lived instances
+            if let Ok(true) = use_pooling_allocator_by_default(self.use_pooling_allocator) {
+                tracing::debug!("using pooling allocator by default");
+                cfg.allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(
                     new_pooling_config(self.max_instances.unwrap_or(1000)),
                 ));
-        }
+            }
+            cfg
+        };
 
-        let inner = wasmtime::Engine::new(&self.config)?;
+        let inner = wasmtime::Engine::new(&config)?;
         Ok(Engine { inner })
     }
 }
