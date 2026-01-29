@@ -1,0 +1,93 @@
+services:
+  kubernetes:
+    image: "rancher/k3s:${K3S_VERSION:-latest}"
+    command: server
+    attach: false
+    healthcheck:
+      test: ["CMD", "/scripts/healthcheck.sh"]
+      interval: 5s
+      timeout: 1s
+      retries: 1
+      start_period: 15s
+      start_interval: 3s
+    tmpfs:
+      - /run
+      - /var/run
+    ulimits:
+      nproc: 65535
+      nofile:
+        soft: 65535
+        hard: 65535
+    privileged: true
+    restart: always
+    environment:
+      - K3S_CONFIG_FILE=/scripts/k3s.conf
+    volumes:
+      - k3s:/var/lib/rancher/k3s
+      # automatically load wasmcloud CRDs
+      - ../charts/runtime-operator/templates/crds/:/crds
+      # kubeconfig output
+      - ./tmp:/output
+      # scripts
+      - ./kubernetes/:/scripts
+    ports:
+      - 6443:6443 # Kubernetes API Server
+
+  nats:
+    image: nats:2-alpine
+    attach: false
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1:4222"]
+      interval: 5s
+      timeout: 1s
+      retries: 1
+      start_period: 2s
+      start_interval: 2s
+    command:
+      - "-js"
+      - "--store_dir"
+      - "/data"
+    ports:
+      - 4222:4222
+    volumes:
+      - nats:/data
+
+  operator:
+    image: ghcr.io/wasmcloud/runtime-operator:canary
+    restart: always
+    environment:
+      - KUBECONFIG=/output/operator.yaml
+    command:
+      - "-nats-url=nats://nats:4222"
+    volumes:
+      - ./tmp:/output
+    depends_on:
+      nats:
+        condition: service_healthy
+      kubernetes:
+        condition: service_healthy
+
+  gateway:
+    image: ghcr.io/wasmcloud/runtime-gateway:canary
+    restart: always
+    environment:
+      - KUBECONFIG=/output/gateway.yaml
+    volumes:
+      - ./tmp:/output
+    depends_on:
+      kubernetes:
+        condition: service_healthy
+    ports:
+      - 80:8000
+
+  wash-host:
+    image: ghcr.io/wasmcloud/wash:canary-v2
+    restart: always
+    command: host --scheduler-nats-url nats://nats:4222 --data-nats-url nats://nats:4222 --http-addr 0.0.0.0:8080 --host-group default --host-name wash-host
+    depends_on:
+      nats:
+        condition: service_healthy
+
+volumes:
+  k3s: {}
+  nats: {}
