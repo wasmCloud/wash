@@ -162,7 +162,7 @@ pub async fn run_cluster_host(
                 // OCI cache cleanup
                 _ = oci_cleanup_timer.tick() => {
                     if let Some(cache_dir) = host.config().oci_cache_dir.as_ref() &&
-                    let Err(e) = oci::cleanup_cache(cache_dir).await {
+                    let Err(e) = oci::cleanup_cache(cache_dir, Duration::from_hours(1)).await {
                         error!("Error during OCI cache cleanup: {}", e);
                     }
                 }

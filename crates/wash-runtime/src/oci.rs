@@ -124,8 +124,32 @@ impl CacheManager {
     }
 
     /// Expire old artifacts from the cache
-    async fn expire_artifacts(&self) -> Result<()> {
-        // placeholder logic
+    async fn expire_artifacts(&self, age: Duration) -> Result<()> {
+        // walk the cache directory, looking for artifact dirs
+        // and remove those older than the specified age
+        let mut dir_entries = tokio::fs::read_dir(&self.cache_dir)
+            .await
+            .context("failed to read cache directory")?;
+        while let Some(entry) = dir_entries
+            .next_entry()
+            .await
+            .context("failed to read cache entry")?
+        {
+            let metadata = entry
+                .metadata()
+                .await
+                .context("failed to read cache entry metadata")?;
+            if let Ok(modified) = metadata.modified() {
+                let modified_duration = modified.elapsed().unwrap_or_default();
+                if modified_duration > age {
+                    debug!(path = %entry.path().display(), "expiring cached artifact");
+                    tokio::fs::remove_dir_all(entry.path())
+                        .await
+                        .context("failed to remove expired cache entry")?;
+                }
+            }
+        }
+
         Ok(())
     }
 
@@ -639,9 +663,10 @@ pub async fn validate_component(data: &[u8]) -> Result<()> {
 }
 
 /// Cleanup cached OCI artifacts
-pub async fn cleanup_cache(cache_dir: impl AsRef<Path>) -> Result<()> {
+#[instrument(skip(cache_dir))]
+pub async fn cleanup_cache(cache_dir: impl AsRef<Path>, age: Duration) -> Result<()> {
     let cache_manager = CacheManager::new(cache_dir.as_ref().to_path_buf());
-    cache_manager.expire_artifacts().await
+    cache_manager.expire_artifacts(age).await
 }
 
 #[cfg(test)]
