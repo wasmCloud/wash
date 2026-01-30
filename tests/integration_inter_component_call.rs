@@ -210,6 +210,7 @@ async fn test_inter_component_call() -> Result<()> {
             components: vec![
                 Component {
                     name: "caller".to_string(),
+                    digest: "sha256:1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d".to_string(),
                     bytes: bytes::Bytes::from_static(CALLER_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 128,
@@ -224,6 +225,7 @@ async fn test_inter_component_call() -> Result<()> {
                 },
                 Component {
                     name: "middleware".to_string(),
+                    digest: "sha256:2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e".to_string(),
                     bytes: bytes::Bytes::from_static(MIDDLEWARE_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,
@@ -238,6 +240,7 @@ async fn test_inter_component_call() -> Result<()> {
                 },
                 Component {
                     name: "callee".to_string(),
+                    digest: "sha256:3c4d5e6f-7a8b-4c9d-0e1f-2a3b4c5d6e7f".to_string(),
                     bytes: bytes::Bytes::from_static(CALLEE_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,

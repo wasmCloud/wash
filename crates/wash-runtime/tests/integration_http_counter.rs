@@ -110,6 +110,7 @@ fn http_counter_workload_request(
             service: None,
             components: vec![Component {
                 name: "http-counter.wasm".to_string(),
+                digest: "sha256:550e8400-e29b-41d4-a716-446655440000".to_string(),
                 bytes: bytes::Bytes::from_static(HTTP_COUNTER_WASM),
                 local_resources,
                 pool_size: 1,

@@ -970,6 +970,7 @@ mod tests {
                     service: None,
                     components: vec![Component {
                         name: "test".to_string(),
+                        digest: "sha256:a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d".to_string(),
                         bytes: vec![0xD, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF].into(),
                         local_resources: Default::default(),
                         pool_size: 1,

@@ -99,6 +99,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
                 // Component 1: Blobstore filesystem plugin as a component
                 Component {
                     name: "http-counter-with-fs-blobstore".to_string(),
+                    digest: "sha256:9a3b4c5d-6e7f-4a8b-9c0d-1e2f3a4b5c6d".to_string(),
                     bytes: bytes::Bytes::from_static(BLOBSTORE_FS_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 128,
@@ -121,6 +122,7 @@ async fn test_http_counter_with_blobstore_fs_plugin() -> Result<()> {
                 // Component 2: HTTP counter that will use the blobstore
                 Component {
                     name: "http-counter".to_string(),
+                    digest: "sha256:8b4c5d6e-7f8a-4b9c-0d1e-2f3a4b5c6d7e".to_string(),
                     bytes: bytes::Bytes::from_static(HTTP_COUNTER_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,

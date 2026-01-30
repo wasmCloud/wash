@@ -287,22 +287,33 @@ impl Engine {
     }
 
     /// Load a WebAssembly component from raw bytes or yields a previously compiled one.
-    #[instrument(name = "load_component_bytes", skip_all, fields(digest = %digest.as_ref()))]
+    #[instrument(name = "load_component_bytes", skip_all, fields(digest = %digest.as_ref().map(|d| d.as_ref()).unwrap_or("none")))]
     fn load_component_bytes(
         &self,
         bytes: impl AsRef<[u8]>,
-        digest: impl AsRef<str>,
+        digest: Option<impl AsRef<str>>,
     ) -> anyhow::Result<Component> {
-        let key = CacheKey(digest.as_ref().to_string());
-        if let Some(cached) = self.cache.get(&key) {
-            tracing::debug!("component found in cache");
-            return Ok(cached.0);
-        }
+        match digest {
+            None => {
+                tracing::debug!("no digest provided, compiling component without caching");
+                let compiled = Component::new(&self.inner, bytes.as_ref())
+                    .context("failed to compile component from bytes")?;
+                Ok(compiled)
+            }
+            Some(digest) => {
+                let key = CacheKey(digest.as_ref().to_string());
 
-        let compiled = Component::new(&self.inner, bytes.as_ref())
-            .context("failed to compile component from bytes")?;
-        self.cache.insert(key, CacheValue(compiled.clone()));
-        Ok(compiled)
+                if let Some(cached) = self.cache.get(&key) {
+                    tracing::debug!("component found in cache");
+                    return Ok(cached.0);
+                }
+
+                let compiled = Component::new(&self.inner, bytes.as_ref())
+                    .context("failed to compile component from bytes")?;
+                self.cache.insert(key, CacheValue(compiled.clone()));
+                Ok(compiled)
+            }
+        }
     }
 
     /// Initialize a component that is a part of a workload, add wasi@0.2 interfaces (and
