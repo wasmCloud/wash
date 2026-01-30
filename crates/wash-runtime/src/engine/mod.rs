@@ -39,7 +39,11 @@
 //! # }
 //! ```
 
+use std::hash::Hash;
+use std::time::Duration;
+
 use anyhow::{Context, bail};
+use moka::sync::Cache;
 use tracing::instrument;
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
@@ -63,6 +67,19 @@ pub mod workload;
 pub struct Engine {
     // wasmtime engine
     pub(crate) inner: wasmtime::Engine,
+    pub(crate) cache: Cache<CacheKey, CacheValue>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct CacheKey(String);
+
+#[derive(Clone)]
+pub struct CacheValue(Component);
+
+impl std::fmt::Debug for CacheValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheValue").finish()
+    }
 }
 
 impl Engine {
@@ -276,7 +293,16 @@ impl Engine {
         bytes: impl AsRef<[u8]>,
         digest: impl AsRef<str>,
     ) -> anyhow::Result<Component> {
-        Component::new(&self.inner, bytes)
+        let key = CacheKey(digest.as_ref().to_string());
+        if let Some(cached) = self.cache.get(&key) {
+            tracing::debug!("component found in cache");
+            return Ok(cached.0);
+        }
+
+        let compiled = Component::new(&self.inner, bytes.as_ref())
+            .context("failed to compile component from bytes")?;
+        self.cache.insert(key, CacheValue(compiled.clone()));
+        Ok(compiled)
     }
 
     /// Initialize a component that is a part of a workload, add wasi@0.2 interfaces (and
@@ -407,7 +433,11 @@ impl EngineBuilder {
         }
 
         let inner = wasmtime::Engine::new(&self.config)?;
-        Ok(Engine { inner })
+        let cache = Cache::builder()
+            .max_capacity(100)
+            .time_to_idle(Duration::from_hours(1))
+            .build();
+        Ok(Engine { inner, cache })
     }
 }
 
