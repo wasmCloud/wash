@@ -30,6 +30,8 @@ pub struct ClusterHostBuilder {
     host_group: Option<String>,
     host_name: Option<String>,
     heartbeat_interval: Option<Duration>,
+    cleanup_interval: Option<Duration>,
+    cleanup_age: Option<Duration>,
     host_config: Option<HostConfig>,
 }
 
@@ -62,6 +64,12 @@ impl ClusterHostBuilder {
     pub fn with_plugin<T: HostPlugin>(mut self, plugin: Arc<T>) -> anyhow::Result<Self> {
         self.host_builder = self.host_builder.with_plugin(plugin)?;
         Ok(self)
+    }
+
+    pub fn with_artifact_cleaner(mut self, frequency: Duration, max_age: Duration) -> Self {
+        self.cleanup_interval = Some(frequency);
+        self.cleanup_age = Some(max_age);
+        self
     }
 
     pub fn with_http_handler(
@@ -98,6 +106,8 @@ impl ClusterHostBuilder {
             prepared_host: host,
             nats_client,
             heartbeat_interval,
+            cleanup_interval: self.cleanup_interval.unwrap_or(Duration::from_secs(300)),
+            cleanup_age: self.cleanup_age.unwrap_or(Duration::from_secs(3600)),
         })
     }
 }
@@ -106,6 +116,8 @@ pub struct ClusterHost {
     prepared_host: Host,
     nats_client: Arc<async_nats::Client>,
     heartbeat_interval: Duration,
+    cleanup_interval: Duration,
+    cleanup_age: Duration,
 }
 
 impl ClusterHost {
@@ -126,6 +138,7 @@ pub async fn run_cluster_host(
         .context("failed to start host")?;
 
     let heartbeat_interval = cluster_host.heartbeat_interval;
+    let cleanup_interval = cluster_host.cleanup_interval;
     let host_id = host.id().to_string();
     let host = host.clone();
 
@@ -150,7 +163,7 @@ pub async fn run_cluster_host(
             .context("failed to subscribe for API requests")?;
         let mut heartbeat_timer = tokio::time::interval(heartbeat_interval);
 
-        let mut oci_cleanup_timer = tokio::time::interval(Duration::from_secs(300));
+        let mut oci_cleanup_timer = tokio::time::interval(cleanup_interval);
 
         loop {
             tokio::select! {
@@ -162,7 +175,7 @@ pub async fn run_cluster_host(
                 // OCI cache cleanup
                 _ = oci_cleanup_timer.tick() => {
                     if let Some(cache_dir) = host.config().oci_cache_dir.as_ref() &&
-                    let Err(e) = oci::cleanup_cache(cache_dir, Duration::from_hours(1)).await {
+                    let Err(e) = oci::cleanup_cache(cache_dir, cluster_host.cleanup_age).await {
                         error!("Error during OCI cache cleanup: {}", e);
                     }
                 }

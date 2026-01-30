@@ -311,7 +311,7 @@ impl Engine {
                             .context("failed to compile component from bytes")
                             .map(CacheValue)
                     })
-                    .map_err(|e| anyhow::anyhow!("{}", e))
+                    .map_err(|e| anyhow::anyhow!(e).context("compilation cache error"))
                     .map(|v| v.0)
             }
         }
