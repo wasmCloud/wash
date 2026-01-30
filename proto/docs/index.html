@@ -289,6 +289,10 @@
               
               
                 <li>
+                  <a href="#wasmcloud.runtime.v2.ImagePullPolicy"><span class="badge">E</span>ImagePullPolicy</a>
+                </li>
+              
+                <li>
                   <a href="#wasmcloud.runtime.v2.WorkloadState"><span class="badge">E</span>WorkloadState</a>
                 </li>
               
@@ -740,6 +744,13 @@ This information is used by the Runtime Operator to monitor the health of the Wa
                   <td><p> </p></td>
                 </tr>
               
+                <tr>
+                  <td>image_pull_policy</td>
+                  <td><a href="#wasmcloud.runtime.v2.ImagePullPolicy">ImagePullPolicy</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -971,6 +982,13 @@ Upon a successful lookup, the host will allow outbound connections to the specif
                   <td><p>Optional credentials for pulling the image from a private registry </p></td>
                 </tr>
               
+                <tr>
+                  <td>image_pull_policy</td>
+                  <td><a href="#wasmcloud.runtime.v2.ImagePullPolicy">ImagePullPolicy</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -1177,6 +1195,41 @@ The &#39;config&#39; on each host_interface may carry Workload Specific configur
         
       
 
+      
+        <h3 id="wasmcloud.runtime.v2.ImagePullPolicy">ImagePullPolicy</h3>
+        <p></p>
+        <table class="enum-table">
+          <thead>
+            <tr><td>Name</td><td>Number</td><td>Description</td></tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_UNSPECIFIED</td>
+                <td>0</td>
+                <td><p>Default policy, fallthrough to the host&#39;s default pull policy</p></td>
+              </tr>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_ALWAYS</td>
+                <td>1</td>
+                <td><p>Always pull the image</p></td>
+              </tr>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_IF_NOT_PRESENT</td>
+                <td>2</td>
+                <td><p>Pull the image if not present locally</p></td>
+              </tr>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_NEVER</td>
+                <td>3</td>
+                <td><p>Never pull the image, use local copy only</p></td>
+              </tr>
+            
+          </tbody>
+        </table>
       
         <h3 id="wasmcloud.runtime.v2.WorkloadState">WorkloadState</h3>
         <p></p>

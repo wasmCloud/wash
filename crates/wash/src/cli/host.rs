@@ -111,6 +111,7 @@ impl CliCommand for HostCommand {
         let host_config = wash_runtime::host::HostConfig {
             allow_oci_insecure: self.allow_insecure_registries,
             oci_pull_timeout: Some(self.registry_pull_timeout),
+            ..Default::default()
         };
 
         let mut cluster_host_builder = wash_runtime::washlet::ClusterHostBuilder::default()

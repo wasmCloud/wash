@@ -207,6 +207,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 			Name:            c.Name,
 			Image:           c.Image,
 			ImagePullSecret: imagePullSecret,
+			ImagePullPolicy: translatePullPolicy(c.ImagePullPolicy),
 			PoolSize:        c.PoolSize,
 			MaxInvocations:  c.MaxInvocations,
 			LocalResources:  localResources,
@@ -256,6 +257,7 @@ func (r *WorkloadReconciler) reconcilePlacement(ctx context.Context, workload *r
 		service = &runtimev2.Service{
 			Image:           s.Image,
 			ImagePullSecret: imagePullSecret,
+			ImagePullPolicy: translatePullPolicy(s.ImagePullPolicy),
 			LocalResources:  localResources,
 			MaxRestarts:     uint64(s.MaxRestarts),
 		}

@@ -93,6 +93,8 @@ type WorkloadComponent struct {
 	// +kubebuilder:validation:Optional
 	ImagePullSecret *corev1.LocalObjectReference `json:"imagePullSecret,omitempty"`
 	// +kubebuilder:validation:Optional
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
+	// +kubebuilder:validation:Optional
 	PoolSize int32 `json:"poolSize,omitempty"`
 	// +kubebuilder:validation:Optional
 	MaxInvocations int32 `json:"maxInvocations,omitempty"`
@@ -111,6 +113,8 @@ type WorkloadService struct {
 	Image string `json:"image"`
 	// +kubebuilder:validation:Optional
 	ImagePullSecret *corev1.LocalObjectReference `json:"imagePullSecret,omitempty"`
+	// +kubebuilder:validation:Optional
+	ImagePullPolicy corev1.PullPolicy `json:"imagePullPolicy,omitempty"`
 	// +kubebuilder:validation:Optional
 	MaxRestarts int32 `json:"maxRestarts"`
 	// +kubebuilder:validation:Optional
