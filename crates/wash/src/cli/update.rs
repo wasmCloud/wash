@@ -74,18 +74,6 @@ pub struct UpdateCommand {
     /// GitHub token for private repository access. Can also be set via GITHUB_TOKEN, GH_TOKEN, or GITHUB_ACCESS_TOKEN environment variables
     #[clap(long, env = "WASH_GITHUB_TOKEN")]
     token: Option<String>,
-
-    /// Allow major version updates (breaking changes)
-    #[clap(long, conflicts_with_all = ["minor", "patch"])]
-    major: bool,
-
-    /// Allow minor version updates (new features, no breaking changes)
-    #[clap(long, conflicts_with_all = ["major", "patch"])]
-    minor: bool,
-
-    /// Allow only patch updates (bug fixes only)
-    #[clap(long, conflicts_with_all = ["major", "minor"])]
-    patch: bool,
 }
 
 fn parse_version(tag: &str) -> Option<Version> {
@@ -104,24 +92,6 @@ fn parse_version(tag: &str) -> Option<Version> {
     }
 }
 
-fn is_newer(candidate: &Version, current: &Version) -> bool {
-    candidate > current
-}
-
-fn matches_patch(current: &Version, candidate: &Version) -> bool {
-    candidate.major == current.major
-        && candidate.minor == current.minor
-        && is_newer(candidate, current)
-}
-
-fn matches_minor(current: &Version, candidate: &Version) -> bool {
-    candidate.major == current.major && is_newer(candidate, current)
-}
-
-fn matches_major(current: &Version, candidate: &Version) -> bool {
-    is_newer(candidate, current)
-}
-
 impl CliCommand for UpdateCommand {
     #[instrument(level = "debug", skip_all, name = "update")]
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
@@ -129,34 +99,70 @@ impl CliCommand for UpdateCommand {
         let (os, arch) = get_os_arch();
 
         // Check current version and constraints
-        if !self.force
-            && !self.dry_run
-            && let Some(current) = self.get_current_version()
-        {
-            debug!("Current wash version: {}", current);
-        }
+        let current_version = if let Some(current) = self.get_current_version() {
+            current
+        } else {
+            anyhow::bail!("Cannot determine current wash version");
+        };
 
-        let release = self.find_suitable_release(&config).await?;
+        debug!("Current wash version: {}", current_version);
+
+        let release = self
+            .fetch_latest_release(&config)
+            .await
+            .context("failed to fetch latest release")?;
         let asset = find_asset(&release.assets, os, arch).ok_or_else(|| {
             anyhow::anyhow!("No matching binary found in release assets for {arch}-{os}",)
         })?;
 
+        let should_update = if let Some(latest_version) = parse_version(&release.tag_name) {
+            debug!("Latest wash version: {}", latest_version);
+            latest_version > current_version
+        } else {
+            anyhow::bail!(
+                "Cannot parse version from latest release tag: {}",
+                release.tag_name
+            );
+        };
+
         // Handle dry-run mode
         if self.dry_run {
-            let current_version_str = self
-                .get_current_version()
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "unknown".to_string());
+            if should_update {
+                return Ok(CommandOutput::ok(
+                    format!(
+                        "Update available. Local version: {}, Latest version: {}",
+                        current_version, release.tag_name
+                    ),
+                    Some(json!({
+                        "current_version": current_version.to_string(),
+                        "target_version": release.tag_name,
+                        "update_available": should_update,
+                        "dry_run": true
+                    })),
+                ));
+            } else {
+                return Ok(CommandOutput::ok(
+                    format!(
+                        "No update needed. Local version: {}, Latest version: {}",
+                        current_version, release.tag_name
+                    ),
+                    Some(json!({
+                        "current_version": current_version.to_string(),
+                        "target_version": release.tag_name,
+                        "update_available": should_update,
+                        "dry_run": true
+                    })),
+                ));
+            }
+        }
 
+        if !should_update && !self.force {
             return Ok(CommandOutput::ok(
-                format!(
-                    "Would update wash from {current_version_str} to {tag_name}",
-                    tag_name = release.tag_name
-                ),
+                format!("wash is already up to date (version {})", release.tag_name),
                 Some(json!({
-                    "current_version": current_version_str,
+                    "current_version": current_version.to_string(),
                     "target_version": release.tag_name,
-                    "dry_run": true
+                    "update_available": should_update,
                 })),
             ));
         }
@@ -244,97 +250,12 @@ impl UpdateCommand {
         parse_version(version)
     }
 
-    /// Find the best release based on version constraints
-    async fn find_suitable_release(&self, config: &UpdateConfig) -> anyhow::Result<Release> {
-        let current_version = self.get_current_version();
-
-        // If no version constraints specified or force update, get latest
-        if (!self.major && !self.minor && !self.patch) || self.force {
-            return self.fetch_latest_release(config).await;
-        }
-
-        // Get all releases to filter based on version constraints
-        let releases = self.fetch_all_releases(config).await?;
-        debug!("Found {} releases to evaluate", releases.len());
-
-        let mut suitable_releases: Vec<(Version, Release)> = releases
-            .into_iter()
-            .filter_map(|release| {
-                let candidate_version = parse_version(&release.tag_name)?;
-
-                // Skip if current version is unknown
-                let current = current_version.as_ref()?;
-
-                debug!(
-                    "Evaluating release {} ({}) against current {}",
-                    release.tag_name, candidate_version, current
-                );
-
-                // Apply version constraint filters
-                let matches = if self.patch {
-                    let result = matches_patch(current, &candidate_version);
-                    debug!("Patch constraint: {}", result);
-                    result
-                } else if self.minor {
-                    let result = matches_minor(current, &candidate_version);
-                    debug!("Minor constraint: {}", result);
-                    result
-                } else if self.major {
-                    let result = matches_major(current, &candidate_version);
-                    debug!("Major constraint: {}", result);
-                    result
-                } else {
-                    let result = is_newer(&candidate_version, current);
-                    debug!("Newer check: {}", result);
-                    result
-                };
-
-                if matches {
-                    debug!("✓ Release {} matches constraints", release.tag_name);
-                    Some((candidate_version, release))
-                } else {
-                    debug!("✗ Release {} does not match constraints", release.tag_name);
-                    None
-                }
-            })
-            .collect();
-
-        if suitable_releases.is_empty() {
-            if let Some(current) = current_version {
-                return Err(anyhow::anyhow!(
-                    "No suitable updates found for current version {} with the specified constraints",
-                    current
-                ));
-            } else {
-                return Err(anyhow::anyhow!("No suitable updates found"));
-            }
-        }
-
-        // Sort by version (newest first) and return the best match
-        suitable_releases.sort_by(|a, b| b.0.cmp(&a.0));
-        suitable_releases
-            .into_iter()
-            .next()
-            .map(|(_, release)| release)
-            .ok_or_else(|| anyhow::anyhow!("No suitable updates found"))
-    }
-
     /// Fetch the latest release from the configured repository with authentication
     async fn fetch_latest_release(&self, config: &UpdateConfig) -> anyhow::Result<Release> {
         let url = format!(
             "https://api.github.com/repos/{}/releases/latest",
             config.repo
         );
-        let client = config.create_client()?;
-
-        debug!(repo = %config.repo, "Fetching latest release");
-        let resp = client.get(url).send().await?.error_for_status()?;
-        Ok(resp.json().await?)
-    }
-
-    /// Fetch all releases from the configured repository with authentication
-    async fn fetch_all_releases(&self, config: &UpdateConfig) -> anyhow::Result<Vec<Release>> {
-        let url = format!("https://api.github.com/repos/{}/releases", config.repo);
         let client = config.create_client()?;
 
         debug!(repo = %config.repo, "Fetching latest release");
