@@ -375,6 +375,8 @@ impl Engine {
 pub struct EngineBuilder {
     config: wasmtime::Config,
     use_pooling_allocator: Option<bool>,
+    compilation_cache_size: Option<u64>,
+    compilation_cache_ttl: Option<Duration>,
 }
 
 impl EngineBuilder {
@@ -406,6 +408,13 @@ impl EngineBuilder {
         self.config = config;
         self
     }
+
+    /// Configures a compilation cache for the engine.
+    pub fn with_compilation_cache(mut self, size: u64, ttl: Duration) -> Self {
+        self.compilation_cache_size = Some(size);
+        self.compilation_cache_ttl = Some(ttl);
+        self
+    }
 }
 
 impl EngineBuilder {
@@ -434,8 +443,11 @@ impl EngineBuilder {
 
         let inner = wasmtime::Engine::new(&self.config)?;
         let cache = Cache::builder()
-            .max_capacity(100)
-            .time_to_idle(Duration::from_hours(1))
+            .max_capacity(self.compilation_cache_size.unwrap_or(100))
+            .time_to_idle(
+                self.compilation_cache_ttl
+                    .unwrap_or(Duration::from_secs(600)),
+            )
             .build();
         Ok(Engine { inner, cache })
     }

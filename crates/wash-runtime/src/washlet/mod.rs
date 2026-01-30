@@ -375,7 +375,7 @@ async fn workload_start(
             pulled_components.push(crate::types::Component {
                 name: component.name.clone(),
                 bytes: bytes.into(),
-                digest: digest.into(),
+                digest,
                 local_resources: component
                     .local_resources
                     .clone()
@@ -419,7 +419,7 @@ async fn workload_start(
         };
         Some(crate::types::Service {
             bytes: bytes.into(),
-            digest: digest.into(),
+            digest,
             local_resources: service
                 .local_resources
                 .clone()

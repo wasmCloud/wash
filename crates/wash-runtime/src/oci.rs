@@ -140,7 +140,9 @@ impl CacheManager {
                 .await
                 .context("failed to read cache entry metadata")?;
             if let Ok(modified) = metadata.modified() {
-                let modified_duration = modified.elapsed().unwrap_or_default();
+                let modified_duration = modified
+                    .elapsed()
+                    .context("failed to compute modified duration")?;
                 if modified_duration > age {
                     debug!(path = %entry.path().display(), "expiring cached artifact");
                     tokio::fs::remove_dir_all(entry.path())
