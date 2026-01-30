@@ -1,0 +1,94 @@
+[package]
+name = "wash"
+categories = ["wasm", "command-line-utilities"]
+description = "The Wasm Shell (wash) for developing and publishing Wasm components"
+keywords = ["webassembly", "wasm", "component", "wash", "cli"]
+readme = "README.md"
+license = "Apache-2.0"
+repository = "https://github.com/wasmcloud/wash"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+version.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "wash"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wash"
+path = "src/main.rs"
+
+[badges]
+maintenance = { status = "actively-developed" }
+
+[dependencies]
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+clap = { workspace = true, features = ["derive", "env", "help", "color", "suggestions", "wrap_help", "cargo", "string"] }
+clap_complete = { workspace = true }
+clap-markdown = { workspace = true }
+ctrlc = { workspace = true }
+dialoguer = { workspace = true, features = ["editor", "password", "zeroize", "fuzzy-select", "fuzzy-matcher"] }
+etcetera = { workspace = true }
+figment = { workspace = true, features = ["json", "env", "yaml", "toml"] }
+flate2 = { workspace = true, features = ["rust_backend"] }
+humantime = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
+opentelemetry-otlp = { workspace = true, features = ["grpc-tonic", "trace", "logs"] }
+opentelemetry-appender-tracing = { workspace = true }
+reqwest = { workspace = true, features = ["json", "rustls-tls"] }
+rustls = { workspace = true }
+semver = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true, features = ["std"] }
+serde_yaml_ng = { workspace = true }
+tar = { workspace = true }
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["full"] }
+tracing = { workspace = true, features = ["attributes"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "ansi", "time", "json"] }
+tracing-opentelemetry = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+wasm-metadata = { workspace = true }
+wasm-pkg-client = { workspace = true }
+wasm-pkg-core = { workspace = true }
+wash-runtime = { workspace = true, features = ["washlet", "oci", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue"] }
+wasmtime = { workspace = true }
+wasmtime-wasi = { workspace = true }
+wit-component = { workspace = true }
+
+# Enable WebGPU support on non-Windows platforms
+# WebGPU is disabled on Windows due to dependency version conflicts with the windows crate
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+wash-runtime = { workspace = true, features = ["wasi-webgpu"] }
+
+
+[build-dependencies]
+anyhow = { workspace = true, default-features = true }
+tonic-prost-build = { workspace = true, default-features = true }
+pbjson-build = { workspace = true, default-features = true }
+
+[dev-dependencies]
+bytes = { version = "1", default-features = false }
+http = { version = "1.3.1", default-features = false }
+http-body-util = { version = "0.1.3", default-features = false }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
+scopeguard = { version = "1.2", default-features = false }
+tempfile = { version = "3.0", default-features = false }
+tokio = { version = "1.45.1", default-features = false, features = ["full"] }
+reqwest = { workspace = true, features = ["json"] }
+wash-runtime = { workspace = true, features = ["wasi-keyvalue", "wasi-blobstore"] }
+wat = { workspace = true }
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/{name}-v{version}/wash-{ target }{ binary-ext }"
+pkg-fmt = "bin"
