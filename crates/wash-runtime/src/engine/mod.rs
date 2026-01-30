@@ -470,7 +470,7 @@ impl EngineBuilder {
             cfg
         };
 
-        let inner = wasmtime::Engine::new(&self.config)?;
+        let inner = wasmtime::Engine::new(&config)?;
         let cache = Cache::builder()
             .max_capacity(self.compilation_cache_size.unwrap_or(100))
             .time_to_idle(
