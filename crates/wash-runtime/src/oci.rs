@@ -127,9 +127,11 @@ impl CacheManager {
     async fn expire_artifacts(&self, age: Duration) -> Result<()> {
         // walk the cache directory, looking for artifact dirs
         // and remove those older than the specified age
-        let mut dir_entries = tokio::fs::read_dir(&self.cache_dir)
-            .await
-            .context("failed to read cache directory")?;
+        let mut dir_entries = match tokio::fs::read_dir(&self.cache_dir).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).context("failed to read cache directory"),
+        };
         while let Some(entry) = dir_entries
             .next_entry()
             .await

@@ -302,16 +302,17 @@ impl Engine {
             }
             Some(digest) => {
                 let key = CacheKey(digest.as_ref().to_string());
+                let inner = &self.inner;
+                let bytes_ref = bytes.as_ref();
 
-                if let Some(cached) = self.cache.get(&key) {
-                    tracing::debug!("component found in cache");
-                    return Ok(cached.0);
-                }
-
-                let compiled = Component::new(&self.inner, bytes.as_ref())
-                    .context("failed to compile component from bytes")?;
-                self.cache.insert(key, CacheValue(compiled.clone()));
-                Ok(compiled)
+                self.cache
+                    .try_get_with(key, || {
+                        Component::new(inner, bytes_ref)
+                            .context("failed to compile component from bytes")
+                            .map(CacheValue)
+                    })
+                    .map_err(|e| anyhow::anyhow!("{}", e))
+                    .map(|v| v.0)
             }
         }
     }
