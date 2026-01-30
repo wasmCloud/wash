@@ -7,20 +7,20 @@
 //! # Examples
 //!
 //! ```no_run
-//! use wash_runtime::oci::{pull_component, OciConfig};
+//! use wash_runtime::oci::{pull_component, OciConfig, OciPullPolicy};
 //! use std::time::Duration;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     // Basic pull
 //!     let config = OciConfig::default();
-//!     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
+//!     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config, OciPullPolicy::IfNotPresent).await?;
 //!     println!("Pulled component of {} bytes", component_bytes.len());
 //!
 //!     // Pull with credentials and timeout
 //!     let config = OciConfig::new_with_credentials("username", "password")
 //!         .with_timeout(Duration::from_secs(30));
-//!     let (bytes, digest) = pull_component("ghcr.io/my-org/private:latest", config).await?;
+//!     let (bytes, digest) = pull_component("ghcr.io/my-org/private:latest", config, OciPullPolicy::IfNotPresent).await?;
 //!     println!("Pulled {} bytes, digest: {}", bytes.len(), digest);
 //!
 //!     Ok(())
@@ -39,7 +39,7 @@ use oci_wasm::{ToConfig, WASM_LAYER_MEDIA_TYPE, WasmConfig};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{BTreeMap, HashMap},
-    path::PathBuf,
+    path::{Path, PathBuf},
     time::Duration,
 };
 use tracing::{debug, instrument, warn};
@@ -121,6 +121,40 @@ impl CacheManager {
     /// Create a new cache manager with the specified cache directory
     fn new(cache_dir: PathBuf) -> Self {
         Self { cache_dir }
+    }
+
+    /// Expire old artifacts from the cache
+    async fn expire_artifacts(&self, age: Duration) -> Result<()> {
+        // walk the cache directory, looking for artifact dirs
+        // and remove those older than the specified age
+        let mut dir_entries = match tokio::fs::read_dir(&self.cache_dir).await {
+            Ok(entries) => entries,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e).context("failed to read cache directory"),
+        };
+        while let Some(entry) = dir_entries
+            .next_entry()
+            .await
+            .context("failed to read cache entry")?
+        {
+            let metadata = entry
+                .metadata()
+                .await
+                .context("failed to read cache entry metadata")?;
+            if let Ok(modified) = metadata.modified() {
+                let modified_duration = modified
+                    .elapsed()
+                    .context("failed to compute modified duration")?;
+                if modified_duration > age {
+                    debug!(path = %entry.path().display(), "expiring cached artifact");
+                    tokio::fs::remove_dir_all(entry.path())
+                        .await
+                        .context("failed to remove expired cache entry")?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Get the cache directory for a given OCI reference
@@ -286,6 +320,17 @@ impl CredentialResolver {
     }
 }
 
+/// OCI pull policy
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OciPullPolicy {
+    /// ️ Always pull the component from the registry
+    Always,
+    /// ️ Pull the component only if not present in cache
+    IfNotPresent,
+    /// ️ Never pull the component; use only cached version
+    Never,
+}
+
 /// Pull a WebAssembly component from an OCI registry
 ///
 /// This function pulls a WebAssembly component from an OCI-compliant registry,
@@ -308,18 +353,22 @@ impl CredentialResolver {
 ///
 /// # Examples
 /// ```no_run
-/// use wash_runtime::oci::{pull_component, OciConfig};
+/// use wash_runtime::oci::{pull_component, OciConfig, OciPullPolicy};
 ///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
 ///     let config = OciConfig::default();
-///     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
+///     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config, OciPullPolicy::IfNotPresent).await?;
 ///     println!("Successfully pulled {} bytes", component_bytes.len());
 ///     Ok(())
 /// }
 /// ```
-#[instrument(skip(config), fields(reference = %reference))]
-pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u8>, String)> {
+#[instrument(skip(config), fields(reference = %reference, pull_policy = ?pull_policy))]
+pub async fn pull_component(
+    reference: &str,
+    config: OciConfig,
+    pull_policy: OciPullPolicy,
+) -> Result<(Vec<u8>, String)> {
     // Parse OCI reference
     let reference_parsed = Reference::try_from(reference)
         .with_context(|| format!("invalid OCI reference: {reference}"))?;
@@ -349,7 +398,7 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
         .map(|dir| CacheManager::new(dir.clone()));
     if let Some(cache_manager) = &cache_manager {
         // Check cache first
-        if cache_manager.is_cached(reference).await {
+        if pull_policy != OciPullPolicy::Always && cache_manager.is_cached(reference).await {
             debug!("Found cached artifact");
             let (component_data, digest) = cache_manager.read_cached(reference).await?;
 
@@ -363,6 +412,10 @@ pub async fn pull_component(reference: &str, config: OciConfig) -> Result<(Vec<u
 
             debug!("Cached artifact expired; pulling new component version");
         }
+    }
+
+    if pull_policy == OciPullPolicy::Never {
+        bail!("component not found in cache and pull policy is 'Never'");
     }
 
     // Pull the component using oci-client
@@ -613,6 +666,13 @@ pub async fn validate_component(data: &[u8]) -> Result<()> {
         .map(|_| ())
 }
 
+/// Cleanup cached OCI artifacts
+#[instrument(skip(cache_dir))]
+pub async fn cleanup_cache(cache_dir: impl AsRef<Path>, age: Duration) -> Result<()> {
+    let cache_manager = CacheManager::new(cache_dir.as_ref().to_path_buf());
+    cache_manager.expire_artifacts(age).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -710,9 +770,10 @@ mod tests {
 
         // Pull the component anonymously
         for reference in references {
-            let (component_bytes, digest) = pull_component(reference, config.clone())
-                .await
-                .expect("Failed to pull component");
+            let (component_bytes, digest) =
+                pull_component(reference, config.clone(), OciPullPolicy::IfNotPresent)
+                    .await
+                    .expect("Failed to pull component");
 
             let res = validate_component(&component_bytes).await;
             assert!(

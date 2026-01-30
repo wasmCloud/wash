@@ -42,6 +42,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -774,6 +775,7 @@ impl std::fmt::Debug for Host {
 pub struct HostConfig {
     pub allow_oci_insecure: bool,
     pub oci_pull_timeout: Option<Duration>,
+    pub oci_cache_dir: Option<PathBuf>,
 }
 
 impl Default for HostConfig {
@@ -781,6 +783,7 @@ impl Default for HostConfig {
         Self {
             allow_oci_insecure: false,
             oci_pull_timeout: Duration::from_secs(30).into(),
+            oci_cache_dir: None,
         }
     }
 }
@@ -967,6 +970,7 @@ mod tests {
                     service: None,
                     components: vec![Component {
                         name: "test".to_string(),
+                        digest: None,
                         bytes: vec![0xD, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF].into(),
                         local_resources: Default::default(),
                         pool_size: 1,

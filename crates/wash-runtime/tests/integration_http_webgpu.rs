@@ -67,6 +67,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
             service: None,
             components: vec![Component {
                 name: "http-webgpu-component".to_string(),
+                digest: None,
                 bytes: bytes::Bytes::from_static(HTTP_WEBGPU_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,

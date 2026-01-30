@@ -259,6 +259,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
     if dev_config.service {
         service = Some(Service {
             bytes,
+            digest: None,
             max_restarts: 0,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
@@ -284,6 +285,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
         components.push(Component {
             name: "wash-dev-component".to_string(),
             bytes,
+            digest: None,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
                 ..Default::default()
@@ -299,6 +301,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
 
             service = Some(Service {
                 bytes: Bytes::from(service_bytes),
+                digest: None,
                 max_restarts: 0,
                 local_resources: LocalResources {
                     volume_mounts: volume_mounts.clone(),
@@ -336,6 +339,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
         components.push(Component {
             name: dev_component.name.clone(),
             bytes: Bytes::from(comp_bytes),
+            digest: None,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
                 ..Default::default()

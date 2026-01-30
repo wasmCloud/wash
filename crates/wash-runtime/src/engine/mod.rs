@@ -39,8 +39,12 @@
 //! # }
 //! ```
 
+use std::hash::Hash;
+use std::time::Duration;
+
 use anyhow::{Context, bail};
 use tracing::{instrument, warn};
+use moka::sync::Cache;
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
 use wasmtime_wasi::sockets::loopback;
@@ -65,6 +69,19 @@ pub mod workload;
 pub struct Engine {
     // wasmtime engine
     pub(crate) inner: wasmtime::Engine,
+    pub(crate) cache: Cache<CacheKey, CacheValue>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct CacheKey(String);
+
+#[derive(Clone)]
+pub struct CacheValue(Component);
+
+impl std::fmt::Debug for CacheValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheValue").finish()
+    }
 }
 
 impl Engine {
@@ -216,7 +233,8 @@ impl Engine {
         loopback: Arc<std::sync::Mutex<loopback::Network>>,
     ) -> anyhow::Result<WorkloadService> {
         // Create a wasmtime component from the bytes
-        let wasmtime_component = Component::new(&self.inner, service.bytes)
+        let wasmtime_component = self
+            .load_component_bytes(service.bytes, service.digest)
             .context("failed to create component from bytes")?;
 
         // Create a linker for this component
@@ -270,6 +288,37 @@ impl Engine {
         Ok(service)
     }
 
+    /// Load a WebAssembly component from raw bytes or yields a previously compiled one.
+    #[instrument(name = "load_component_bytes", skip_all, fields(digest = %digest.as_ref().map(|d| d.as_ref()).unwrap_or("none")))]
+    fn load_component_bytes(
+        &self,
+        bytes: impl AsRef<[u8]>,
+        digest: Option<impl AsRef<str>>,
+    ) -> anyhow::Result<Component> {
+        match digest {
+            None => {
+                tracing::debug!("no digest provided, compiling component without caching");
+                let compiled = Component::new(&self.inner, bytes.as_ref())
+                    .context("failed to compile component from bytes")?;
+                Ok(compiled)
+            }
+            Some(digest) => {
+                let key = CacheKey(digest.as_ref().to_string());
+                let inner = &self.inner;
+                let bytes_ref = bytes.as_ref();
+
+                self.cache
+                    .try_get_with(key, || {
+                        Component::new(inner, bytes_ref)
+                            .context("failed to compile component from bytes")
+                            .map(CacheValue)
+                    })
+                    .map_err(|e| anyhow::anyhow!(e).context("compilation cache error"))
+                    .map(|v| v.0)
+            }
+        }
+    }
+
     /// Initialize a component that is a part of a workload, add wasi@0.2 interfaces (and
     /// wasi:http if the `http` feature is enabled) to the linker.
     #[instrument(name = "initialize_workload_component", skip_all, fields(component.name = %component.name))]
@@ -283,11 +332,9 @@ impl Engine {
         loopback: Arc<std::sync::Mutex<loopback::Network>>,
     ) -> anyhow::Result<WorkloadComponent> {
         // Create a wasmtime component from the bytes
-        let wasmtime_component = {
-            let _span = tracing::span!(tracing::Level::INFO, "parse_component_bytes").entered();
-            Component::new(&self.inner, component.bytes)
-                .context("failed to create component from bytes")?
-        };
+        let wasmtime_component = self
+            .load_component_bytes(component.bytes, component.digest)
+            .context("failed to create component from bytes")?;
 
         // Create a linker for this component
         let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);
@@ -343,6 +390,8 @@ pub struct EngineBuilder {
     config: Option<wasmtime::Config>,
     use_pooling_allocator: Option<bool>,
     max_instances: Option<u32>,
+    compilation_cache_size: Option<u64>,
+    compilation_cache_ttl: Option<Duration>,
 }
 
 impl EngineBuilder {
@@ -381,6 +430,13 @@ impl EngineBuilder {
         self.config = Some(config);
         self
     }
+
+    /// Configures a compilation cache for the engine.
+    pub fn with_compilation_cache(mut self, size: u64, ttl: Duration) -> Self {
+        self.compilation_cache_size = Some(size);
+        self.compilation_cache_ttl = Some(ttl);
+        self
+    }
 }
 
 impl EngineBuilder {
@@ -414,8 +470,15 @@ impl EngineBuilder {
             cfg
         };
 
-        let inner = wasmtime::Engine::new(&config)?;
-        Ok(Engine { inner })
+        let inner = wasmtime::Engine::new(&self.config)?;
+        let cache = Cache::builder()
+            .max_capacity(self.compilation_cache_size.unwrap_or(100))
+            .time_to_idle(
+                self.compilation_cache_ttl
+                    .unwrap_or(Duration::from_secs(600)),
+            )
+            .build();
+        Ok(Engine { inner, cache })
     }
 }
 

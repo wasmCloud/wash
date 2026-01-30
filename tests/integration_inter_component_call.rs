@@ -210,6 +210,7 @@ async fn test_inter_component_call() -> Result<()> {
             components: vec![
                 Component {
                     name: "caller".to_string(),
+                    digest: None,
                     bytes: bytes::Bytes::from_static(CALLER_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 128,
@@ -224,6 +225,7 @@ async fn test_inter_component_call() -> Result<()> {
                 },
                 Component {
                     name: "middleware".to_string(),
+                    digest: None,
                     bytes: bytes::Bytes::from_static(MIDDLEWARE_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,
@@ -238,6 +240,7 @@ async fn test_inter_component_call() -> Result<()> {
                 },
                 Component {
                     name: "callee".to_string(),
+                    digest: None,
                     bytes: bytes::Bytes::from_static(CALLEE_WASM),
                     local_resources: LocalResources {
                         memory_limit_mb: 256,

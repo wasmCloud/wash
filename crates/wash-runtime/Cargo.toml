@@ -33,6 +33,7 @@ chrono = { workspace = true }
 futures = { workspace = true }
 hostname = { workspace = true }
 hyper = { workspace = true, features = ["server", "http1"] }
+moka = { workspace = true, features = ["sync"]}
 names = { workspace = true }
 semver = { workspace = true }
 sysinfo = { workspace = true }
