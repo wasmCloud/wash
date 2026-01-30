@@ -454,6 +454,11 @@ impl EngineBuilder {
     pub fn build(mut self) -> anyhow::Result<Engine> {
         // If a custom config was provided, use it as-is
         let config = if let Some(cfg) = self.config.take() {
+            if self.max_instances.is_some() || self.use_pooling_allocator.is_some() {
+                bail!(
+                    "cannot use with_config() together with with_max_instances() or with_pooling_allocator()"
+                );
+            }
             cfg
         } else {
             let mut cfg = wasmtime::Config::default();
@@ -614,6 +619,7 @@ fn new_pooling_config(instances: u32) -> PoolingAllocationConfig {
     if let Some(v) = getenv("WASMTIME_POOLING_MAX_MEMORY_SIZE") {
         config.max_memory_size(v);
     }
+    #[cfg(not(windows))]
     if let Some(v) = getenv("WASMTIME_POOLING_TOTAL_GC_HEAPS") {
         config.total_gc_heaps(v);
     } else {
