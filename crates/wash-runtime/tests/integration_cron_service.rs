@@ -47,14 +47,14 @@ async fn test_cron_service_integration() -> Result<()> {
             name: "cron-service-workload".to_string(),
             annotations: HashMap::new(),
             service: Some(Service {
-                digest: "sha256:f47ac10b-58cc-4372-a567-0e02b2c3d479".to_string(),
+                digest: None,
                 bytes: bytes::Bytes::from_static(CRON_SERVICE_WASM),
                 local_resources: Default::default(),
                 max_restarts: 0,
             }),
             components: vec![Component {
                 name: "cron-component".to_string(),
-                digest: "sha256:7c9e6679-7425-40de-944b-e07fc1f90ae7".to_string(),
+                digest: None,
                 bytes: bytes::Bytes::from_static(CRON_COMPONENT_WASM),
                 local_resources: Default::default(),
                 max_invocations: 1,

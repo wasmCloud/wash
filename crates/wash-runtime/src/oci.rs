@@ -7,20 +7,20 @@
 //! # Examples
 //!
 //! ```no_run
-//! use wash_runtime::oci::{pull_component, OciConfig};
+//! use wash_runtime::oci::{pull_component, OciConfig, OciPullPolicy};
 //! use std::time::Duration;
 //!
 //! #[tokio::main]
 //! async fn main() -> anyhow::Result<()> {
 //!     // Basic pull
 //!     let config = OciConfig::default();
-//!     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config).await?;
+//!     let (component_bytes, _digest) = pull_component("ghcr.io/wasmcloud/components/http-hello-world:latest", config, OciPullPolicy::IfNotPresent).await?;
 //!     println!("Pulled component of {} bytes", component_bytes.len());
 //!
 //!     // Pull with credentials and timeout
 //!     let config = OciConfig::new_with_credentials("username", "password")
 //!         .with_timeout(Duration::from_secs(30));
-//!     let (bytes, digest) = pull_component("ghcr.io/my-org/private:latest", config).await?;
+//!     let (bytes, digest) = pull_component("ghcr.io/my-org/private:latest", config, OciPullPolicy::IfNotPresent).await?;
 //!     println!("Pulled {} bytes, digest: {}", bytes.len(), digest);
 //!
 //!     Ok(())
@@ -351,7 +351,7 @@ pub enum OciPullPolicy {
 ///
 /// # Examples
 /// ```no_run
-/// use wash_runtime::oci::{pull_component, OciConfig};
+/// use wash_runtime::oci::{pull_component, OciConfig, OciPullPolicy};
 ///
 /// #[tokio::main]
 /// async fn main() -> anyhow::Result<()> {
