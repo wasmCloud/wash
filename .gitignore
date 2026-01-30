@@ -3,7 +3,7 @@ tests/output
 .env
 
 # Keep Wasm files for testing
-!tests/fixtures/*.wasm
+!crates/wash/tests/fixtures/*.wasm
 
 # Ignore IDE specific files
 .vscode
