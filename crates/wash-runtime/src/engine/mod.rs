@@ -44,7 +44,7 @@ use std::time::Duration;
 
 use anyhow::{Context, bail};
 use moka::sync::Cache;
-use tracing::instrument;
+use tracing::{instrument, warn};
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
 use wasmtime_wasi::sockets::loopback;
@@ -52,6 +52,8 @@ use wasmtime_wasi::sockets::loopback;
 use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent, WorkloadService};
 use crate::types::{EmptyDirVolume, HostPathVolume, VolumeType, Workload};
+use std::env;
+use std::str::FromStr;
 use std::{path::PathBuf, sync::Arc};
 
 pub mod ctx;
@@ -385,8 +387,9 @@ impl Engine {
 /// for component execution.
 #[derive(Default)]
 pub struct EngineBuilder {
-    config: wasmtime::Config,
+    config: Option<wasmtime::Config>,
     use_pooling_allocator: Option<bool>,
+    max_instances: Option<u32>,
     compilation_cache_size: Option<u64>,
     compilation_cache_ttl: Option<Duration>,
 }
@@ -406,6 +409,13 @@ impl EngineBuilder {
         self
     }
 
+    /// Sets the maximum number of instances for the pooling allocator.
+    /// This is a 'hint' and can be overridden by environment variables.
+    pub fn with_max_instances(mut self, max: u32) -> Self {
+        self.max_instances = Some(max);
+        self
+    }
+
     /// Sets a custom wasmtime configuration for the engine.
     ///
     /// This allows full control over the wasmtime engine configuration,
@@ -417,7 +427,7 @@ impl EngineBuilder {
     /// # Returns
     /// The builder instance for method chaining.
     pub fn with_config(mut self, config: wasmtime::Config) -> Self {
-        self.config = config;
+        self.config = Some(config);
         self
     }
 
@@ -442,18 +452,30 @@ impl EngineBuilder {
     /// # Errors
     /// Returns an error if the wasmtime engine creation fails.
     pub fn build(mut self) -> anyhow::Result<Engine> {
-        // Async support must be enabled
-        self.config.async_support(true);
-        // The pooling allocator can be more efficient for workloads with many short-lived instances
-        if let Ok(true) = use_pooling_allocator_by_default(self.use_pooling_allocator) {
-            tracing::debug!("using pooling allocator by default");
-            self.config
-                .allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(
-                    PoolingAllocationConfig::default(),
-                ));
-        }
+        // If a custom config was provided, use it as-is
+        let config = if let Some(cfg) = self.config.take() {
+            if self.max_instances.is_some() || self.use_pooling_allocator.is_some() {
+                bail!(
+                    "cannot use with_config() together with with_max_instances() or with_pooling_allocator()"
+                );
+            }
+            cfg
+        } else {
+            let mut cfg = wasmtime::Config::default();
+            // Async support must be enabled
+            cfg.async_support(true);
 
-        let inner = wasmtime::Engine::new(&self.config)?;
+            // The pooling allocator can be more efficient for workloads with many short-lived instances
+            if let Ok(true) = use_pooling_allocator_by_default(self.use_pooling_allocator) {
+                tracing::debug!("using pooling allocator by default");
+                cfg.allocation_strategy(wasmtime::InstanceAllocationStrategy::Pooling(
+                    new_pooling_config(self.max_instances.unwrap_or(1000)),
+                ));
+            }
+            cfg
+        };
+
+        let inner = wasmtime::Engine::new(&config)?;
         let cache = Cache::builder()
             .max_capacity(self.compilation_cache_size.unwrap_or(100))
             .time_to_idle(
@@ -488,11 +510,16 @@ pub fn imports_wasi_http(component: &Component) -> bool {
 
 // TL;DR this is likely best for machines that can handle the large virtual memory requirement of the pooling allocator
 // https://github.com/bytecodealliance/wasmtime/blob/b943666650696f1eb7ff8b217762b58d5ef5779d/src/commands/serve.rs#L641-L656
-fn use_pooling_allocator_by_default(enable: Option<bool>) -> anyhow::Result<bool> {
-    const BITS_TO_TEST: u32 = 42;
-    if let Some(v) = enable {
+fn use_pooling_allocator_by_default(runtime_preference: Option<bool>) -> anyhow::Result<bool> {
+    if let Some(v) = runtime_preference {
         return Ok(v);
     }
+
+    if let Some(v) = getenv("WASMTIME_POOLING") {
+        return Ok(v);
+    }
+
+    const BITS_TO_TEST: u32 = 42;
     let mut config = wasmtime::Config::new();
     config.wasm_memory64(true);
     config.memory_reservation(1 << BITS_TO_TEST);
@@ -502,4 +529,101 @@ fn use_pooling_allocator_by_default(enable: Option<bool>) -> anyhow::Result<bool
     // page size here from the maximum size.
     let ty = wasmtime::MemoryType::new64(0, Some(1 << (BITS_TO_TEST - 16)));
     Ok(wasmtime::Memory::new(&mut store, ty).is_ok())
+}
+
+fn getenv<T>(key: &str) -> Option<T>
+where
+    T: FromStr,
+    T::Err: core::fmt::Debug,
+{
+    match env::var(key).as_deref().map(FromStr::from_str) {
+        Ok(Ok(v)) => Some(v),
+        Ok(Err(err)) => {
+            warn!(?err, "failed to parse `{key}` value, ignoring");
+            None
+        }
+        Err(std::env::VarError::NotPresent) => None,
+        Err(std::env::VarError::NotUnicode(..)) => {
+            warn!("`{key}` value is not valid UTF-8, ignoring");
+            None
+        }
+    }
+}
+
+fn new_pooling_config(instances: u32) -> PoolingAllocationConfig {
+    let mut config = PoolingAllocationConfig::default();
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_UNUSED_WASM_SLOTS") {
+        config.max_unused_warm_slots(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_DECOMMIT_BATCH_SIZE") {
+        config.decommit_batch_size(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_ASYNC_STACK_KEEP_RESIDENT") {
+        config.async_stack_keep_resident(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_LINEAR_MEMORY_KEEP_RESIDENT") {
+        config.linear_memory_keep_resident(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_TABLE_KEEP_RESIDENT") {
+        config.table_keep_resident(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_TOTAL_COMPONENT_INSTANCES") {
+        config.total_component_instances(v);
+    } else {
+        config.total_component_instances(instances);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_COMPONENT_INSTANCE_SIZE") {
+        config.max_component_instance_size(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_CORE_INSTANCES_PER_COMPONENT") {
+        config.max_core_instances_per_component(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_MEMORIES_PER_COMPONENT") {
+        config.max_memories_per_component(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_TABLES_PER_COMPONENT") {
+        config.max_tables_per_component(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_TOTAL_MEMORIES") {
+        config.total_memories(v);
+    } else {
+        config.total_memories(instances);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_TOTAL_TABLES") {
+        config.total_tables(v);
+    } else {
+        config.total_tables(instances);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_TOTAL_STACKS") {
+        config.total_stacks(v);
+    } else {
+        config.total_stacks(instances);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_TOTAL_CORE_INSTANCES") {
+        config.total_core_instances(v);
+    } else {
+        config.total_core_instances(instances);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_CORE_INSTANCE_SIZE") {
+        config.max_core_instance_size(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_TABLES_PER_MODULE") {
+        config.max_tables_per_module(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_TABLE_ELEMENTS") {
+        config.table_elements(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_MEMORIES_PER_MODULE") {
+        config.max_memories_per_module(v);
+    }
+    if let Some(v) = getenv("WASMTIME_POOLING_MAX_MEMORY_SIZE") {
+        config.max_memory_size(v);
+    }
+    #[cfg(not(windows))]
+    if let Some(v) = getenv("WASMTIME_POOLING_TOTAL_GC_HEAPS") {
+        config.total_gc_heaps(v);
+    } else {
+        config.total_gc_heaps(instances);
+    }
+    config
 }
