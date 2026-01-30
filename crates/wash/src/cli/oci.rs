@@ -56,6 +56,7 @@ pub struct PullCommand {
     #[clap(long = "insecure", default_value_t = false)]
     insecure: bool,
     /// Username for basic authentication
+    #[clap(short, long)]
     user: Option<String>,
     /// Password for basic authentication
     #[clap(short, long)]

@@ -135,6 +135,7 @@ pub struct DevComponent {
 pub struct DevConfig {
     /// Command to run the component in dev mode
     /// If not specified, defaults to 'build.command'.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     /// Address for the dev server to bind to (default: "0.0.0.0:8000")
     #[serde(skip_serializing_if = "Option::is_none")]
