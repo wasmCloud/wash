@@ -410,7 +410,7 @@ impl EngineBuilder {
     }
 
     /// Sets the maximum number of instances for the pooling allocator.
-    /// This is a 'hint' and can be overidden by environment variables.
+    /// This is a 'hint' and can be overridden by environment variables.
     pub fn with_max_instances(mut self, max: u32) -> Self {
         self.max_instances = Some(max);
         self
