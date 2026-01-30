@@ -43,8 +43,8 @@ use std::hash::Hash;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
-use tracing::{instrument, warn};
 use moka::sync::Cache;
+use tracing::{instrument, warn};
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
 use wasmtime_wasi::sockets::loopback;
