@@ -81,7 +81,7 @@ runtime:
     registry: ghcr.io
     repository: wasmcloud/wash
     pull_policy: Always
-    tag: "2.0.0-rc.6"
+    tag: "2.0.0-rc.7"
   hostGroups:
     - name: default
       replicas: 1
