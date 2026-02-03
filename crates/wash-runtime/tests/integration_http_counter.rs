@@ -23,7 +23,7 @@ use wash_runtime::{
     wit::WitInterface,
 };
 
-const HTTP_COUNTER_WASM: &[u8] = include_bytes!("fixtures/http_counter.wasm");
+const HTTP_COUNTER_WASM: &[u8] = include_bytes!("wasm/http_counter.wasm");
 
 /// Standard set of WASI interfaces used by the http-counter component.
 fn http_counter_host_interfaces(http_host_config: &str) -> Vec<WitInterface> {

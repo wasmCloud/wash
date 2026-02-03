@@ -26,7 +26,7 @@ use wash_runtime::{
     wit::WitInterface,
 };
 
-const HTTP_WEBGPU_WASM: &[u8] = include_bytes!("fixtures/http_webgpu.wasm");
+const HTTP_WEBGPU_WASM: &[u8] = include_bytes!("wasm/http_webgpu.wasm");
 
 #[tokio::test]
 async fn test_http_webgpu_integration() -> Result<()> {
