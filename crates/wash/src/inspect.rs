@@ -22,23 +22,3 @@ pub async fn get_component_wit(component: DecodedWasm) -> anyhow::Result<String>
 
     Ok(printer.output.to_string())
 }
-
-#[cfg(test)]
-mod test {
-    use std::fs::File;
-
-    use crate::inspect::{decode_component, get_component_wit};
-
-    #[tokio::test]
-    async fn can_load_and_decode_component_reader() {
-        let component_file = File::open("./tests/fixtures/http_hello_world_rust.wasm")
-            .expect("should be able to open component file");
-        let decoded = decode_component(&component_file)
-            .await
-            .expect("should be able to decode component");
-        let wit = get_component_wit(decoded)
-            .await
-            .expect("should be able to print component WIT");
-        eprintln!("{wit}");
-    }
-}

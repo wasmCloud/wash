@@ -93,6 +93,48 @@ wash-runtime provides three main abstractions:
 2. **Host**: Runtime environment with plugin management
 3. **Workload**: High-level API for managing component lifecycles
 
+## Workload Anatomy
+
+Workloads are the fundamental composition unit in wash. They define what your WebAssembly components need, and the runtime handles the rest—matching capabilities, binding plugins, and wiring everything together automatically.
+
+A Workload bundles everything the runtime needs to execute your components:
+
+```
+Workload
+├── namespace / name / annotations    # Identity and metadata
+├── Service?                          # Long-running process (wasi:cli/run)
+├── Components[]                      # Pooled, invocable units
+├── Volumes[]                         # HostPath | EmptyDir
+└── host_interfaces[]                 # WIT interfaces to satisfy
+```
+
+The key insight: **components declare what they need via WIT interfaces, and the runtime provides implementations**. Your component imports `wasi:blobstore`—it doesn't care whether that's backed by the filesystem, memory, or NATS. The runtime finds a matching plugin and binds it.
+
+Services are long-running processes that implement `wasi:cli/run`. Components are pooled and invoked on-demand—perfect for request handlers. Each can have its own `LocalResources` defining memory limits, environment variables, configuration, and volume mounts.
+
+Volumes come in two flavors: `HostPath` mounts a directory from the host filesystem, while `EmptyDir` creates ephemeral storage that lives only as long as the workload.
+
+## Component Linking
+
+Components within a workload can call each other through WIT interfaces. If component A exports an interface and component B imports it, the runtime automatically wires them together.
+
+```
+Workload
+├── http-handler (Component)
+│   └── imports: myapp:auth/validator
+├── auth-service (Component)
+│   └── exports: myapp:auth/validator
+└── [runtime links http-handler → auth-service]
+```
+
+Services can also call components. A long-running service might delegate work to pooled components, letting the service maintain state while components handle individual operations.
+
+### Constraints
+
+- **No circular dependencies** — If A imports from B, B cannot import from A (directly or transitively)
+- **Single implementation** — Only one component can export a given interface within a workload
+- **Same workload** — WIT calls are always local. Use messaging or HTTP for cross-workload calls
+
 ## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](../../LICENSE) file for details.

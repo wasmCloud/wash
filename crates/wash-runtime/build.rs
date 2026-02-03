@@ -25,65 +25,70 @@ fn workspace_dir() -> anyhow::Result<PathBuf> {
     }
 }
 
-fn build_fixtures_rust(workspace_dir: &Path, include_list: &[&str]) -> anyhow::Result<()> {
-    let examples_dir = workspace_dir.join("examples");
+fn check_and_rebuild_fixtures(
+    workspace_dir: &Path,
+    tracked_examples: &[&str],
+) -> anyhow::Result<()> {
     let fixtures_dir = workspace_dir.join("crates/wash-runtime/tests/fixtures");
+    let wasm_dir = workspace_dir.join("crates/wash-runtime/tests/wasm");
 
-    // Create fixtures directory if it doesn't exist
-    if fs::create_dir_all(&fixtures_dir).is_err() {
+    if !fixtures_dir.exists() {
+        println!("No fixtures dir found at {}", fixtures_dir.display());
+        anyhow::bail!("No fixtures dir found");
+    }
+
+    // Create wasm directory if it doesn't exist
+    if fs::create_dir_all(&wasm_dir).is_err() {
         println!(
-            "Failed to create fixtures directory at {}. Some tests will fail.",
-            fixtures_dir.display()
+            "Failed to create wasm directory at {}. Some tests will fail.",
+            wasm_dir.display()
         );
-        return Ok(());
+        anyhow::bail!("Failed to create wasm directory");
     }
 
-    if !examples_dir.exists() {
-        println!("No examples dir found at {}", examples_dir.display());
-        return Ok(());
-    }
-
-    // Iterate through example directories
-    for entry in fs::read_dir(&examples_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if !path.is_dir() {
-            continue;
+    // Tell cargo to rerun this build script if (only) fixture source files change
+    for example in tracked_examples {
+        let example_dir = fixtures_dir.join(example);
+        if !example_dir.exists() {
+            return Err(anyhow::anyhow!(
+                "Fixture directory {} does not exist",
+                example_dir.display()
+            ));
         }
 
-        let cargo_toml = path.join("Cargo.toml");
-        if !cargo_toml.exists() {
-            continue;
+        // Only watch source files and Cargo.toml
+        println!(
+            "cargo:rerun-if-changed={}/Cargo.toml",
+            example_dir.display()
+        );
+
+        let src_dir = example_dir.join("src");
+        if src_dir.exists() {
+            println!("cargo:rerun-if-changed={}", src_dir.display());
         }
 
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or_else(|| anyhow::anyhow!("Invalid directory name"))?;
-
-        // Check if name is in include list
-        if !include_list.contains(&name) {
-            continue;
+        let wit_dir = example_dir.join("wit");
+        if wit_dir.exists() {
+            println!("cargo:rerun-if-changed={}", wit_dir.display());
         }
 
         // Build the example
         let status = Command::new("cargo")
             .args(["build", "--target", "wasm32-wasip2", "--release"])
-            .current_dir(&path)
+            .current_dir(&example_dir)
             .status();
 
         match status {
             Ok(s) if s.success() => {
                 // Copy wasm artifacts
-                let artifact_dir = path.join("target/wasm32-wasip2/release");
+                let artifact_dir = example_dir.join("target/wasm32-wasip2/release");
                 if artifact_dir.exists() {
                     for wasm_entry in fs::read_dir(&artifact_dir)? {
                         let wasm_entry = wasm_entry?;
                         let wasm_path = wasm_entry.path();
 
                         if wasm_path.extension().and_then(|s| s.to_str()) == Some("wasm") {
-                            let dest = fixtures_dir
+                            let dest = wasm_dir
                                 .join(wasm_path.file_name().expect("wasm file should have a name"));
                             fs::copy(&wasm_path, &dest)?;
                         }
@@ -91,50 +96,18 @@ fn build_fixtures_rust(workspace_dir: &Path, include_list: &[&str]) -> anyhow::R
                 }
             }
             Ok(_) => {
-                eprintln!("Failed to build {}", name);
+                println!("cargo:warning=Failed to build {}", example);
                 continue;
             }
             Err(e) => {
-                eprintln!("Failed to execute cargo for {}: {}", name, e);
+                println!(
+                    "cargo:warning=Failed to execute cargo for {}: {}",
+                    example, e
+                );
                 continue;
             }
         }
     }
-
-    Ok(())
-}
-
-fn check_and_rebuild_fixtures(
-    workspace_dir: &Path,
-    tracked_examples: &[&str],
-) -> anyhow::Result<()> {
-    let examples_dir = workspace_dir.join("examples");
-
-    // Tell cargo to rerun this build script if (only) example source files change
-    if examples_dir.exists() {
-        for example in tracked_examples {
-            let example_dir = examples_dir.join(example);
-            if example_dir.exists() {
-                // Only watch source files and Cargo.toml
-                println!(
-                    "cargo:rerun-if-changed={}/Cargo.toml",
-                    example_dir.display()
-                );
-
-                let src_dir = example_dir.join("src");
-                if src_dir.exists() {
-                    println!("cargo:rerun-if-changed={}", src_dir.display());
-                }
-
-                let wit_dir = example_dir.join("wit");
-                if wit_dir.exists() {
-                    println!("cargo:rerun-if-changed={}", wit_dir.display());
-                }
-            }
-        }
-    }
-
-    build_fixtures_rust(workspace_dir, tracked_examples)?;
 
     Ok(())
 }
@@ -154,6 +127,9 @@ fn main() {
         "http-webgpu",
         "cpu-usage-service",
         "messaging-handler",
+        "inter-component-call-caller",
+        "inter-component-call-callee",
+        "inter-component-call-middleware",
     ];
 
     // Rebuild fixtures if examples changed
@@ -186,4 +162,6 @@ fn main() {
         .expect("failed to register descriptor")
         .build(&[".wasmcloud.runtime.v2"])
         .expect("failed to build final protos");
+
+    println!("cargo:rerun-if-changed=build.rs");
 }

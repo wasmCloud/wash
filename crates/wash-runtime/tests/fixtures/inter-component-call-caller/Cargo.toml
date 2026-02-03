@@ -1,0 +1,13 @@
+[package]
+name = "inter-component-call-caller"
+edition = "2024"
+version = "0.1.0"
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.46.0"
+
