@@ -6439,6 +6439,7 @@ dependencies = [
  "async-trait",
  "bytes",
  "chrono",
+ "clap",
  "docker_credential",
  "futures",
  "gag",

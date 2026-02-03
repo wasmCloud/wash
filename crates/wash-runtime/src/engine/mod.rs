@@ -56,6 +56,31 @@ use std::env;
 use std::str::FromStr;
 use std::{path::PathBuf, sync::Arc};
 
+#[cfg(feature = "experimental-wasm-features")]
+use clap::ValueEnum;
+
+/// Experimental Wasm features that can be enabled in wasmtime.
+///
+/// These features are not yet stable and may change or be removed in future versions.
+/// Use with caution in production environments.
+///
+/// Based on wasmtime's experimental Wasm features:
+/// https://docs.wasmtime.dev/api/wasmtime/struct.Config.html#method.wasm_features
+#[cfg(feature = "experimental-wasm-features")]
+#[derive(Clone, Debug, ValueEnum)]
+pub enum ExperimentalWasmFeature {
+    /// Enable garbage collection support
+    Gc,
+    /// Enable exception handling support
+    ExceptionHandling,
+    /// Enable threading support
+    Threads,
+    /// Enable function references support
+    FunctionReferences,
+    /// Enable wide arithmetic support
+    WideArithmetic,
+}
+
 pub mod ctx;
 mod value;
 pub mod workload;
@@ -385,13 +410,28 @@ impl Engine {
 /// The builder pattern allows for flexible configuration of the engine
 /// before creation. By default, it enables async support which is required
 /// for component execution.
-#[derive(Default)]
 pub struct EngineBuilder {
     config: Option<wasmtime::Config>,
     use_pooling_allocator: Option<bool>,
     max_instances: Option<u32>,
     compilation_cache_size: Option<u64>,
     compilation_cache_ttl: Option<Duration>,
+    #[cfg(feature = "experimental-wasm-features")]
+    experimental_wasm_features: Vec<ExperimentalWasmFeature>,
+}
+
+impl Default for EngineBuilder {
+    fn default() -> Self {
+        Self {
+            config: None,
+            use_pooling_allocator: None,
+            max_instances: None,
+            compilation_cache_size: None,
+            compilation_cache_ttl: None,
+            #[cfg(feature = "experimental-wasm-features")]
+            experimental_wasm_features: Vec::new(),
+        }
+    }
 }
 
 impl EngineBuilder {
@@ -437,6 +477,25 @@ impl EngineBuilder {
         self.compilation_cache_ttl = Some(ttl);
         self
     }
+
+    /// Enables experimental Wasm features in the wasmtime engine.
+    ///
+    /// These features are not yet stable and may change or be removed in future versions.
+    /// Use with caution in production environments.
+    ///
+    /// # Arguments
+    /// * `features` - A list of experimental features to enable
+    ///
+    /// # Returns
+    /// The builder instance for method chaining.
+    #[cfg(feature = "experimental-wasm-features")]
+    pub fn with_experimental_wasm_features(
+        mut self,
+        features: Vec<ExperimentalWasmFeature>,
+    ) -> Self {
+        self.experimental_wasm_features = features;
+        self
+    }
 }
 
 impl EngineBuilder {
@@ -451,9 +510,10 @@ impl EngineBuilder {
     ///
     /// # Errors
     /// Returns an error if the wasmtime engine creation fails.
+    #[allow(unused_mut)] // `config` is mutated when experimental-wasm-features is enabled
     pub fn build(mut self) -> anyhow::Result<Engine> {
         // If a custom config was provided, use it as-is
-        let config = if let Some(cfg) = self.config.take() {
+        let mut config = if let Some(cfg) = self.config.take() {
             if self.max_instances.is_some() || self.use_pooling_allocator.is_some() {
                 bail!(
                     "cannot use with_config() together with with_max_instances() or with_pooling_allocator()"
@@ -474,6 +534,27 @@ impl EngineBuilder {
             }
             cfg
         };
+
+        // Apply experimental Wasm features if enabled
+        #[cfg(feature = "experimental-wasm-features")]
+        {
+            for feature in &self.experimental_wasm_features {
+                match feature {
+                    ExperimentalWasmFeature::Gc => {
+                        config.wasm_gc(true);
+                    }
+                    ExperimentalWasmFeature::Threads => {
+                        config.wasm_threads(true);
+                    }
+                    ExperimentalWasmFeature::Exceptions => {
+                        config.wasm_exceptions(true);
+                    }
+                    ExperimentalWasmFeature::FunctionReferences => {
+                        config.wasm_function_references(true);
+                    }
+                }
+            }
+        }
 
         let inner = wasmtime::Engine::new(&config)?;
         let cache = Cache::builder()

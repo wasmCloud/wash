@@ -15,6 +15,10 @@ pub mod washlet;
 // Re-export wasmtime for convenience
 pub use wasmtime;
 
+// Re-export experimental wasm features enum for CLI use
+#[cfg(feature = "experimental-wasm-features")]
+pub use engine::ExperimentalWasmFeature;
+
 #[cfg(test)]
 mod test {
     use std::collections::HashMap;

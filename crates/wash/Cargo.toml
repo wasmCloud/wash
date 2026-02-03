@@ -89,6 +89,9 @@ reqwest = { workspace = true, features = ["json"] }
 wash-runtime = { workspace = true, features = ["wasi-keyvalue", "wasi-blobstore"] }
 wat = { workspace = true }
 
+[features]
+experimental-wasm-features = ["wash-runtime/experimental-wasm-features"]
+
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/{name}-v{version}/wash-{ target }{ binary-ext }"
 pkg-fmt = "bin"

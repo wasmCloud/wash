@@ -5,6 +5,9 @@ use clap::Args;
 use tracing::info;
 use wash_runtime::plugin::{self};
 
+#[cfg(feature = "experimental-wasm-features")]
+use wash_runtime::ExperimentalWasmFeature;
+
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 
 #[derive(Debug, Clone, Args)]
@@ -73,6 +76,11 @@ pub struct HostCommand {
     /// Timeout for pulling artifacts from OCI registries
     #[clap(long = "registry-pull-timeout", value_parser = humantime::parse_duration, default_value = "30s")]
     pub registry_pull_timeout: Duration,
+
+    /// Enable experimental Wasm features (can be repeated)
+    #[cfg(feature = "experimental-wasm-features")]
+    #[clap(long = "experimental-wasm-feature", value_enum)]
+    pub experimental_wasm_features: Vec<ExperimentalWasmFeature>,
 }
 
 impl CliCommand for HostCommand {
@@ -114,7 +122,24 @@ impl CliCommand for HostCommand {
             ..Default::default()
         };
 
+        // Build a HostBuilder with optional custom engine for experimental features
+        let mut host_builder = wash_runtime::host::HostBuilder::new();
+
+        #[cfg(feature = "experimental-wasm-features")]
+        if !self.experimental_wasm_features.is_empty() {
+            tracing::info!(
+                "Enabling experimental Wasm features: {:?}",
+                self.experimental_wasm_features
+            );
+            let engine = wash_runtime::engine::Engine::builder()
+                .with_experimental_wasm_features(self.experimental_wasm_features.clone())
+                .build()
+                .context("failed to build engine with experimental features")?;
+            host_builder = host_builder.with_engine(engine);
+        }
+
         let mut cluster_host_builder = wash_runtime::washlet::ClusterHostBuilder::default()
+            .with_host_builder(host_builder)
             .with_host_config(host_config)
             .with_nats_client(Arc::new(scheduler_nats_client))
             .with_host_group(self.host_group.clone())

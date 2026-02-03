@@ -23,10 +23,12 @@ wasi-logging = []
 wasi-blobstore = []
 wasi-keyvalue = []
 wasi-webgpu = ["dep:wasi-webgpu-wasmtime", "dep:wasi-graphics-context-wasmtime"]
+experimental-wasm-features = ["dep:clap", "wasmtime/gc", "wasmtime/gc-drc"]
 
 [dependencies]
 anyhow = { workspace = true }
 async-nats = { workspace = true, features = ["aws-lc-rs"] }
+clap = { workspace = true, optional = true, features = ["derive", "std"] }
 async-trait = { workspace = true }
 bytes = { workspace = true }
 chrono = { workspace = true }

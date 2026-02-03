@@ -294,6 +294,74 @@ diff -ru ./crates/wasi/tests ~/.cargo/git/checkouts/wasmtime-*/*/crates/wasi/tes
 | 2.0.0-rc.6 | v41.0.0  | WIT consolidation, Command API changes, Access type, TryFrom clocks |
 | 2.0.0-rc.5 | v38.0.0  | Baseline before major p3 sync |
 
+## Experimental Wasm Features
+
+wash supports experimental Wasm features that can be enabled at runtime. These features are gated behind the `experimental-wasm-features` Cargo feature flag and may change or be removed in future versions.
+
+### Available Experimental Features
+
+| Feature | CLI Flag | Description |
+|---------|----------|-------------|
+| `Gc` | `--experimental-wasm-feature gc` | Garbage collection support |
+| `ReferenceTypes` | `--experimental-wasm-feature reference-types` | Reference types support |
+| `Exceptions` | `--experimental-wasm-feature exceptions` | Exception handling support |
+| `FunctionReferences` | `--experimental-wasm-feature function-references` | Function references support |
+
+### Checking Feature Status Between Releases
+
+Some experimental features may become enabled by default in wasmtime as they stabilize. To verify whether a feature is still experimental or has been promoted to default:
+
+1. **Check wasmtime's default configuration**:
+   ```bash
+   # Review wasmtime's Config defaults in the release notes
+   # https://github.com/bytecodealliance/wasmtime/blob/main/CHANGELOG.md
+   ```
+
+2. **Check wasmtime's feature documentation**:
+   ```rust
+   // In wasmtime source, look for the feature's default value
+   // e.g., wasm_gc defaults in wasmtime::Config
+   ```
+
+3. **Test feature behavior**:
+   ```bash
+   # Run without the experimental flag - if your component works,
+   # the feature may now be default
+   wash host
+
+   # vs. with the flag
+   wash host --experimental-wasm-feature gc
+   ```
+
+### Feature Lifecycle
+
+Experimental features typically follow this progression:
+
+1. **Experimental** - Requires `--experimental-wasm-feature` flag
+2. **Stabilizing** - May work without flag in newer wasmtime versions
+3. **Default** - Enabled by default, flag becomes a no-op
+4. **Deprecated flag** - Flag may be removed in future wash releases
+
+### Upgrading When Features Graduate
+
+When a wasmtime upgrade promotes an experimental feature to default:
+
+1. **Test without the flag** - Verify your workloads still function
+2. **Remove redundant flags** - Clean up CLI invocations using now-default features
+3. **Update documentation** - Remove references to the flag for that feature
+4. **Consider removing from wash** - If all current experimental features become default, the `experimental-wasm-features` Cargo feature may be deprecated
+
+### Building with Experimental Features
+
+```bash
+# Build wash with experimental feature support
+cargo build -p wash --features experimental-wasm-features
+
+# Run with experimental features
+./target/debug/wash host --experimental-wasm-feature gc --experimental-wasm-feature function-references
+./target/debug/wash dev --experimental-wasm-feature gc
+```
+
 ## Related Resources
 
 - [Wasmtime Changelog](https://github.com/bytecodealliance/wasmtime/blob/main/CHANGELOG.md)

@@ -14,6 +14,9 @@ use wash_runtime::{
     },
 };
 
+#[cfg(feature = "experimental-wasm-features")]
+use wash_runtime::ExperimentalWasmFeature;
+
 use crate::{
     cli::{CliCommand, CliContext, CommandOutput, component_build::build_dev_component},
     config::{Config, load_config},
@@ -22,7 +25,12 @@ use crate::{
 };
 
 #[derive(Debug, Clone, Args)]
-pub struct DevCommand {}
+pub struct DevCommand {
+    /// Enable experimental Wasm features (can be repeated)
+    #[cfg(feature = "experimental-wasm-features")]
+    #[clap(long = "experimental-wasm-feature", value_enum)]
+    pub experimental_wasm_features: Vec<ExperimentalWasmFeature>,
+}
 
 impl CliCommand for DevCommand {
     async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
@@ -57,6 +65,20 @@ impl CliCommand for DevCommand {
             .unwrap_or_else(|| "0.0.0.0:8000".to_string());
 
         let mut host_builder = Host::builder();
+
+        // Build custom engine with experimental features if requested
+        #[cfg(feature = "experimental-wasm-features")]
+        if !self.experimental_wasm_features.is_empty() {
+            tracing::info!(
+                "Enabling experimental Wasm features: {:?}",
+                self.experimental_wasm_features
+            );
+            let engine = wash_runtime::engine::Engine::builder()
+                .with_experimental_wasm_features(self.experimental_wasm_features.clone())
+                .build()
+                .context("failed to build engine with experimental features")?;
+            host_builder = host_builder.with_engine(engine);
+        }
 
         // Enable wasi config
         host_builder =
