@@ -1851,13 +1851,11 @@ mod tests {
     }
 
     /// HTTP counter component fixture for testing with actual WIT interfaces.
-    const HTTP_COUNTER_WASM: &[u8] = include_bytes!("../../tests/fixtures/http_counter.wasm");
+    const HTTP_COUNTER_WASM: &[u8] = include_bytes!("../../tests/wasm/http_counter.wasm");
 
-    const MESSAGE_HANDLER_WASM: &[u8] =
-        include_bytes!("../../tests/fixtures/messaging_handler.wasm");
+    const MESSAGE_HANDLER_WASM: &[u8] = include_bytes!("../../tests/wasm/messaging_handler.wasm");
 
-    const SERVICE_WASM: &[u8] = include_bytes!("../../tests/fixtures/cpu-usage-service.wasm");
-
+    const SERVICE_WASM: &[u8] = include_bytes!("../../tests/wasm/cpu-usage-service.wasm");
     /// Creates a test component using the http_counter fixture.
     /// This provides a real component with actual WIT interface imports.
     fn create_test_component(id: &str) -> WorkloadComponent {
