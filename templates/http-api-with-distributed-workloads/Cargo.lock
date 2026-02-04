@@ -391,7 +391,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "task-one"
+name = "task-leet"
 version = "0.1.0"
 dependencies = [
  "wit-bindgen 0.46.0",

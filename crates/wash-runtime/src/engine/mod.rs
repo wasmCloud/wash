@@ -464,6 +464,8 @@ impl EngineBuilder {
             let mut cfg = wasmtime::Config::default();
             // Async support must be enabled
             cfg.async_support(true);
+            cfg.wasm_component_model(true);
+            cfg.wasm_component_model_async(true);
 
             // The pooling allocator can be more efficient for workloads with many short-lived instances
             if let Ok(true) = use_pooling_allocator_by_default(self.use_pooling_allocator) {
