@@ -1,0 +1,10 @@
+package wasmcloud:template@0.1.0;
+
+world http-api {
+  import wasmcloud:messaging/consumer@0.2.0;
+}
+
+world task {
+  import wasmcloud:messaging/consumer@0.2.0;
+  export wasmcloud:messaging/handler@0.2.0;
+}
