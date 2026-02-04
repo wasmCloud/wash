@@ -6,5 +6,8 @@ build:
 
 dev:
   components:
-    - name: task-one
-      file: target/wasm32-wasip2/release/task_one.wasm
+    - name: task-leet
+      file: target/wasm32-wasip2/release/task_leet.wasm
+
+new:
+  command: cargo fetch
