@@ -20,6 +20,8 @@
 //! - [`wasi_blobstore`] - Object storage (`wasi:blobstore`)
 //! - [`wasi_keyvalue`] - Key-value storage (`wasi:keyvalue`)
 //! - [`wasi_logging`] - Structured logging (`wasi:logging`)
+//! - [`wasi_otel`] - OpenTelemetry tracing, metrics, and logs (`wasi:otel/*`)
+
 
 use std::future::Future;
 use std::path::PathBuf;
@@ -42,6 +44,9 @@ pub mod wasi_keyvalue;
 
 #[cfg(feature = "wasi-logging")]
 pub mod wasi_logging;
+
+#[cfg(feature = "wasi-otel")]
+pub mod wasi_otel;
 
 pub mod wasmcloud_messaging;
 
