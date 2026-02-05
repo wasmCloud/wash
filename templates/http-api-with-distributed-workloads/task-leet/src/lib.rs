@@ -10,6 +10,8 @@ wit_bindgen::generate!({
 
 use crate::wasmcloud::messaging::types::BrokerMessage;
 use wasmcloud::messaging::consumer;
+#[allow(unused)]
+use wstd::prelude::*;
 
 struct Component;
 export!(Component);
