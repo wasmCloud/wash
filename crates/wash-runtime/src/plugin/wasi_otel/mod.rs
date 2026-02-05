@@ -51,12 +51,9 @@ pub struct WasiOtelConfig {
 impl Default for WasiOtelConfig {
     fn default() -> Self {
         Self {
-            endpoint: std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-                .unwrap_or_else(|_| "http://localhost:5318".to_string()),
-            protocol: std::env::var("OTEL_EXPORTER_OTLP_PROTOCOL")
-                .unwrap_or_else(|_| "grpc".to_string()),
-            service_name: std::env::var("OTEL_SERVICE_NAME")
-                .unwrap_or_else(|_| "wash-component".to_string()),
+            endpoint: String::new(),
+            protocol: String::new(),
+            service_name: String::new(),
             propagate_context: true,
             batch_timeout_ms: 5000,
         }
