@@ -1,5 +1,5 @@
 [package]
-name = "hello-rust"
+name = "http-hello-world"
 edition = "2021"
 version = "0.1.0"
 

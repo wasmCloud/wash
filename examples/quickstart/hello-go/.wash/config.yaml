@@ -1,7 +1,0 @@
-# Skip codegen during dev
-dev:
-  command: make build
-
-build:
-  command: make bindgen build
-  component_path: build/hello-go.wasm

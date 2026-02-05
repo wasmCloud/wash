@@ -1,29 +1,23 @@
-# HTTP Hello World in TypeScript
+# HTTP Hello World in Rust
 
-This is a simple JavaScript ([TypeScript][ts]) Wasm example that responds with a "Hello World" message for each request. 
-
-[ts]: https://www.typescriptlang.org/
+This is a simple Rust Wasm example that responds with a "Hello World" message for each request.
 
 ## Prerequisites
 
 - [Wasm Shell (`wash`)](https://wasmcloud.com/docs/v2.0.0-rc/wash/) v2.0.0-rc.6
-- [Node Package Manager (`npm`)][npm]
-- [NodeJS runtime][nodejs]
-
-[node]: https://nodejs.org
-[npm]: https://github.com/npm/cli
+- `cargo` 1.82+
 
 ## Local development
 
 To get started developing this example quickly, clone the repo and run `wash dev`:
 
-```shell
+```bash
 wash dev
 ```
 
 `wash dev` does many things for you:
 
-- Builds this project (including necessary `npm` script targets)
+- Builds this project
 - Runs the component locally, exposing the application at `localhost:8000`
 - Watches your code for changes and re-deploys when necessary.
 
@@ -31,15 +25,15 @@ wash dev
 
 Once `wash dev` is serving your component, send a request to the running component:
 
-```shell
+```bash
 curl localhost:8000
 ```
 ```text
-Hello from TypeScript!
+Hello from Rust!
 ```
 
 ## Build Wasm binary
 
 ```bash
-wash build
+cargo build --target wasm32-wasip2 --release
 ```
