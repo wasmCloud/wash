@@ -118,6 +118,19 @@ wit-component = { version = "0.244.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
 wat = { version = "1.244.0", default-features = false }
 
+# postgres deps
+bigdecimal = { version = "0.4", default-features = false }
+bit-vec = { version = "0.6", default-features = false }
+cidr = { version = "0.2", default-features = false }
+deadpool-postgres = { version = "0.14", default-features = false }
+geo-types = { version = "0.7", default-features = false }
+pg_bigdecimal = { version = "0.1", default-features = false }
+postgres-types = { version = "0.2", default-features = false }
+tokio-postgres = { version = "0.7", default-features = false }
+tokio-postgres-rustls = { version = "0.13", default-features = false }
+ulid = { version = "1", default-features = false }
+webpki-roots = { version = "0.26", default-features = false }
+
 # wasmtime-wasi deps
 bitflags = "2.0"
 cap-fs-ext = "3.4.4"

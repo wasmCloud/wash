@@ -43,6 +43,9 @@ pub mod wasi_keyvalue;
 #[cfg(feature = "wasi-logging")]
 pub mod wasi_logging;
 
+#[cfg(all(feature = "wasmcloud-postgres", not(doctest)))]
+pub mod wasmcloud_postgres;
+
 pub mod wasmcloud_messaging;
 
 #[cfg(all(feature = "wasi-webgpu", not(target_os = "windows")))]

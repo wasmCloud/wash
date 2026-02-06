@@ -55,3 +55,12 @@ registry = "wasmcloud.com"
 requirement = "=0.2.0"
 version = "0.2.0"
 digest = "sha256:bd2182f0a304b9a54a6b363f2f655422c8c0f00a03073c0195f1614a92dfdc7b"
+
+[[packages]]
+name = "wasmcloud:postgres"
+registry = "wasmcloud.com"
+
+[[packages.versions]]
+requirement = "=0.1.1-draft"
+version = "0.1.1-draft"
+digest = "sha256:8bb72ea90cecb5c87e463da8c1a7642b61a44e6c7993fcab6112c03f44a9140a"

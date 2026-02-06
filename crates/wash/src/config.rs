@@ -178,6 +178,11 @@ pub struct DevConfig {
     /// Optional path for WASI blobstore filesystem storage. If not set, an in-memory store is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wasi_blobstore_path: Option<PathBuf>,
+
+    /// Optional PostgreSQL connection URL for the wasmcloud:postgres plugin.
+    /// Example: postgres://user:pass@bouncer:6432?sslmode=require&pool_size=10
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub postgres_url: Option<String>,
 }
 
 /// Load configuration with hierarchical merging

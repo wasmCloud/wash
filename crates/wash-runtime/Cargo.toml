@@ -15,7 +15,7 @@ path = "src/lib.rs"
 workspace = true
 
 [features]
-default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
+default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "wasmcloud-postgres", "washlet"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
 washlet = ["oci"]
 wasi-config = []
@@ -23,6 +23,13 @@ wasi-logging = []
 wasi-blobstore = []
 wasi-keyvalue = []
 wasi-webgpu = ["dep:wasi-webgpu-wasmtime", "dep:wasi-graphics-context-wasmtime"]
+wasmcloud-postgres = [
+    "dep:tokio-postgres", "dep:tokio-postgres-rustls",
+    "dep:deadpool-postgres", "dep:postgres-types",
+    "dep:bigdecimal", "dep:pg_bigdecimal",
+    "dep:bit-vec", "dep:cidr", "dep:geo-types",
+    "dep:ulid", "dep:url", "dep:webpki-roots",
+]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -80,6 +87,20 @@ oci-client = { workspace = true, optional = true, features = ["rustls-tls", "rus
 oci-wasm = { workspace = true, optional = true, features = ["rustls-tls"] }
 sha2 = { workspace = true, optional = true }
 wit-component = { workspace = true, optional = true }
+
+# PostgreSQL dependencies (optional, behind 'wasmcloud-postgres' feature)
+bigdecimal = { optional = true, workspace = true }
+bit-vec = { optional = true, workspace = true }
+cidr = { optional = true, workspace = true, features = ["std"] }
+deadpool-postgres = { optional = true, workspace = true, features = ["rt_tokio_1"] }
+geo-types = { optional = true, workspace = true }
+pg_bigdecimal = { optional = true, workspace = true }
+postgres-types = { optional = true, workspace = true, features = ["derive", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-geo-types-0_7", "with-bit-vec-0_6", "with-cidr-0_2", "array-impls"] }
+tokio-postgres = { optional = true, workspace = true, features = [ "runtime", "with-serde_json-1", "with-chrono-0_4", "with-geo-types-0_7", "array-impls", "with-bit-vec-0_6", "with-uuid-1" ] }
+tokio-postgres-rustls = { optional = true, workspace = true }
+ulid = { optional = true, workspace = true, features = ["std"] }
+url = { optional = true, workspace = true }
+webpki-roots = { optional = true, workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true, default-features = true }
