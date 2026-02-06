@@ -68,7 +68,7 @@ opentelemetry-http = { workspace = true }
 
 # Otel dependencies (optional, behind 'wasi-otel' feature)
 opentelemetry_sdk = { version = "0.31", features = ["logs"] }
-opentelemetry-otlp = { workspace = true, optional = true, features = ["grpc-tonic","http-proto"] }
+opentelemetry-otlp = { workspace = true, optional = true, features = ["grpc-tonic", "http-proto", "logs"] }
 hex = {version = "0.4", optional = true }
 
 wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "067d92d0eabd264e15486b9cecbb9f7020257b7b", optional = true }
