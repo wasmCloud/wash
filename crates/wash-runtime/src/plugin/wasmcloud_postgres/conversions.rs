@@ -125,15 +125,15 @@ fn naive_to_time(nt: NaiveTime) -> Time {
         hour: nt.hour(),
         min: nt.minute(),
         sec: nt.second(),
+        // Intentional truncation: postgres has microsecond precision
         micro: nt.nanosecond() / 1_000,
     }
 }
 
 fn timestamp_to_naive(ts: &Timestamp) -> anyhow::Result<NaiveDateTime> {
     match &ts.date {
-        Date::NegativeInfinity | Date::PositiveInfinity => {
-            bail!("negative/positive infinite date times are not supported")
-        }
+        Date::PositiveInfinity => Ok(NaiveDateTime::MAX),
+        Date::NegativeInfinity => Ok(NaiveDateTime::MIN),
         Date::Ymd(_) => Ok(NaiveDateTime::new(
             date_to_naive(&ts.date)?,
             time_to_naive(&ts.time)?,
@@ -218,7 +218,7 @@ impl ToSql for MacAddressEui64 {
         out: &mut BytesMut,
     ) -> Result<IsNull, Box<dyn Error + Sync + Send>> {
         match ty {
-            &tokio_postgres::types::Type::MACADDR => {
+            &tokio_postgres::types::Type::MACADDR8 => {
                 out.put_slice(&mac_eui64_as_bytes(*self));
                 Ok(IsNull::No)
             }
@@ -227,7 +227,7 @@ impl ToSql for MacAddressEui64 {
     }
 
     fn accepts(ty: &PgType) -> bool {
-        matches!(ty, &tokio_postgres::types::Type::MACADDR)
+        matches!(ty, &tokio_postgres::types::Type::MACADDR8)
     }
 
     tokio_postgres::types::to_sql_checked!();
@@ -313,10 +313,12 @@ impl ToSql for PgValue {
                 .map(f64_from_tuple)
                 .collect::<Vec<_>>()
                 .to_sql(ty, out),
-            PgValue::Real(d) | PgValue::Float4(d) => f64_from_tuple(d).to_sql(ty, out),
+            PgValue::Real(d) | PgValue::Float4(d) => {
+                (f64_from_tuple(d) as f32).to_sql(ty, out)
+            }
             PgValue::Float4Array(ds) => ds
                 .iter()
-                .map(f64_from_tuple)
+                .map(|d| f64_from_tuple(d) as f32)
                 .collect::<Vec<_>>()
                 .to_sql(ty, out),
             PgValue::Integer(n) | PgValue::Int(n) | PgValue::Int4(n) => n.to_sql(ty, out),
@@ -681,12 +683,15 @@ impl FromSql<'_> for PgValue {
             &tokio_postgres::types::Type::VARBIT => {
                 let vec = BitVec::from_sql(ty, raw)?;
                 let len = vec.len().try_into()?;
-                Ok(PgValue::Bit((len, vec.to_bytes())))
+                Ok(PgValue::BitVarying((Some(len), vec.to_bytes())))
             }
             &tokio_postgres::types::Type::VARBIT_ARRAY => {
                 let varbits = Vec::<BitVec>::from_sql(ty, raw)?
                     .into_iter()
-                    .map(|v| (None, v.to_bytes()))
+                    .map(|v| {
+                        let len = v.len().try_into().ok();
+                        (len, v.to_bytes())
+                    })
                     .collect::<Vec<_>>();
                 Ok(PgValue::VarbitArray(varbits))
             }
@@ -766,7 +771,7 @@ impl FromSql<'_> for PgValue {
                     .map(|v| v.to_string())
                     .collect::<Vec<_>>(),
             )),
-            &tokio_postgres::types::Type::JSONB => Ok(PgValue::Json(
+            &tokio_postgres::types::Type::JSONB => Ok(PgValue::Jsonb(
                 serde_json::Value::from_sql(ty, raw)?.to_string(),
             )),
             &tokio_postgres::types::Type::JSONB_ARRAY => Ok(PgValue::JsonbArray(
@@ -979,6 +984,12 @@ impl FromSql<'_> for PgValue {
                     .map(|v| v.into())
                     .collect::<Vec<u64>>(),
             )),
+
+            // Extension types (matched by name since they have no built-in Type constant)
+            t if t.name() == "hstore" => {
+                let map = HashMap::<String, Option<String>>::from_sql(ty, raw)?;
+                Ok(PgValue::Hstore(map.into_iter().collect()))
+            }
 
             // All other types are unsupported
             t => Err(format!(
