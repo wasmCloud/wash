@@ -16,9 +16,9 @@ use wash_runtime::{
     types::{Component, Service, Workload, WorkloadStartRequest},
 };
 
-const CRON_SERVICE_WASM: &[u8] = include_bytes!("fixtures/cron-service.wasm");
+const CRON_SERVICE_WASM: &[u8] = include_bytes!("wasm/cron-service.wasm");
 
-const CRON_COMPONENT_WASM: &[u8] = include_bytes!("fixtures/cron_component.wasm");
+const CRON_COMPONENT_WASM: &[u8] = include_bytes!("wasm/cron_component.wasm");
 
 #[tokio::test]
 async fn test_cron_service_integration() -> Result<()> {
@@ -47,12 +47,14 @@ async fn test_cron_service_integration() -> Result<()> {
             name: "cron-service-workload".to_string(),
             annotations: HashMap::new(),
             service: Some(Service {
+                digest: None,
                 bytes: bytes::Bytes::from_static(CRON_SERVICE_WASM),
                 local_resources: Default::default(),
                 max_restarts: 0,
             }),
             components: vec![Component {
                 name: "cron-component".to_string(),
+                digest: None,
                 bytes: bytes::Bytes::from_static(CRON_COMPONENT_WASM),
                 local_resources: Default::default(),
                 max_invocations: 1,

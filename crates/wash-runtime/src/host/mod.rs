@@ -42,13 +42,14 @@
 
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
 use names::{Generator, Name};
 use tokio::sync::RwLock;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, info, instrument, trace, warn};
 use wasmtime::component::Component;
 
 use crate::engine::workload::ResolvedWorkload;
@@ -155,7 +156,18 @@ pub enum HostWorkload {
     // Boxed to reduce size of the enum
     Running(Box<ResolvedWorkload>),
     Stopping,
-    Error,
+    Error(String),
+}
+
+impl std::fmt::Display for HostWorkload {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HostWorkload::Starting => write!(f, "Starting"),
+            HostWorkload::Running(_) => write!(f, "Running"),
+            HostWorkload::Stopping => write!(f, "Stopping"),
+            HostWorkload::Error(err) => write!(f, "Error: {}", err),
+        }
+    }
 }
 
 impl From<&HostWorkload> for WorkloadState {
@@ -164,7 +176,7 @@ impl From<&HostWorkload> for WorkloadState {
             HostWorkload::Starting => WorkloadState::Starting,
             HostWorkload::Running(_) => WorkloadState::Running,
             HostWorkload::Stopping => WorkloadState::Stopping,
-            HostWorkload::Error => WorkloadState::Error,
+            HostWorkload::Error(_) => WorkloadState::Error,
         }
     }
 }
@@ -503,6 +515,32 @@ impl Host {
         let monitor = self.system_monitor.read().await;
         Ok(monitor.cpu_usage().global_usage)
     }
+
+    async fn workload_start_inner(
+        &self,
+        request: WorkloadStartRequest,
+    ) -> anyhow::Result<ResolvedWorkload> {
+        let service_present = request.workload.service.is_some();
+
+        // Initialize the workload using the engine, receiving the unresolved workload
+        let unresolved_workload = self
+            .engine
+            .initialize_workload(&request.workload_id, request.workload)?;
+
+        let mut resolved_workload = unresolved_workload
+            .resolve(Some(&self.plugins), self.http_handler.clone())
+            .await?;
+
+        // If the service didn't run and we had one, warn
+        if service_present && !resolved_workload.execute_service().await? {
+            warn!(
+                workload_id = request.workload_id,
+                "service did not properly execute"
+            );
+        }
+
+        Ok(resolved_workload)
+    }
 }
 
 impl HostApi for Host {
@@ -551,6 +589,7 @@ impl HostApi for Host {
             id: self.id.clone(),
             hostname: self.hostname.clone(),
             friendly_name: self.friendly_name.clone(),
+            http_port: self.http_handler.port(),
             version: self.version.clone(),
             labels: self.labels.clone(),
             started_at: self.started_at,
@@ -568,6 +607,7 @@ impl HostApi for Host {
     }
 
     /// Start a workload
+    #[instrument(skip_all, fields(workload.id = request.workload_id, workload.name = request.workload.name, workload.namespace = request.workload.namespace))]
     async fn workload_start(
         &self,
         request: WorkloadStartRequest,
@@ -578,43 +618,40 @@ impl HostApi for Host {
             .await
             .insert(request.workload_id.clone(), HostWorkload::Starting);
 
-        let service_present = request.workload.service.is_some();
+        let workload_id = request.workload_id.clone();
+        let resolved_workload = self.workload_start_inner(request).await;
 
-        // Initialize the workload using the engine, receiving the unresolved workload
-        let unresolved_workload = self
-            .engine
-            .initialize_workload(&request.workload_id, request.workload)?;
-
-        let mut resolved_workload = unresolved_workload
-            .resolve(Some(&self.plugins), self.http_handler.clone())
-            .await?;
-
-        // If the service didn't run and we had one, warn
-        if resolved_workload.execute_service().await? != service_present {
-            warn!(
-                workload_id = request.workload_id,
-                "service did not properly execute"
-            );
-        }
+        let (workload_state, message) = if let Err(ref err) = resolved_workload {
+            (WorkloadState::Error, err.to_string())
+        } else {
+            (
+                WorkloadState::Running,
+                "Workload started successfully".to_string(),
+            )
+        };
 
         // Update the workload state to `Running`
         self.workloads
             .write()
             .await
-            .entry(request.workload_id.clone())
-            .and_modify(|workload| {
-                *workload = HostWorkload::Running(Box::new(resolved_workload));
+            .entry(workload_id.clone())
+            .and_modify(|workload| match resolved_workload {
+                Ok(resolved_workload) => {
+                    *workload = HostWorkload::Running(Box::new(resolved_workload))
+                }
+                Err(err) => *workload = HostWorkload::Error(err.to_string()),
             });
 
         Ok(WorkloadStartResponse {
             workload_status: WorkloadStatus {
-                workload_id: request.workload_id,
-                workload_state: WorkloadState::Running,
-                message: "Workload started successfully".to_string(),
+                workload_id,
+                workload_state,
+                message,
             },
         })
     }
 
+    #[instrument(skip_all, fields(workload.id = request.workload_id))]
     async fn workload_status(
         &self,
         request: WorkloadStatusRequest,
@@ -624,15 +661,23 @@ impl HostApi for Host {
             Ok(WorkloadStatusResponse {
                 workload_status: WorkloadStatus {
                     workload_id: request.workload_id,
-                    message: format!("Workload is {workload_state:?}"),
+                    message: format!("Workload is {workload}"),
                     workload_state,
                 },
             })
         } else {
-            anyhow::bail!("Workload not found: {}", request.workload_id)
+            let message = format!("Workload not found: {}", request.workload_id);
+            Ok(WorkloadStatusResponse {
+                workload_status: WorkloadStatus {
+                    workload_id: request.workload_id,
+                    message,
+                    workload_state: WorkloadState::NotFound,
+                },
+            })
         }
     }
 
+    #[instrument(skip_all, fields(workload.id = request.workload_id))]
     async fn workload_stop(
         &self,
         request: WorkloadStopRequest,
@@ -698,7 +743,7 @@ impl HostApi for Host {
                 "Workload stopped successfully".to_string(),
             )
         } else {
-            (WorkloadState::Unspecified, "Workload not found".to_string())
+            (WorkloadState::NotFound, "Workload not found".to_string())
         };
 
         Ok(WorkloadStopResponse {
@@ -730,6 +775,7 @@ impl std::fmt::Debug for Host {
 pub struct HostConfig {
     pub allow_oci_insecure: bool,
     pub oci_pull_timeout: Option<Duration>,
+    pub oci_cache_dir: Option<PathBuf>,
 }
 
 impl Default for HostConfig {
@@ -737,6 +783,7 @@ impl Default for HostConfig {
         Self {
             allow_oci_insecure: false,
             oci_pull_timeout: Duration::from_secs(30).into(),
+            oci_cache_dir: None,
         }
     }
 }
@@ -907,6 +954,44 @@ impl HostBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::Component;
+
+    #[tokio::test]
+    async fn test_workload_start_failed() {
+        let host = Host::builder().build().expect("failed to build host");
+
+        let workload_status = host
+            .workload_start(WorkloadStartRequest {
+                workload_id: "test".to_string(),
+                workload: Workload {
+                    namespace: "wasmcloud".to_string(),
+                    name: "test".to_string(),
+                    annotations: Default::default(),
+                    service: None,
+                    components: vec![Component {
+                        name: "test".to_string(),
+                        digest: None,
+                        bytes: vec![0xD, 0xE, 0xA, 0xD, 0xB, 0xE, 0xE, 0xF].into(),
+                        local_resources: Default::default(),
+                        pool_size: 1,
+                        max_invocations: 100,
+                    }],
+                    host_interfaces: vec![],
+                    volumes: vec![],
+                },
+            })
+            .await;
+
+        assert!(matches!(
+            workload_status,
+            Ok(WorkloadStartResponse {
+                workload_status: WorkloadStatus {
+                    workload_state: WorkloadState::Error,
+                    ..
+                }
+            })
+        ));
+    }
 
     #[test]
     fn test_extract_component_interfaces_with_http_export() {

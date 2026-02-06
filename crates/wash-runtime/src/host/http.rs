@@ -30,9 +30,10 @@ use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
+use opentelemetry::context::FutureExt;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info, warn};
+use tracing::{Instrument, debug, error, info, instrument, warn};
 use wasmtime::Store;
 use wasmtime::component::InstancePre;
 use wasmtime_wasi_http::{
@@ -227,16 +228,23 @@ impl Router for DevRouter {
 /// Use this trait to implement custom HTTP server transport
 #[async_trait::async_trait]
 pub trait HostHandler: Send + Sync + 'static {
+    /// Start the HTTP server
     async fn start(&self) -> anyhow::Result<()>;
+    /// Stop the HTTP server
     async fn stop(&self) -> anyhow::Result<()>;
+    /// Get the port on which the HTTP server is listening
+    fn port(&self) -> u16;
 
+    /// Register a workload
     async fn on_workload_resolved(
         &self,
         resolved_handle: &ResolvedWorkload,
         component_id: &str,
     ) -> anyhow::Result<()>;
+    /// Unregister a workload
     async fn on_workload_unbind(&self, workload_id: &str) -> anyhow::Result<()>;
 
+    /// Handle an outgoing HTTP request from a workload
     fn outgoing_request(
         &self,
         workload_id: &str,
@@ -262,6 +270,10 @@ impl HostHandler for NullServer {
 
     async fn stop(&self) -> anyhow::Result<()> {
         Ok(())
+    }
+
+    fn port(&self) -> u16 {
+        0
     }
 
     async fn on_workload_resolved(
@@ -303,6 +315,7 @@ pub struct HttpServer<T: Router> {
     workload_handles: WorkloadHandles,
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
+    listener: Arc<tokio::sync::Mutex<Option<TcpListener>>>,
 }
 
 impl<T: Router> std::fmt::Debug for HttpServer<T> {
@@ -314,22 +327,31 @@ impl<T: Router> std::fmt::Debug for HttpServer<T> {
 }
 
 impl<T: Router> HttpServer<T> {
-    /// Creates a new HTTP server listening on the specified address.
+    /// Creates a new HTTP server that eagerly binds to the specified address.
+    ///
+    /// The socket is bound immediately so the port is reserved. Use port `0`
+    /// to let the OS pick a free port, then call [`addr()`](Self::addr) to
+    /// discover the actual address.
     ///
     /// # Arguments
     /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
-    ///
-    /// # Returns
-    /// A new `HttpServer` instance configured for HTTP connections.
-    pub fn new(router: T, addr: SocketAddr) -> Self {
-        Self {
+    pub async fn new(router: T, addr: SocketAddr) -> anyhow::Result<Self> {
+        let listener = TcpListener::bind(addr).await?;
+        let addr = listener.local_addr()?;
+        Ok(Self {
             router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: None,
-        }
+            listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
+        })
+    }
+
+    /// Returns the actual bound address (useful when binding to port 0).
+    pub fn addr(&self) -> SocketAddr {
+        self.addr
     }
 
     /// Creates a new HTTPS server with TLS support.
@@ -356,12 +378,15 @@ impl<T: Router> HttpServer<T> {
         let tls_config = load_tls_config(cert_path, key_path, ca_path).await?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
+        let listener = TcpListener::bind(addr).await?;
+        let addr = listener.local_addr()?;
         Ok(Self {
             router: Arc::new(router),
             addr,
             workload_handles: Arc::default(),
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
+            listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
         })
     }
 }
@@ -378,7 +403,12 @@ impl<T: Router> HostHandler for HttpServer<T> {
         // Store the shutdown sender
         *shutdown_tx_clone.write().await = Some(shutdown_tx);
 
-        let listener = TcpListener::bind(addr).await?;
+        let listener = self
+            .listener
+            .lock()
+            .await
+            .take()
+            .context("HTTP server listener already consumed")?;
         info!(addr = ?addr, "HTTP server listening");
         // Start the HTTP server, any incoming requests call Host::handle and then it's routed
         // to the workload based on host header.
@@ -413,6 +443,10 @@ impl<T: Router> HostHandler for HttpServer<T> {
             let _ = tx.send(()).await;
         }
         Ok(())
+    }
+
+    fn port(&self) -> u16 {
+        self.addr.port()
     }
 
     async fn on_workload_resolved(
@@ -494,7 +528,11 @@ async fn run_http_server<T: Router>(
                                 let handles = handles_clone.clone();
                                 let handler = handler_clone.clone();
                                 async move {
-                                    handle_http_request(handler, req, handles).await
+                                    let extractor = opentelemetry_http::HeaderExtractor(req.headers());
+                                    let remote_context =
+                                        opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
+
+                                    handle_http_request(handler, req, handles).with_context(remote_context).await
                                 }
                             });
 
@@ -547,6 +585,11 @@ fn error_response(status: u16) -> hyper::Response<HyperOutgoingBody> {
 }
 
 /// Handle individual HTTP requests by looking up workload and invoking component
+#[instrument(skip_all, fields(
+    http.method = %req.method(),
+    http.uri = %req.uri(),
+    http.host = %req.headers().get(hyper::header::HOST).and_then(|h| h.to_str().ok()).unwrap_or("unknown"),
+))]
 async fn handle_http_request<T: Router>(
     handler: Arc<T>,
     req: hyper::Request<hyper::body::Incoming>,
@@ -577,10 +620,20 @@ async fn handle_http_request<T: Router>(
 
     let response = match workload_handle {
         Some((handle, instance_pre, component_id)) => {
-            match invoke_component_handler(handle, instance_pre, &component_id, req).await {
+            let req_span = tracing::span!(
+                tracing::Level::INFO,
+                "invoke_component_handler",
+                workload.name = handle.name(),
+                workload.namespace = handle.namespace(),
+                workload.id = handle.id(),
+            );
+            match invoke_component_handler(handle, instance_pre, &component_id, req)
+                .instrument(req_span)
+                .await
+            {
                 Ok(resp) => resp,
                 Err(e) => {
-                    error!(err = ?e, host = %workload_id, "failed to invoke component");
+                    error!(err = ?e, "failed to invoke component");
                     // TODO: Add in the actual error message in the response body
                     // .body(HyperOutgoingBody::new(e.to_string()))
                     error_response(500)
@@ -630,17 +683,20 @@ pub async fn handle_component_request(
     // Run the http request itself in a separate task so the task can
     // optionally continue to execute beyond after the initial
     // headers/response code are sent.
-    let task: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(async move {
-        // Run the http request itself by instantiating and calling the component
-        let proxy = pre.instantiate_async(&mut store).await?;
+    let task: JoinHandle<anyhow::Result<()>> = tokio::task::spawn(
+        async move {
+            // Run the http request itself by instantiating and calling the component
+            let proxy = pre.instantiate_async(&mut store).await?;
 
-        proxy
-            .wasi_http_incoming_handler()
-            .call_handle(&mut store, req, out)
-            .await?;
+            proxy
+                .wasi_http_incoming_handler()
+                .call_handle(&mut store, req, out)
+                .await?;
 
-        Ok(())
-    });
+            Ok(())
+        }
+        .in_current_span(),
+    );
 
     match receiver.await {
         // If the client calls `response-outparam::set` then one of these
@@ -674,13 +730,17 @@ async fn load_tls_config(
     ca_path: Option<&Path>,
 ) -> anyhow::Result<ServerConfig> {
     // Load certificate chain
-    let cert_data = tokio::fs::read(cert_path)
-        .await
-        .with_context(|| format!("Failed to read certificate file: {}", cert_path.display()))?;
+    let cert_data = tokio::fs::read(cert_path).await.context(format!(
+        "Failed to read certificate file: {}",
+        cert_path.display()
+    ))?;
     let mut cert_reader = std::io::Cursor::new(cert_data);
     let cert_chain: Vec<CertificateDer<'static>> = certs(&mut cert_reader)
         .collect::<Result<Vec<_>, _>>()
-        .with_context(|| format!("Failed to parse certificate file: {}", cert_path.display()))?;
+        .context(format!(
+            "Failed to parse certificate file: {}",
+            cert_path.display()
+        ))?;
 
     ensure!(
         !cert_chain.is_empty(),
@@ -689,29 +749,33 @@ async fn load_tls_config(
     );
 
     // Load private key
-    let key_data = tokio::fs::read(key_path)
-        .await
-        .with_context(|| format!("Failed to read private key file: {}", key_path.display()))?;
+    let key_data = tokio::fs::read(key_path).await.context(format!(
+        "Failed to read private key file: {}",
+        key_path.display()
+    ))?;
     let mut key_reader = std::io::Cursor::new(key_data);
     let key = private_key(&mut key_reader)
-        .with_context(|| format!("Failed to parse private key file: {}", key_path.display()))?
+        .context(format!(
+            "Failed to parse private key file: {}",
+            key_path.display()
+        ))?
         .ok_or_else(|| anyhow::anyhow!("No private key found in file: {}", key_path.display()))?;
 
     // Create rustls server config
     let config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(cert_chain, key)
-        .with_context(|| "Failed to create TLS configuration")?;
+        .context("Failed to create TLS configuration")?;
 
     // If CA is provided, configure client certificate verification
     if let Some(ca_path) = ca_path {
         let ca_data = tokio::fs::read(ca_path)
             .await
-            .with_context(|| format!("Failed to read CA file: {}", ca_path.display()))?;
+            .context(format!("Failed to read CA file: {}", ca_path.display()))?;
         let mut ca_reader = std::io::Cursor::new(ca_data);
         let ca_certs: Vec<CertificateDer<'static>> = certs(&mut ca_reader)
             .collect::<Result<Vec<_>, _>>()
-            .with_context(|| format!("Failed to parse CA file: {}", ca_path.display()))?;
+            .context(format!("Failed to parse CA file: {}", ca_path.display()))?;
 
         ensure!(
             !ca_certs.is_empty(),

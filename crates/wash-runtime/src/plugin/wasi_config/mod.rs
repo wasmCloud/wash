@@ -22,6 +22,7 @@ use std::{
     sync::Arc,
 };
 use tokio::sync::RwLock;
+use tracing::instrument;
 
 use crate::{
     engine::{
@@ -35,7 +36,7 @@ use crate::{
 mod bindings {
     wasmtime::component::bindgen!({
         world: "config",
-        imports: { default: async | trappable },
+        imports: { default: async | trappable | tracing },
     });
 }
 
@@ -65,6 +66,7 @@ impl DynamicConfig {
 }
 
 impl<'a> bindings::wasi::config::store::Host for ActiveCtx<'a> {
+    #[instrument(skip(self))]
     async fn get(
         &mut self,
         key: String,
@@ -79,6 +81,7 @@ impl<'a> bindings::wasi::config::store::Host for ActiveCtx<'a> {
             .map_or(Ok(Ok(None)), |v| Ok(Ok(Some(v))))
     }
 
+    #[instrument(skip(self))]
     async fn get_all(
         &mut self,
     ) -> anyhow::Result<Result<Vec<(String, String)>, bindings::wasi::config::store::Error>> {

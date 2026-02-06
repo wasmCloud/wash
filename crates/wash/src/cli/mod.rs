@@ -9,6 +9,7 @@ use std::{
 
 use anyhow::{Context as _, bail, ensure};
 use bytes::Bytes;
+use dialoguer::{Confirm, theme::ColorfulTheme};
 use etcetera::{
     AppStrategy, AppStrategyArgs,
     app_strategy::{Windows, Xdg},
@@ -607,8 +608,20 @@ impl CliContext {
         &self.host
     }
 
+    pub fn request_confirmation<S>(&self, prompt: S) -> anyhow::Result<bool>
+    where
+        S: Into<String>,
+    {
+        Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt(prompt)
+            .default(true)
+            .interact()
+            .context("failed to read user confirmation")
+    }
+
     /// Call hooks for the specified hook type with the provided runtime context.
     /// This will execute ALL plugins that support the given hook type.
+    #[instrument(skip_all, fields(hook_type = ?hook_type))]
     pub async fn call_hooks(
         &self,
         hook_type: HookType,

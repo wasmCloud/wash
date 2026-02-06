@@ -1,0 +1,553 @@
+use std::{
+    io::{BufWriter, IsTerminal},
+    path::PathBuf,
+};
+
+use anyhow::Context;
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
+use clap_complete::generate;
+use opentelemetry::{KeyValue, trace::TracerProvider};
+use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
+use opentelemetry_sdk::Resource;
+use opentelemetry_semantic_conventions::resource;
+use tracing::{Level, error, info, instrument, trace, warn};
+use tracing_subscriber::{
+    EnvFilter, Layer, Registry, filter::Directive, layer::SubscriberExt, util::SubscriberInitExt,
+};
+
+use wash::cli::{
+    CONFIG_DIR_NAME, CONFIG_FILE_NAME, CliCommand, CliCommandExt, CliContext, CommandOutput,
+    OutputKind, plugin::ComponentPluginCommand,
+};
+
+#[derive(Debug, Clone, Parser)]
+#[clap(
+    name = "wash",
+    about,
+    version,
+    arg_required_else_help = true,
+    allow_external_subcommands = true,
+    subcommand_value_name = "COMMAND|PLUGIN",
+    color = clap::ColorChoice::Auto
+)]
+struct Cli {
+    #[clap(
+        short = 'o',
+        long = "output",
+        default_value = "text",
+        help = "Specify output format (text or json)",
+        global = true
+    )]
+    pub(crate) output: OutputKind,
+
+    #[clap(
+        long = "help-markdown",
+        help = "Print help in markdown format (conflicts with --help and --output json)",
+        hide = true,
+        global = true
+    )]
+    help_markdown: bool,
+
+    #[clap(
+        short = 'l',
+        long = "log-level",
+        default_value_t = Level::INFO,
+        help = "Set the opentelemetry log level (trace, debug, info, warn, error)",
+        global = true
+    )]
+    log_level: Level,
+
+    #[clap(long = "verbose", help = "Enable verbose output", global = true)]
+    verbose: bool,
+
+    #[clap(
+        long = "non-interactive",
+        help = "Run in non-interactive mode (skip terminal checks for host exec). Automatically enabled when stdin is not a TTY",
+        global = true
+    )]
+    non_interactive: bool,
+
+    #[clap(
+        long = "user-config",
+        help = "Path to user configuration file.",
+        global = true
+    )]
+    user_config: Option<PathBuf>,
+
+    /// Path to the project directory
+    #[clap(short = 'C', default_value = find_project_root().into_os_string())]
+    project_path: PathBuf,
+
+    #[clap(subcommand)]
+    command: Option<WashCliCommand>,
+}
+
+/// The main CLI commands for wash
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Subcommand)]
+enum WashCliCommand {
+    /// Build a Wasm component
+    #[clap(name = "build")]
+    Build(wash::cli::component_build::ComponentBuildCommand),
+    /// Generate shell completions
+    #[clap(name = "completion")]
+    Completion(wash::cli::completion::CompletionCommand),
+    /// View configuration for wash
+    #[clap(name = "config", subcommand)]
+    Config(wash::cli::config::ConfigCommand),
+    /// Start a development server for a Wasm component
+    #[clap(name = "dev")]
+    Dev(wash::cli::dev::DevCommand),
+    /// Inspect a Wasm component's embedded WIT
+    #[clap(name = "inspect", hide = true)]
+    Inspect(wash::cli::inspect::InspectCommand),
+    /// Act as a Host
+    #[clap(name = "host")]
+    Host(wash::cli::host::HostCommand),
+    /// Create a new project from a template or git repository
+    #[clap(name = "new")]
+    New(wash::cli::new::NewCommand),
+    /// Push or pull Wasm components to/from an OCI registry
+    #[clap(name = "oci", alias = "docker", subcommand)]
+    Oci(wash::cli::oci::OciCommand),
+    /// Manage wash plugins
+    #[clap(name = "plugin", subcommand)]
+    Plugin(wash::cli::plugin::PluginCommand),
+    /// Update wash to the latest version
+    #[clap(name = "update", alias = "upgrade")]
+    Update(wash::cli::update::UpdateCommand),
+    /// Manage WIT dependencies
+    #[clap(name = "wit", subcommand)]
+    Wit(wash::cli::wit::WitCommand),
+}
+
+impl CliCommand for WashCliCommand {
+    /// Handle the wash command
+    #[instrument(level = "debug", skip_all, name = "wash")]
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+        match self {
+            WashCliCommand::Build(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Completion(cmd) => {
+                // Handle completion generation directly here since we need access to the full CLI
+                let mut wash_cmd = Cli::command();
+
+                let plugins = ctx.plugin_manager().get_commands().await;
+                if !plugins.is_empty() {
+                    wash_cmd = wash_cmd
+                        .subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
+                }
+                for plugin in plugins {
+                    wash_cmd = wash_cmd.subcommand(plugin.metadata())
+                }
+
+                let cli_name = wash_cmd.get_name().to_owned();
+                generate(cmd.shell(), &mut wash_cmd, cli_name, &mut std::io::stdout());
+
+                Ok(CommandOutput::ok("", None))
+            }
+            WashCliCommand::Config(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Dev(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Inspect(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Host(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::New(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Oci(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Plugin(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Update(cmd) => cmd.handle(ctx).await,
+            WashCliCommand::Wit(cmd) => cmd.handle(ctx).await,
+        }
+    }
+
+    fn enable_pre_hook(&self) -> Option<wash::plugin::bindings::wasmcloud::wash::types::HookType> {
+        match self {
+            WashCliCommand::Build(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Completion(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Config(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Dev(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Inspect(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Host(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::New(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Oci(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Plugin(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Update(cmd) => cmd.enable_pre_hook(),
+            WashCliCommand::Wit(cmd) => cmd.enable_pre_hook(),
+        }
+    }
+    fn enable_post_hook(&self) -> Option<wash::plugin::bindings::wasmcloud::wash::types::HookType> {
+        match self {
+            WashCliCommand::Build(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Completion(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Config(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Dev(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Inspect(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Host(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::New(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Oci(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Plugin(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Update(cmd) => cmd.enable_post_hook(),
+            WashCliCommand::Wit(cmd) => cmd.enable_post_hook(),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let global_parser = Cli::command_for_update()
+        .arg_required_else_help(false)
+        .subcommand_required(false)
+        .disable_help_flag(true)
+        .disable_help_subcommand(true)
+        .ignore_errors(true)
+        .get_matches();
+    let global_args = Cli::from_arg_matches(&global_parser).unwrap_or_else(|e| e.exit());
+
+    // Check for --non-interactive flag before parsing (to avoid requiring plugin commands to be registered)
+    let non_interactive_flag = global_args.non_interactive;
+
+    // Auto-detect non-interactive mode if stdin is not a TTY or flag is set
+    let non_interactive = non_interactive_flag || !std::io::stdin().is_terminal();
+
+    let (mut stdout, mut stderr) = (Box::new(std::io::stdout()), Box::new(std::io::stderr()));
+
+    // Initialize observability as early as possible, with the specified log level
+    let observability_shutdown =
+        initialize_observability(global_args.log_level, !non_interactive, global_args.verbose)
+            .unwrap_or_else(|e| {
+                exit_with_output(
+                    &mut stderr,
+                    CommandOutput::error(
+                        format!("failed to initialize observability: {e:?}"),
+                        None,
+                    )
+                    .with_output_kind(global_args.output),
+                );
+            });
+
+    // Check if project path exists
+    if !global_args.project_path.exists() {
+        exit_with_output(
+            &mut stderr,
+            CommandOutput::error(
+                format!("{:?} does not exist", global_args.project_path),
+                None,
+            )
+            .with_output_kind(global_args.output),
+        );
+    }
+
+    let project_absolute_path = match std::fs::canonicalize(&global_args.project_path) {
+        Ok(path) => path,
+        Err(e) => {
+            exit_with_output(
+                &mut stderr,
+                CommandOutput::error(
+                    format!(
+                        "failed to canonicalize project path {:?}: {}",
+                        global_args.project_path, e
+                    ),
+                    None,
+                )
+                .with_output_kind(global_args.output),
+            );
+        }
+    };
+
+    // ************* WARNING *************
+    // From now on relative paths will be relative to the project path
+    // ***********************************
+
+    let mut wash_cmd = Cli::command();
+    // Create global context with output kind and directory paths
+    let mut ctx_builder = CliContext::builder()
+        .non_interactive(non_interactive)
+        .project_dir(project_absolute_path);
+
+    // Load custom config if provided, otherwise will default to XDG config path
+    if let Some(config_path) = global_args.user_config {
+        if !config_path.exists() {
+            exit_with_output(
+                &mut stderr,
+                CommandOutput::error(format!("{config_path:?} does not exist"), None)
+                    .with_output_kind(global_args.output),
+            );
+        }
+
+        ctx_builder = ctx_builder.config(config_path)
+    }
+
+    let ctx = match ctx_builder.build().await {
+        Ok(ctx) => {
+            // Register plugin commands
+            let plugins = ctx.plugin_manager().get_commands().await;
+            // Slight hack to display a delimiter between builtins and plugins (\x1b[4munderlined\x1b[0m)
+            if !plugins.is_empty() {
+                wash_cmd =
+                    wash_cmd.subcommand(clap::Command::new("\n\x1b[4mPlugins:\x1b[0m").about("\n"));
+            }
+            for plugin in plugins {
+                wash_cmd = wash_cmd.subcommand(plugin.metadata())
+            }
+
+            ctx
+        }
+        Err(e) => {
+            error!(error = ?e, "failed to infer global context");
+            // In the rare case that this fails, we'll parse and initialize the CLI here to output properly.
+            exit_with_output(
+                &mut stdout,
+                CommandOutput::error(format!("{e:?}"), None).with_output_kind(global_args.output),
+            );
+        }
+    };
+    trace!(ctx = ?ctx, "inferred global context");
+
+    let help_cmd = wash_cmd.clone();
+    let matches = wash_cmd.get_matches();
+    let cli = Cli::from_arg_matches(&matches).unwrap_or_else(|e| e.exit());
+
+    trace!(cli = ?cli, "parsed CLI");
+
+    // Implements clap_markdown for markdown generation of command line documentation. Most straightforward way to invoke is probably `wash app get --help-markdown > help.md`
+    if cli.help_markdown {
+        let help_output = clap_markdown::help_markdown_command(&help_cmd);
+        println!("{help_output}");
+        std::process::exit(0);
+    }
+
+    // Use a buffered writer to prevent broken pipe errors
+    let mut stdout_buf = BufWriter::new(stdout);
+
+    // Recommend a new version of wash if available
+    // Don't show the update message if the user is updating
+    if !non_interactive && !matches!(cli.command, Some(WashCliCommand::Update(_))) {
+        match ctx.check_new_version().await {
+            Ok(version) => info!(
+                new_version = %version,
+                "a new version of wash is available! Update to the latest version with `wash update`"
+            ),
+            Err(e) => trace!(error = ?e, "version check"),
+        }
+    }
+
+    // Since some interactive commands may hide the cursor, we need to ensure it is shown again on exit
+    // Clone the host Arc to move into the ctrl-c handler
+    let host_for_handler = ctx.host().clone();
+    if let Err(e) = ctrlc::set_handler(move || {
+        let term = dialoguer::console::Term::stdout();
+        let _ = term.show_cursor();
+
+        // Stop all running workloads and the host runtime
+        // Note: Signal handlers run outside the normal runtime context,
+        // so block_on is safe here and won't deadlock
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let host = host_for_handler.clone();
+            if let Err(e) = handle.block_on(async move { host.stop().await }) {
+                eprintln!("Error stopping host: {e:?}");
+            }
+        }
+
+        // Exit with standard SIGINT code (128 + 2)
+        std::process::exit(130);
+    }) {
+        warn!(err = ?e, "failed to set ctrl_c handler, interactive prompts may not restore cursor visibility");
+    }
+
+    let command_output = if let Some(command) = cli.command {
+        run_command(ctx, command).await
+    } else if let Some((subcommand, args)) = matches.subcommand() {
+        let command: ComponentPluginCommand = ComponentPluginCommand::new(subcommand, args);
+        run_command(ctx, command).await
+    } else {
+        Ok(CommandOutput::error(
+            "No command provided. Use `wash --help` to see available commands.",
+            None,
+        ))
+    };
+
+    observability_shutdown();
+
+    exit_with_output(
+        &mut stdout_buf,
+        command_output
+            .unwrap_or_else(|e| {
+                // NOTE: This format!() invocation specifically outputs the anyhow backtrace, which is why
+                // it's used over a `.to_string()` call.
+                CommandOutput::error(format!("{e:?}"), None).with_output_kind(global_args.output)
+            })
+            .with_output_kind(global_args.output),
+    )
+}
+
+/// Helper function to execute a command that impl's [`CliCommand`], returning the output
+async fn run_command<C>(ctx: CliContext, command: C) -> anyhow::Result<CommandOutput>
+where
+    C: CliCommand + std::fmt::Debug,
+{
+    trace!(command = ?command, "running command pre-hook");
+    if let Err(e) = command.pre_hook(&ctx).await {
+        error!(error = ?e, "failed to run pre-hook for command");
+        return Ok(CommandOutput::error(e, None));
+    }
+
+    trace!(command = ?command, "handling command");
+    let command_output = command.handle(&ctx).await;
+
+    trace!(command = ?command, "running command post-hook");
+    if let Err(e) = command.post_hook(&ctx).await {
+        error!(error = ?e, "failed to run post-hook for command");
+        return Ok(CommandOutput::error(e, None));
+    }
+
+    command_output
+}
+
+/// Initialize tracing with a custom format
+///
+/// Returns a tuple of stdout and stderr writers for consistency with the previous API.
+fn initialize_observability(
+    log_level: Level,
+    ansi_colors: bool,
+    verbose: bool,
+) -> anyhow::Result<Box<dyn FnOnce()>> {
+    // STDERR logging layer
+    let mut fmt_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level.as_str()));
+    if !verbose {
+        // async_nats prints out on connect
+        fmt_filter = fmt_filter
+            .add_directive(directive("async_nats=error")?)
+            // wasm_pkg_client/core are a little verbose so we set them to error level in non-verbose mode
+            .add_directive(directive("wasm_pkg_client=error")?)
+            .add_directive(directive("wasm_pkg_core=error")?);
+    }
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_level(true)
+        .with_target(verbose)
+        .with_thread_ids(verbose)
+        .with_thread_names(verbose)
+        .with_file(verbose)
+        .with_line_number(verbose)
+        .with_ansi(ansi_colors)
+        .with_filter(fmt_filter);
+
+    let otel_enabled = std::env::vars().any(|(key, _)| key.starts_with("OTEL_"));
+    if !otel_enabled {
+        Registry::default().with(fmt_layer).init();
+
+        // No-op shutdown function
+        let shutdown_fn = || {};
+        return Ok(Box::new(shutdown_fn));
+    }
+
+    let resource = Resource::builder()
+        .with_attribute(KeyValue::new(
+            resource::SERVICE_NAME.to_string(),
+            env!("CARGO_PKG_NAME"),
+        ))
+        .with_attribute(KeyValue::new(
+            resource::SERVICE_INSTANCE_ID.to_string(),
+            uuid::Uuid::new_v4().to_string(),
+        ))
+        .with_attribute(KeyValue::new(
+            resource::SERVICE_VERSION.to_string(),
+            env!("CARGO_PKG_VERSION"),
+        ))
+        .build();
+
+    // OTel logging layer
+    let log_exporter = opentelemetry_otlp::LogExporter::builder()
+        .with_tonic()
+        .build()?;
+    let log_provider = opentelemetry_sdk::logs::LoggerProviderBuilder::default()
+        .with_batch_exporter(log_exporter)
+        .with_resource(resource.clone())
+        .build();
+    let filter_otel_logs = EnvFilter::new(log_level.as_str());
+
+    let otel_logs_layer =
+        OpenTelemetryTracingBridge::new(&log_provider).with_filter(filter_otel_logs);
+
+    // OTel tracing layer
+    let tracer_exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .build()?;
+    let tracer_provider = opentelemetry_sdk::trace::TracerProviderBuilder::default()
+        .with_batch_exporter(tracer_exporter)
+        .with_resource(resource.clone())
+        .build();
+
+    let filter_otel_traces = EnvFilter::new(log_level.as_str());
+
+    let otel_tracer_layer = tracing_opentelemetry::layer()
+        .with_tracer(tracer_provider.tracer("runtime"))
+        .with_error_records_to_exceptions(true)
+        .with_error_fields_to_exceptions(true)
+        .with_error_events_to_status(true)
+        .with_error_events_to_exceptions(true)
+        .with_location(true)
+        .with_filter(filter_otel_traces);
+
+    Registry::default()
+        .with(fmt_layer)
+        .with(otel_logs_layer)
+        .with(otel_tracer_layer)
+        .init();
+
+    // Return a shutdown function to flush providers on exit
+    let shutdown_fn = move || {
+        if let Err(e) = tracer_provider.shutdown() {
+            eprintln!("failed to shutdown tracer provider: {e}");
+        }
+        if let Err(e) = log_provider.shutdown() {
+            eprintln!("failed to shutdown log provider: {e}");
+        }
+    };
+
+    Ok(Box::new(shutdown_fn))
+}
+
+/// Helper function to reduce duplication and code size for parsing directives
+fn directive(directive: impl AsRef<str>) -> anyhow::Result<Directive> {
+    directive
+        .as_ref()
+        .parse()
+        .with_context(|| format!("failed to parse filter: {}", directive.as_ref()))
+}
+
+/// Helper function to ensure that we're exiting the program consistently and with the correct output format.
+#[allow(clippy::expect_used)] // Panicking on stdout failure during exit is acceptable
+fn exit_with_output(stdout: &mut impl std::io::Write, output: CommandOutput) -> ! {
+    let (message, success) = output.render();
+    writeln!(stdout, "{message}").expect("failed to write output to stdout");
+    stdout.flush().expect("failed to flush stdout");
+    if success {
+        std::process::exit(0);
+    } else {
+        std::process::exit(1);
+    }
+}
+
+fn find_project_root() -> PathBuf {
+    let fallback = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mut current_dir = match fallback.canonicalize() {
+        Ok(dir) => dir,
+        Err(_) => return fallback,
+    };
+
+    loop {
+        // Look for .wash/config.yaml (project config), not just .wash/ directory
+        let project_config = current_dir.join(CONFIG_DIR_NAME).join(CONFIG_FILE_NAME);
+        if project_config.exists() {
+            return current_dir;
+        }
+
+        if let Some(parent) = current_dir.parent() {
+            current_dir = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+
+    fallback
+}

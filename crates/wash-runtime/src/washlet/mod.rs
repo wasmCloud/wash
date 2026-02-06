@@ -7,12 +7,8 @@ use crate::oci::{self, OciConfig};
 use crate::plugin::HostPlugin;
 use anyhow::Context as _;
 use futures::StreamExt as _;
-use opentelemetry::KeyValue;
-use opentelemetry_sdk::resource::{Resource, ResourceBuilder};
-use opentelemetry_semantic_conventions::resource;
-use sysinfo::System;
 use tokio::sync::oneshot;
-use tracing::{debug, info};
+use tracing::{debug, error, info, instrument};
 
 pub const HOST_API_PREFIX: &str = "runtime.host";
 pub const OPERATOR_API_PREFIX: &str = "runtime.operator";
@@ -34,6 +30,8 @@ pub struct ClusterHostBuilder {
     host_group: Option<String>,
     host_name: Option<String>,
     heartbeat_interval: Option<Duration>,
+    cleanup_interval: Option<Duration>,
+    cleanup_age: Option<Duration>,
     host_config: Option<HostConfig>,
 }
 
@@ -66,6 +64,12 @@ impl ClusterHostBuilder {
     pub fn with_plugin<T: HostPlugin>(mut self, plugin: Arc<T>) -> anyhow::Result<Self> {
         self.host_builder = self.host_builder.with_plugin(plugin)?;
         Ok(self)
+    }
+
+    pub fn with_artifact_cleaner(mut self, frequency: Duration, max_age: Duration) -> Self {
+        self.cleanup_interval = Some(frequency);
+        self.cleanup_age = Some(max_age);
+        self
     }
 
     pub fn with_http_handler(
@@ -102,6 +106,8 @@ impl ClusterHostBuilder {
             prepared_host: host,
             nats_client,
             heartbeat_interval,
+            cleanup_interval: self.cleanup_interval.unwrap_or(Duration::from_secs(300)),
+            cleanup_age: self.cleanup_age.unwrap_or(Duration::from_secs(3600)),
         })
     }
 }
@@ -110,6 +116,8 @@ pub struct ClusterHost {
     prepared_host: Host,
     nats_client: Arc<async_nats::Client>,
     heartbeat_interval: Duration,
+    cleanup_interval: Duration,
+    cleanup_age: Duration,
 }
 
 impl ClusterHost {
@@ -130,6 +138,7 @@ pub async fn run_cluster_host(
         .context("failed to start host")?;
 
     let heartbeat_interval = cluster_host.heartbeat_interval;
+    let cleanup_interval = cluster_host.cleanup_interval;
     let host_id = host.id().to_string();
     let host = host.clone();
 
@@ -154,12 +163,21 @@ pub async fn run_cluster_host(
             .context("failed to subscribe for API requests")?;
         let mut heartbeat_timer = tokio::time::interval(heartbeat_interval);
 
+        let mut oci_cleanup_timer = tokio::time::interval(cleanup_interval);
+
         loop {
             tokio::select! {
                 // Shutdown signal
                 _ = &mut one_shot_rx => {
                     api_subscription.unsubscribe().await.context("failed to unsubscribe from API requests")?;
                     return host.stop().await.context("failed to stop host");
+                }
+                // OCI cache cleanup
+                _ = oci_cleanup_timer.tick() => {
+                    if let Some(cache_dir) = host.config().oci_cache_dir.as_ref() &&
+                    let Err(e) = oci::cleanup_cache(cache_dir, cluster_host.cleanup_age).await {
+                        error!("Error during OCI cache cleanup: {}", e);
+                    }
                 }
                 // Send heartbeat
                 _ = heartbeat_timer.tick() => {
@@ -207,6 +225,7 @@ pub struct NatsConnectionOptions {
     pub tls_key: Option<PathBuf>,
 }
 
+#[instrument(skip_all)]
 pub async fn connect_nats(
     addr: impl async_nats::ToServerAddrs,
     options: NatsConnectionOptions,
@@ -256,6 +275,7 @@ fn from_api<'de, T: serde::Deserialize<'de>>(bytes: &'de [u8]) -> Result<T, anyh
     serde_json::from_slice(bytes).map_err(anyhow::Error::new)
 }
 
+#[instrument(level = "debug", skip_all, fields(subject = %msg.subject))]
 async fn handle_command(
     host: &impl HostApi,
     msg: &async_nats::Message,
@@ -299,18 +319,25 @@ fn image_pull_secret_to_oci_config(
         Some(creds) => oci::OciConfig::new_with_credentials(&creds.username, &creds.password),
         None => OciConfig::default(),
     };
+    oci_config.cache_dir = config.oci_cache_dir.clone();
     oci_config.insecure = config.allow_oci_insecure;
     oci_config.timeout = config.oci_pull_timeout;
 
     oci_config
 }
 
+#[instrument(level = "debug", skip_all)]
 async fn host_heartbeat(host: &impl HostApi) -> anyhow::Result<types::v2::HostHeartbeat> {
     let hb = host.heartbeat().await?;
 
     Ok(hb.into())
 }
 
+#[instrument(skip_all, fields(
+    workload_id = %req.workload_id,
+    workload.name=?req.workload.as_ref().map(|w| &w.name).unwrap_or(&"<none>".to_string()),
+    workload.namespace=?req.workload.as_ref().map(|w| &w.namespace).unwrap_or(&"<none>".to_string())),
+    )]
 async fn workload_start(
     host: &impl HostApi,
     req: types::v2::WorkloadStartRequest,
@@ -337,8 +364,14 @@ async fn workload_start(
         let mut pulled_components = Vec::with_capacity(wit_world.components.len());
         for component in &wit_world.components {
             let oci_config = image_pull_secret_to_oci_config(config, &component.image_pull_secret);
-            let bytes = match oci::pull_component(&component.image, oci_config).await {
-                Ok(bytes) => bytes,
+            let (bytes, digest) = match oci::pull_component(
+                &component.image,
+                oci_config,
+                component.image_pull_policy().into(),
+            )
+            .await
+            {
+                Ok(res) => res,
                 Err(e) => {
                     return Ok(types::v2::WorkloadStartResponse {
                         workload_status: Some(types::v2::WorkloadStatus {
@@ -354,7 +387,8 @@ async fn workload_start(
             };
             pulled_components.push(crate::types::Component {
                 name: component.name.clone(),
-                bytes: bytes.0.into(),
+                bytes: bytes.into(),
+                digest: Some(digest),
                 local_resources: component
                     .local_resources
                     .clone()
@@ -378,8 +412,14 @@ async fn workload_start(
 
     let service = if let Some(service) = service {
         let oci_config = image_pull_secret_to_oci_config(config, &service.image_pull_secret);
-        let bytes = match oci::pull_component(&service.image, oci_config).await {
-            Ok(bytes) => bytes,
+        let (bytes, digest) = match oci::pull_component(
+            &service.image,
+            oci_config,
+            service.image_pull_policy().into(),
+        )
+        .await
+        {
+            Ok(res) => res,
             Err(e) => {
                 return Ok(types::v2::WorkloadStartResponse {
                     workload_status: Some(types::v2::WorkloadStatus {
@@ -391,7 +431,8 @@ async fn workload_start(
             }
         };
         Some(crate::types::Service {
-            bytes: bytes.0.into(),
+            bytes: bytes.into(),
+            digest: Some(digest),
             local_resources: service
                 .local_resources
                 .clone()
@@ -427,6 +468,7 @@ async fn workload_start(
     Ok(host.workload_start(request).await?.into())
 }
 
+#[instrument(skip_all, fields(workload_id = %req.workload_id))]
 async fn workload_stop(
     host: &impl HostApi,
     req: types::v2::WorkloadStopRequest,
@@ -438,6 +480,7 @@ async fn workload_stop(
     host.workload_stop(req.into()).await.map(|resp| resp.into())
 }
 
+#[instrument(skip_all, fields(workload_id = %req.workload_id))]
 async fn workload_status(
     host: &impl HostApi,
     req: types::v2::WorkloadStatusRequest,
@@ -449,52 +492,6 @@ async fn workload_status(
     host.workload_status(req.into())
         .await
         .map(|resp| resp.into())
-}
-
-/// Creates a tracing span for a host invocation with relevant attributes.
-/// Use when calling components from plugins (component exported interface) to
-/// ensure consistent tracing.
-pub fn host_invocation_span(
-    workload_namespace: impl AsRef<str>,
-    workload_name: impl AsRef<str>,
-    component_id: impl AsRef<str>,
-    plugin_id: impl AsRef<str>,
-    plugin_operation: impl AsRef<str>,
-) -> tracing::Span {
-    tracing::span!(
-        tracing::Level::INFO,
-        "HostInvocation",
-        component_id = component_id.as_ref(),
-        workload_namespace = workload_namespace.as_ref(),
-        workload_name = workload_name.as_ref(),
-        plugin_id = plugin_id.as_ref(),
-        plugin_operation = plugin_operation.as_ref(),
-    )
-}
-
-pub fn resource_builder() -> ResourceBuilder {
-    Resource::builder()
-        .with_attribute(KeyValue::new(
-            resource::SERVICE_NAME.to_string(),
-            "wash-host",
-        ))
-        .with_attribute(KeyValue::new(
-            resource::SERVICE_INSTANCE_ID.to_string(),
-            uuid::Uuid::new_v4().to_string(),
-        ))
-        .with_attribute(KeyValue::new(
-            resource::SERVICE_VERSION.to_string(),
-            env!("CARGO_PKG_VERSION"),
-        ))
-        .with_attributes(vec![
-            KeyValue::new("host.version", env!("CARGO_PKG_VERSION")),
-            KeyValue::new("host.hostname", System::host_name().unwrap_or_default()),
-            KeyValue::new(
-                "host.kernel_version",
-                System::kernel_version().unwrap_or_default(),
-            ),
-            KeyValue::new("host.os_version", System::os_version().unwrap_or_default()),
-        ])
 }
 
 impl From<types::v2::WitInterface> for crate::wit::WitInterface {
@@ -575,6 +572,7 @@ impl From<crate::types::HostHeartbeat> for types::v2::HostHeartbeat {
             system_memory_free: hb.system_memory_free,
             labels: hb.labels,
             friendly_name: hb.friendly_name,
+            http_port: hb.http_port.into(),
         }
     }
 }
@@ -645,6 +643,17 @@ impl From<crate::types::WorkloadStatus> for types::v2::WorkloadStatus {
     }
 }
 
+impl From<types::v2::ImagePullPolicy> for crate::oci::OciPullPolicy {
+    fn from(policy: types::v2::ImagePullPolicy) -> Self {
+        match policy {
+            types::v2::ImagePullPolicy::Always => crate::oci::OciPullPolicy::Always,
+            types::v2::ImagePullPolicy::IfNotPresent => crate::oci::OciPullPolicy::IfNotPresent,
+            types::v2::ImagePullPolicy::Never => crate::oci::OciPullPolicy::Never,
+            _ => crate::oci::OciPullPolicy::IfNotPresent,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -654,7 +663,7 @@ mod tests {
     async fn test_image_pull_secret_to_oci_config_none() {
         let host_config = HostConfig {
             allow_oci_insecure: false,
-            oci_pull_timeout: None,
+            ..Default::default()
         };
         let secret: Option<types::v2::ImagePullSecret> = None;
         let config = image_pull_secret_to_oci_config(&host_config, &secret);
@@ -671,7 +680,7 @@ mod tests {
 
         let host_config = HostConfig {
             allow_oci_insecure: false,
-            oci_pull_timeout: None,
+            ..Default::default()
         };
         let config = image_pull_secret_to_oci_config(&host_config, &secret);
         assert_eq!(

@@ -6,15 +6,24 @@ import "google/protobuf/timestamp.proto";
 import "wasmcloud/runtime/v2/wit_interface.proto";
 
 message HostHeartbeat {
+  // unique host identifier
   string id = 1;
+  // public hostname, may be an IP address or DNS name
   string hostname = 2;
+  // friendly name for the host
   string friendly_name = 3;
+  // version of the host runtime
   string version = 4;
+  // arbitrary key/value labels associated with the host
   map<string, string> labels = 5;
+  // timestamp when the host started
   google.protobuf.Timestamp started_at = 6;
 
+  // operating system architecture
   string os_arch = 7;
+  // operating system name
   string os_name = 8;
+  // operating system kernel version
   string os_kernel = 9;
 
   // system cpu usage in percent
@@ -24,10 +33,16 @@ message HostHeartbeat {
   // system free memory in bytes
   uint64 system_memory_free = 12;
 
+  // number of components running on the host
   uint64 component_count = 13;
+  // number of workloads running on the host
   uint64 workload_count = 14;
 
-  // new stuff
+  // WIT interfaces supported by the host
   repeated WitInterface imports = 15;
+  // WIT interfaces supported by the host
   repeated WitInterface exports = 16;
+
+  // HTTP port the host is listening on
+  uint32 http_port = 17;
 }

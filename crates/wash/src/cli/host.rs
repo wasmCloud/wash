@@ -111,6 +111,7 @@ impl CliCommand for HostCommand {
         let host_config = wash_runtime::host::HostConfig {
             allow_oci_insecure: self.allow_insecure_registries,
             oci_pull_timeout: Some(self.registry_pull_timeout),
+            ..Default::default()
         };
 
         let mut cluster_host_builder = wash_runtime::washlet::ClusterHostBuilder::default()
@@ -136,7 +137,7 @@ impl CliCommand for HostCommand {
         if let Some(addr) = self.http_addr {
             let http_router = wash_runtime::host::http::DynamicRouter::default();
             cluster_host_builder = cluster_host_builder.with_http_handler(Arc::new(
-                wash_runtime::host::http::HttpServer::new(http_router, addr),
+                wash_runtime::host::http::HttpServer::new(http_router, addr).await?,
             ));
         }
 

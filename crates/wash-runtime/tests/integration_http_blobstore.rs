@@ -10,11 +10,8 @@
 //! Full component binding and request routing would require proper WIT interface configuration.
 
 use anyhow::{Context, Result};
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::time::timeout;
-
-mod common;
-use common::find_available_port;
 
 use wash_runtime::{
     engine::Engine,
@@ -27,7 +24,7 @@ use wash_runtime::{
     wit::WitInterface,
 };
 
-const HTTP_BLOBSTORE_WASM: &[u8] = include_bytes!("fixtures/http_blobstore.wasm");
+const HTTP_BLOBSTORE_WASM: &[u8] = include_bytes!("wasm/http_blobstore.wasm");
 
 #[tokio::test]
 async fn test_http_blobstore_integration() -> Result<()> {
@@ -41,10 +38,8 @@ async fn test_http_blobstore_integration() -> Result<()> {
     let engine = Engine::builder().build()?;
 
     // Create HTTP server plugin on a dynamically allocated port
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
+    let addr = http_plugin.addr();
 
     // Create blobstore plugin
     let blobstore_plugin = InMemoryBlobstore::new(None);
@@ -73,6 +68,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
             service: None,
             components: vec![Component {
                 name: "http-blobstore-component".to_string(),
+                digest: None,
                 bytes: bytes::Bytes::from_static(HTTP_BLOBSTORE_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
@@ -205,10 +201,7 @@ async fn test_plugin_lifecycle() -> Result<()> {
     println!("Testing plugin lifecycle");
 
     let engine = Engine::builder().build()?;
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
 
     let host = HostBuilder::new()
         .with_engine(engine)

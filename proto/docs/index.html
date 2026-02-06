@@ -289,6 +289,10 @@
               
               
                 <li>
+                  <a href="#wasmcloud.runtime.v2.ImagePullPolicy"><span class="badge">E</span>ImagePullPolicy</a>
+                </li>
+              
+                <li>
                   <a href="#wasmcloud.runtime.v2.WorkloadState"><span class="badge">E</span>WorkloadState</a>
                 </li>
               
@@ -463,63 +467,63 @@
                   <td>id</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>unique host identifier </p></td>
                 </tr>
               
                 <tr>
                   <td>hostname</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>public hostname, may be an IP address or DNS name </p></td>
                 </tr>
               
                 <tr>
                   <td>friendly_name</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>friendly name for the host </p></td>
                 </tr>
               
                 <tr>
                   <td>version</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>version of the host runtime </p></td>
                 </tr>
               
                 <tr>
                   <td>labels</td>
                   <td><a href="#wasmcloud.runtime.v2.HostHeartbeat.LabelsEntry">HostHeartbeat.LabelsEntry</a></td>
                   <td>repeated</td>
-                  <td><p> </p></td>
+                  <td><p>arbitrary key/value labels associated with the host </p></td>
                 </tr>
               
                 <tr>
                   <td>started_at</td>
                   <td><a href="#google.protobuf.Timestamp">google.protobuf.Timestamp</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>timestamp when the host started </p></td>
                 </tr>
               
                 <tr>
                   <td>os_arch</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>operating system architecture </p></td>
                 </tr>
               
                 <tr>
                   <td>os_name</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>operating system name </p></td>
                 </tr>
               
                 <tr>
                   <td>os_kernel</td>
                   <td><a href="#string">string</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>operating system kernel version </p></td>
                 </tr>
               
                 <tr>
@@ -547,28 +551,35 @@
                   <td>component_count</td>
                   <td><a href="#uint64">uint64</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>number of components running on the host </p></td>
                 </tr>
               
                 <tr>
                   <td>workload_count</td>
                   <td><a href="#uint64">uint64</a></td>
                   <td></td>
-                  <td><p> </p></td>
+                  <td><p>number of workloads running on the host </p></td>
                 </tr>
               
                 <tr>
                   <td>imports</td>
                   <td><a href="#wasmcloud.runtime.v2.WitInterface">WitInterface</a></td>
                   <td>repeated</td>
-                  <td><p>new stuff </p></td>
+                  <td><p>WIT interfaces supported by the host </p></td>
                 </tr>
               
                 <tr>
                   <td>exports</td>
                   <td><a href="#wasmcloud.runtime.v2.WitInterface">WitInterface</a></td>
                   <td>repeated</td>
-                  <td><p> </p></td>
+                  <td><p>WIT interfaces supported by the host </p></td>
+                </tr>
+              
+                <tr>
+                  <td>http_port</td>
+                  <td><a href="#uint32">uint32</a></td>
+                  <td></td>
+                  <td><p>HTTP port the host is listening on </p></td>
                 </tr>
               
             </tbody>
@@ -729,6 +740,13 @@ This information is used by the Runtime Operator to monitor the health of the Wa
                 <tr>
                   <td>name</td>
                   <td><a href="#string">string</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
+                <tr>
+                  <td>image_pull_policy</td>
+                  <td><a href="#wasmcloud.runtime.v2.ImagePullPolicy">ImagePullPolicy</a></td>
                   <td></td>
                   <td><p> </p></td>
                 </tr>
@@ -964,6 +982,13 @@ Upon a successful lookup, the host will allow outbound connections to the specif
                   <td><p>Optional credentials for pulling the image from a private registry </p></td>
                 </tr>
               
+                <tr>
+                  <td>image_pull_policy</td>
+                  <td><a href="#wasmcloud.runtime.v2.ImagePullPolicy">ImagePullPolicy</a></td>
+                  <td></td>
+                  <td><p> </p></td>
+                </tr>
+              
             </tbody>
           </table>
 
@@ -1171,6 +1196,41 @@ The &#39;config&#39; on each host_interface may carry Workload Specific configur
       
 
       
+        <h3 id="wasmcloud.runtime.v2.ImagePullPolicy">ImagePullPolicy</h3>
+        <p></p>
+        <table class="enum-table">
+          <thead>
+            <tr><td>Name</td><td>Number</td><td>Description</td></tr>
+          </thead>
+          <tbody>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_UNSPECIFIED</td>
+                <td>0</td>
+                <td><p>Default policy, fallthrough to the host&#39;s default pull policy</p></td>
+              </tr>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_ALWAYS</td>
+                <td>1</td>
+                <td><p>Always pull the image</p></td>
+              </tr>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_IF_NOT_PRESENT</td>
+                <td>2</td>
+                <td><p>Pull the image if not present locally</p></td>
+              </tr>
+            
+              <tr>
+                <td>IMAGE_PULL_POLICY_NEVER</td>
+                <td>3</td>
+                <td><p>Never pull the image, use local copy only</p></td>
+              </tr>
+            
+          </tbody>
+        </table>
+      
         <h3 id="wasmcloud.runtime.v2.WorkloadState">WorkloadState</h3>
         <p></p>
         <table class="enum-table">
@@ -1221,6 +1281,12 @@ Then the host removes the workload from its internal state.</p></td>
                 <td>WORKLOAD_STATE_ERROR</td>
                 <td>5</td>
                 <td><p>Workload failed to start or stopped due to an error</p></td>
+              </tr>
+            
+              <tr>
+                <td>WORKLOAD_STATE_NOT_FOUND</td>
+                <td>6</td>
+                <td><p>Workload not found</p></td>
               </tr>
             
           </tbody>

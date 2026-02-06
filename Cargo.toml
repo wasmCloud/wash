@@ -1,27 +1,17 @@
-[package]
-name = "wash"
-categories = ["wasm", "command-line-utilities"]
-description = "The Wasm Shell (wash) for developing and publishing Wasm components"
-keywords = ["webassembly", "wasm", "component", "wash", "cli"]
-readme = "README.md"
-license = "Apache-2.0"
-repository = "https://github.com/wasmcloud/wash"
-authors.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-version.workspace = true
-
-[lints]
-workspace = true
-
 [workspace]
+resolver = "3"
+default-members = ["crates/wash"]
 members = [
     "crates/wash-runtime",
+    "crates/wash",
+    "crates/wasi",
 ]
-package.authors = ["The wasmCloud Team"]
-package.edition = "2024"
-package.rust-version = "1.91.0"
-package.version = "2.0.0-rc.6"
+
+[workspace.package]
+authors = ["The wasmCloud Team"]
+edition = "2024"
+rust-version = "1.91.0"
+version = "2.0.0-rc.7"
 
 [workspace.lints.rust]
 warnings = 'deny' # Treat all warnings as errors
@@ -51,60 +41,6 @@ trivially_copy_pass_by_ref = 'deny'
 uninit_vec = 'deny'
 unnecessary_box_returns = 'deny'
 
-[lib]
-name = "wash"
-path = "crates/wash/src/lib.rs"
-
-[[bin]]
-name = "wash"
-path = "src/main.rs"
-
-[badges]
-maintenance = { status = "actively-developed" }
-
-[features]
-# TODO: Many opportunities to gate the build by features
-
-[dependencies]
-anyhow = { workspace = true }
-async-trait = { workspace = true }
-bytes = { workspace = true }
-chrono = { workspace = true }
-clap = { workspace = true, features = ["derive", "env", "help", "color", "suggestions", "wrap_help", "cargo", "string"] }
-clap_complete = { workspace = true }
-clap-markdown = { workspace = true }
-ctrlc = { workspace = true }
-dialoguer = { workspace = true, features = ["editor", "password", "zeroize", "fuzzy-select", "fuzzy-matcher"] }
-etcetera = { workspace = true }
-figment = { workspace = true, features = ["json", "env", "yaml", "toml"] }
-flate2 = { workspace = true, features = ["rust_backend"] }
-humantime = { workspace = true }
-reqwest = { workspace = true, features = ["json", "rustls-tls"] }
-rustls = { workspace = true }
-semver = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true, features = ["std"] }
-serde_yaml_ng = { workspace = true }
-tar = { workspace = true }
-tempfile = { workspace = true }
-tokio = { workspace = true, features = ["full"] }
-tracing = { workspace = true, features = ["attributes"] }
-tracing-subscriber = { workspace = true, features = ["env-filter", "ansi", "time", "json"] }
-url = { workspace = true }
-uuid = { workspace = true }
-wasm-metadata = { workspace = true }
-wasm-pkg-client = { workspace = true }
-wasm-pkg-core = { workspace = true }
-wash-runtime = { workspace = true, features = ["washlet", "oci", "wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue"] }
-wasmtime = { workspace = true }
-wasmtime-wasi = { workspace = true }
-wit-component = { workspace = true }
-
-# Enable WebGPU support on non-Windows platforms
-# WebGPU is disabled on Windows due to dependency version conflicts with the windows crate
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-wash-runtime = { workspace = true, features = ["wasi-webgpu"] }
-
 [workspace.dependencies]
 anyhow = { version = "1.0.98", default-features = false }
 async-nats = { version = "0.44", default-features = false }
@@ -129,14 +65,16 @@ k8s-openapi = { version = "0.25", default-features = false }
 kube = { version = "1", default-features = false }
 kube-derive = { version = "1", default-features = false }
 notify = { version = "8.0.0", default-features = false, features = ["macos_fsevent"] }
+moka = { version = "0.12", default-features = false }
 oci-client = { version = "0.15.0", default-features = false, features = ["rustls-tls", "rustls-tls-native-roots"]}
 oci-wasm = { version = "0.3.0", default-features = false, features = ["rustls-tls"] }
-opentelemetry = { version = "0.28", default-features = false }
-opentelemetry-appender-tracing = { version = "0.28", default-features = false }
-opentelemetry-otlp = { version = "0.28", default-features = false }
-opentelemetry_sdk = { version = "0.28", default-features = false }
-opentelemetry-semantic-conventions = { version = "0.28", default-features = false }
-opentelemetry-stdout = { version = "0.28.0", default-features = false }
+opentelemetry = { version = "0.31", default-features = false }
+opentelemetry-appender-tracing = { version = "0.31", default-features = false }
+opentelemetry-otlp = { version = "0.31", default-features = false }
+opentelemetry-http = { version = "0.31", default-features = false }
+opentelemetry_sdk = { version = "0.31", default-features = false }
+opentelemetry-semantic-conventions = { version = "0.31", default-features = false }
+opentelemetry-stdout = { version = "0.31.0", default-features = false }
 pbjson = { version = "0.8.0", default-features = false }
 pbjson-types = { version = "0.8.0", default-features = false }
 pbjson-build = { version = "0.8.0", default-features = false }
@@ -164,20 +102,21 @@ tonic = { version = "0.14", default-features = false }
 tonic-prost = { version = "0.14", default-features = false }
 tonic-prost-build = { version = "0.14", default-features = false }
 tracing = { version = "0.1.41", default-features = false, features = ["attributes"] }
+tracing-opentelemetry = { version = "0.32", default-features = false }
 tracing-subscriber = { version = "0.3.19", default-features = false, features = ["env-filter", "ansi", "time", "json"] }
 url = { version = "2.5", default-features = false }
 uuid = { version = "1.17.0", default-features = false }
 wasm-pkg-client = { version = "0.10.0", default-features = false }
 wasm-pkg-core = { version = "0.10.0", default-features = false }
-wasm-metadata = { version = "0.239.0", default-features = false, features = ["oci"] }
+wasm-metadata = { version = "0.244.0", default-features = false, features = ["oci"] }
 wasmcloud = { path = "crates/wasmcloud", default-features = false }
-wasmtime = { version = "38", default-features = false }
+wasmtime = { version = "41", default-features = false }
 wasmtime-wasi = { package = "wash-wasi", path = "crates/wasi", default-features = false }
-wasmtime-wasi-io = { version = "38", default-features = false }
-wasmtime-wasi-http = { version = "38", default-features = false }
-wit-component = { version = "0.235.0", default-features = false }
+wasmtime-wasi-io = { version = "41", default-features = false }
+wasmtime-wasi-http = { version = "41", default-features = false }
+wit-component = { version = "0.244.0", default-features = false }
 wash-runtime = { path = "crates/wash-runtime", default-features = false }
-wat = { version = "1.239.0", default-features = false }
+wat = { version = "1.244.0", default-features = false }
 
 # wasmtime-wasi deps
 bitflags = "2.0"
@@ -193,26 +132,8 @@ io-lifetimes = { version = "2.0.3", default-features = false }
 rustix = "1.0.3"
 system-interface = { version = "0.27.1", features = ["cap_std_impls"] }
 test-log = { version = "0.2", default-features = false, features = ["trace"] }
-wiggle = { version = "=38.0.4", default-features = false }
+wiggle = { version = "=41.0.0", default-features = false }
 windows-sys = "0.60.0"
-
-[build-dependencies]
-anyhow = { workspace = true, default-features = true }
-tonic-prost-build = { workspace = true, default-features = true }
-pbjson-build = { workspace = true, default-features = true }
-
-
-[dev-dependencies]
-bytes = { version = "1", default-features = false }
-http = { version = "1.3.1", default-features = false }
-http-body-util = { version = "0.1.3", default-features = false }
-rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring", "pem"] }
-scopeguard = { version = "1.2", default-features = false }
-tempfile = { version = "3.0", default-features = false }
-tokio = { version = "1.45.1", default-features = false, features = ["full"] }
-reqwest = { workspace = true, features = ["json"] }
-wash-runtime = { workspace = true, features = ["wasi-keyvalue", "wasi-blobstore"] }
-wat = { workspace = true }
 
 [workspace.metadata.cargo-machete]
 ignored = [
@@ -225,12 +146,8 @@ ignored = [
    "tonic-prost",
 ]
 
-[package.metadata.binstall]
-pkg-url = "{ repo }/releases/download/{name}-v{version}/wash-{ target }{ binary-ext }"
-pkg-fmt = "bin"
-
 # this section is required for testing `wash-wasi`, it should be removed before release
 [patch.crates-io]
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v38.0.4" }
+wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
 # Pinned for async component support (fixes #187). Remove after https://github.com/bytecodealliance/rust-oci-wasm/issues/28
 oci-wasm = { git = "https://github.com/bytecodealliance/rust-oci-wasm", rev = "5ee16fa1" }

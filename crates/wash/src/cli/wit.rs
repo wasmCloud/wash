@@ -865,23 +865,23 @@ world example {
     async fn test_clean_removes_deps_directory() {
         let (_temp, _project_dir, wit_dir) = setup_test_project().await;
 
-        // Create a deps directory
+        // Create a deps directory with content
         let deps_dir = wit_dir.join("deps");
         fs::create_dir_all(&deps_dir).expect("failed to create deps dir");
         fs::write(deps_dir.join("test.wit"), "// test").expect("failed to write test file");
-
         assert!(deps_dir.exists());
 
-        // Mock CliContext - we'll need to adjust based on actual CliContext structure
-        // For now, test the logic directly
+        let ctx = CliContext::builder().build().await.unwrap();
+        let config = Config {
+            wit: Some(crate::wit::WitConfig {
+                wit_dir: Some(wit_dir.clone()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
 
-        // Clean the deps directory
-        if deps_dir.exists() {
-            tokio::fs::remove_dir_all(&deps_dir)
-                .await
-                .expect("failed to remove deps dir");
-        }
-
+        let output = handle_clean(&ctx, &config).await.unwrap();
+        assert!(output.is_success());
         assert!(!deps_dir.exists());
     }
 
@@ -1158,11 +1158,20 @@ world example {
     async fn test_clean_nonexistent_deps_directory() {
         let (_temp, _project_dir, wit_dir) = setup_test_project().await;
         let deps_dir = wit_dir.join("deps");
-
         assert!(!deps_dir.exists());
 
-        // Attempting to clean a non-existent directory should be handled gracefully
-        // (in actual implementation, it returns a message saying nothing to clean)
+        let ctx = CliContext::builder().build().await.unwrap();
+        let config = Config {
+            wit: Some(crate::wit::WitConfig {
+                wit_dir: Some(wit_dir.clone()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let output = handle_clean(&ctx, &config).await.unwrap();
+        // Should succeed with a "nothing to clean" message
+        assert!(output.is_success());
     }
 
     #[tokio::test]

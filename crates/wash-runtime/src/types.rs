@@ -35,13 +35,15 @@ pub struct Workload {
 
 /// The current state of a workload in its lifecycle.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[repr(i32)]
 pub enum WorkloadState {
-    Unspecified,
-    Starting,
-    Running,
-    Completed,
-    Stopping,
-    Error,
+    Unspecified = 0,
+    Starting = 1,
+    Running = 2,
+    Completed = 3,
+    Stopping = 4,
+    Error = 5,
+    NotFound = 6,
 }
 
 /// Configuration for a long-running service component that handles requests.
@@ -49,6 +51,7 @@ pub enum WorkloadState {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Service {
     pub bytes: Bytes,
+    pub digest: Option<String>,
     pub local_resources: LocalResources,
     pub max_restarts: u64,
 }
@@ -59,6 +62,7 @@ pub struct Service {
 pub struct Component {
     pub name: String,
     pub bytes: Bytes,
+    pub digest: Option<String>,
     pub local_resources: LocalResources,
     pub pool_size: i32,
     pub max_invocations: i32,
@@ -131,6 +135,7 @@ pub struct HostPathVolume {
 pub struct HostHeartbeat {
     pub id: String,
     pub hostname: String,
+    pub http_port: u16,
     pub friendly_name: String,
     pub version: String,
     pub labels: HashMap<String, String>,

@@ -18,6 +18,19 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+func translatePullPolicy(policy corev1.PullPolicy) runtimev2.ImagePullPolicy {
+	switch policy {
+	case corev1.PullAlways:
+		return runtimev2.ImagePullPolicy_IMAGE_PULL_POLICY_ALWAYS
+	case corev1.PullIfNotPresent:
+		return runtimev2.ImagePullPolicy_IMAGE_PULL_POLICY_IF_NOT_PRESENT
+	case corev1.PullNever:
+		return runtimev2.ImagePullPolicy_IMAGE_PULL_POLICY_NEVER
+	default:
+		return runtimev2.ImagePullPolicy_IMAGE_PULL_POLICY_UNSPECIFIED
+	}
+}
+
 func randHash() string {
 	h := fnv.New32a()
 	uuid := uuid.NewUUID()

@@ -63,6 +63,10 @@ spec:
                   properties:
                     image:
                       type: string
+                    imagePullPolicy:
+                      description: PullPolicy describes a policy for if/when to pull
+                        a container image
+                      type: string
                     imagePullSecret:
                       description: |-
                         LocalObjectReference contains enough information to let you locate the
@@ -265,6 +269,10 @@ spec:
                   Services can import interfaces from any Component within the same workload, or from the Host.
                 properties:
                   image:
+                    type: string
+                  imagePullPolicy:
+                    description: PullPolicy describes a policy for if/when to pull
+                      a container image
                     type: string
                   imagePullSecret:
                     description: |-

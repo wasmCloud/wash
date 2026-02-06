@@ -4,7 +4,7 @@ use anyhow::{Context as _, bail, ensure};
 use bytes::Bytes;
 use clap::Args;
 use tokio::{select, sync::mpsc};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 use wash_runtime::{
     host::{Host, HostApi},
     plugin::{self},
@@ -119,7 +119,7 @@ impl CliCommand for DevCommand {
         } else {
             debug!("No TLS configuration provided - server will use HTTP");
             let http_server =
-                wash_runtime::host::http::HttpServer::new(http_handler, http_addr.parse()?);
+                wash_runtime::host::http::HttpServer::new(http_handler, http_addr.parse()?).await?;
             host_builder = host_builder.with_http_handler(Arc::new(http_server));
             "http"
         };
@@ -259,6 +259,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
     if dev_config.service {
         service = Some(Service {
             bytes,
+            digest: None,
             max_restarts: 0,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
@@ -284,6 +285,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
         components.push(Component {
             name: "wash-dev-component".to_string(),
             bytes,
+            digest: None,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
                 ..Default::default()
@@ -299,6 +301,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
 
             service = Some(Service {
                 bytes: Bytes::from(service_bytes),
+                digest: None,
                 max_restarts: 0,
                 local_resources: LocalResources {
                     volume_mounts: volume_mounts.clone(),
@@ -336,6 +339,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
         components.push(Component {
             name: dev_component.name.clone(),
             bytes: Bytes::from(comp_bytes),
+            digest: None,
             local_resources: LocalResources {
                 volume_mounts: volume_mounts.clone(),
                 ..Default::default()
@@ -359,6 +363,7 @@ async fn create_workload(host: &Host, config: &Config, bytes: Bytes) -> anyhow::
 }
 
 /// Reload the component in the host, stopping the previous workload if needed
+#[instrument(name = "reload_component", skip_all, fields(workload_id = ?workload_id))]
 async fn reload_component(
     host: Arc<Host>,
     workload: &Workload,

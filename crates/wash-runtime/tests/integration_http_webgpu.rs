@@ -8,14 +8,12 @@
 //!
 //! Note: This is a basic integration test that verifies plugin loading and host functionality.
 //! Full component binding and request routing would require proper WIT interface configuration.
+//!
 #![cfg(feature = "wasi-webgpu")]
 
 use anyhow::{Context, Result};
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::time::timeout;
-
-mod common;
-use common::find_available_port;
 
 use wash_runtime::{
     engine::Engine,
@@ -28,7 +26,7 @@ use wash_runtime::{
     wit::WitInterface,
 };
 
-const HTTP_WEBGPU_WASM: &[u8] = include_bytes!("fixtures/http_webgpu.wasm");
+const HTTP_WEBGPU_WASM: &[u8] = include_bytes!("wasm/http_webgpu.wasm");
 
 #[tokio::test]
 async fn test_http_webgpu_integration() -> Result<()> {
@@ -42,10 +40,8 @@ async fn test_http_webgpu_integration() -> Result<()> {
     let engine = Engine::builder().build()?;
 
     // Create HTTP server plugin on a dynamically allocated port
-    let port = find_available_port().await?;
-    let addr: SocketAddr = format!("127.0.0.1:{port}").parse().unwrap();
-    let http_handler = DevRouter::default();
-    let http_plugin = HttpServer::new(http_handler, addr);
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
+    let addr = http_plugin.addr();
 
     // Build host with plugins following the existing pattern from lib.rs test
     let host = HostBuilder::new()
@@ -71,6 +67,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
             service: None,
             components: vec![Component {
                 name: "http-webgpu-component".to_string(),
+                digest: None,
                 bytes: bytes::Bytes::from_static(HTTP_WEBGPU_WASM),
                 local_resources: LocalResources {
                     memory_limit_mb: 256,
