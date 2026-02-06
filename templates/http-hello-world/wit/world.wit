@@ -1,5 +1,0 @@
-package wasmcloud:templates@0.1.0;
-
-world rust-http-hello-world {
-   export wasi:http/incoming-handler@0.2.2;
-}
