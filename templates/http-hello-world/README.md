@@ -1,25 +1,29 @@
 # HTTP Hello World in Rust
 
-This is a simple Rust Wasm example that responds with a "Hello World" message for each request.
+A minimal WebAssembly component built with [Rust](https://rust-lang.org/tools/install/) that responds to HTTP requests. The template uses [`wstd`](https://github.com/bytecodealliance/wstd), an async Rust standard library for Wasm components and WASI 0.2.
 
 ## Prerequisites
 
-- [Wasm Shell (`wash`)](https://wasmcloud.com/docs/v2.0.0-rc/wash/) v2.0.0-rc.6
-- `cargo` 1.82+
+- [Wasm Shell (`wash`)](https://wasmcloud.com/docs/v2.0.0-rc/wash/) v2.0.0-rc.7
+- [`cargo`](https://rust-lang.org/tools/install/) 1.82+
 
 ## Local development
 
-To get started developing this example quickly, clone the repo and run `wash dev`:
+Use `wash new` to scaffold a new wasmCloud component project:
+
+```shell
+wash new https://github.com/wasmCloud/wash.git --name http-hello-world --subfolder templates/http-hello-world
+```
+
+```shell
+cd http-hello-world
+```
+
+To build this project and run in a hot-reloading development loop, run `wash dev` from this directory:
 
 ```bash
 wash dev
 ```
-
-`wash dev` does many things for you:
-
-- Builds this project
-- Runs the component locally, exposing the application at `localhost:8000`
-- Watches your code for changes and re-deploys when necessary.
 
 ### Send a request to the running component
 
