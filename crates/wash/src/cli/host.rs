@@ -66,6 +66,11 @@ pub struct HostCommand {
     #[clap(long = "wasi-webgpu", default_value_t = false)]
     pub wasi_webgpu: bool,
 
+    /// PostgreSQL connection URL for the wasmcloud:postgres plugin
+    /// (e.g. postgres://user:pass@bouncer:6432?sslmode=require&pool_size=10)
+    #[clap(long = "postgres-url", env = "WASH_POSTGRES_URL")]
+    pub postgres_url: Option<String>,
+
     /// Allow insecure OCI Registries
     #[clap(long = "allow-insecure-registries", default_value_t = false)]
     pub allow_insecure_registries: bool,
@@ -129,6 +134,13 @@ impl CliCommand for HostCommand {
             .with_plugin(Arc::new(plugin::wasi_keyvalue::NatsKeyValue::new(
                 &data_nats_client,
             )))?;
+
+        if let Some(postgres_url) = &self.postgres_url {
+            cluster_host_builder = cluster_host_builder.with_plugin(Arc::new(
+                plugin::wasmcloud_postgres::WasmcloudPostgres::new(postgres_url)
+                    .context("failed to configure postgres plugin")?,
+            ))?;
+        }
 
         if let Some(host_name) = &self.host_name {
             cluster_host_builder = cluster_host_builder.with_host_name(host_name);
