@@ -16,7 +16,7 @@ use chrono::{
     Utc,
 };
 use cidr::IpCidr;
-use geo_types::{coord, LineString, Point, Rect};
+use geo_types::{LineString, Point, Rect, coord};
 use pg_bigdecimal::PgNumeric;
 use postgres_types::{FromSql, IsNull, PgLsn, ToSql, Type as PgType};
 use tokio_postgres::Row;
@@ -44,9 +44,7 @@ fn f64_from_tuple(t: &(u64, i16, i8)) -> f64 {
 }
 
 /// Convert [`Rect`] into a tuple of points (two `HashableF64` pairs)
-fn rect_to_hashable_f64s(
-    r: Rect<f64>,
-) -> ((HashableF64, HashableF64), (HashableF64, HashableF64)) {
+fn rect_to_hashable_f64s(r: Rect<f64>) -> ((HashableF64, HashableF64), (HashableF64, HashableF64)) {
     let (bottom_left_x, bottom_left_y) = r.min().x_y();
     let (top_right_x, top_right_y) = r.max().x_y();
     (
@@ -116,8 +114,12 @@ fn naive_to_date(nd: NaiveDate) -> Date {
 }
 
 fn time_to_naive(t: &Time) -> anyhow::Result<NaiveTime> {
-    NaiveTime::from_hms_micro_opt(t.hour, t.min, t.sec, t.micro)
-        .with_context(|| format!("failed to convert time [{}h {}m {}s {}micro]", t.hour, t.min, t.sec, t.micro))
+    NaiveTime::from_hms_micro_opt(t.hour, t.min, t.sec, t.micro).with_context(|| {
+        format!(
+            "failed to convert time [{}h {}m {}s {}micro]",
+            t.hour, t.min, t.sec, t.micro
+        )
+    })
 }
 
 fn naive_to_time(nt: NaiveTime) -> Time {
@@ -160,10 +162,7 @@ fn offset_to_fixed(offset: Offset) -> anyhow::Result<FixedOffset> {
 fn timestamptz_to_utc(tstz: &TimestampTz) -> anyhow::Result<DateTime<Utc>> {
     let fixed_offset = offset_to_fixed(tstz.offset)?;
     let timestamp = timestamp_to_naive(&tstz.timestamp)?;
-    Ok(
-        DateTime::<FixedOffset>::from_naive_utc_and_offset(timestamp, fixed_offset)
-            .into(),
-    )
+    Ok(DateTime::<FixedOffset>::from_naive_utc_and_offset(timestamp, fixed_offset).into())
 }
 
 fn utc_to_timestamptz(dt: DateTime<Utc>) -> TimestampTz {
@@ -313,9 +312,7 @@ impl ToSql for PgValue {
                 .map(f64_from_tuple)
                 .collect::<Vec<_>>()
                 .to_sql(ty, out),
-            PgValue::Real(d) | PgValue::Float4(d) => {
-                (f64_from_tuple(d) as f32).to_sql(ty, out)
-            }
+            PgValue::Real(d) | PgValue::Float4(d) => (f64_from_tuple(d) as f32).to_sql(ty, out),
             PgValue::Float4Array(ds) => ds
                 .iter()
                 .map(|d| f64_from_tuple(d) as f32)
@@ -472,13 +469,11 @@ impl ToSql for PgValue {
                 .to_sql(ty, out)
             }
             PgValue::Line(((start_x, start_y), (end_x, end_y)))
-            | PgValue::Lseg(((start_x, start_y), (end_x, end_y))) => {
-                LineString::<f64>::new(vec![
-                    coord! { x: f64_from_tuple(start_x), y: f64_from_tuple(start_y) },
-                    coord! { x: f64_from_tuple(end_x), y: f64_from_tuple(end_y) },
-                ])
-                .to_sql(ty, out)
-            }
+            | PgValue::Lseg(((start_x, start_y), (end_x, end_y))) => LineString::<f64>::new(vec![
+                coord! { x: f64_from_tuple(start_x), y: f64_from_tuple(start_y) },
+                coord! { x: f64_from_tuple(end_x), y: f64_from_tuple(end_y) },
+            ])
+            .to_sql(ty, out),
             PgValue::LineArray(lines) | PgValue::LsegArray(lines) => lines
                 .iter()
                 .map(|((start_x, start_y), (end_x, end_y))| {
@@ -538,7 +533,8 @@ impl ToSql for PgValue {
                 .collect::<Result<Vec<NaiveDate>, _>>()?
                 .to_sql(ty, out),
             PgValue::Interval(_) | PgValue::IntervalArray(_) => Err(
-                "interval not supported (consider using a cast like 'value'::text::interval)".into(),
+                "interval not supported (consider using a cast like 'value'::text::interval)"
+                    .into(),
             ),
             PgValue::Time(t) => {
                 let t = time_to_naive(t)?;
@@ -611,7 +607,8 @@ impl ToSql for PgValue {
             // Full Text Search
             PgValue::TsQuery(s) => s.to_sql(ty, out),
             PgValue::TsVector(_) => Err(
-                "tsvector not supported (consider using a cast like 'value'::text::tsvector)".into(),
+                "tsvector not supported (consider using a cast like 'value'::text::tsvector)"
+                    .into(),
             ),
 
             // UUIDs

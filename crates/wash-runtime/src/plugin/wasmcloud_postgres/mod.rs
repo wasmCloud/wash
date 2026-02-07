@@ -224,8 +224,10 @@ impl<'a> query::Host for ActiveCtx<'a> {
             }
         };
 
-        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-            params.iter().map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync)).collect();
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+            .iter()
+            .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
 
         let rows = match client.query_raw(&q, param_refs).await {
             Ok(stream) => match stream.try_collect::<Vec<_>>().await {
@@ -399,10 +401,7 @@ impl<'a> prepared::Host for ActiveCtx<'a> {
         };
 
         // Re-prepare via statement cache (deadpool-postgres caches these per connection)
-        let stmt = match client
-            .prepare_typed(&entry.sql, &entry.param_types)
-            .await
-        {
+        let stmt = match client.prepare_typed(&entry.sql, &entry.param_types).await {
             Ok(s) => s,
             Err(e) => {
                 return Ok(Err(PreparedStatementExecError::Unexpected(format!(
@@ -411,8 +410,10 @@ impl<'a> prepared::Host for ActiveCtx<'a> {
             }
         };
 
-        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> =
-            params.iter().map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync)).collect();
+        let param_refs: Vec<&(dyn tokio_postgres::types::ToSql + Sync)> = params
+            .iter()
+            .map(|p| p as &(dyn tokio_postgres::types::ToSql + Sync))
+            .collect();
 
         match client.execute_raw(&stmt, param_refs).await {
             Ok(n) => Ok(Ok(n)),
