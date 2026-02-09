@@ -306,6 +306,8 @@ pub struct CliContext {
     config: Option<PathBuf>,
     // path to project dir. Usually current working dir
     project_dir: PathBuf,
+    // the original working directory when the CLI was invoked, used for resolving relative paths in commands
+    original_working_dir: PathBuf,
 }
 
 impl Deref for CliContext {
@@ -406,9 +408,12 @@ impl CliContextBuilder {
             .start()
             .await?;
 
+        let original_working_dir =
+            std::env::current_dir().context("failed to get current working directory")?;
+
         let project_dir = match &self.project_dir {
             Some(dir) => dir.clone(),
-            None => std::env::current_dir()?,
+            None => original_working_dir.clone(),
         };
 
         // Change working directory to project path
@@ -418,6 +423,7 @@ impl CliContextBuilder {
             app_strategy,
             host,
             project_dir,
+            original_working_dir,
             config: self.config,
             plugin_manager: plugin_manager.clone(),
         };
@@ -504,6 +510,10 @@ impl CliContext {
             }
             Err(e) => Err(e),
         }
+    }
+
+    pub fn original_working_dir(&self) -> &PathBuf {
+        &self.original_working_dir
     }
 
     pub fn user_config_path(&self) -> std::path::PathBuf {
