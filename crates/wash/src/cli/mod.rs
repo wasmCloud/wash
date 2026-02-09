@@ -408,8 +408,10 @@ impl CliContextBuilder {
             .start()
             .await?;
 
-        let original_working_dir =
-            std::env::current_dir().context("failed to get current working directory")?;
+        let original_working_dir = std::env::current_dir()
+            .ok()
+            .or_else(|| self.project_dir.clone())
+            .context("failed to get current working directory and no project dir specified")?;
 
         let project_dir = match &self.project_dir {
             Some(dir) => dir.clone(),
