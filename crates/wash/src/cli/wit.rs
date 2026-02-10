@@ -792,7 +792,11 @@ async fn handle_build(
 
     // Determine output path
     let output_path = if let Some(output) = output_override {
-        output.to_path_buf()
+        if output.is_absolute() {
+            output.to_path_buf()
+        } else {
+            ctx.original_working_dir().join(output)
+        }
     } else {
         // Default to project root: <package-name>-<version>.wasm or <package-name>.wasm
         let filename = if let Some(ver) = &version {
