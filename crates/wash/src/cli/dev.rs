@@ -6,6 +6,7 @@ use clap::Args;
 use tokio::{select, sync::mpsc};
 use tracing::{debug, info, instrument, warn};
 use wash_runtime::{
+    engine::Engine,
     host::{Host, HostApi},
     plugin::{self},
     types::{
@@ -56,7 +57,12 @@ impl CliCommand for DevCommand {
             .clone()
             .unwrap_or_else(|| "0.0.0.0:8000".to_string());
 
-        let mut host_builder = Host::builder();
+        let engine = Engine::builder()
+            .with_pooling_allocator(true)
+            .with_fuel_consumption(ctx.fuel_meter())
+            .build()?;
+
+        let mut host_builder = Host::builder().with_engine(engine);
 
         // Enable wasi config
         host_builder =
@@ -109,6 +115,7 @@ impl CliCommand for DevCommand {
                 cert_path,
                 key_path,
                 dev_config.tls_ca_path.as_deref(),
+                ctx.fuel_meter(),
             )
             .await?;
 
@@ -118,8 +125,12 @@ impl CliCommand for DevCommand {
             "https"
         } else {
             debug!("No TLS configuration provided - server will use HTTP");
-            let http_server =
-                wash_runtime::host::http::HttpServer::new(http_handler, http_addr.parse()?).await?;
+            let http_server = wash_runtime::host::http::HttpServer::new(
+                http_handler,
+                http_addr.parse()?,
+                ctx.fuel_meter(),
+            )
+            .await?;
             host_builder = host_builder.with_http_handler(Arc::new(http_server));
             "http"
         };

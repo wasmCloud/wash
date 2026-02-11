@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use opentelemetry::{KeyValue, trace::TracerProvider};
+use opentelemetry::{InstrumentationScope, KeyValue, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::resource;
@@ -103,6 +103,18 @@ pub fn initialize_observability(
         .with(otel_tracer_layer)
         .init();
 
+    let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
+        .with_tonic()
+        .build()
+        .context("failed to create OTEL tonic exporter")?;
+
+    let meter_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
+        .with_periodic_exporter(metric_exporter)
+        .with_resource(resource.clone())
+        .build();
+
+    opentelemetry::global::set_meter_provider(meter_provider.clone());
+
     // Return a shutdown function to flush providers on exit
     let shutdown_fn = move || {
         if let Err(e) = tracer_provider.shutdown() {
@@ -110,6 +122,9 @@ pub fn initialize_observability(
         }
         if let Err(e) = log_provider.shutdown() {
             eprintln!("failed to shutdown log provider: {e}");
+        }
+        if let Err(e) = meter_provider.shutdown() {
+            eprintln!("failed to shutdown meter provider: {e}");
         }
     };
 
@@ -122,4 +137,36 @@ fn directive(directive: impl AsRef<str>) -> anyhow::Result<Directive> {
         .as_ref()
         .parse()
         .with_context(|| format!("failed to parse filter: {}", directive.as_ref()))
+}
+
+/// Create a histogram metric for tracking fuel consumption.
+pub fn fuel_consumption_histogram(plugin: impl ToString) -> opentelemetry::metrics::Histogram<u64> {
+    let scope = InstrumentationScope::builder("wash-runtime")
+        .with_version(env!("CARGO_PKG_VERSION"))
+        .with_attributes([KeyValue::new("plugin", plugin.to_string())])
+        .build();
+
+    opentelemetry::global::meter_with_scope(scope)
+        .u64_histogram("fuel.consumption")
+        .with_description(
+            "Measure fuel consumption for components that export host plugin interfaces",
+        )
+        .with_boundaries(vec![
+            0.0,
+            50_000.0,
+            100_000.0,
+            250_000.0,
+            500_000.0,
+            750_000.0,
+            1_000_000.0,
+            2_500_000.0,
+            5_000_000.0,
+            7_500_000.0,
+            10_000_000.0,
+            25_000_000.0,
+            50_000_000.0,
+            75_000_000.0,
+            100_000_000.0,
+        ])
+        .build()
 }

@@ -23,14 +23,15 @@ use std::{
     net::SocketAddr,
     path::Path,
     sync::Arc,
+    u64,
 };
 
-use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
+use crate::{engine::ctx::SharedCtx, observability::fuel_consumption_histogram};
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
-use opentelemetry::context::FutureExt;
+use opentelemetry::{KeyValue, context::FutureExt};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tracing::{Instrument, debug, error, info, instrument, warn};
@@ -316,6 +317,7 @@ pub struct HttpServer<T: Router> {
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
     listener: Arc<tokio::sync::Mutex<Option<TcpListener>>>,
+    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
 }
 
 impl<T: Router> std::fmt::Debug for HttpServer<T> {
@@ -336,9 +338,11 @@ impl<T: Router> HttpServer<T> {
     /// # Arguments
     /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
-    pub async fn new(router: T, addr: SocketAddr) -> anyhow::Result<Self> {
+    pub async fn new(router: T, addr: SocketAddr, fuel_meter: bool) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
+        let fuel_meter = fuel_meter.then(|| fuel_consumption_histogram("wasi-http"));
+
         Ok(Self {
             router: Arc::new(router),
             addr,
@@ -346,6 +350,7 @@ impl<T: Router> HttpServer<T> {
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: None,
             listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
+            fuel_meter,
         })
     }
 
@@ -374,12 +379,16 @@ impl<T: Router> HttpServer<T> {
         cert_path: &Path,
         key_path: &Path,
         ca_path: Option<&Path>,
+        fuel_meter: bool,
     ) -> anyhow::Result<Self> {
         let tls_config = load_tls_config(cert_path, key_path, ca_path).await?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
+
+        let fuel_meter = fuel_meter.then(|| fuel_consumption_histogram("wasi-http"));
+
         Ok(Self {
             router: Arc::new(router),
             addr,
@@ -387,6 +396,7 @@ impl<T: Router> HttpServer<T> {
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
             listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
+            fuel_meter,
         })
     }
 }
@@ -413,6 +423,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
         // Start the HTTP server, any incoming requests call Host::handle and then it's routed
         // to the workload based on host header.
         let handler = self.router.clone();
+        let fuel_meter = self.fuel_meter.clone();
         tokio::spawn(async move {
             if let Err(e) = run_http_server(
                 listener,
@@ -420,6 +431,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
                 workload_handles,
                 &mut shutdown_rx,
                 tls_acceptor,
+                fuel_meter,
             )
             .await
             {
@@ -506,6 +518,7 @@ async fn run_http_server<T: Router>(
     workload_handles: WorkloadHandles,
     shutdown_rx: &mut mpsc::Receiver<()>,
     tls_acceptor: Option<TlsAcceptor>,
+    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
 ) -> anyhow::Result<()> {
     loop {
         tokio::select! {
@@ -523,16 +536,18 @@ async fn run_http_server<T: Router>(
                         let handles_clone = workload_handles.clone();
                         let tls_acceptor_clone = tls_acceptor.clone();
                         let handler_clone = handler.clone();
+                        let fuel_meter = fuel_meter.clone();
                         tokio::spawn(async move {
                             let service = hyper::service::service_fn(move |req| {
                                 let handles = handles_clone.clone();
                                 let handler = handler_clone.clone();
+                                let fuel_meter = fuel_meter.clone();
                                 async move {
                                     let extractor = opentelemetry_http::HeaderExtractor(req.headers());
                                     let remote_context =
                                         opentelemetry::global::get_text_map_propagator(|propagator| propagator.extract(&extractor));
 
-                                    handle_http_request(handler, req, handles).with_context(remote_context).await
+                                    handle_http_request(handler, req, handles, fuel_meter).with_context(remote_context).await
                                 }
                             });
 
@@ -594,6 +609,7 @@ async fn handle_http_request<T: Router>(
     handler: Arc<T>,
     req: hyper::Request<hyper::body::Incoming>,
     workload_handles: WorkloadHandles,
+    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
 ) -> Result<hyper::Response<HyperOutgoingBody>, hyper::Error> {
     let method = req.method().clone();
     let uri = req.uri().clone();
@@ -627,7 +643,7 @@ async fn handle_http_request<T: Router>(
                 workload.namespace = handle.namespace(),
                 workload.id = handle.id(),
             );
-            match invoke_component_handler(handle, instance_pre, &component_id, req)
+            match invoke_component_handler(handle, instance_pre, &component_id, req, fuel_meter)
                 .instrument(req_span)
                 .await
             {
@@ -655,11 +671,12 @@ async fn invoke_component_handler(
     instance_pre: InstancePre<SharedCtx>,
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
+    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     // Create a new store for this request with plugin contexts
     let store = workload_handle.new_store(component_id).await?;
 
-    handle_component_request(store, instance_pre, req).await
+    handle_component_request(store, instance_pre, req, fuel_meter).await
 }
 
 /// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)
@@ -667,6 +684,7 @@ pub async fn handle_component_request(
     mut store: Store<SharedCtx>,
     pre: InstancePre<SharedCtx>,
     req: hyper::Request<hyper::body::Incoming>,
+    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let scheme = match req.uri().scheme() {
@@ -676,6 +694,10 @@ pub async fn handle_component_request(
         // Fallback to HTTP if no scheme is present
         None => Scheme::Http,
     };
+
+    let method = req.method().to_string();
+    let uri = req.uri().to_string();
+
     let req = store.data_mut().new_incoming_request(scheme, req)?;
     let out = store.data_mut().new_response_outparam(sender)?;
     let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
@@ -688,10 +710,25 @@ pub async fn handle_component_request(
             // Run the http request itself by instantiating and calling the component
             let proxy = pre.instantiate_async(&mut store).await?;
 
-            proxy
-                .wasi_http_incoming_handler()
-                .call_handle(&mut store, req, out)
-                .await?;
+            if let Some(fuel_meter) = fuel_meter {
+                store.set_fuel(u64::MAX)?;
+
+                proxy
+                    .wasi_http_incoming_handler()
+                    .call_handle(&mut store, req, out)
+                    .await?;
+
+                let consumed_fuel = u64::MAX - store.get_fuel()?;
+                fuel_meter.record(
+                    consumed_fuel,
+                    &[KeyValue::new("method", method), KeyValue::new("uri", uri)],
+                );
+            } else {
+                proxy
+                    .wasi_http_incoming_handler()
+                    .call_handle(&mut store, req, out)
+                    .await?;
+            }
 
             Ok(())
         }

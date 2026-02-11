@@ -40,7 +40,7 @@ async fn test_http_webgpu_integration() -> Result<()> {
     let engine = Engine::builder().build()?;
 
     // Create HTTP server plugin on a dynamically allocated port
-    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?, false).await?;
     let addr = http_plugin.addr();
 
     // Build host with plugins following the existing pattern from lib.rs test

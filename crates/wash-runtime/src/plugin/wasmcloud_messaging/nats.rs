@@ -3,11 +3,13 @@ use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::{ResolvedWorkload, WorkloadItem};
+use crate::observability::fuel_consumption_histogram;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::{Context, bail};
 use async_nats::Subscriber;
 use futures::stream::StreamExt;
+use opentelemetry::KeyValue;
 use tokio::sync::RwLock;
 use tracing::{Instrument, debug, instrument, warn};
 
@@ -35,13 +37,17 @@ pub struct ComponentData {
 pub struct NatsMessaging {
     tracker: Arc<RwLock<WorkloadTracker<(), ComponentData>>>,
     client: Arc<async_nats::Client>,
+    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
 }
 
 impl NatsMessaging {
-    pub fn new(client: Arc<async_nats::Client>) -> Self {
+    pub fn new(client: Arc<async_nats::Client>, fuel_meter: bool) -> Self {
+        let fuel_meter = fuel_meter.then(|| fuel_consumption_histogram(PLUGIN_MESSAGING_ID));
+
         Self {
             client,
             tracker: Arc::new(RwLock::new(WorkloadTracker::default())),
+            fuel_meter,
         }
     }
 }
@@ -209,6 +215,7 @@ impl HostPlugin for NatsMessaging {
         }
 
         let mut messages = futures::stream::select_all(subscriptions);
+        let fuel_meter = self.fuel_meter.clone();
 
         tokio::spawn(async move {
             loop {
@@ -251,17 +258,45 @@ impl HostPlugin for NatsMessaging {
                             reply_to = %msg.reply_to.as_deref().unwrap_or("<none>"),
                         );
 
-                        match proxy
-                        .wasmcloud_messaging_handler()
-                        .call_handle_message(store, &msg).instrument(span).await {
-                            Ok(_) => {
-                                debug!("Message handled successfully");
+                        if let Some(fuel_meter) = &fuel_meter {
+                            if let Err(e) = store.set_fuel(u64::MAX) {
+                                warn!("Error setting fuel: {e}");
                             }
-                            Err(e) => {
-                                warn!("Error handling message: {e}");
+
+                            match proxy
+                            .wasmcloud_messaging_handler()
+                            .call_handle_message(&mut store, &msg).instrument(span).await {
+                                Ok(_) => {
+                                    debug!("Message handled successfully");
+
+                                    let Ok(current_fuel) = store.get_fuel() else {
+                                        continue;
+                                    };
+
+                                    let consumed_fuel = u64::MAX - current_fuel;
+                                    fuel_meter.record(
+                                        consumed_fuel,
+                                        &[KeyValue::new("subject", msg.subject.to_string())],
+                                    );
+                                }
+                                Err(e) => {
+                                    warn!("Error handling message: {e}");
+                                }
+                            }
+
+
+                        } else {
+                            match proxy
+                            .wasmcloud_messaging_handler()
+                            .call_handle_message(store, &msg).instrument(span).await {
+                                Ok(_) => {
+                                    debug!("Message handled successfully");
+                                }
+                                Err(e) => {
+                                    warn!("Error handling message: {e}");
+                                }
                             }
                         }
-
                     }
                     _ = cancel_token.cancelled() => {
                         break;
