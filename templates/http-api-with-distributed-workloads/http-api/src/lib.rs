@@ -2,7 +2,6 @@ mod bindings {
     wit_bindgen::generate!({
         path: "../wit",
         world: "http-api",
-        async: true,
         generate_all,
     });
 }
@@ -59,12 +58,14 @@ async fn create_task(mut req: Request<Body>) -> anyhow::Result<Response<Body>> {
     let body = task_request.payload.into_bytes();
     let request_timeout = Duration::from_secs(5).as_millis() as u32;
 
-    let resp = consumer::request(subject, body, request_timeout)
-        .await
-        .map_err(anyhow::Error::msg)?;
-
-    Response::builder()
-        .status(StatusCode::OK)
-        .body(resp.body.into())
-        .map_err(Into::into)
+    match consumer::request(&subject, &body, request_timeout) {
+        Ok(resp) => Response::builder()
+            .status(StatusCode::OK)
+            .body(resp.body.into())
+            .map_err(Into::into),
+        Err(err) => Response::builder()
+            .status(StatusCode::BAD_GATEWAY)
+            .body(err.into())
+            .map_err(Into::into),
+    }
 }

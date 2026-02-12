@@ -1,7 +1,6 @@
 wit_bindgen::generate!({
     path: "../wit",
     world: "task",
-    async: true,
     with: {
         "wasmcloud:messaging/types@0.2.0": generate,
         "wasmcloud:messaging/consumer@0.2.0": generate,
@@ -17,7 +16,7 @@ struct Component;
 export!(Component);
 
 impl exports::wasmcloud::messaging::handler::Guest for Component {
-    async fn handle_message(msg: BrokerMessage) -> Result<(), String> {
+    fn handle_message(msg: BrokerMessage) -> Result<(), String> {
         let Some(subject) = msg.reply_to else {
             return Err("missing reply_to".to_string());
         };
@@ -31,7 +30,7 @@ impl exports::wasmcloud::messaging::handler::Guest for Component {
             reply_to: None,
         };
 
-        consumer::publish(reply).await
+        consumer::publish(&reply)
     }
 }
 

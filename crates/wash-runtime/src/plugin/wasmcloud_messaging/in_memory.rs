@@ -33,9 +33,9 @@ struct WorkloadData {
 }
 
 /// Per-component tracking data
-#[derive(Default)]
 struct ComponentData {
     cancel_token: tokio_util::sync::CancellationToken,
+    task_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// In-memory messaging plugin for wash dev and mocking scenarios.
@@ -105,17 +105,21 @@ impl<'a> Host for ActiveCtx<'a> {
 
         debug!(subject = %msg.subject, reply_to = %msg.reply_to.as_deref().unwrap_or("<none>"), "Sending request");
         // Push the message to the queue
-        {
+        let queue_full = {
             let mut msg_lock = pending_messages.write().await;
 
             if msg_lock.len() >= MAX_QUEUE_SIZE {
-                let mut req_lock = pending_requests.write().await;
-                // Clean up the pending request since we're failing
-                req_lock.remove(&reply_to);
-                return Ok(Err("message queue full".to_string()));
+                true
+            } else {
+                msg_lock.push_back(msg);
+                false
             }
+        };
 
-            msg_lock.push_back(msg);
+        if queue_full {
+            let mut req_lock = pending_requests.write().await;
+            req_lock.remove(&reply_to);
+            return Ok(Err("message queue full".to_string()));
         }
 
         // Wait for the response with timeout
@@ -247,10 +251,13 @@ impl HostPlugin for InMemoryMessaging {
             .contains(&WitInterface::from("wasmcloud:messaging/handler@0.2.0"))
         {
             debug!("Tracking component in in-memory messaging");
-            self.tracker
-                .write()
-                .await
-                .add_component(component_handle, ComponentData::default());
+            self.tracker.write().await.add_component(
+                component_handle,
+                ComponentData {
+                    cancel_token: tokio_util::sync::CancellationToken::new(),
+                    task_handle: None,
+                },
+            );
         }
 
         Ok(())
@@ -288,7 +295,8 @@ impl HostPlugin for InMemoryMessaging {
         debug!("Spawning messaging processor for component {component_id}");
 
         // Spawn the message processing task
-        tokio::spawn(async move {
+        let task_component_id = component_id.clone();
+        let handle = tokio::spawn(async move {
             let poll_interval = std::time::Duration::from_millis(10);
 
             loop {
@@ -347,6 +355,14 @@ impl HostPlugin for InMemoryMessaging {
             }
         });
 
+        // Store the task handle for tracking panics and cleanup
+        {
+            let mut lock = self.tracker.write().await;
+            if let Some(data) = lock.get_component_data_mut(&task_component_id) {
+                data.task_handle = Some(handle);
+            }
+        }
+
         Ok(())
     }
 
@@ -359,6 +375,9 @@ impl HostPlugin for InMemoryMessaging {
         let workload_cleanup = |_| async {};
         let component_cleanup = |component_data: ComponentData| async move {
             component_data.cancel_token.cancel();
+            if let Some(handle) = component_data.task_handle {
+                handle.abort();
+            }
         };
 
         self.tracker
