@@ -38,7 +38,7 @@ async fn test_http_blobstore_integration() -> Result<()> {
     let engine = Engine::builder().build()?;
 
     // Create HTTP server plugin on a dynamically allocated port
-    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?, false).await?;
     let addr = http_plugin.addr();
 
     // Create blobstore plugin
@@ -201,7 +201,7 @@ async fn test_plugin_lifecycle() -> Result<()> {
     println!("Testing plugin lifecycle");
 
     let engine = Engine::builder().build()?;
-    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?).await?;
+    let http_plugin = HttpServer::new(DevRouter::default(), "127.0.0.1:0".parse()?, false).await?;
 
     let host = HostBuilder::new()
         .with_engine(engine)

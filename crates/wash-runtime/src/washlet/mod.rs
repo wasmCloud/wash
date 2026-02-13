@@ -61,6 +61,11 @@ impl ClusterHostBuilder {
         self
     }
 
+    pub fn with_engine(mut self, engine: crate::engine::Engine) -> Self {
+        self.host_builder = self.host_builder.with_engine(engine);
+        self
+    }
+
     pub fn with_plugin<T: HostPlugin>(mut self, plugin: Arc<T>) -> anyhow::Result<Self> {
         self.host_builder = self.host_builder.with_plugin(plugin)?;
         Ok(self)

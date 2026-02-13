@@ -3,7 +3,10 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use anyhow::Context as _;
 use clap::Args;
 use tracing::info;
-use wash_runtime::plugin::{self};
+use wash_runtime::{
+    engine::Engine,
+    plugin::{self},
+};
 
 use crate::cli::{CliCommand, CliContext, CommandOutput};
 
@@ -76,7 +79,7 @@ pub struct HostCommand {
 }
 
 impl CliCommand for HostCommand {
-    async fn handle(&self, _ctx: &CliContext) -> anyhow::Result<CommandOutput> {
+    async fn handle(&self, ctx: &CliContext) -> anyhow::Result<CommandOutput> {
         rustls::crypto::aws_lc_rs::default_provider()
             .install_default()
             .map_err(|e| anyhow::anyhow!(format!("failed to install crypto provider: {e:?}")))?;
@@ -114,6 +117,11 @@ impl CliCommand for HostCommand {
             ..Default::default()
         };
 
+        let engine = Engine::builder()
+            .with_pooling_allocator(true)
+            .with_fuel_consumption(ctx.fuel_meter())
+            .build()?;
+
         let mut cluster_host_builder = wash_runtime::washlet::ClusterHostBuilder::default()
             .with_host_config(host_config)
             .with_nats_client(Arc::new(scheduler_nats_client))
@@ -125,10 +133,12 @@ impl CliCommand for HostCommand {
             )))?
             .with_plugin(Arc::new(plugin::wasmcloud_messaging::NatsMessaging::new(
                 data_nats_client.clone(),
+                ctx.fuel_meter(),
             )))?
             .with_plugin(Arc::new(plugin::wasi_keyvalue::NatsKeyValue::new(
                 &data_nats_client,
-            )))?;
+            )))?
+            .with_engine(engine);
 
         if let Some(host_name) = &self.host_name {
             cluster_host_builder = cluster_host_builder.with_host_name(host_name);
@@ -137,7 +147,8 @@ impl CliCommand for HostCommand {
         if let Some(addr) = self.http_addr {
             let http_router = wash_runtime::host::http::DynamicRouter::default();
             cluster_host_builder = cluster_host_builder.with_http_handler(Arc::new(
-                wash_runtime::host::http::HttpServer::new(http_router, addr).await?,
+                wash_runtime::host::http::HttpServer::new(http_router, addr, ctx.fuel_meter())
+                    .await?,
             ));
         }
 

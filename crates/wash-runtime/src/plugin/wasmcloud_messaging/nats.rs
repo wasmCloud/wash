@@ -3,11 +3,13 @@ use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::{ResolvedWorkload, WorkloadItem};
+use crate::observability::FuelConsumptionMeter;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::{Context, bail};
 use async_nats::Subscriber;
 use futures::stream::StreamExt;
+use opentelemetry::KeyValue;
 use tokio::sync::RwLock;
 use tracing::{Instrument, debug, instrument, warn};
 
@@ -35,13 +37,17 @@ pub struct ComponentData {
 pub struct NatsMessaging {
     tracker: Arc<RwLock<WorkloadTracker<(), ComponentData>>>,
     client: Arc<async_nats::Client>,
+    fuel_meter: FuelConsumptionMeter,
 }
 
 impl NatsMessaging {
-    pub fn new(client: Arc<async_nats::Client>) -> Self {
+    pub fn new(client: Arc<async_nats::Client>, fuel_meter: bool) -> Self {
+        let fuel_meter = FuelConsumptionMeter::new(fuel_meter);
+
         Self {
             client,
             tracker: Arc::new(RwLock::new(WorkloadTracker::default())),
+            fuel_meter,
         }
     }
 }
@@ -209,6 +215,7 @@ impl HostPlugin for NatsMessaging {
         }
 
         let mut messages = futures::stream::select_all(subscriptions);
+        let fuel_meter = self.fuel_meter.clone();
 
         tokio::spawn(async move {
             loop {
@@ -251,17 +258,29 @@ impl HostPlugin for NatsMessaging {
                             reply_to = %msg.reply_to.as_deref().unwrap_or("<none>"),
                         );
 
-                        match proxy
-                        .wasmcloud_messaging_handler()
-                        .call_handle_message(store, &msg).instrument(span).await {
+                        let result = fuel_meter.observe(
+                            &[
+                                KeyValue::new("plugin", PLUGIN_MESSAGING_ID),
+                                KeyValue::new("workload_id", workload.id().to_string()),
+                                KeyValue::new("component_id", component_id.clone()),
+                                KeyValue::new("subject", msg.subject.to_string()),
+                            ],
+                            &mut store,
+                            async move |store| {
+                                proxy
+                                    .wasmcloud_messaging_handler()
+                                    .call_handle_message(store, &msg).instrument(span).await
+                            }
+                        ).await;
+
+                        match result {
                             Ok(_) => {
                                 debug!("Message handled successfully");
                             }
                             Err(e) => {
                                 warn!("Error handling message: {e}");
                             }
-                        }
-
+                        };
                     }
                     _ = cancel_token.cancelled() => {
                         break;
