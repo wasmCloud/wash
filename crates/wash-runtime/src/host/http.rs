@@ -341,7 +341,7 @@ impl<T: Router> HttpServer<T> {
     pub async fn new(router: T, addr: SocketAddr, fuel_meter: bool) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
-        let fuel_meter = fuel_meter.then(|| fuel_consumption_histogram("wasi-http"));
+        let fuel_meter = fuel_meter.then(fuel_consumption_histogram);
 
         Ok(Self {
             router: Arc::new(router),
@@ -387,7 +387,7 @@ impl<T: Router> HttpServer<T> {
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
 
-        let fuel_meter = fuel_meter.then(|| fuel_consumption_histogram("wasi-http"));
+        let fuel_meter = fuel_meter.then(fuel_consumption_histogram);
 
         Ok(Self {
             router: Arc::new(router),
@@ -676,13 +676,23 @@ async fn invoke_component_handler(
     // Create a new store for this request with plugin contexts
     let store = workload_handle.new_store(component_id).await?;
 
-    handle_component_request(store, instance_pre, req, fuel_meter).await
+    handle_component_request(
+        store,
+        instance_pre,
+        workload_handle.id().to_string(),
+        component_id,
+        req,
+        fuel_meter,
+    )
+    .await
 }
 
 /// Handle a component request using WASI HTTP (copied from wash/crates/src/cli/dev.rs)
 pub async fn handle_component_request(
     mut store: Store<SharedCtx>,
     pre: InstancePre<SharedCtx>,
+    workload_id: String,
+    component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
     fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
@@ -701,6 +711,8 @@ pub async fn handle_component_request(
     let req = store.data_mut().new_incoming_request(scheme, req)?;
     let out = store.data_mut().new_response_outparam(sender)?;
     let pre = ProxyPre::new(pre).context("failed to instantiate proxy pre")?;
+
+    let component_id = component_id.to_string();
 
     // Run the http request itself in a separate task so the task can
     // optionally continue to execute beyond after the initial
@@ -721,7 +733,13 @@ pub async fn handle_component_request(
                 let consumed_fuel = u64::MAX - store.get_fuel()?;
                 fuel_meter.record(
                     consumed_fuel,
-                    &[KeyValue::new("method", method), KeyValue::new("uri", uri)],
+                    &[
+                        KeyValue::new("plugin", "wasi-http"),
+                        KeyValue::new("workload_id", workload_id),
+                        KeyValue::new("component_id", component_id),
+                        KeyValue::new("method", method),
+                        KeyValue::new("uri", uri),
+                    ],
                 );
             } else {
                 proxy

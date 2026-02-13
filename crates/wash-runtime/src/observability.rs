@@ -1,6 +1,6 @@
 use anyhow::Context;
 
-use opentelemetry::{InstrumentationScope, KeyValue, trace::TracerProvider};
+use opentelemetry::{KeyValue, trace::TracerProvider};
 use opentelemetry_appender_tracing::layer::OpenTelemetryTracingBridge;
 use opentelemetry_sdk::Resource;
 use opentelemetry_semantic_conventions::resource;
@@ -140,13 +140,8 @@ fn directive(directive: impl AsRef<str>) -> anyhow::Result<Directive> {
 }
 
 /// Create a histogram metric for tracking fuel consumption.
-pub fn fuel_consumption_histogram(plugin: impl ToString) -> opentelemetry::metrics::Histogram<u64> {
-    let scope = InstrumentationScope::builder("wash-runtime")
-        .with_version(env!("CARGO_PKG_VERSION"))
-        .with_attributes([KeyValue::new("plugin", plugin.to_string())])
-        .build();
-
-    opentelemetry::global::meter_with_scope(scope)
+pub fn fuel_consumption_histogram() -> opentelemetry::metrics::Histogram<u64> {
+    opentelemetry::global::meter("wash-runtime")
         .u64_histogram("fuel.consumption")
         .with_description(
             "Measure fuel consumption for components that export host plugin interfaces",

@@ -42,7 +42,7 @@ pub struct NatsMessaging {
 
 impl NatsMessaging {
     pub fn new(client: Arc<async_nats::Client>, fuel_meter: bool) -> Self {
-        let fuel_meter = fuel_meter.then(|| fuel_consumption_histogram(PLUGIN_MESSAGING_ID));
+        let fuel_meter = fuel_meter.then(fuel_consumption_histogram);
 
         Self {
             client,
@@ -276,7 +276,12 @@ impl HostPlugin for NatsMessaging {
                                     let consumed_fuel = u64::MAX - current_fuel;
                                     fuel_meter.record(
                                         consumed_fuel,
-                                        &[KeyValue::new("subject", msg.subject.to_string())],
+                                        &[
+                                            KeyValue::new("plugin", PLUGIN_MESSAGING_ID),
+                                            KeyValue::new("workload_id", workload.id().to_string()),
+                                            KeyValue::new("component_id", component_id.clone()),
+                                            KeyValue::new("subject", msg.subject.to_string()),
+                                        ],
                                     );
                                 }
                                 Err(e) => {
