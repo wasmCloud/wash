@@ -144,6 +144,15 @@ impl CliCommand for DevCommand {
             debug!("WASI KeyValue plugin registered with in-memory backend");
         }
 
+        // Add postgres plugin if configured
+        if let Some(postgres_url) = &dev_config.postgres_url {
+            host_builder = host_builder.with_plugin(Arc::new(
+                plugin::wasmcloud_postgres::WasmcloudPostgres::new(postgres_url)
+                    .context("failed to configure postgres plugin")?,
+            ))?;
+            debug!("wasmcloud:postgres plugin registered");
+        }
+
         // Enable WASI WebGPU if requested
         #[cfg(not(target_os = "windows"))]
         if dev_config.wasi_webgpu {
