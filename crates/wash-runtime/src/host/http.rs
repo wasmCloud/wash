@@ -23,12 +23,11 @@ use std::{
     net::SocketAddr,
     path::Path,
     sync::Arc,
-    u64,
 };
 
 use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
-use crate::{engine::ctx::SharedCtx, observability::fuel_consumption_histogram};
+use crate::{engine::ctx::SharedCtx, observability::FuelConsumptionMeter};
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
 use opentelemetry::{KeyValue, context::FutureExt};
@@ -317,7 +316,7 @@ pub struct HttpServer<T: Router> {
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
     listener: Arc<tokio::sync::Mutex<Option<TcpListener>>>,
-    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
+    fuel_meter: FuelConsumptionMeter,
 }
 
 impl<T: Router> std::fmt::Debug for HttpServer<T> {
@@ -341,7 +340,7 @@ impl<T: Router> HttpServer<T> {
     pub async fn new(router: T, addr: SocketAddr, fuel_meter: bool) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
-        let fuel_meter = fuel_meter.then(fuel_consumption_histogram);
+        let fuel_meter = FuelConsumptionMeter::new(fuel_meter);
 
         Ok(Self {
             router: Arc::new(router),
@@ -386,8 +385,7 @@ impl<T: Router> HttpServer<T> {
 
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
-
-        let fuel_meter = fuel_meter.then(fuel_consumption_histogram);
+        let fuel_meter = FuelConsumptionMeter::new(fuel_meter);
 
         Ok(Self {
             router: Arc::new(router),
@@ -518,7 +516,7 @@ async fn run_http_server<T: Router>(
     workload_handles: WorkloadHandles,
     shutdown_rx: &mut mpsc::Receiver<()>,
     tls_acceptor: Option<TlsAcceptor>,
-    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
+    fuel_meter: FuelConsumptionMeter,
 ) -> anyhow::Result<()> {
     loop {
         tokio::select! {
@@ -609,7 +607,7 @@ async fn handle_http_request<T: Router>(
     handler: Arc<T>,
     req: hyper::Request<hyper::body::Incoming>,
     workload_handles: WorkloadHandles,
-    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
+    fuel_meter: FuelConsumptionMeter,
 ) -> Result<hyper::Response<HyperOutgoingBody>, hyper::Error> {
     let method = req.method().clone();
     let uri = req.uri().clone();
@@ -671,7 +669,7 @@ async fn invoke_component_handler(
     instance_pre: InstancePre<SharedCtx>,
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
-    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
+    fuel_meter: FuelConsumptionMeter,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     // Create a new store for this request with plugin contexts
     let store = workload_handle.new_store(component_id).await?;
@@ -694,7 +692,7 @@ pub async fn handle_component_request(
     workload_id: String,
     component_id: &str,
     req: hyper::Request<hyper::body::Incoming>,
-    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
+    fuel_meter: FuelConsumptionMeter,
 ) -> anyhow::Result<hyper::Response<HyperOutgoingBody>> {
     let (sender, receiver) = tokio::sync::oneshot::channel();
     let scheme = match req.uri().scheme() {
@@ -722,17 +720,8 @@ pub async fn handle_component_request(
             // Run the http request itself by instantiating and calling the component
             let proxy = pre.instantiate_async(&mut store).await?;
 
-            if let Some(fuel_meter) = fuel_meter {
-                store.set_fuel(u64::MAX)?;
-
-                proxy
-                    .wasi_http_incoming_handler()
-                    .call_handle(&mut store, req, out)
-                    .await?;
-
-                let consumed_fuel = u64::MAX - store.get_fuel()?;
-                fuel_meter.record(
-                    consumed_fuel,
+            fuel_meter
+                .observe(
                     &[
                         KeyValue::new("plugin", "wasi-http"),
                         KeyValue::new("workload_id", workload_id),
@@ -740,13 +729,17 @@ pub async fn handle_component_request(
                         KeyValue::new("method", method),
                         KeyValue::new("uri", uri),
                     ],
-                );
-            } else {
-                proxy
-                    .wasi_http_incoming_handler()
-                    .call_handle(&mut store, req, out)
-                    .await?;
-            }
+                    &mut store,
+                    async move |store| {
+                        proxy
+                            .wasi_http_incoming_handler()
+                            .call_handle(store, req, out)
+                            .await?;
+
+                        Ok(())
+                    },
+                )
+                .await?;
 
             Ok(())
         }

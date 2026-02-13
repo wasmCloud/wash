@@ -139,29 +139,59 @@ fn directive(directive: impl AsRef<str>) -> anyhow::Result<Directive> {
         .with_context(|| format!("failed to parse filter: {}", directive.as_ref()))
 }
 
-/// Create a histogram metric for tracking fuel consumption.
-pub fn fuel_consumption_histogram() -> opentelemetry::metrics::Histogram<u64> {
-    opentelemetry::global::meter("wash-runtime")
-        .u64_histogram("fuel.consumption")
-        .with_description(
-            "Measure fuel consumption for components that export host plugin interfaces",
-        )
-        .with_boundaries(vec![
-            0.0,
-            50_000.0,
-            100_000.0,
-            250_000.0,
-            500_000.0,
-            750_000.0,
-            1_000_000.0,
-            2_500_000.0,
-            5_000_000.0,
-            7_500_000.0,
-            10_000_000.0,
-            25_000_000.0,
-            50_000_000.0,
-            75_000_000.0,
-            100_000_000.0,
-        ])
-        .build()
+#[derive(Clone)]
+pub struct FuelConsumptionMeter {
+    hist: Option<opentelemetry::metrics::Histogram<u64>>,
+}
+
+impl FuelConsumptionMeter {
+    pub fn new(enabled: bool) -> Self {
+        let hist = enabled.then(|| {
+            opentelemetry::global::meter("wash-runtime")
+                .u64_histogram("fuel.consumption")
+                .with_description(
+                    "Measure fuel consumption for components that export host plugin interfaces",
+                )
+                .with_boundaries(vec![
+                    0.0,
+                    50_000.0,
+                    100_000.0,
+                    250_000.0,
+                    500_000.0,
+                    750_000.0,
+                    1_000_000.0,
+                    2_500_000.0,
+                    5_000_000.0,
+                    7_500_000.0,
+                    10_000_000.0,
+                    25_000_000.0,
+                    50_000_000.0,
+                    75_000_000.0,
+                    100_000_000.0,
+                ])
+                .build()
+        });
+        Self { hist }
+    }
+
+    pub async fn observe<T, F, R>(
+        &self,
+        attributes: &[KeyValue],
+        store: &mut wasmtime::Store<T>,
+        func: F,
+    ) -> anyhow::Result<R>
+    where
+        F: AsyncFnOnce(&mut wasmtime::Store<T>) -> anyhow::Result<R>,
+    {
+        if let Some(fuel_meter) = &self.hist {
+            store.set_fuel(u64::MAX)?;
+            let result = func(store).await?;
+            let consumed_fuel = u64::MAX - store.get_fuel()?;
+            fuel_meter.record(consumed_fuel, attributes);
+
+            Ok(result)
+        } else {
+            func(store).await
+        }
+    }
 }

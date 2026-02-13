@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::{ResolvedWorkload, WorkloadItem};
-use crate::observability::fuel_consumption_histogram;
+use crate::observability::FuelConsumptionMeter;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::{Context, bail};
@@ -37,12 +37,12 @@ pub struct ComponentData {
 pub struct NatsMessaging {
     tracker: Arc<RwLock<WorkloadTracker<(), ComponentData>>>,
     client: Arc<async_nats::Client>,
-    fuel_meter: Option<opentelemetry::metrics::Histogram<u64>>,
+    fuel_meter: FuelConsumptionMeter,
 }
 
 impl NatsMessaging {
     pub fn new(client: Arc<async_nats::Client>, fuel_meter: bool) -> Self {
-        let fuel_meter = fuel_meter.then(fuel_consumption_histogram);
+        let fuel_meter = FuelConsumptionMeter::new(fuel_meter);
 
         Self {
             client,
@@ -258,50 +258,29 @@ impl HostPlugin for NatsMessaging {
                             reply_to = %msg.reply_to.as_deref().unwrap_or("<none>"),
                         );
 
-                        if let Some(fuel_meter) = &fuel_meter {
-                            if let Err(e) = store.set_fuel(u64::MAX) {
-                                warn!("Error setting fuel: {e}");
+                        let result = fuel_meter.observe(
+                            &[
+                                KeyValue::new("plugin", PLUGIN_MESSAGING_ID),
+                                KeyValue::new("workload_id", workload.id().to_string()),
+                                KeyValue::new("component_id", component_id.clone()),
+                                KeyValue::new("subject", msg.subject.to_string()),
+                            ],
+                            &mut store,
+                            async move |store| {
+                                proxy
+                                    .wasmcloud_messaging_handler()
+                                    .call_handle_message(store, &msg).instrument(span).await
                             }
+                        ).await;
 
-                            match proxy
-                            .wasmcloud_messaging_handler()
-                            .call_handle_message(&mut store, &msg).instrument(span).await {
-                                Ok(_) => {
-                                    debug!("Message handled successfully");
-
-                                    let Ok(current_fuel) = store.get_fuel() else {
-                                        continue;
-                                    };
-
-                                    let consumed_fuel = u64::MAX - current_fuel;
-                                    fuel_meter.record(
-                                        consumed_fuel,
-                                        &[
-                                            KeyValue::new("plugin", PLUGIN_MESSAGING_ID),
-                                            KeyValue::new("workload_id", workload.id().to_string()),
-                                            KeyValue::new("component_id", component_id.clone()),
-                                            KeyValue::new("subject", msg.subject.to_string()),
-                                        ],
-                                    );
-                                }
-                                Err(e) => {
-                                    warn!("Error handling message: {e}");
-                                }
+                        match result {
+                            Ok(_) => {
+                                debug!("Message handled successfully");
                             }
-
-
-                        } else {
-                            match proxy
-                            .wasmcloud_messaging_handler()
-                            .call_handle_message(store, &msg).instrument(span).await {
-                                Ok(_) => {
-                                    debug!("Message handled successfully");
-                                }
-                                Err(e) => {
-                                    warn!("Error handling message: {e}");
-                                }
+                            Err(e) => {
+                                warn!("Error handling message: {e}");
                             }
-                        }
+                        };
                     }
                     _ = cancel_token.cancelled() => {
                         break;
