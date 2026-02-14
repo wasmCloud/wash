@@ -525,6 +525,9 @@ impl ResolvedWorkload {
 
     #[instrument(name="link_components", skip_all, fields(workload.id = self.id.as_ref(), workload.name = self.name.as_ref(), workload.namespace = self.namespace.as_ref()))]
     async fn link_components(&mut self) -> anyhow::Result<()> {
+        // Regex to match wasi@0.2 versions
+        let re = regex::Regex::new(r"^0\.2\.[0-9]+$").map_err(|e| anyhow::anyhow!(e))?;
+
         // A map from component ID to its exported interfaces
         let mut interface_map: HashMap<String, Arc<str>> = HashMap::new();
 
@@ -532,10 +535,15 @@ impl ResolvedWorkload {
         for c in self.components.read().await.values() {
             let exported_instances = c.component_exports()?;
             for (name, item) in exported_instances {
-                // TODO(#11): It's probably a good idea to skip registering wasi@0.2 interfaces
                 match name.split_once('@') {
                     Some(("wasmcloud:wash/plugin", _)) => {
                         trace!(name, "skipping internal plugin export");
+                        continue;
+                    }
+                    Some((iface, version))
+                        if iface.starts_with("wasi:") && re.is_match(version) =>
+                    {
+                        trace!(name, "skipping wasi@0.2 export");
                         continue;
                     }
                     None => {
@@ -2438,5 +2446,41 @@ mod tests {
         assert_eq!(bound_plugins.len(), 1);
         let (_bound_plugin, component_ids) = &bound_plugins[0];
         assert_eq!(component_ids.len(), 1);
+    }
+
+    /// Tests successful workload resolution with available plugins.
+    /// Verifies that the `resolve()` method successfully transforms an UnresolvedWorkload
+    /// into a ResolvedWorkload when all required interfaces are provided by plugins.
+    #[tokio::test]
+    async fn test_resolve_with_plugins_success() {
+        let http_interface = WitInterface::from("wasi:http/incoming-handler@0.2.0");
+
+        let plugin = Arc::new(MockPlugin::new(
+            "http-plugin",
+            vec![],
+            vec![http_interface.clone()],
+        ));
+
+        let mut plugins = HashMap::new();
+        plugins.insert(plugin.id(), plugin.clone() as Arc<dyn HostPlugin>);
+
+        let http_handler = Arc::new(crate::host::http::NullServer::default());
+
+        let components = vec![create_test_component("component1")];
+
+        let workload = UnresolvedWorkload::new(
+            "test-workload-id".to_string(),
+            "test-workload".to_string(),
+            "test-namespace".to_string(),
+            None,
+            components,
+            vec![http_interface.clone()],
+        );
+
+        let result = workload.resolve(Some(&plugins), http_handler).await;
+        assert!(
+            result.is_ok(),
+            "Workload should resolve successfully with available plugins"
+        );
     }
 }
