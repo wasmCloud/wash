@@ -1439,7 +1439,7 @@ version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef552e6f588e446098f6ba40d89ac146c8c7b64aade83c051ee00bb5d2bc18d"
 dependencies = [
- "uuid 1.18.0",
+ "uuid",
 ]
 
 [[package]]
@@ -3317,7 +3317,7 @@ dependencies = [
  "portable-atomic",
  "smallvec",
  "tagptr",
- "uuid 1.18.0",
+ "uuid",
 ]
 
 [[package]]
@@ -4266,8 +4266,7 @@ dependencies = [
  "postgres-protocol",
  "serde",
  "serde_json",
- "uuid 0.8.2",
- "uuid 1.18.0",
+ "uuid",
 ]
 
 [[package]]
@@ -6549,12 +6548,6 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "uuid"
-version = "0.8.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc5cf98d8186244414c848017f0e2676b3fcb46807f6668a97dfe67359a3c4b7"
-
-[[package]]
-name = "uuid"
 version = "1.18.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f33196643e165781c20a5ead5582283a7dacbb87855d867fbc2df3f81eddc1be"
@@ -6768,7 +6761,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "url",
- "uuid 1.18.0",
+ "uuid",
  "wash-runtime",
  "wash-wasi",
  "wasm-metadata 0.244.0",
@@ -6836,7 +6829,7 @@ dependencies = [
  "tracing-subscriber",
  "ulid",
  "url",
- "uuid 1.18.0",
+ "uuid",
  "wash-wasi",
  "wasi-graphics-context-wasmtime",
  "wasi-webgpu-wasmtime",
