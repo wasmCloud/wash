@@ -68,6 +68,12 @@ pub trait HostPlugin: std::any::Any + Send + Sync + 'static {
     /// A static string slice containing the plugin's unique identifier.
     fn id(&self) -> &'static str;
 
+    /// Injects metrics into the plugin.
+    ///
+    /// # Arguments
+    /// * `meters` - A `Meters` object containing the metrics to inject.
+    async fn inject_meters(&self, _meters: &crate::observability::Meters) {}
+
     /// Returns the WIT interfaces that this plugin provides.
     ///
     /// The returned `WitWorld` contains the imports and exports that this plugin

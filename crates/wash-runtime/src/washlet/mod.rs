@@ -66,6 +66,11 @@ impl ClusterHostBuilder {
         self
     }
 
+    pub fn with_meters(mut self, meters: crate::observability::Meters) -> Self {
+        self.host_builder = self.host_builder.with_meters(meters);
+        self
+    }
+
     pub fn with_plugin<T: HostPlugin>(mut self, plugin: Arc<T>) -> anyhow::Result<Self> {
         self.host_builder = self.host_builder.with_plugin(plugin)?;
         Ok(self)

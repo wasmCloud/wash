@@ -1,3 +1,5 @@
+use std::{any::Any, sync::Arc};
+
 use anyhow::Context;
 
 use opentelemetry::{KeyValue, trace::TracerProvider};
@@ -139,13 +141,31 @@ fn directive(directive: impl AsRef<str>) -> anyhow::Result<Directive> {
         .with_context(|| format!("failed to parse filter: {}", directive.as_ref()))
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
+pub struct Meters {
+    pub fuel_consumption: FuelConsumptionMeter,
+    /// User-defined meters
+    ///
+    /// TODO: Custom type?
+    pub extract_meters: Option<Arc<dyn Any + Send + Sync + 'static>>,
+}
+
+impl Meters {
+    pub fn new(enabled: bool) -> Self {
+        Self {
+            fuel_consumption: FuelConsumptionMeter::new(enabled),
+            extract_meters: None,
+        }
+    }
+}
+
+#[derive(Clone, Default)]
 pub struct FuelConsumptionMeter {
     hist: Option<opentelemetry::metrics::Histogram<u64>>,
 }
 
 impl FuelConsumptionMeter {
-    pub fn new(enabled: bool) -> Self {
+    pub(crate) fn new(enabled: bool) -> Self {
         let hist = enabled.then(|| {
             opentelemetry::global::meter("wash-runtime")
                 .u64_histogram("fuel.consumption")

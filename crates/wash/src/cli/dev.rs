@@ -8,6 +8,7 @@ use tracing::{debug, info, instrument, warn};
 use wash_runtime::{
     engine::Engine,
     host::{Host, HostApi},
+    observability::Meters,
     plugin::{self},
     types::{
         Component, HostPathVolume, LocalResources, Service, Volume, VolumeMount, VolumeType,
@@ -59,10 +60,12 @@ impl CliCommand for DevCommand {
 
         let engine = Engine::builder()
             .with_pooling_allocator(true)
-            .with_fuel_consumption(ctx.fuel_meter())
+            .with_fuel_consumption(ctx.enable_meters())
             .build()?;
 
-        let mut host_builder = Host::builder().with_engine(engine);
+        let mut host_builder = Host::builder()
+            .with_engine(engine)
+            .with_meters(Meters::new(ctx.enable_meters()));
 
         // Enable wasi config
         host_builder =
@@ -115,7 +118,6 @@ impl CliCommand for DevCommand {
                 cert_path,
                 key_path,
                 dev_config.tls_ca_path.as_deref(),
-                ctx.fuel_meter(),
             )
             .await?;
 
@@ -125,12 +127,8 @@ impl CliCommand for DevCommand {
             "https"
         } else {
             debug!("No TLS configuration provided - server will use HTTP");
-            let http_server = wash_runtime::host::http::HttpServer::new(
-                http_handler,
-                http_addr.parse()?,
-                ctx.fuel_meter(),
-            )
-            .await?;
+            let http_server =
+                wash_runtime::host::http::HttpServer::new(http_handler, http_addr.parse()?).await?;
             host_builder = host_builder.with_http_handler(Arc::new(http_server));
             "http"
         };

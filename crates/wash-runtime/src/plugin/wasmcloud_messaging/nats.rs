@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
 use crate::engine::workload::{ResolvedWorkload, WorkloadItem};
-use crate::observability::FuelConsumptionMeter;
+use crate::observability::Meters;
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::{Context, bail};
@@ -37,17 +37,15 @@ pub struct ComponentData {
 pub struct NatsMessaging {
     tracker: Arc<RwLock<WorkloadTracker<(), ComponentData>>>,
     client: Arc<async_nats::Client>,
-    fuel_meter: FuelConsumptionMeter,
+    meters: Arc<RwLock<Meters>>,
 }
 
 impl NatsMessaging {
-    pub fn new(client: Arc<async_nats::Client>, fuel_meter: bool) -> Self {
-        let fuel_meter = FuelConsumptionMeter::new(fuel_meter);
-
+    pub fn new(client: Arc<async_nats::Client>) -> Self {
         Self {
             client,
             tracker: Arc::new(RwLock::new(WorkloadTracker::default())),
-            fuel_meter,
+            meters: Default::default(),
         }
     }
 }
@@ -128,6 +126,10 @@ impl HostPlugin for NatsMessaging {
 
             exports: HashSet::from([WitInterface::from("wasmcloud:messaging/handler@0.2.0")]),
         }
+    }
+
+    async fn inject_meters(&self, meters: &crate::observability::Meters) {
+        *self.meters.write().await = meters.clone();
     }
 
     async fn on_workload_item_bind<'a>(
@@ -215,7 +217,7 @@ impl HostPlugin for NatsMessaging {
         }
 
         let mut messages = futures::stream::select_all(subscriptions);
-        let fuel_meter = self.fuel_meter.clone();
+        let fuel_meter = self.meters.read().await.fuel_consumption.clone();
 
         tokio::spawn(async move {
             loop {

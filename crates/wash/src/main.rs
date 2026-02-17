@@ -52,8 +52,8 @@ struct Cli {
     #[clap(long = "verbose", help = "Enable verbose output", global = true)]
     verbose: bool,
 
-    #[clap(long = "fuel-meter", help = "Enable fuel meter", global = true)]
-    fuel_meter: bool,
+    #[clap(long = "enable-meters", help = "Enable host meters", global = true)]
+    enable_meters: bool,
 
     #[clap(
         long = "non-interactive",
@@ -255,7 +255,7 @@ async fn main() {
     let mut ctx_builder = CliContext::builder()
         .non_interactive(non_interactive)
         .project_dir(project_absolute_path)
-        .fuel_meter(global_args.fuel_meter);
+        .enable_meters(global_args.enable_meters);
 
     // Load custom config if provided, otherwise will default to XDG config path
     if let Some(config_path) = global_args.user_config {

@@ -5,6 +5,7 @@ use clap::Args;
 use tracing::info;
 use wash_runtime::{
     engine::Engine,
+    observability::Meters,
     plugin::{self},
 };
 
@@ -119,7 +120,7 @@ impl CliCommand for HostCommand {
 
         let engine = Engine::builder()
             .with_pooling_allocator(true)
-            .with_fuel_consumption(ctx.fuel_meter())
+            .with_fuel_consumption(ctx.enable_meters())
             .build()?;
 
         let mut cluster_host_builder = wash_runtime::washlet::ClusterHostBuilder::default()
@@ -133,12 +134,12 @@ impl CliCommand for HostCommand {
             )))?
             .with_plugin(Arc::new(plugin::wasmcloud_messaging::NatsMessaging::new(
                 data_nats_client.clone(),
-                ctx.fuel_meter(),
             )))?
             .with_plugin(Arc::new(plugin::wasi_keyvalue::NatsKeyValue::new(
                 &data_nats_client,
             )))?
-            .with_engine(engine);
+            .with_engine(engine)
+            .with_meters(Meters::new(ctx.enable_meters()));
 
         if let Some(host_name) = &self.host_name {
             cluster_host_builder = cluster_host_builder.with_host_name(host_name);
@@ -147,8 +148,7 @@ impl CliCommand for HostCommand {
         if let Some(addr) = self.http_addr {
             let http_router = wash_runtime::host::http::DynamicRouter::default();
             cluster_host_builder = cluster_host_builder.with_http_handler(Arc::new(
-                wash_runtime::host::http::HttpServer::new(http_router, addr, ctx.fuel_meter())
-                    .await?,
+                wash_runtime::host::http::HttpServer::new(http_router, addr).await?,
             ));
         }
 

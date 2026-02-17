@@ -25,9 +25,9 @@ use std::{
     sync::Arc,
 };
 
-use crate::engine::workload::ResolvedWorkload;
 use crate::wit::WitInterface;
 use crate::{engine::ctx::SharedCtx, observability::FuelConsumptionMeter};
+use crate::{engine::workload::ResolvedWorkload, observability::Meters};
 use anyhow::{Context, ensure};
 use hyper::server::conn::http1;
 use opentelemetry::{KeyValue, context::FutureExt};
@@ -228,6 +228,8 @@ impl Router for DevRouter {
 /// Use this trait to implement custom HTTP server transport
 #[async_trait::async_trait]
 pub trait HostHandler: Send + Sync + 'static {
+    /// Inject meters into the handler
+    async fn inject_meters(&self, _meters: &crate::observability::Meters) {}
     /// Start the HTTP server
     async fn start(&self) -> anyhow::Result<()>;
     /// Stop the HTTP server
@@ -316,7 +318,7 @@ pub struct HttpServer<T: Router> {
     shutdown_tx: Arc<RwLock<Option<mpsc::Sender<()>>>>,
     tls_acceptor: Option<TlsAcceptor>,
     listener: Arc<tokio::sync::Mutex<Option<TcpListener>>>,
-    fuel_meter: FuelConsumptionMeter,
+    meters: RwLock<Meters>,
 }
 
 impl<T: Router> std::fmt::Debug for HttpServer<T> {
@@ -337,10 +339,9 @@ impl<T: Router> HttpServer<T> {
     /// # Arguments
     /// * `router` - The router implementation for handling requests
     /// * `addr` - The socket address to bind to
-    pub async fn new(router: T, addr: SocketAddr, fuel_meter: bool) -> anyhow::Result<Self> {
+    pub async fn new(router: T, addr: SocketAddr) -> anyhow::Result<Self> {
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
-        let fuel_meter = FuelConsumptionMeter::new(fuel_meter);
 
         Ok(Self {
             router: Arc::new(router),
@@ -349,7 +350,7 @@ impl<T: Router> HttpServer<T> {
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: None,
             listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
-            fuel_meter,
+            meters: Default::default(),
         })
     }
 
@@ -378,14 +379,12 @@ impl<T: Router> HttpServer<T> {
         cert_path: &Path,
         key_path: &Path,
         ca_path: Option<&Path>,
-        fuel_meter: bool,
     ) -> anyhow::Result<Self> {
         let tls_config = load_tls_config(cert_path, key_path, ca_path).await?;
         let tls_acceptor = TlsAcceptor::from(Arc::new(tls_config));
 
         let listener = TcpListener::bind(addr).await?;
         let addr = listener.local_addr()?;
-        let fuel_meter = FuelConsumptionMeter::new(fuel_meter);
 
         Ok(Self {
             router: Arc::new(router),
@@ -394,13 +393,17 @@ impl<T: Router> HttpServer<T> {
             shutdown_tx: Arc::new(RwLock::new(None)),
             tls_acceptor: Some(tls_acceptor),
             listener: Arc::new(tokio::sync::Mutex::new(Some(listener))),
-            fuel_meter,
+            meters: Default::default(),
         })
     }
 }
 
 #[async_trait::async_trait]
 impl<T: Router> HostHandler for HttpServer<T> {
+    async fn inject_meters(&self, meters: &crate::observability::Meters) {
+        *self.meters.write().await = meters.clone();
+    }
+
     async fn start(&self) -> anyhow::Result<()> {
         let addr = self.addr;
         let (shutdown_tx, mut shutdown_rx) = mpsc::channel::<()>(1);
@@ -421,7 +424,7 @@ impl<T: Router> HostHandler for HttpServer<T> {
         // Start the HTTP server, any incoming requests call Host::handle and then it's routed
         // to the workload based on host header.
         let handler = self.router.clone();
-        let fuel_meter = self.fuel_meter.clone();
+        let fuel_meter = self.meters.read().await.fuel_consumption.clone();
         tokio::spawn(async move {
             if let Err(e) = run_http_server(
                 listener,
