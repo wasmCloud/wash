@@ -1,4 +1,4 @@
-{{- if .Values.operator.serviceAccount.create -}}
+{{- if and .Values.operator.serviceAccount.create (not .Values.operator.watchNamespaces) -}}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
