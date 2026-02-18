@@ -32,6 +32,9 @@ spec:
             - "-nats-ca=/operator-cert/ca.crt"
             - "-nats-client-cert=/operator-cert/tls.crt"
             - "-nats-client-key=/operator-cert/tls.key"
+            {{- if .Values.operator.watchNamespaces }}
+            - "-watch-namespaces={{ .Values.operator.watchNamespaces | join "," }}"
+            {{- end }}
           imagePullPolicy: {{ .Values.operator.image.pull_policy }}
           volumeMounts:
             - name: operator-cert
