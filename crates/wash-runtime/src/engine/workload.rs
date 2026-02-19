@@ -15,8 +15,8 @@ use wasmtime::component::{
     Component, Instance, InstancePre, Linker, ResourceAny, ResourceType, Val, types::ComponentItem,
 };
 use wasmtime_wasi::p2::bindings::CommandPre;
-use wasmtime_wasi::sockets::{SocketAddrUse, loopback};
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
+use crate::sockets::{self, loopback, SocketAddrUse};
 
 use crate::{
     engine::{
@@ -1011,8 +1011,12 @@ impl ResolvedWorkload {
                     .collect::<Vec<_>>()
                     .as_slice(),
             )
-            .loopback_network(Arc::clone(&metadata.loopback))
-            .socket_addr_check(move |addr, reason| {
+            .inherit_stdout()
+            .inherit_stderr();
+
+        // Build our custom sockets context with loopback support
+        let sockets_ctx = sockets::WasiSocketsCtx {
+            socket_addr_check: sockets::SocketAddrCheck::new(move |addr, reason| {
                 Box::pin(async move {
                     match reason {
                         SocketAddrUse::TcpBind if is_service => {
@@ -1028,9 +1032,10 @@ impl ResolvedWorkload {
                         | SocketAddrUse::UdpOutgoingDatagram => true,
                     }
                 })
-            })
-            .inherit_stdout()
-            .inherit_stderr();
+            }),
+            loopback: Arc::clone(&metadata.loopback),
+            ..Default::default()
+        };
 
         // Mount all possible volume mounts in the workload since components share a WasiCtx
         for (host_path, mount) in &components
@@ -1049,7 +1054,8 @@ impl ResolvedWorkload {
 
         let mut ctx_builder = Ctx::builder(metadata.workload_id(), metadata.id())
             .with_http_handler(self.http_handler.clone())
-            .with_wasi_ctx(wasi_ctx_builder.build());
+            .with_wasi_ctx(wasi_ctx_builder.build())
+            .with_sockets(sockets_ctx);
 
         if let Some(plugins) = &metadata.plugins {
             ctx_builder = ctx_builder.with_plugins(plugins.clone());

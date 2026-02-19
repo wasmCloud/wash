@@ -4,6 +4,7 @@ pub mod engine;
 pub mod host;
 pub mod observability;
 pub mod plugin;
+pub mod sockets;
 pub mod types;
 pub mod wit;
 

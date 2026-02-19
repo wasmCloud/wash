@@ -4,7 +4,6 @@ default-members = ["crates/wash"]
 members = [
     "crates/wash-runtime",
     "crates/wash",
-    "crates/wasi",
 ]
 
 [workspace.package]
@@ -111,7 +110,7 @@ wasm-pkg-core = { version = "0.10.0", default-features = false }
 wasm-metadata = { version = "0.244.0", default-features = false, features = ["oci"] }
 wasmcloud = { path = "crates/wasmcloud", default-features = false }
 wasmtime = { version = "41", default-features = false }
-wasmtime-wasi = { package = "wash-wasi", path = "crates/wasi", default-features = false }
+wasmtime-wasi = { version = "41", default-features = false }
 wasmtime-wasi-io = { version = "41", default-features = false }
 wasmtime-wasi-http = { version = "41", default-features = false }
 wit-component = { version = "0.244.0", default-features = false }
@@ -131,22 +130,11 @@ tokio-postgres-rustls = { version = "0.13", default-features = false }
 ulid = { version = "1", default-features = false }
 webpki-roots = { version = "0.26", default-features = false }
 
-# wasmtime-wasi deps
-bitflags = "2.0"
-cap-fs-ext = "3.4.4"
+# socket deps (used by wash-runtime sockets module)
 cap-net-ext = "3.4.4"
-cap-rand = { version = "3.4.4", features = ["small_rng"] }
 cap-std = "3.4.4"
-cap-time-ext = "3.4.4"
-env_logger = "0.11.5"
-fs-set-times = "0.20.1"
-io-extras = "0.18.1"
 io-lifetimes = { version = "2.0.3", default-features = false }
 rustix = "1.0.3"
-system-interface = { version = "0.27.1", features = ["cap_std_impls"] }
-test-log = { version = "0.2", default-features = false, features = ["trace"] }
-wiggle = { version = "=41.0.0", default-features = false }
-windows-sys = "0.60.0"
 
 [workspace.metadata.cargo-machete]
 ignored = [
@@ -159,8 +147,11 @@ ignored = [
    "tonic-prost",
 ]
 
-# this section is required for testing `wash-wasi`, it should be removed before release
+# Pin wasmtime crates to exact tag for consistency
 [patch.crates-io]
 wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
+wasmtime-wasi = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
+wasmtime-wasi-io = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
+wasmtime-wasi-http = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
 # Pinned for async component support (fixes #187). Remove after https://github.com/bytecodealliance/rust-oci-wasm/issues/28
 oci-wasm = { git = "https://github.com/bytecodealliance/rust-oci-wasm", rev = "5ee16fa1" }
