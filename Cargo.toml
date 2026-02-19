@@ -147,11 +147,6 @@ ignored = [
    "tonic-prost",
 ]
 
-# Pin wasmtime crates to exact tag for consistency
 [patch.crates-io]
-wasmtime = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
-wasmtime-wasi = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
-wasmtime-wasi-io = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
-wasmtime-wasi-http = { git = "https://github.com/bytecodealliance/wasmtime", tag = "v41.0.1" }
 # Pinned for async component support (fixes #187). Remove after https://github.com/bytecodealliance/rust-oci-wasm/issues/28
 oci-wasm = { git = "https://github.com/bytecodealliance/rust-oci-wasm", rev = "5ee16fa1" }
