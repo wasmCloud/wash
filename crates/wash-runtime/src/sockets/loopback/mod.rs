@@ -27,7 +27,9 @@ fn bind<T>(net: &mut HashMap<NonZeroU16, T>, port: u16, ep: T) -> Result<NonZero
         Ok(port)
     } else {
         for port in (1..=u16::MAX).rev() {
-            let Some(port) = NonZeroU16::new(port) else { continue; };
+            let Some(port) = NonZeroU16::new(port) else {
+                continue;
+            };
             if let hash_map::Entry::Vacant(entry) = net.entry(port) {
                 entry.insert(ep);
                 return Ok(port);

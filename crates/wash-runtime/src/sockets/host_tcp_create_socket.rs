@@ -1,7 +1,7 @@
 use super::network::SocketResult;
-use wasmtime_wasi::p2::bindings::sockets::{network::IpAddressFamily, tcp_create_socket};
 use super::{SocketAddressFamily, TcpSocket, WasiSocketsCtxView};
 use wasmtime::component::Resource;
+use wasmtime_wasi::p2::bindings::sockets::{network::IpAddressFamily, tcp_create_socket};
 
 type UpstreamTcpSocket = wasmtime_wasi::sockets::TcpSocket;
 
@@ -10,7 +10,8 @@ impl tcp_create_socket::Host for WasiSocketsCtxView<'_> {
         &mut self,
         address_family: IpAddressFamily,
     ) -> SocketResult<Resource<UpstreamTcpSocket>> {
-        let socket = TcpSocket::new(self.ctx, address_family.into()).map_err(super::network::socket_error_from_util)?;
+        let socket = TcpSocket::new(self.ctx, address_family.into())
+            .map_err(super::network::socket_error_from_util)?;
         let socket = self.table.push(socket)?;
         Ok(Resource::new_own(socket.rep()))
     }

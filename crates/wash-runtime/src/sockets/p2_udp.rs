@@ -60,10 +60,14 @@ impl LoopbackIncomingDatagramStream {
             };
             match self.remote_address {
                 Some(connected_addr) if connected_addr != dgram.source_address => continue,
-                _ => datagrams.push(wasmtime_wasi::p2::bindings::sockets::udp::IncomingDatagram {
-                    data: dgram.data,
-                    remote_address: super::host_network::socket_addr_to_ip_socket_address(dgram.source_address),
-                }),
+                _ => datagrams.push(
+                    wasmtime_wasi::p2::bindings::sockets::udp::IncomingDatagram {
+                        data: dgram.data,
+                        remote_address: super::host_network::socket_addr_to_ip_socket_address(
+                            dgram.source_address,
+                        ),
+                    },
+                ),
             }
         }
         Ok(())

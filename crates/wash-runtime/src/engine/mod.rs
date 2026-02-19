@@ -42,20 +42,20 @@
 use std::hash::Hash;
 use std::time::Duration;
 
+use crate::sockets::loopback;
 use anyhow::{Context, bail};
 use moka::sync::Cache;
 use tracing::{instrument, warn};
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
-use crate::sockets::loopback;
 
-use wasmtime_wasi::WasiView;
 use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent, WorkloadService};
 use crate::types::{EmptyDirVolume, HostPathVolume, VolumeType, Workload};
 use std::env;
 use std::str::FromStr;
 use std::{path::PathBuf, sync::Arc};
+use wasmtime_wasi::WasiView;
 
 /// Add all WASI@0.2 interfaces to the linker, using upstream for non-socket interfaces
 /// and our custom socket implementation (with loopback support) for socket interfaces.
@@ -86,14 +86,12 @@ fn add_wasi_to_linker(linker: &mut Linker<SharedCtx>) -> anyhow::Result<()> {
     )?;
 
     // Random
-    random::random::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(
-        linker,
-        |t| t.ctx().ctx.random(),
-    )?;
-    random::insecure::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(
-        linker,
-        |t| t.ctx().ctx.random(),
-    )?;
+    random::random::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(linker, |t| {
+        t.ctx().ctx.random()
+    })?;
+    random::insecure::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(linker, |t| {
+        t.ctx().ctx.random()
+    })?;
     random::insecure_seed::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(
         linker,
         |t| t.ctx().ctx.random(),
@@ -363,8 +361,7 @@ impl Engine {
         let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);
 
         // Add WASI@0.2 interfaces to the linker (with custom socket implementation)
-        add_wasi_to_linker(&mut linker)
-            .context("failed to add WASI to linker")?;
+        add_wasi_to_linker(&mut linker).context("failed to add WASI to linker")?;
 
         // Add HTTP interfaces to the linker if feature is enabled and component uses them
         if uses_wasi_http(&wasmtime_component) {
@@ -462,8 +459,7 @@ impl Engine {
         let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);
 
         // Add WASI@0.2 interfaces to the linker (with custom socket implementation)
-        add_wasi_to_linker(&mut linker)
-            .context("failed to add WASI to linker")?;
+        add_wasi_to_linker(&mut linker).context("failed to add WASI to linker")?;
 
         // Add HTTP interfaces to the linker
         if uses_wasi_http(&wasmtime_component) {

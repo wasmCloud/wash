@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 
+use crate::sockets::{self, SocketAddrUse, loopback};
 use anyhow::{Context as _, bail, ensure};
 use tokio::{sync::RwLock, task::JoinHandle, time::timeout};
 use tracing::{Instrument, debug, info, instrument, trace, warn};
@@ -16,7 +17,6 @@ use wasmtime::component::{
 };
 use wasmtime_wasi::p2::bindings::CommandPre;
 use wasmtime_wasi::{DirPerms, FilePerms, WasiCtxBuilder};
-use crate::sockets::{self, loopback, SocketAddrUse};
 
 use crate::{
     engine::{

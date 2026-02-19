@@ -1,12 +1,11 @@
-use super::network::{self as our_network, SocketError};
-use wasmtime_wasi::p2::bindings::sockets::network::{
-    self, ErrorCode, IpAddress, IpSocketAddress, Ipv4SocketAddress,
-    Ipv6SocketAddress,
-};
 use super::WasiSocketsCtxView;
+use super::network::{self as our_network, SocketError};
 use super::util::{from_ipv4_addr, from_ipv6_addr, to_ipv4_addr, to_ipv6_addr};
 use anyhow::Error;
 use wasmtime::component::Resource;
+use wasmtime_wasi::p2::bindings::sockets::network::{
+    self, ErrorCode, IpAddress, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
+};
 
 impl network::Host for WasiSocketsCtxView<'_> {
     fn convert_error_code(&mut self, error: SocketError) -> anyhow::Result<ErrorCode> {
@@ -99,4 +98,3 @@ pub(crate) fn socket_addr_v6_to_ipv6_socket_address(
         scope_id: addr.scope_id(),
     }
 }
-

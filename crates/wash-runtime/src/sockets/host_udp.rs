@@ -1,19 +1,21 @@
-use wasmtime_wasi::p2::bindings::sockets::network::{ErrorCode, IpAddressFamily, IpSocketAddress, Network};
-use wasmtime_wasi::p2::bindings::sockets::udp;
-use super::p2_udp::{IncomingDatagramStream, OutgoingDatagramStream, SendState};
+use super::host_network::{ip_socket_address_to_socket_addr, socket_addr_to_ip_socket_address};
 use super::network::{SocketError, SocketResult};
+use super::p2_udp::{IncomingDatagramStream, OutgoingDatagramStream, SendState};
 use super::util::{is_valid_address_family, is_valid_remote_address};
 use super::{
     MAX_UDP_DATAGRAM_SIZE, SocketAddrUse, SocketAddressFamily, UdpSocket, WasiSocketsCtxView,
 };
-use super::host_network::{ip_socket_address_to_socket_addr, socket_addr_to_ip_socket_address};
-use wasmtime_wasi_io::poll::Pollable;
 use anyhow::anyhow;
 use async_trait::async_trait;
 use std::net::SocketAddr;
 use tokio::io::Interest;
 use wasmtime::component::Resource;
+use wasmtime_wasi::p2::bindings::sockets::network::{
+    ErrorCode, IpAddressFamily, IpSocketAddress, Network,
+};
+use wasmtime_wasi::p2::bindings::sockets::udp;
 use wasmtime_wasi_io::poll::DynPollable;
+use wasmtime_wasi_io::poll::Pollable;
 
 /// Rebind a borrowed resource from the upstream type to our local type.
 fn rebind_udp_borrow(this: &Resource<udp::UdpSocket>) -> Resource<UdpSocket> {
@@ -71,12 +73,21 @@ impl udp::HostUdpSocket for WasiSocketsCtxView<'_> {
         let network = rebind_network_borrow(&network);
         let local_address = ip_socket_address_to_socket_addr(local_address);
         let check = self.table.get(&network)?.socket_addr_check.clone();
-        check.check(local_address, SocketAddrUse::UdpBind).await.map_err(super::network::socket_error_from_io)?;
+        check
+            .check(local_address, SocketAddrUse::UdpBind)
+            .await
+            .map_err(super::network::socket_error_from_io)?;
 
         let socket = self.table.get_mut(&this)?;
 
-        let mut loopback = self.ctx.loopback.lock().map_err(|e| SocketError::trap(anyhow!("{e}")))?;
-        socket.bind(local_address, &mut loopback).map_err(super::network::socket_error_from_util)?;
+        let mut loopback = self
+            .ctx
+            .loopback
+            .lock()
+            .map_err(|e| SocketError::trap(anyhow!("{e}")))?;
+        socket
+            .bind(local_address, &mut loopback)
+            .map_err(super::network::socket_error_from_util)?;
         socket.set_socket_addr_check(Some(check));
 
         Ok(())
@@ -84,7 +95,10 @@ impl udp::HostUdpSocket for WasiSocketsCtxView<'_> {
 
     fn finish_bind(&mut self, this: Resource<udp::UdpSocket>) -> SocketResult<()> {
         let this = rebind_udp_borrow(&this);
-        self.table.get_mut(&this)?.finish_bind().map_err(super::network::socket_error_from_util)?;
+        self.table
+            .get_mut(&this)?
+            .finish_bind()
+            .map_err(super::network::socket_error_from_util)?;
         Ok(())
     }
 
@@ -122,8 +136,14 @@ impl udp::HostUdpSocket for WasiSocketsCtxView<'_> {
 
         // Step #1: Disconnect
         if socket.is_connected() {
-            let mut loopback = self.ctx.loopback.lock().map_err(|e| SocketError::trap(anyhow!("{e}")))?;
-            socket.disconnect(&mut loopback).map_err(super::network::socket_error_from_util)?;
+            let mut loopback = self
+                .ctx
+                .loopback
+                .lock()
+                .map_err(|e| SocketError::trap(anyhow!("{e}")))?;
+            socket
+                .disconnect(&mut loopback)
+                .map_err(super::network::socket_error_from_util)?;
         }
 
         // Step #2: (Re)connect
@@ -131,9 +151,18 @@ impl udp::HostUdpSocket for WasiSocketsCtxView<'_> {
             let Some(check) = socket.socket_addr_check() else {
                 return Err(ErrorCode::InvalidState.into());
             };
-            check.check(connect_addr, SocketAddrUse::UdpConnect).await.map_err(super::network::socket_error_from_io)?;
-            let mut loopback = self.ctx.loopback.lock().map_err(|e| SocketError::trap(anyhow!("{e}")))?;
-            socket.connect(connect_addr, &mut loopback).map_err(super::network::socket_error_from_util)?;
+            check
+                .check(connect_addr, SocketAddrUse::UdpConnect)
+                .await
+                .map_err(super::network::socket_error_from_io)?;
+            let mut loopback = self
+                .ctx
+                .loopback
+                .lock()
+                .map_err(|e| SocketError::trap(anyhow!("{e}")))?;
+            socket
+                .connect(connect_addr, &mut loopback)
+                .map_err(super::network::socket_error_from_util)?;
         }
         let is_loopback = remote_address.map(|addr| addr.ip().to_canonical().is_loopback());
 
@@ -154,14 +183,18 @@ impl udp::HostUdpSocket for WasiSocketsCtxView<'_> {
             ),
             (UdpSocket::Loopback(socket), ..)
             | (UdpSocket::Unspecified { lo: socket, .. }, Some(true)) => {
-                let (rx, tx) = socket.p2_udp_streams(remote_address).map_err(super::network::socket_error_from_util)?;
+                let (rx, tx) = socket
+                    .p2_udp_streams(remote_address)
+                    .map_err(super::network::socket_error_from_util)?;
                 (
                     IncomingDatagramStream::Loopback(rx),
                     OutgoingDatagramStream::Loopback(tx),
                 )
             }
             (UdpSocket::Unspecified { lo, net }, None) => {
-                let (lo_rx, lo_tx) = lo.p2_udp_streams(remote_address).map_err(super::network::socket_error_from_util)?;
+                let (lo_rx, lo_tx) = lo
+                    .p2_udp_streams(remote_address)
+                    .map_err(super::network::socket_error_from_util)?;
                 (
                     IncomingDatagramStream::Unspecified {
                         lo: lo_rx,
@@ -355,11 +388,14 @@ impl udp::HostIncomingDatagramStream for WasiSocketsCtxView<'_> {
         let stream = match stream {
             IncomingDatagramStream::Network(stream) => stream,
             IncomingDatagramStream::Loopback(stream) => {
-                stream.recv(&mut datagrams, max_results).map_err(super::network::socket_error_from_util)?;
+                stream
+                    .recv(&mut datagrams, max_results)
+                    .map_err(super::network::socket_error_from_util)?;
                 return Ok(datagrams);
             }
             IncomingDatagramStream::Unspecified { net, lo } => {
-                lo.recv(&mut datagrams, max_results).map_err(super::network::socket_error_from_util)?;
+                lo.recv(&mut datagrams, max_results)
+                    .map_err(super::network::socket_error_from_util)?;
                 net
             }
         };
@@ -420,9 +456,7 @@ impl Pollable for IncomingDatagramStream {
                 let mut lo_rx = lo.rx.lock().await;
                 let mut net_ready = core::pin::pin!(async {
                     // FIXME: Add `Interest::ERROR` when we update to tokio 1.32.
-                    _ = net.inner
-                        .ready(Interest::READABLE)
-                        .await;
+                    _ = net.inner.ready(Interest::READABLE).await;
                 });
                 core::future::poll_fn(|cx| match lo_rx.poll_recv(cx) {
                     core::task::Poll::Ready(received) => {
@@ -436,10 +470,7 @@ impl Pollable for IncomingDatagramStream {
             }
         };
         // FIXME: Add `Interest::ERROR` when we update to tokio 1.32.
-        _ = stream
-            .inner
-            .ready(Interest::READABLE)
-            .await;
+        _ = stream.inner.ready(Interest::READABLE).await;
     }
 }
 
@@ -566,8 +597,13 @@ impl udp::HostOutgoingDatagramStream for WasiSocketsCtxView<'_> {
             if unused > 0 {
                 _ = permit.split(unused);
             }
-            let mut loopback = loopback.lock().map_err(|e| SocketError::trap(anyhow::anyhow!("{e}")))?;
-            if let Some(tx) = loopback.connect_udp(&stream.local_address, &addr).map_err(super::network::socket_error_from_util)? {
+            let mut loopback = loopback
+                .lock()
+                .map_err(|e| SocketError::trap(anyhow::anyhow!("{e}")))?;
+            if let Some(tx) = loopback
+                .connect_udp(&stream.local_address, &addr)
+                .map_err(super::network::socket_error_from_util)?
+            {
                 _ = tx.send((
                     super::loopback::UdpDatagram {
                         source_address: stream.local_address,
@@ -704,10 +740,7 @@ impl Pollable for OutgoingDatagramStream {
             SendState::Idle | SendState::Permitted(_) => {}
             SendState::Waiting => {
                 // FIXME: Add `Interest::ERROR` when we update to tokio 1.32.
-                _ = stream
-                    .inner
-                    .ready(Interest::WRITABLE)
-                    .await;
+                _ = stream.inner.ready(Interest::WRITABLE).await;
                 stream.send_state = SendState::Idle;
             }
         }

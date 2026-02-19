@@ -1,7 +1,7 @@
-use wasmtime_wasi::p2::bindings::sockets::instance_network;
-use super::network::Network;
 use super::WasiSocketsCtxView;
+use super::network::Network;
 use wasmtime::component::Resource;
+use wasmtime_wasi::p2::bindings::sockets::instance_network;
 
 type UpstreamNetwork = wasmtime_wasi::p2::Network;
 

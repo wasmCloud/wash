@@ -1,14 +1,14 @@
-use super::network::SocketError;
-use wasmtime_wasi::p2::bindings::sockets::ip_name_lookup::{Host, HostResolveAddressStream};
-use wasmtime_wasi::p2::bindings::sockets::network::{ErrorCode, IpAddress};
-use wasmtime_wasi::runtime::{AbortOnDropJoinHandle, spawn_blocking};
 use super::WasiSocketsCtxView;
+use super::network::SocketError;
 use anyhow::Result;
 use std::mem;
 use std::net::ToSocketAddrs;
 use std::pin::Pin;
 use std::vec;
 use wasmtime::component::Resource;
+use wasmtime_wasi::p2::bindings::sockets::ip_name_lookup::{Host, HostResolveAddressStream};
+use wasmtime_wasi::p2::bindings::sockets::network::{ErrorCode, IpAddress};
+use wasmtime_wasi::runtime::{AbortOnDropJoinHandle, spawn_blocking};
 use wasmtime_wasi_io::poll::{DynPollable, Pollable, subscribe};
 
 use super::host_network::ip_addr_to_ip_address;

@@ -1,8 +1,5 @@
-use super::network::{SocketError, SocketResult};
 use super::TcpSocket;
-use wasmtime_wasi::runtime::AbortOnDropJoinHandle;
-use wasmtime_wasi_io::poll::Pollable;
-use wasmtime_wasi_io::streams::{DynInputStream, DynOutputStream, InputStream, OutputStream, StreamError};
+use super::network::{SocketError, SocketResult};
 use anyhow::Result;
 use io_lifetimes::AsSocketlike;
 use rustix::io::Errno;
@@ -11,6 +8,11 @@ use std::mem;
 use std::net::Shutdown;
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use wasmtime_wasi::runtime::AbortOnDropJoinHandle;
+use wasmtime_wasi_io::poll::Pollable;
+use wasmtime_wasi_io::streams::{
+    DynInputStream, DynOutputStream, InputStream, OutputStream, StreamError,
+};
 
 type LoopbackChannel = (bytes::Bytes, tokio::sync::OwnedSemaphorePermit);
 
@@ -18,14 +20,18 @@ impl TcpSocket {
     pub(crate) fn p2_streams(&mut self) -> SocketResult<(DynInputStream, DynOutputStream)> {
         match self {
             Self::Network(socket) => {
-                let client = socket.tcp_stream_arc().map_err(super::network::socket_error_from_util)?;
+                let client = socket
+                    .tcp_stream_arc()
+                    .map_err(super::network::socket_error_from_util)?;
                 let reader = Arc::new(Mutex::new(TcpReader::new(client.clone())));
                 let writer = Arc::new(Mutex::new(TcpWriter::new(client.clone())));
-                socket.set_p2_streaming_state(P2TcpStreamingState {
-                    stream: client.clone(),
-                    reader: reader.clone(),
-                    writer: writer.clone(),
-                }).map_err(super::network::socket_error_from_util)?;
+                socket
+                    .set_p2_streaming_state(P2TcpStreamingState {
+                        stream: client.clone(),
+                        reader: reader.clone(),
+                        writer: writer.clone(),
+                    })
+                    .map_err(super::network::socket_error_from_util)?;
                 let input: DynInputStream = Box::new(TcpReadStream(reader));
                 let output: DynOutputStream = Box::new(TcpWriteStream(writer));
                 Ok((input, output))
@@ -45,7 +51,9 @@ impl TcpSocket {
                 } = state
                 else {
                     socket.state = state;
-                    return Err(super::network::socket_error_from_util(super::util::ErrorCode::InvalidState));
+                    return Err(super::network::socket_error_from_util(
+                        super::util::ErrorCode::InvalidState,
+                    ));
                 };
                 let rx = Arc::new(Mutex::new(Some(rx)));
                 let tx = Arc::new(std::sync::Mutex::new(Some(tx)));
@@ -72,7 +80,9 @@ impl TcpSocket {
                 let output: DynOutputStream = Box::new(LoopbackOutputStream { tx, permits });
                 Ok((input, output))
             }
-            Self::Unspecified { .. } => Err(super::network::socket_error_from_util(super::util::ErrorCode::InvalidState)),
+            Self::Unspecified { .. } => Err(super::network::socket_error_from_util(
+                super::util::ErrorCode::InvalidState,
+            )),
         }
     }
 }
@@ -470,7 +480,9 @@ struct LoopbackOutputStream {
 
 impl LoopbackOutputStream {
     fn is_closed(&self) -> bool {
-        let Ok(tx) = self.tx.lock() else { return true; };
+        let Ok(tx) = self.tx.lock() else {
+            return true;
+        };
         tx.as_ref().map(|tx| tx.is_closed()).unwrap_or(true)
     }
 }
@@ -484,7 +496,10 @@ impl Pollable for LoopbackOutputStream {
 
 impl OutputStream for LoopbackOutputStream {
     fn write(&mut self, bytes: bytes::Bytes) -> Result<(), StreamError> {
-        let mut tx = self.tx.lock().map_err(|e| StreamError::Trap(anyhow::anyhow!("{e}")))?;
+        let mut tx = self
+            .tx
+            .lock()
+            .map_err(|e| StreamError::Trap(anyhow::anyhow!("{e}")))?;
         let Some(tx) = tx.as_mut() else {
             return Err(StreamError::Closed);
         };

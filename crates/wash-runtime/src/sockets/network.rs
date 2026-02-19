@@ -1,7 +1,7 @@
-use wasmtime_wasi::TrappableError;
-use wasmtime_wasi::p2::bindings::sockets::network::ErrorCode;
 use super::{SocketAddrCheck, SocketAddrUse};
 use std::net::SocketAddr;
+use wasmtime_wasi::TrappableError;
+use wasmtime_wasi::p2::bindings::sockets::network::ErrorCode;
 
 pub type SocketResult<T> = Result<T, SocketError>;
 

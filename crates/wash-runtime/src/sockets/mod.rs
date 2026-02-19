@@ -5,20 +5,20 @@ use std::pin::Pin;
 use std::sync::Arc;
 use wasmtime::component::{HasData, ResourceTable};
 
+pub(crate) mod host_instance_network;
+pub(crate) mod host_ip_name_lookup;
+pub(crate) mod host_network;
+pub(crate) mod host_tcp;
+pub(crate) mod host_tcp_create_socket;
+pub(crate) mod host_udp;
+pub(crate) mod host_udp_create_socket;
 pub mod loopback;
+pub(crate) mod network;
+pub(crate) mod p2_tcp;
+pub(crate) mod p2_udp;
 pub(crate) mod tcp;
 pub(crate) mod udp;
 pub(crate) mod util;
-pub(crate) mod p2_tcp;
-pub(crate) mod p2_udp;
-pub(crate) mod network;
-pub(crate) mod host_tcp;
-pub(crate) mod host_udp;
-pub(crate) mod host_network;
-pub(crate) mod host_tcp_create_socket;
-pub(crate) mod host_udp_create_socket;
-pub(crate) mod host_instance_network;
-pub(crate) mod host_ip_name_lookup;
 
 pub use tcp::TcpSocket;
 pub use udp::UdpSocket;
@@ -95,10 +95,9 @@ impl AllowedNetworkUses {
     }
 }
 
-type SocketAddrCheckFn =
-    dyn Fn(SocketAddr, SocketAddrUse) -> Pin<Box<dyn Future<Output = bool> + Send + Sync>>
-        + Send
-        + Sync;
+type SocketAddrCheckFn = dyn Fn(SocketAddr, SocketAddrUse) -> Pin<Box<dyn Future<Output = bool> + Send + Sync>>
+    + Send
+    + Sync;
 
 /// A check that will be called for each socket address that is used of whether the address is permitted.
 #[derive(Clone)]

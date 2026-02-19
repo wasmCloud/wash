@@ -392,9 +392,7 @@ impl NetworkTcpSocket {
             Some(result) => result,
             None => {
                 let mut cx = std::task::Context::from_waker(Waker::noop());
-                match listener.poll_accept(&mut cx)
-                    .map_ok(|(stream, _)| stream)
-                {
+                match listener.poll_accept(&mut cx).map_ok(|(stream, _)| stream) {
                     Poll::Ready(result) => result,
                     Poll::Pending => return Ok(None),
                 }
@@ -792,14 +790,9 @@ pub enum ConnectingTcpStream {
 }
 
 impl ConnectingTcpSocket {
-    pub async fn connect(
-        self,
-        addr: SocketAddr,
-    ) -> io::Result<ConnectingTcpStream> {
+    pub async fn connect(self, addr: SocketAddr) -> io::Result<ConnectingTcpStream> {
         match self {
-            Self::Network(socket) => {
-                socket.connect(addr).await.map(ConnectingTcpStream::Network)
-            }
+            Self::Network(socket) => socket.connect(addr).await.map(ConnectingTcpStream::Network),
             Self::Loopback(tx) => match tx.reserve_owned().await {
                 Ok(tx) => Ok(ConnectingTcpStream::Loopback(tx)),
                 Err(..) => Err(std::io::ErrorKind::ConnectionRefused.into()),
@@ -1299,5 +1292,4 @@ impl TcpSocket {
             }
         }
     }
-
 }
