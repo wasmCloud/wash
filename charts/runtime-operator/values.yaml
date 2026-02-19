@@ -31,6 +31,8 @@ nats:
   serviceAccount:
     # -- Specifies whether a service account should be created
     create: true
+    # -- Name of the service account to use. If not set and create is true, a name is generated using the fullname template. If not set and create is false, "default" is used.
+    name: ""
     # -- Annotations to add to the service account
     annotations: {}
 
@@ -49,6 +51,8 @@ operator:
   serviceAccount:
     # -- Specifies whether a service account should be created
     create: true
+    # -- Name of the service account to use. If not set and create is true, a name is generated using the fullname template. If not set and create is false, "default" is used.
+    name: ""
     # -- Annotations to add to the service account
     annotations: {}
   # -- List of namespaces to watch. If empty, the operator watches all namespaces.
@@ -70,6 +74,8 @@ gateway:
   serviceAccount:
     # -- Specifies whether a service account should be created
     create: true
+    # -- Name of the service account to use. If not set and create is true, a name is generated using the fullname template. If not set and create is false, "default" is used.
+    name: ""
     # -- Annotations to add to the service account
     annotations: {}
 
@@ -77,6 +83,8 @@ runtime:
   serviceAccount:
     # -- Specifies whether a service account should be created
     create: true
+    # -- Name of the service account to use. If not set and create is true, a name is generated using the fullname template. If not set and create is false, "default" is used.
+    name: ""
     # -- Annotations to add to the service account
     annotations: {}
   image:
