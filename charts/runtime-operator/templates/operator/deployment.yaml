@@ -22,7 +22,7 @@ spec:
         - name: operator-cert
           secret:
             secretName: {{ .Values.global.certificates.operatorCertSecretName }}
-      serviceAccountName: {{ include "runtime-operator.serviceAccountName" . }}
+      serviceAccountName: {{ include "operator.serviceAccountName" . }}
       {{- include "runtime-operator.imagePullSecrets" . | nindent 6 }}
       containers:
         - name: runtime-operator
