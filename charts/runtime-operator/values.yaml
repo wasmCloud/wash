@@ -37,6 +37,7 @@ nats:
     annotations: {}
 
 operator:
+  enabled: true
   image:
     registry: ghcr.io
     repository: wasmcloud/runtime-operator
