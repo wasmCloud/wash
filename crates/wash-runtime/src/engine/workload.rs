@@ -1019,9 +1019,7 @@ impl ResolvedWorkload {
             socket_addr_check: sockets::SocketAddrCheck::new(move |addr, reason| {
                 Box::pin(async move {
                     match reason {
-                        SocketAddrUse::TcpBind if is_service => {
-                            addr.ip().is_loopback() || addr.ip().is_unspecified()
-                        }
+                        SocketAddrUse::TcpBind if is_service => addr.ip().is_loopback(),
                         SocketAddrUse::TcpBind => false,
                         SocketAddrUse::UdpBind => {
                             // NOTE: Outbound UDP requires an explicit bind in `wasi:sockets`

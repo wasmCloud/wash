@@ -834,6 +834,13 @@ impl TcpSocket {
         }
         let ip = ip.to_canonical();
         if !ip.is_loopback() {
+            if ip.is_unspecified() {
+                // Rewrite 0.0.0.0/[::] to loopback so the OS socket only listens on loopback
+                match &mut addr {
+                    SocketAddr::V4(addr) => addr.set_ip(Ipv4Addr::LOCALHOST),
+                    SocketAddr::V6(addr) => addr.set_ip(Ipv6Addr::LOCALHOST),
+                }
+            }
             socket.start_bind(addr)?;
             if !ip.is_unspecified() {
                 return Ok(());

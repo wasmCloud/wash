@@ -27,7 +27,31 @@ impl tcp::HostTcpSocket for WasiSocketsCtxView<'_> {
     ) -> SocketResult<()> {
         let network = Resource::<super::network::Network>::new_borrow(network.rep());
         let network = self.table.get(&network)?;
-        let local_address = ip_socket_address_to_socket_addr(local_address);
+        let mut local_address = ip_socket_address_to_socket_addr(local_address);
+
+        // Rewrite unspecified addresses (0.0.0.0 / [::]) to loopback before the
+        // permission check and OS bind — components must not listen on all interfaces.
+        if local_address.ip().is_unspecified() {
+            let rewritten = match local_address {
+                std::net::SocketAddr::V4(ref a) => std::net::SocketAddr::V4(
+                    std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, a.port()),
+                ),
+                std::net::SocketAddr::V6(ref a) => {
+                    std::net::SocketAddr::V6(std::net::SocketAddrV6::new(
+                        std::net::Ipv6Addr::LOCALHOST,
+                        a.port(),
+                        a.flowinfo(),
+                        a.scope_id(),
+                    ))
+                }
+            };
+            tracing::debug!(
+                original = %local_address,
+                rewritten = %rewritten,
+                "rewriting unspecified bind address to loopback"
+            );
+            local_address = rewritten;
+        }
 
         network
             .check_socket_addr(local_address, SocketAddrUse::TcpBind)
