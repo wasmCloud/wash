@@ -397,7 +397,7 @@ impl Engine {
         let world = service.world();
 
         if !world.exports.iter().any(|iface| {
-            iface.package == "wasi" && iface.namespace == "cli" && iface.interfaces.contains("run")
+            iface.namespace == "wasi" && iface.package == "cli" && iface.interfaces.contains("run")
         }) && world.exports.len() != 1
         {
             bail!("Service must export a single interface with the 'run' function");
