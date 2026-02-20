@@ -28,7 +28,7 @@ wasmcloud-postgres = [
     "dep:deadpool-postgres", "dep:postgres-types",
     "dep:bigdecimal", "dep:pg_bigdecimal",
     "dep:bit-vec", "dep:cidr", "dep:geo-types",
-    "dep:ulid", "dep:url", "dep:webpki-roots",
+    "dep:ulid", "dep:webpki-roots",
 ]
 
 [dependencies]
@@ -52,6 +52,10 @@ wasmtime = { workspace = true, features = ["component-model", "cranelift", "pool
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-io = { workspace = true }
 wasmtime-wasi-http = { workspace = true, features = ["default-send-request"] }
+cap-net-ext = { workspace = true }
+cap-std = { workspace = true }
+io-lifetimes = { workspace = true }
+rustix = { workspace = true }
 rustls = { workspace = true, features = ["std", "tls12"] }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -99,7 +103,7 @@ postgres-types = { optional = true, workspace = true, features = ["derive", "wit
 tokio-postgres = { optional = true, workspace = true, features = [ "runtime", "with-serde_json-1", "with-chrono-0_4", "with-geo-types-0_7", "array-impls", "with-bit-vec-0_6", "with-uuid-1" ] }
 tokio-postgres-rustls = { optional = true, workspace = true }
 ulid = { optional = true, workspace = true, features = ["std"] }
-url = { optional = true, workspace = true }
+url = { workspace = true }
 webpki-roots = { optional = true, workspace = true }
 
 [build-dependencies]
