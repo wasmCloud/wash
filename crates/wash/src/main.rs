@@ -52,6 +52,9 @@ struct Cli {
     #[clap(long = "verbose", help = "Enable verbose output", global = true)]
     verbose: bool,
 
+    #[clap(long = "enable-meters", help = "Enable host meters", global = true)]
+    enable_meters: bool,
+
     #[clap(
         long = "non-interactive",
         help = "Run in non-interactive mode (skip terminal checks for host exec). Automatically enabled when stdin is not a TTY",
@@ -251,7 +254,8 @@ async fn main() {
     // Create global context with output kind and directory paths
     let mut ctx_builder = CliContext::builder()
         .non_interactive(non_interactive)
-        .project_dir(project_absolute_path);
+        .project_dir(project_absolute_path)
+        .enable_meters(global_args.enable_meters);
 
     // Load custom config if provided, otherwise will default to XDG config path
     if let Some(config_path) = global_args.user_config {

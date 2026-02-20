@@ -80,7 +80,7 @@ opentelemetry = { workspace = true, features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = { workspace = true }
 opentelemetry_sdk = { workspace = true }
 opentelemetry-http = { workspace = true }
-opentelemetry-otlp = { workspace = true, features = ["grpc-tonic", "trace", "logs"] }
+opentelemetry-otlp = { workspace = true, features = ["grpc-tonic", "trace", "metrics", "logs"] }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "067d92d0eabd264e15486b9cecbb9f7020257b7b", optional = true }
 wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "067d92d0eabd264e15486b9cecbb9f7020257b7b", optional = true }
