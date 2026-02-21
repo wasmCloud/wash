@@ -170,7 +170,7 @@ pub struct DevConfig {
     /// Enable WASI WebGPU support in the dev environment. Only supported on non-Windows platforms.
     #[serde(default)]
     pub wasi_webgpu: bool,
-
+    
     /// Optional path for WASI keyvalue filesystem storage. If not set, an in-memory store is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wasi_keyvalue_path: Option<PathBuf>,
@@ -183,6 +183,10 @@ pub struct DevConfig {
     /// Example: postgres://user:pass@bouncer:6432?sslmode=require&pool_size=10
     #[serde(skip_serializing_if = "Option::is_none")]
     pub postgres_url: Option<String>,
+
+    /// Enable WASI OpenTelemetry support
+    #[serde(default)]
+    pub wasi_otel: bool,
 }
 
 /// Load configuration with hierarchical merging
