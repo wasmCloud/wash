@@ -1,0 +1,6 @@
+build:
+  command: cargo build --target wasm32-wasip2 --release
+  component_path: target/wasm32-wasip2/release/redis_keyvalue.wasm
+
+dev:
+  wasi_keyvalue_redis_url: redis://127.0.0.1:6379
