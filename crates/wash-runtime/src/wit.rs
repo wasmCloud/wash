@@ -18,6 +18,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fmt::Display,
+    hash::DefaultHasher,
 };
 
 use serde::{Deserialize, Serialize};
@@ -218,6 +219,14 @@ impl WitInterface {
             return false;
         }
 
+        // If both interfaces specify a name, they must match
+        if let Some(n) = &self.name
+            && let Some(on) = &other.name
+            && n != on
+        {
+            return false;
+        }
+
         self.interfaces.is_superset(&other.interfaces)
     }
 }
@@ -245,14 +254,24 @@ impl std::hash::Hash for WitInterface {
         self.namespace.hash(state);
         self.package.hash(state);
         self.name.hash(state);
+        // HashSet and HashMap have non-deterministic iteration order,
+        // so we XOR individual hashes to produce an order-independent result.
+        let mut interfaces_hash = 0u64;
         for iface in &self.interfaces {
-            iface.hash(state);
+            let mut h = DefaultHasher::new();
+            iface.hash(&mut h);
+            interfaces_hash ^= std::hash::Hasher::finish(&h);
         }
+        interfaces_hash.hash(state);
         self.version.hash(state);
+        let mut config_hash = 0u64;
         for (k, v) in &self.config {
-            k.hash(state);
-            v.hash(state);
+            let mut h = DefaultHasher::new();
+            k.hash(&mut h);
+            v.hash(&mut h);
+            config_hash ^= std::hash::Hasher::finish(&h);
         }
+        config_hash.hash(state);
     }
 }
 
@@ -775,15 +794,38 @@ mod tests {
     }
 
     #[test]
-    fn test_contains_ignores_name() {
-        // contains() should not consider name — a plugin satisfies all
-        // named entries of the same namespace:package
+    fn test_contains_unnamed_provider_matches_named_request() {
+        // An unnamed provider satisfies a named request (name acts as wildcard when absent)
         let provider = create_interface("wasi", "keyvalue", &["store", "atomics"]);
 
         let mut named_req = create_interface("wasi", "keyvalue", &["store"]);
         named_req.name = Some("cache".to_string());
 
         assert!(provider.contains(&named_req));
+    }
+
+    #[test]
+    fn test_contains_matching_names() {
+        // When both interfaces have the same name, contains should match
+        let mut a = create_interface("wasi", "keyvalue", &["store", "atomics"]);
+        a.name = Some("cache".to_string());
+
+        let mut b = create_interface("wasi", "keyvalue", &["store"]);
+        b.name = Some("cache".to_string());
+
+        assert!(a.contains(&b));
+    }
+
+    #[test]
+    fn test_contains_different_names() {
+        // When both interfaces have different names, contains should not match
+        let mut a = create_interface("wasi", "keyvalue", &["store", "atomics"]);
+        a.name = Some("cache".to_string());
+
+        let mut b = create_interface("wasi", "keyvalue", &["store"]);
+        b.name = Some("sessions".to_string());
+
+        assert!(!a.contains(&b));
     }
 
     #[test]
