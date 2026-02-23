@@ -157,16 +157,25 @@ pub struct WitInterface {
     pub version: Option<semver::Version>,
     /// Additional configuration parameters for this interface
     pub config: HashMap<String, String>,
+    /// Optional name identifying this specific instance when multiple entries
+    /// of the same namespace:package exist. Used as the routing key in
+    /// multiplexing plugins (the `identifier` in store::open, etc.).
+    pub name: Option<String>,
 }
 
 impl WitInterface {
     /// Returns the instance name of this WitInterface, aka the namespace:package@version
-    /// identifier without the interfaces or config.
+    /// identifier without the interfaces or config. When a name is present, it is
+    /// included as namespace:package/name@version.
     pub fn instance(&self) -> String {
+        let base = match &self.name {
+            Some(name) => format!("{}:{}/{name}", self.namespace, self.package),
+            None => format!("{}:{}", self.namespace, self.package),
+        };
         if let Some(v) = &self.version {
-            format!("{}:{}@{v}", self.namespace, self.package)
+            format!("{base}@{v}")
         } else {
-            format!("{}:{}", self.namespace, self.package)
+            base
         }
     }
 
@@ -216,7 +225,10 @@ impl WitInterface {
 impl Display for WitInterface {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}", self.namespace, self.package)?;
-        if !self.interfaces.is_empty() && !self.interfaces.is_empty() {
+        if let Some(name) = &self.name {
+            write!(f, " [{}]", name)?;
+        }
+        if !self.interfaces.is_empty() {
             write!(f, "/")?;
             let interfaces: Vec<_> = self.interfaces.clone().into_iter().collect();
             write!(f, "{}", interfaces.join(","))?;
@@ -232,6 +244,7 @@ impl std::hash::Hash for WitInterface {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.namespace.hash(state);
         self.package.hash(state);
+        self.name.hash(state);
         for iface in &self.interfaces {
             iface.hash(state);
         }
@@ -277,6 +290,7 @@ impl From<&str> for WitInterface {
             interfaces,
             version,
             config: HashMap::new(),
+            name: None,
         }
     }
 }
@@ -300,6 +314,7 @@ mod tests {
             interfaces: interfaces.iter().map(|s| s.to_string()).collect(),
             version: None,
             config: HashMap::new(),
+            name: None,
         }
     }
 
@@ -315,6 +330,7 @@ mod tests {
             interfaces: interfaces.iter().map(|s| s.to_string()).collect(),
             version: Some(semver::Version::parse(version).unwrap()),
             config: HashMap::new(),
+            name: None,
         }
     }
 
@@ -692,5 +708,104 @@ mod tests {
 
         let iface_no_interfaces = create_interface("wasi", "logging", &[]);
         assert_eq!(format!("{}", iface_no_interfaces), "wasi:logging");
+    }
+
+    #[test]
+    fn test_display_with_name() {
+        let mut iface = create_interface("wasi", "keyvalue", &["store"]);
+        iface.name = Some("cache".to_string());
+        assert_eq!(format!("{}", iface), "wasi:keyvalue [cache]/store");
+
+        let mut iface_no_interfaces = create_interface("wasi", "keyvalue", &[]);
+        iface_no_interfaces.name = Some("sessions".to_string());
+        assert_eq!(
+            format!("{}", iface_no_interfaces),
+            "wasi:keyvalue [sessions]"
+        );
+    }
+
+    #[test]
+    fn test_instance_with_name() {
+        let mut iface = create_interface("wasi", "keyvalue", &["store"]);
+        assert_eq!(iface.instance(), "wasi:keyvalue");
+
+        iface.name = Some("cache".to_string());
+        assert_eq!(iface.instance(), "wasi:keyvalue/cache");
+
+        let mut iface_v = create_interface_with_version("wasi", "keyvalue", &["store"], "0.2.0");
+        iface_v.name = Some("sessions".to_string());
+        assert_eq!(iface_v.instance(), "wasi:keyvalue/sessions@0.2.0");
+    }
+
+    #[test]
+    fn test_merge_with_matching_name() {
+        let mut iface1 = create_interface("wasi", "keyvalue", &["store"]);
+        iface1.name = Some("cache".to_string());
+
+        let mut iface2 = create_interface("wasi", "keyvalue", &["atomics"]);
+        iface2.name = Some("cache".to_string());
+
+        assert!(iface1.merge(&iface2));
+        assert!(iface1.interfaces.contains("store"));
+        assert!(iface1.interfaces.contains("atomics"));
+    }
+
+    #[test]
+    fn test_merge_with_different_name() {
+        let mut iface1 = create_interface("wasi", "keyvalue", &["store"]);
+        iface1.name = Some("cache".to_string());
+
+        let mut iface2 = create_interface("wasi", "keyvalue", &["store"]);
+        iface2.name = Some("sessions".to_string());
+
+        // Different names => different instances => merge fails
+        assert!(!iface1.merge(&iface2));
+    }
+
+    #[test]
+    fn test_merge_named_vs_unnamed() {
+        let mut iface1 = create_interface("wasi", "keyvalue", &["store"]);
+        // iface1 has no name (None)
+
+        let mut iface2 = create_interface("wasi", "keyvalue", &["store"]);
+        iface2.name = Some("cache".to_string());
+
+        // One named, one unnamed => different instances => merge fails
+        assert!(!iface1.merge(&iface2));
+    }
+
+    #[test]
+    fn test_contains_ignores_name() {
+        // contains() should not consider name — a plugin satisfies all
+        // named entries of the same namespace:package
+        let provider = create_interface("wasi", "keyvalue", &["store", "atomics"]);
+
+        let mut named_req = create_interface("wasi", "keyvalue", &["store"]);
+        named_req.name = Some("cache".to_string());
+
+        assert!(provider.contains(&named_req));
+    }
+
+    #[test]
+    fn test_hash_includes_name() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut iface1 = create_interface("wasi", "keyvalue", &["store"]);
+        let mut iface2 = create_interface("wasi", "keyvalue", &["store"]);
+        iface2.name = Some("cache".to_string());
+
+        let hash = |i: &WitInterface| {
+            let mut h = DefaultHasher::new();
+            i.hash(&mut h);
+            h.finish()
+        };
+
+        // Different names should produce different hashes
+        assert_ne!(hash(&iface1), hash(&iface2));
+
+        // Same name should produce the same hash
+        iface1.name = Some("cache".to_string());
+        assert_eq!(hash(&iface1), hash(&iface2));
     }
 }

@@ -1939,6 +1939,7 @@ mod tests {
             interfaces: ["container".to_string()].into_iter().collect(),
             version: Some(semver::Version::parse("0.2.0-draft").unwrap()),
             config: std::collections::HashMap::new(),
+            name: None,
         };
 
         let plugin = Arc::new(MockPlugin::new(
@@ -2316,6 +2317,7 @@ mod tests {
             interfaces: ["handler".to_string()].into_iter().collect(),
             version: Some(semver::Version::parse("0.2.0").unwrap()),
             config: std::collections::HashMap::new(),
+            name: None,
         };
 
         let messaging_consumer = WitInterface {
@@ -2326,6 +2328,7 @@ mod tests {
                 .collect(),
             version: Some(semver::Version::parse("0.2.0").unwrap()),
             config: std::collections::HashMap::new(),
+            name: None,
         };
 
         let logging = WitInterface {
@@ -2334,6 +2337,7 @@ mod tests {
             interfaces: ["logging".to_string()].into_iter().collect(),
             version: Some(semver::Version::parse("0.1.0-draft").unwrap()),
             config: std::collections::HashMap::new(),
+            name: None,
         };
 
         let messaging_plugin = Arc::new(MockPlugin::new(
@@ -2376,6 +2380,7 @@ mod tests {
                         .collect(),
                     version: Some(semver::Version::parse("0.2.0").unwrap()),
                     config: std::collections::HashMap::new(),
+                    name: None,
                 },
                 logging,
             ],
@@ -2407,6 +2412,7 @@ mod tests {
             interfaces: ["logging".to_string()].into_iter().collect(),
             version: Some(semver::Version::parse("0.1.0-draft").unwrap()),
             config: std::collections::HashMap::new(),
+            name: None,
         };
 
         let plugin = Arc::new(MockPlugin::new(
