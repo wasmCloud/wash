@@ -238,8 +238,7 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
 
         let bucket_handle = self.table.get(&bucket)?;
         let mut conn = bucket_handle.conn.clone();
-        let prefix = bucket_handle.prefix.clone();
-        let pattern = format!("{}:*", prefix);
+        let pattern = bucket_handle.prefixed_key("*");
         let redis_cursor = cursor.unwrap_or(0);
 
         let (next_cursor, raw_keys): (u64, Vec<String>) = match redis::cmd("SCAN")
@@ -258,10 +257,10 @@ impl<'a> bindings::wasi::keyvalue::store::HostBucket for ActiveCtx<'a> {
             }
         };
 
-        let prefix_strip = format!("{}:", prefix);
+        let key_prefix = pattern.strip_suffix('*').unwrap_or("");
         let keys = raw_keys
             .into_iter()
-            .filter_map(|k| k.strip_prefix(&prefix_strip).map(str::to_string))
+            .filter_map(|k| k.strip_prefix(key_prefix).map(str::to_string))
             .collect();
 
         // Redis returns cursor 0 when a full iteration has completed
@@ -309,7 +308,10 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
         let mut conn = bucket_handle.conn.clone();
         let redis_key = bucket_handle.prefixed_key(&key);
 
-        match conn.incr::<_, _, i64>(redis_key, delta as i64).await {
+        let delta_i64 = i64::try_from(delta).map_err(|_| {
+            anyhow::anyhow!("delta value {} exceeds i64::MAX", delta)
+        })?;
+        match conn.incr::<_, _, i64>(redis_key, delta_i64).await {
             Ok(new_value) => Ok(Ok(new_value as u64)),
             Err(e) => {
                 tracing::error!("Redis error incrementing key: {}", e);
@@ -334,32 +336,27 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         plugin.record_operation("get_many");
 
         let bucket_handle = self.table.get(&bucket)?;
+        let mut conn = bucket_handle.conn.clone();
 
-        let values = futures::stream::FuturesOrdered::from_iter(keys.iter().map(|key| {
-            let mut conn = bucket_handle.conn.clone();
-            let redis_key = bucket_handle.prefixed_key(key);
-            let key = key.clone();
-            async move {
-                match conn.get::<_, Option<Vec<u8>>>(redis_key).await {
-                    Ok(Some(value)) => Ok(Some((key, value))),
-                    Ok(None) => Ok(None),
-                    Err(e) => {
-                        tracing::error!("Redis error getting key: {}", e);
-                        Err(StoreError::Other(format!("Redis error: {}", e)))
-                    }
-                }
-            }
-        }))
-        .collect::<Vec<_>>()
-        .await;
-
-        let mut result = Vec::with_capacity(values.len());
-        for entry in values {
-            match entry {
-                Ok(v) => result.push(v),
-                Err(e) => return Ok(Err(e)),
-            }
+        if keys.is_empty() {
+            return Ok(Ok(vec![]));
         }
+
+        let redis_keys: Vec<String> = keys.iter().map(|k| bucket_handle.prefixed_key(k)).collect();
+
+        let values: Vec<Option<Vec<u8>>> = match conn.mget(redis_keys.as_slice()).await {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::error!("Redis error getting keys: {}", e);
+                return Ok(Err(StoreError::Other(format!("Redis error: {}", e))));
+            }
+        };
+
+        let result = keys
+            .into_iter()
+            .zip(values)
+            .map(|(key, value)| value.map(|v| (key, v)))
+            .collect();
 
         Ok(Ok(result))
     }
@@ -377,33 +374,24 @@ impl<'a> bindings::wasi::keyvalue::batch::Host for ActiveCtx<'a> {
         plugin.record_operation("set_many");
 
         let bucket_handle = self.table.get(&bucket)?;
+        let mut conn = bucket_handle.conn.clone();
 
-        let values = futures::stream::FuturesOrdered::from_iter(key_values.iter().map(
-            |(key, value)| {
-                let mut conn = bucket_handle.conn.clone();
-                let redis_key = bucket_handle.prefixed_key(key);
-                let value = value.clone();
-                async move {
-                    match conn.set::<_, _, ()>(redis_key, value).await {
-                        Ok(_) => Ok(()),
-                        Err(e) => {
-                            tracing::error!("Redis error setting key: {}", e);
-                            Err(StoreError::Other(format!("Redis error: {}", e)))
-                        }
-                    }
-                }
-            },
-        ))
-        .collect::<Vec<_>>()
-        .await;
-
-        for entry in values {
-            if let Err(e) = entry {
-                return Ok(Err(e));
-            }
+        if key_values.is_empty() {
+            return Ok(Ok(()));
         }
 
-        Ok(Ok(()))
+        let pairs: Vec<(String, Vec<u8>)> = key_values
+            .into_iter()
+            .map(|(key, value)| (bucket_handle.prefixed_key(&key), value))
+            .collect();
+
+        match conn.mset::<_, _, ()>(pairs.as_slice()).await {
+            Ok(_) => Ok(Ok(())),
+            Err(e) => {
+                tracing::error!("Redis error setting keys: {}", e);
+                Ok(Err(StoreError::Other(format!("Redis error: {}", e))))
+            }
+        }
     }
 
     async fn delete_many(
