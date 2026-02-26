@@ -17,8 +17,21 @@ use bindings::{
 
 struct Component;
 
-/// The bucket identifier used as a Redis key prefix: `{BUCKET}:{key}`
-const BUCKET: &str = "redis-kv";
+/// The keyvalue backend to use.
+///
+/// This constant is used as the bucket identifier passed to `open()`. The host
+/// runtime selects the actual backend based on `.wash/config.yaml`:
+///
+/// | `BACKEND`      | Required config                              |
+/// |----------------|----------------------------------------------|
+/// | `"in_memory"`  | none (default)                               |
+/// | `"filesystem"` | `wasi_keyvalue_path: /tmp/keyvalue-store`    |
+/// | `"nats"`       | `wasi_keyvalue_nats_url: nats://...`         |
+/// | `"redis"`      | `wasi_keyvalue_redis_url: redis://...`       |
+///
+/// Change this constant and uncomment the matching section in `.wash/config.yaml`
+/// to switch backends.
+const BACKEND: &str = "redis";
 
 impl Guest for Component {
     fn handle(request: IncomingRequest, response_out: ResponseOutparam) {
@@ -40,7 +53,7 @@ impl Guest for Component {
 }
 
 /// Handle `POST /` with a JSON body `{"key": "...", "value": "..."}`.
-/// Stores the key-value pair in Redis under the `BUCKET` namespace.
+/// Stores the key-value pair in the configured backend under the `BACKEND` bucket.
 fn handle_post(request: IncomingRequest) -> (u16, String) {
     let body_bytes = match read_body(request) {
         Ok(b) => b,
@@ -52,14 +65,14 @@ fn handle_post(request: IncomingRequest) -> (u16, String) {
         Err(e) => return (400, format!("Invalid JSON (expected {{\"key\":\"...\",\"value\":\"...\"}}): {e}\n")),
     };
 
-    let bucket = match open(BUCKET) {
+    let bucket = match open(BACKEND) {
         Ok(b) => b,
         Err(e) => return (500, format!("Failed to open keyvalue bucket: {e:?}\n")),
     };
 
     match bucket.set(&payload.key, payload.value.as_bytes()) {
-        Ok(_) => (200, format!("Stored key '{}'\n", payload.key)),
-        Err(e) => (500, format!("Failed to store key: {e:?}\n")),
+        Ok(_) => (200, format!("[{BACKEND}] Stored key '{}'\n", payload.key)),
+        Err(e) => (500, format!("[{BACKEND}] Failed to store key: {e:?}\n")),
     }
 }
 
@@ -73,15 +86,15 @@ fn handle_get(request: IncomingRequest) -> (u16, String) {
         None => return (400, "Missing required query parameter: key\n".to_string()),
     };
 
-    let bucket = match open(BUCKET) {
+    let bucket = match open(BACKEND) {
         Ok(b) => b,
         Err(e) => return (500, format!("Failed to open keyvalue bucket: {e:?}\n")),
     };
 
     match bucket.get(&key) {
-        Ok(Some(bytes)) => (200, String::from_utf8_lossy(&bytes).into_owned()),
-        Ok(None) => (404, format!("Key '{key}' not found\n")),
-        Err(e) => (500, format!("Failed to get key: {e:?}\n")),
+        Ok(Some(bytes)) => (200, format!("[{BACKEND}] {}\n", String::from_utf8_lossy(&bytes))),
+        Ok(None) => (404, format!("[{BACKEND}] Key '{key}' not found\n")),
+        Err(e) => (500, format!("[{BACKEND}] Failed to get key: {e:?}\n")),
     }
 }
 
