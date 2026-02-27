@@ -13,6 +13,6 @@ roleRef:
   name: {{ include "runtime-operator.fullname" . }}-leader-election
 subjects:
   - kind: ServiceAccount
-    name: {{ include "runtime-operator.serviceAccountName" . }}
+    name: {{ include "operator.serviceAccountName" . }}
     namespace: {{ .Release.Namespace }}
 {{- end }}
