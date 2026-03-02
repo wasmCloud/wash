@@ -85,7 +85,7 @@ impl PullCommand {
         let component_path = if self.component_path.is_absolute() {
             self.component_path.clone()
         } else {
-            ctx.original_working_dir().join(&self.component_path)
+            ctx.project_dir().join(&self.component_path)
         };
 
         // Write the component to the specified output path
@@ -133,7 +133,7 @@ impl PushCommand {
         let component_path = if self.component_path.is_absolute() {
             self.component_path.clone()
         } else {
-            ctx.original_working_dir().join(&self.component_path)
+            ctx.project_dir().join(&self.component_path)
         };
 
         let component = tokio::fs::read(&component_path)
