@@ -1,8 +1,10 @@
 use anyhow::Context as _;
 
 use serde::Deserialize;
+use wstd::future::FutureExt as _;
 use wstd::http::{Body, Request, Response, StatusCode};
 use wstd::io::{AsyncRead, AsyncWrite};
+use wstd::time::Duration;
 
 static UI_HTML: &str = include_str!("../ui.html");
 
@@ -40,36 +42,41 @@ async fn handle_task(mut req: Request<Body>) -> anyhow::Result<Response<Body>> {
 
     let body = task_request.payload.into_bytes();
 
-    let client = wstd::net::TcpStream::connect("127.0.0.1:7777").await?;
-    // write the payload followed by a newline
-    // read the response until a newline is encountered
-    // with a timeout of 5 seconds
-    // disconnect
-    let (mut reader, mut writer) = client.split();
-    writer.write_all(&body).await?;
-    writer.write_all(b"\n").await?;
-    writer.flush().await?;
+    let client = wstd::net::TcpStream::connect("127.0.0.1:7777")
+        .await
+        .context("failed to connect to leet service")?;
 
-    let mut resp_buf = Vec::new();
-    let mut buf = [0u8; 1024];
+    let response = async {
+        let (mut reader, mut writer) = client.split();
+        writer.write_all(&body).await?;
+        writer.write_all(b"\n").await?;
+        writer.flush().await?;
 
-    loop {
-        let n = reader.read(&mut buf).await?;
-        if n == 0 {
-            return Err(anyhow::anyhow!(
-                "connection closed before response was complete"
-            ));
-        }
-        for &byte in &buf[..n] {
-            if byte == b'\n' {
-                let response = String::from_utf8_lossy(&resp_buf).to_string();
-                let resp = Response::builder()
-                    .status(StatusCode::OK)
-                    .body(response.into())?;
-                return Ok(resp);
-            } else {
+        let mut resp_buf = Vec::new();
+        let mut buf = [0u8; 1024];
+
+        loop {
+            let n = reader.read(&mut buf).await?;
+            if n == 0 {
+                return Err(std::io::Error::other(
+                    "connection closed before response was complete",
+                ));
+            }
+            for &byte in &buf[..n] {
+                if byte == b'\n' {
+                    return Ok(String::from_utf8_lossy(&resp_buf).to_string());
+                }
                 resp_buf.push(byte);
             }
         }
     }
+    .timeout(Duration::from_secs(5))
+    .await
+    .context("leet service timed out")?
+    .context("failed to communicate with leet service")?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .body(response.into())
+        .map_err(Into::into)
 }
