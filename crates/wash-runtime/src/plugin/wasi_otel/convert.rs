@@ -221,9 +221,7 @@ pub fn summarize_resource_metrics(metrics: &wasi_metrics::ResourceMetrics) -> Me
 type GaugeValue = (String, f64, Vec<(String, String)>);
 
 /// Extract gauge values from ResourceMetrics for recording via SDK instruments
-pub fn extract_gauge_values(
-    metrics: &wasi_metrics::ResourceMetrics,
-) -> Vec<GaugeValue> {
+pub fn extract_gauge_values(metrics: &wasi_metrics::ResourceMetrics) -> Vec<GaugeValue> {
     let mut values = Vec::new();
 
     for scope in &metrics.scope_metrics {
@@ -257,9 +255,7 @@ pub fn extract_gauge_values(
 type CounterValue = (String, f64, bool, Vec<(String, String)>);
 
 /// Extract counter/sum values from ResourceMetrics for recording via SDK instruments
-pub fn extract_counter_values(
-    metrics: &wasi_metrics::ResourceMetrics,
-) -> Vec<CounterValue> {
+pub fn extract_counter_values(metrics: &wasi_metrics::ResourceMetrics) -> Vec<CounterValue> {
     let mut values = Vec::new();
 
     for scope in &metrics.scope_metrics {
