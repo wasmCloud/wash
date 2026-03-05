@@ -22,7 +22,6 @@
 //! - [`wasi_logging`] - Structured logging (`wasi:logging`)
 //! - [`wasi_otel`] - OpenTelemetry tracing, metrics, and logs (`wasi:otel/*`)
 
-
 use std::future::Future;
 use std::path::PathBuf;
 use std::{collections::HashMap, path::Path};

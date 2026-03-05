@@ -6,31 +6,29 @@ mod convert;
 
 pub use convert::otel_span_context_to_wit;
 use convert::{
-    convert_wasi_log_record, summarize_resource_metrics, extract_gauge_values, extract_counter_values,
-    summarize_span_data, extract_span_attributes, extract_span_events, convert_span_kind, convert_status,
-    wit_span_context_to_otel,
+    convert_span_kind, convert_status, convert_wasi_log_record, extract_counter_values,
+    extract_gauge_values, extract_span_attributes, extract_span_events, summarize_resource_metrics,
+    summarize_span_data, wit_span_context_to_otel,
 };
 
 use anyhow::bail;
 use opentelemetry::logs::{Logger, LoggerProvider};
 use opentelemetry::trace::Span as _;
 
-use std::sync::Arc;
-use std::collections::HashSet;
-use tokio::sync::RwLock;
-use opentelemetry::trace::SpanContext;
 use opentelemetry::KeyValue;
+use opentelemetry::trace::SpanContext;
+use opentelemetry_sdk::logs::{BatchLogProcessor, SdkLoggerProvider};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use opentelemetry_sdk::trace::SdkTracerProvider;
-use opentelemetry_sdk::logs::{BatchLogProcessor, SdkLoggerProvider};
+use std::collections::HashSet;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use opentelemetry_otlp::{LogExporter, MetricExporter, SpanExporter};
 
 use crate::engine::ctx::{ActiveCtx, SharedCtx, extract_active_ctx};
-use crate::plugin::{HostPlugin,WorkloadItem,WorkloadTracker};
+use crate::plugin::{HostPlugin, WorkloadItem, WorkloadTracker};
 use crate::wit::{WitInterface, WitWorld};
-
-
 
 const WASI_OTEL_ID: &str = "wasi-otel";
 
@@ -77,7 +75,7 @@ struct ComponentContext {
 /// WASI OpenTelemetry Plugin
 pub struct WasiOtel {
     config: WasiOtelConfig,
-    tracker: Arc<RwLock<WorkloadTracker<(),ComponentContext>>>,
+    tracker: Arc<RwLock<WorkloadTracker<(), ComponentContext>>>,
     /// Meter provider for metrics export
     meter_provider: Arc<RwLock<Option<SdkMeterProvider>>>,
     tracer_provider: Arc<RwLock<Option<SdkTracerProvider>>>,
@@ -143,15 +141,17 @@ impl HostPlugin for WasiOtel {
             .expect("Failed to create metric exporter");
 
         // processor
-        let processor = BatchLogProcessor::builder(log_exporter)
-            .build();
+        let processor = BatchLogProcessor::builder(log_exporter).build();
 
         // Initialize all providers
         let tracer_provider = opentelemetry_sdk::trace::TracerProviderBuilder::default()
             .with_batch_exporter(span_exporter)
             .with_resource(
                 opentelemetry_sdk::Resource::builder_empty()
-                    .with_attributes([KeyValue::new("service.name", self.config.service_name.clone())])
+                    .with_attributes([KeyValue::new(
+                        "service.name",
+                        self.config.service_name.clone(),
+                    )])
                     .build(),
             )
             .build();
@@ -159,7 +159,10 @@ impl HostPlugin for WasiOtel {
             .with_log_processor(processor)
             .with_resource(
                 opentelemetry_sdk::Resource::builder_empty()
-                    .with_attributes([KeyValue::new("service.name", self.config.service_name.clone())])
+                    .with_attributes([KeyValue::new(
+                        "service.name",
+                        self.config.service_name.clone(),
+                    )])
                     .build(),
             )
             .build();
@@ -167,7 +170,10 @@ impl HostPlugin for WasiOtel {
             .with_periodic_exporter(metric_exporter)
             .with_resource(
                 opentelemetry_sdk::Resource::builder_empty()
-                    .with_attributes([KeyValue::new("service.name", self.config.service_name.clone())])
+                    .with_attributes([KeyValue::new(
+                        "service.name",
+                        self.config.service_name.clone(),
+                    )])
                     .build(),
             )
             .build();
@@ -214,7 +220,9 @@ impl HostPlugin for WasiOtel {
             bail!("Service can not be tracked");
         };
 
-        self.tracker.write().await
+        self.tracker
+            .write()
+            .await
             .add_component(component_handle, ctx);
 
         tracing::info!(
@@ -229,7 +237,9 @@ impl HostPlugin for WasiOtel {
         workload_id: &str,
         _interfaces: HashSet<WitInterface>,
     ) -> anyhow::Result<()> {
-        self.tracker.write().await
+        self.tracker
+            .write()
+            .await
             .remove_workload(workload_id)
             .await;
         tracing::info!(workload_id, "WASI OTel unbound from workload");
@@ -258,7 +268,10 @@ impl HostPlugin for WasiOtel {
 
 // OTel Logs
 impl<'a> bindings::wasi::otel::logs::Host for ActiveCtx<'a> {
-    async fn on_emit(&mut self, data: bindings::wasi::otel::logs::LogRecord) -> wasmtime::Result<()> {
+    async fn on_emit(
+        &mut self,
+        data: bindings::wasi::otel::logs::LogRecord,
+    ) -> wasmtime::Result<()> {
         tracing::info!(?data, "emitting log record");
         if let Some(plugin) = self.ctx.get_plugin::<WasiOtel>(WASI_OTEL_ID) {
             let service_name = plugin.config.service_name.clone();
@@ -308,7 +321,8 @@ impl<'a> bindings::wasi::otel::metrics::Host for ActiveCtx<'a> {
                 }
 
                 // Record counter values
-                for (name, value, is_monotonic, attrs) in extract_counter_values(&resource_metrics) {
+                for (name, value, is_monotonic, attrs) in extract_counter_values(&resource_metrics)
+                {
                     let kv_attrs: Vec<KeyValue> = attrs
                         .into_iter()
                         .map(|(k, v)| KeyValue::new(k, v))
@@ -344,7 +358,10 @@ impl<'a> bindings::wasi::otel::metrics::Host for ActiveCtx<'a> {
 
 // OTel Tracing
 impl<'a> bindings::wasi::otel::tracing::Host for ActiveCtx<'a> {
-    async fn on_start(&mut self, span_context: bindings::wasi::otel::tracing::SpanContext) -> wasmtime::Result<()> {
+    async fn on_start(
+        &mut self,
+        span_context: bindings::wasi::otel::tracing::SpanContext,
+    ) -> wasmtime::Result<()> {
         // Log the span start - the actual span is managed by the guest
         tracing::info!(
             trace_id = %span_context.trace_id,
@@ -355,7 +372,10 @@ impl<'a> bindings::wasi::otel::tracing::Host for ActiveCtx<'a> {
         Ok(())
     }
 
-    async fn on_end(&mut self, span_data: bindings::wasi::otel::tracing::SpanData) -> wasmtime::Result<()> {
+    async fn on_end(
+        &mut self,
+        span_data: bindings::wasi::otel::tracing::SpanData,
+    ) -> wasmtime::Result<()> {
         if let Some(plugin) = self.ctx.get_plugin::<WasiOtel>(WASI_OTEL_ID) {
             let summary = summarize_span_data(&span_data);
             tracing::info!(
@@ -373,7 +393,7 @@ impl<'a> bindings::wasi::otel::tracing::Host for ActiveCtx<'a> {
 
             let provider_guard = plugin.tracer_provider.read().await;
             if let Some(ref provider) = *provider_guard {
-                use opentelemetry::trace::{Tracer, TracerProvider, SpanBuilder};
+                use opentelemetry::trace::{SpanBuilder, Tracer, TracerProvider};
 
                 let tracer = provider.tracer(plugin.config.service_name.clone());
 
@@ -446,6 +466,4 @@ impl<'a> bindings::wasi::otel::tracing::Host for ActiveCtx<'a> {
     }
 }
 
-impl<'a> bindings::wasi::otel::types::Host for ActiveCtx<'a> {
-
-}
+impl<'a> bindings::wasi::otel::types::Host for ActiveCtx<'a> {}

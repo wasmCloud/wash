@@ -1,14 +1,18 @@
 //! Conversion utilities for WASI OpenTelemetry types
 
 use opentelemetry::logs::{AnyValue, LogRecord as OtelLogRecord};
-use opentelemetry::trace::{SpanContext, SpanId, TraceFlags, TraceId, TraceState, SpanKind, Status};
+use opentelemetry::trace::{
+    SpanContext, SpanId, SpanKind, Status, TraceFlags, TraceId, TraceState,
+};
 use opentelemetry::{Key, KeyValue};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::bindings::wasi::otel::logs::LogRecord as WasiLogRecord;
 use super::bindings::wasi::otel::metrics as wasi_metrics;
 use super::bindings::wasi::otel::tracing as wasi_tracing;
-use super::bindings::wasi::otel::tracing::{SpanContext as WitSpanContext, TraceFlags as WitTraceFlags};
+use super::bindings::wasi::otel::tracing::{
+    SpanContext as WitSpanContext, TraceFlags as WitTraceFlags,
+};
 
 /// Convert OTel span context to WIT
 pub fn otel_span_context_to_wit(ctx: &SpanContext) -> WitSpanContext {
@@ -26,7 +30,11 @@ pub fn otel_span_context_to_wit(ctx: &SpanContext) -> WitSpanContext {
 }
 
 /// Converts a WASI OTEL LogRecord to populate an OpenTelemetry LogRecord
-pub fn convert_wasi_log_record<R: OtelLogRecord>(wasi_record: WasiLogRecord, otel_record: &mut R, service_name: impl Into<String>) {
+pub fn convert_wasi_log_record<R: OtelLogRecord>(
+    wasi_record: WasiLogRecord,
+    otel_record: &mut R,
+    service_name: impl Into<String>,
+) {
     use opentelemetry::logs::Severity;
 
     otel_record.add_attribute(
@@ -157,25 +165,29 @@ fn metric_number_to_f64(n: &wasi_metrics::MetricNumber) -> f64 {
 /// Get a summary of the metric data type
 fn metric_data_summary(data: &wasi_metrics::MetricData) -> String {
     match data {
-        wasi_metrics::MetricData::F64Gauge(g) |
-        wasi_metrics::MetricData::U64Gauge(g) |
-        wasi_metrics::MetricData::S64Gauge(g) => {
+        wasi_metrics::MetricData::F64Gauge(g)
+        | wasi_metrics::MetricData::U64Gauge(g)
+        | wasi_metrics::MetricData::S64Gauge(g) => {
             format!("gauge({} points)", g.data_points.len())
         }
-        wasi_metrics::MetricData::F64Sum(s) |
-        wasi_metrics::MetricData::U64Sum(s) |
-        wasi_metrics::MetricData::S64Sum(s) => {
-            let monotonic = if s.is_monotonic { "monotonic" } else { "non-monotonic" };
+        wasi_metrics::MetricData::F64Sum(s)
+        | wasi_metrics::MetricData::U64Sum(s)
+        | wasi_metrics::MetricData::S64Sum(s) => {
+            let monotonic = if s.is_monotonic {
+                "monotonic"
+            } else {
+                "non-monotonic"
+            };
             format!("sum({} points, {})", s.data_points.len(), monotonic)
         }
-        wasi_metrics::MetricData::F64Histogram(h) |
-        wasi_metrics::MetricData::U64Histogram(h) |
-        wasi_metrics::MetricData::S64Histogram(h) => {
+        wasi_metrics::MetricData::F64Histogram(h)
+        | wasi_metrics::MetricData::U64Histogram(h)
+        | wasi_metrics::MetricData::S64Histogram(h) => {
             format!("histogram({} points)", h.data_points.len())
         }
-        wasi_metrics::MetricData::F64ExponentialHistogram(h) |
-        wasi_metrics::MetricData::U64ExponentialHistogram(h) |
-        wasi_metrics::MetricData::S64ExponentialHistogram(h) => {
+        wasi_metrics::MetricData::F64ExponentialHistogram(h)
+        | wasi_metrics::MetricData::U64ExponentialHistogram(h)
+        | wasi_metrics::MetricData::S64ExponentialHistogram(h) => {
             format!("exp_histogram({} points)", h.data_points.len())
         }
     }
@@ -214,16 +226,20 @@ pub fn extract_gauge_values(
     for scope in &metrics.scope_metrics {
         for metric in &scope.metrics {
             match &metric.data {
-                wasi_metrics::MetricData::F64Gauge(g) |
-                wasi_metrics::MetricData::U64Gauge(g) |
-                wasi_metrics::MetricData::S64Gauge(g) => {
+                wasi_metrics::MetricData::F64Gauge(g)
+                | wasi_metrics::MetricData::U64Gauge(g)
+                | wasi_metrics::MetricData::S64Gauge(g) => {
                     for point in &g.data_points {
                         let attrs: Vec<(String, String)> = point
                             .attributes
                             .iter()
                             .map(|kv| (kv.key.clone(), kv.value.clone()))
                             .collect();
-                        values.push((metric.name.clone(), metric_number_to_f64(&point.value), attrs));
+                        values.push((
+                            metric.name.clone(),
+                            metric_number_to_f64(&point.value),
+                            attrs,
+                        ));
                     }
                 }
                 _ => {}
@@ -243,9 +259,9 @@ pub fn extract_counter_values(
     for scope in &metrics.scope_metrics {
         for metric in &scope.metrics {
             match &metric.data {
-                wasi_metrics::MetricData::F64Sum(s) |
-                wasi_metrics::MetricData::U64Sum(s) |
-                wasi_metrics::MetricData::S64Sum(s) => {
+                wasi_metrics::MetricData::F64Sum(s)
+                | wasi_metrics::MetricData::U64Sum(s)
+                | wasi_metrics::MetricData::S64Sum(s) => {
                     for point in &s.data_points {
                         let attrs: Vec<(String, String)> = point
                             .attributes
@@ -298,8 +314,11 @@ pub fn wit_span_context_to_otel(ctx: &WitSpanContext) -> SpanContext {
 
     // Convert trace state from list of tuples
     let trace_state = TraceState::from_key_value(
-        ctx.trace_state.iter().map(|(k, v)| (k.as_str(), v.as_str()))
-    ).unwrap_or_default();
+        ctx.trace_state
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str())),
+    )
+    .unwrap_or_default();
 
     SpanContext::new(trace_id, span_id, trace_flags, ctx.is_remote, trace_state)
 }
@@ -376,7 +395,9 @@ pub fn extract_span_attributes(span: &wasi_tracing::SpanData) -> Vec<KeyValue> {
 }
 
 /// Extract span events for recording
-pub fn extract_span_events(span: &wasi_tracing::SpanData) -> Vec<(String, SystemTime, Vec<KeyValue>)> {
+pub fn extract_span_events(
+    span: &wasi_tracing::SpanData,
+) -> Vec<(String, SystemTime, Vec<KeyValue>)> {
     span.events
         .iter()
         .map(|e| {
