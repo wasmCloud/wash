@@ -159,8 +159,8 @@ impl CliCommand for HostCommand {
 
         // Enable otel plugin
         if self.wasi_otel {
-            cluster_host_builder =
-                cluster_host_builder.with_plugin(Arc::new(plugin::wasi_otel::WasiOtel::default()))?;
+            cluster_host_builder = cluster_host_builder
+                .with_plugin(Arc::new(plugin::wasi_otel::WasiOtel::default()))?;
         }
 
         // Enable WASI WebGPU if requested

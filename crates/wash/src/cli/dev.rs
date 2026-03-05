@@ -173,7 +173,7 @@ impl CliCommand for DevCommand {
                 host_builder.with_plugin(Arc::new(plugin::wasi_otel::WasiOtel::default()))?;
             debug!("WASI OpenTelemetry plugin registered");
         }
-        
+
         // Enable WASI WebGPU if requested
         #[cfg(not(target_os = "windows"))]
         if dev_config.wasi_webgpu {
