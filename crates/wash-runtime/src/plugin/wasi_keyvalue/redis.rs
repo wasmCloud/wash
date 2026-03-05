@@ -308,9 +308,8 @@ impl<'a> bindings::wasi::keyvalue::atomics::Host for ActiveCtx<'a> {
         let mut conn = bucket_handle.conn.clone();
         let redis_key = bucket_handle.prefixed_key(&key);
 
-        let delta_i64 = i64::try_from(delta).map_err(|_| {
-            anyhow::anyhow!("delta value {} exceeds i64::MAX", delta)
-        })?;
+        let delta_i64 = i64::try_from(delta)
+            .map_err(|_| anyhow::anyhow!("delta value {} exceeds i64::MAX", delta))?;
         match conn.incr::<_, _, i64>(redis_key, delta_i64).await {
             Ok(new_value) => Ok(Ok(new_value as u64)),
             Err(e) => {

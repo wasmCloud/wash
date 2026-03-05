@@ -1,7 +1,7 @@
 mod filesystem;
 mod in_memory;
-mod redis;
 mod nats;
+mod redis;
 
 pub use filesystem::FilesystemKeyValue;
 pub use in_memory::InMemoryKeyValue;
