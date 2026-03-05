@@ -111,7 +111,7 @@ func main() {
 		&watchNamespaces,
 		"watch-namespaces",
 		"",
-		"Comma-seperated list of namespaces to watch. If empty, watches all namespaces.",
+		"Comma-separated list of namespaces to watch. If empty, watches all namespaces.",
 	)
 
 	opts := zap.Options{
