@@ -123,7 +123,7 @@ impl HostPlugin for WasiOtel {
         let span_exporter = SpanExporter::builder()
             .with_tonic()
             .build()
-            .expect("Failed to create span exporter");
+            .map_err(|e| anyhow::anyhow!("Failed to create span exporter: {e}"))?;
 
         // set up the grpc log exporter
         let log_exporter = LogExporter::builder()
@@ -138,7 +138,7 @@ impl HostPlugin for WasiOtel {
             //.with_endpoint("http://localhost:5318")
             //.with_protocol(opentelemetry_otlp::Protocol::Grpc)
             .build()
-            .expect("Failed to create metric exporter");
+            .map_err(|e| anyhow::anyhow!("Failed to create metric exporter: {e}"))?;
 
         // processor
         let processor = BatchLogProcessor::builder(log_exporter).build();
