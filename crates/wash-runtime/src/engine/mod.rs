@@ -42,12 +42,12 @@
 use std::hash::Hash;
 use std::time::Duration;
 
+use crate::sockets::loopback;
 use anyhow::{Context, bail};
 use moka::sync::Cache;
 use tracing::{instrument, warn};
 use wasmtime::PoolingAllocationConfig;
 use wasmtime::component::{Component, Linker};
-use wasmtime_wasi::sockets::loopback;
 
 use crate::engine::ctx::SharedCtx;
 use crate::engine::workload::{UnresolvedWorkload, WorkloadComponent, WorkloadService};
@@ -55,6 +55,126 @@ use crate::types::{EmptyDirVolume, HostPathVolume, VolumeType, Workload};
 use std::env;
 use std::str::FromStr;
 use std::{path::PathBuf, sync::Arc};
+use wasmtime_wasi::WasiView;
+
+/// Add all WASI@0.2 interfaces to the linker, using upstream for non-socket interfaces
+/// and our custom socket implementation (with loopback support) for socket interfaces.
+fn add_wasi_to_linker(linker: &mut Linker<SharedCtx>) -> anyhow::Result<()> {
+    use wasmtime_wasi::p2::bindings::{cli, clocks, filesystem, random, sockets};
+
+    // IO interfaces (error, poll, streams)
+    wasmtime_wasi_io::add_to_linker_async(linker)?;
+
+    // Filesystem (async version)
+    filesystem::types::add_to_linker::<SharedCtx, wasmtime_wasi::filesystem::WasiFilesystem>(
+        linker,
+        <SharedCtx as wasmtime_wasi::filesystem::WasiFilesystemView>::filesystem,
+    )?;
+    filesystem::preopens::add_to_linker::<SharedCtx, wasmtime_wasi::filesystem::WasiFilesystem>(
+        linker,
+        <SharedCtx as wasmtime_wasi::filesystem::WasiFilesystemView>::filesystem,
+    )?;
+
+    // Clocks
+    clocks::wall_clock::add_to_linker::<SharedCtx, wasmtime_wasi::clocks::WasiClocks>(
+        linker,
+        <SharedCtx as wasmtime_wasi::clocks::WasiClocksView>::clocks,
+    )?;
+    clocks::monotonic_clock::add_to_linker::<SharedCtx, wasmtime_wasi::clocks::WasiClocks>(
+        linker,
+        <SharedCtx as wasmtime_wasi::clocks::WasiClocksView>::clocks,
+    )?;
+
+    // Random
+    random::random::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(linker, |t| {
+        t.ctx().ctx.random()
+    })?;
+    random::insecure::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(linker, |t| {
+        t.ctx().ctx.random()
+    })?;
+    random::insecure_seed::add_to_linker::<SharedCtx, wasmtime_wasi::random::WasiRandom>(
+        linker,
+        |t| t.ctx().ctx.random(),
+    )?;
+
+    // CLI
+    let cli_options = cli::exit::LinkOptions::default();
+    cli::exit::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        &cli_options,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::environment::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::stdin::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::stdout::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::stderr::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::terminal_input::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::terminal_output::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::terminal_stdin::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::terminal_stdout::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+    cli::terminal_stderr::add_to_linker::<SharedCtx, wasmtime_wasi::cli::WasiCli>(
+        linker,
+        <SharedCtx as wasmtime_wasi::cli::WasiCliView>::cli,
+    )?;
+
+    // Socket interfaces — use OUR implementation with loopback support
+    sockets::tcp::add_to_linker::<SharedCtx, crate::sockets::WasiSockets>(
+        linker,
+        ctx::extract_sockets,
+    )?;
+    sockets::udp::add_to_linker::<SharedCtx, crate::sockets::WasiSockets>(
+        linker,
+        ctx::extract_sockets,
+    )?;
+    sockets::tcp_create_socket::add_to_linker::<SharedCtx, crate::sockets::WasiSockets>(
+        linker,
+        ctx::extract_sockets,
+    )?;
+    sockets::udp_create_socket::add_to_linker::<SharedCtx, crate::sockets::WasiSockets>(
+        linker,
+        ctx::extract_sockets,
+    )?;
+    sockets::instance_network::add_to_linker::<SharedCtx, crate::sockets::WasiSockets>(
+        linker,
+        ctx::extract_sockets,
+    )?;
+    let net_options = sockets::network::LinkOptions::default();
+    sockets::network::add_to_linker::<SharedCtx, crate::sockets::WasiSockets>(
+        linker,
+        &net_options,
+        ctx::extract_sockets,
+    )?;
+    sockets::ip_name_lookup::add_to_linker::<SharedCtx, crate::sockets::WasiSockets>(
+        linker,
+        ctx::extract_sockets,
+    )?;
+
+    Ok(())
+}
 
 pub mod ctx;
 mod value;
@@ -240,9 +360,8 @@ impl Engine {
         // Create a linker for this component
         let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);
 
-        // Add WASI@0.2 interfaces to the linker
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker)
-            .context("failed to add WASI to linker")?;
+        // Add WASI@0.2 interfaces to the linker (with custom socket implementation)
+        add_wasi_to_linker(&mut linker).context("failed to add WASI to linker")?;
 
         // Add HTTP interfaces to the linker if feature is enabled and component uses them
         if uses_wasi_http(&wasmtime_component) {
@@ -278,7 +397,7 @@ impl Engine {
         let world = service.world();
 
         if !world.exports.iter().any(|iface| {
-            iface.package == "wasi" && iface.namespace == "cli" && iface.interfaces.contains("run")
+            iface.namespace == "wasi" && iface.package == "cli" && iface.interfaces.contains("run")
         }) && world.exports.len() != 1
         {
             bail!("Service must export a single interface with the 'run' function");
@@ -339,9 +458,8 @@ impl Engine {
         // Create a linker for this component
         let mut linker: Linker<SharedCtx> = Linker::new(&self.inner);
 
-        // Add WASI@0.2 interfaces to the linker
-        wasmtime_wasi::p2::add_to_linker_async(&mut linker)
-            .context("failed to add WASI to linker")?;
+        // Add WASI@0.2 interfaces to the linker (with custom socket implementation)
+        add_wasi_to_linker(&mut linker).context("failed to add WASI to linker")?;
 
         // Add HTTP interfaces to the linker
         if uses_wasi_http(&wasmtime_component) {

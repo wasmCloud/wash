@@ -62,6 +62,13 @@ pub fn extract_active_ctx(ctx: &mut SharedCtx) -> ActiveCtx<'_> {
     }
 }
 
+pub fn extract_sockets(ctx: &mut SharedCtx) -> crate::sockets::WasiSocketsCtxView<'_> {
+    crate::sockets::WasiSocketsCtxView {
+        ctx: &mut ctx.active_ctx.sockets,
+        table: &mut ctx.table,
+    }
+}
+
 pub struct ActiveCtx<'a> {
     pub table: &'a mut wasmtime::component::ResourceTable,
     pub ctx: &'a mut Ctx,
@@ -95,6 +102,8 @@ pub struct Ctx {
     pub ctx: WasiCtx,
     /// The HTTP context used to provide HTTP functionality to the component.
     pub http: WasiHttpCtx,
+    /// The sockets context used to provide socket functionality (with loopback support).
+    pub sockets: crate::sockets::WasiSocketsCtx,
     /// Plugin instances stored by string ID for access during component execution.
     /// These all implement the [`HostPlugin`] trait, but they are cast as `Arc<dyn Any + Send + Sync>`
     /// to support downcasting to the specific plugin type in [`Ctx::get_plugin`]
@@ -175,6 +184,7 @@ pub struct CtxBuilder {
     workload_id: Arc<str>,
     component_id: Arc<str>,
     ctx: Option<WasiCtx>,
+    sockets: Option<crate::sockets::WasiSocketsCtx>,
     plugins: HashMap<&'static str, Arc<dyn HostPlugin + Send + Sync>>,
     http_handler: Option<Arc<dyn crate::host::http::HostHandler>>,
 }
@@ -186,6 +196,7 @@ impl CtxBuilder {
             component_id: component_id.into(),
             workload_id: workload_id.into(),
             ctx: None,
+            sockets: None,
             http_handler: None,
             plugins: HashMap::new(),
         }
@@ -194,6 +205,11 @@ impl CtxBuilder {
     /// Set a custom [WasiCtx]
     pub fn with_wasi_ctx(mut self, ctx: WasiCtx) -> Self {
         self.ctx = Some(ctx);
+        self
+    }
+
+    pub fn with_sockets(mut self, sockets: crate::sockets::WasiSocketsCtx) -> Self {
+        self.sockets = Some(sockets);
         self
     }
 
@@ -231,6 +247,7 @@ impl CtxBuilder {
             workload_id: self.workload_id,
             component_id: self.component_id,
             http: WasiHttpCtx::new(),
+            sockets: self.sockets.unwrap_or_default(),
             plugins,
             http_handler: self.http_handler,
         }
