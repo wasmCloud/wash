@@ -217,10 +217,13 @@ pub fn summarize_resource_metrics(metrics: &wasi_metrics::ResourceMetrics) -> Me
     }
 }
 
+/// Gauge value: (metric_name, value, attributes)
+type GaugeValue = (String, f64, Vec<(String, String)>);
+
 /// Extract gauge values from ResourceMetrics for recording via SDK instruments
 pub fn extract_gauge_values(
     metrics: &wasi_metrics::ResourceMetrics,
-) -> Vec<(String, f64, Vec<(String, String)>)> {
+) -> Vec<GaugeValue> {
     let mut values = Vec::new();
 
     for scope in &metrics.scope_metrics {
@@ -250,10 +253,13 @@ pub fn extract_gauge_values(
     values
 }
 
+/// Counter value: (metric_name, value, is_monotonic, attributes)
+type CounterValue = (String, f64, bool, Vec<(String, String)>);
+
 /// Extract counter/sum values from ResourceMetrics for recording via SDK instruments
 pub fn extract_counter_values(
     metrics: &wasi_metrics::ResourceMetrics,
-) -> Vec<(String, f64, bool, Vec<(String, String)>)> {
+) -> Vec<CounterValue> {
     let mut values = Vec::new();
 
     for scope in &metrics.scope_metrics {
@@ -324,7 +330,7 @@ pub fn wit_span_context_to_otel(ctx: &WitSpanContext) -> SpanContext {
 }
 
 /// Convert WASI span kind to OTel SpanKind
-pub fn convert_span_kind(kind: &wasi_tracing::SpanKind) -> SpanKind {
+pub fn convert_span_kind(kind: wasi_tracing::SpanKind) -> SpanKind {
     match kind {
         wasi_tracing::SpanKind::Client => SpanKind::Client,
         wasi_tracing::SpanKind::Server => SpanKind::Server,

@@ -401,7 +401,7 @@ impl<'a> bindings::wasi::otel::tracing::Host for ActiveCtx<'a> {
                 // Note: The SDK generates its own span/trace IDs. The WASI span context is logged
                 // for correlation purposes but the SDK span will have different IDs.
                 let _wasi_span_context = wit_span_context_to_otel(&span_data.span_context);
-                let span_kind = convert_span_kind(&span_data.span_kind);
+                let span_kind = convert_span_kind(span_data.span_kind);
                 let status = convert_status(&span_data.status);
                 let attributes = extract_span_attributes(&span_data);
                 let events = extract_span_events(&span_data);
