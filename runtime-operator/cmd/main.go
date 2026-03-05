@@ -107,7 +107,12 @@ func main() {
 		false,
 		"Delegates Artifact reconciliation to an external controller.",
 	)
-	flag.StringVar(&watchNamespaces, "watch-namespaces", "", "Comma-seperated list of namespaces to watch. If empty, watches all namespaces.")
+	flag.StringVar(
+		&watchNamespaces,
+		"watch-namespaces",
+		"",
+		"Comma-seperated list of namespaces to watch. If empty, watches all namespaces.",
+	)
 
 	opts := zap.Options{
 		Development: true,
