@@ -6,7 +6,7 @@ use crate::engine::workload::{ResolvedWorkload, UnresolvedWorkload, WorkloadItem
 use crate::plugin::HostPlugin;
 use crate::wit::{WitInterface, WitWorld};
 use anyhow::Context;
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::{Notify, RwLock, oneshot};
 use tracing::{Instrument, debug, instrument, warn};
 
 const PLUGIN_MESSAGING_MEMORY_ID: &str = "wasmcloud-messaging-memory";
@@ -25,11 +25,21 @@ use bindings::wasmcloud::messaging::types;
 
 use crate::plugin::WorkloadTracker;
 
-/// Per-component tracking data
-#[derive(Default)]
+/// Per-workload tracking data
 struct WorkloadData {
     pending_messages: Arc<RwLock<VecDeque<types::BrokerMessage>>>,
     pending_requests: Arc<RwLock<HashMap<String, oneshot::Sender<types::BrokerMessage>>>>,
+    notify: Arc<Notify>,
+}
+
+impl Default for WorkloadData {
+    fn default() -> Self {
+        Self {
+            pending_messages: Arc::default(),
+            pending_requests: Arc::default(),
+            notify: Arc::new(Notify::new()),
+        }
+    }
 }
 
 /// Per-component tracking data
@@ -76,10 +86,14 @@ impl<'a> Host for ActiveCtx<'a> {
 
         let workload_id = self.ctx.workload_id.to_string();
 
-        let (pending_messages, pending_requests) = {
+        let (pending_messages, pending_requests, notify) = {
             let lock = plugin.tracker.read().await;
             match lock.get_workload_data(&workload_id) {
-                Some(data) => (data.pending_messages.clone(), data.pending_requests.clone()),
+                Some(data) => (
+                    data.pending_messages.clone(),
+                    data.pending_requests.clone(),
+                    data.notify.clone(),
+                ),
                 None => anyhow::bail!("workload state not found"),
             }
         };
@@ -116,6 +130,10 @@ impl<'a> Host for ActiveCtx<'a> {
             }
         };
 
+        if !queue_full {
+            notify.notify_one();
+        }
+
         if queue_full {
             let mut req_lock = pending_requests.write().await;
             req_lock.remove(&reply_to);
@@ -149,10 +167,14 @@ impl<'a> Host for ActiveCtx<'a> {
         };
 
         let workload_id = self.ctx.workload_id.to_string();
-        let (pending_messages, pending_requests) = {
+        let (pending_messages, pending_requests, notify) = {
             let lock = plugin.tracker.read().await;
             match lock.get_workload_data(&workload_id) {
-                Some(data) => (data.pending_messages.clone(), data.pending_requests.clone()),
+                Some(data) => (
+                    data.pending_messages.clone(),
+                    data.pending_requests.clone(),
+                    data.notify.clone(),
+                ),
                 None => anyhow::bail!("workload state not found"),
             }
         };
@@ -179,6 +201,7 @@ impl<'a> Host for ActiveCtx<'a> {
 
             lock.push_back(msg);
         }
+        notify.notify_one();
         Ok(Ok(()))
     }
 }
@@ -268,10 +291,10 @@ impl HostPlugin for InMemoryMessaging {
         workload: &ResolvedWorkload,
         component_id: &str,
     ) -> anyhow::Result<()> {
-        let pending_messages = {
+        let (pending_messages, notify) = {
             let lock = self.tracker.read().await;
             match lock.get_workload_data(workload.id()) {
-                Some(data) => data.pending_messages.clone(),
+                Some(data) => (data.pending_messages.clone(), data.notify.clone()),
                 None => return Ok(()),
             }
         };
@@ -297,14 +320,12 @@ impl HostPlugin for InMemoryMessaging {
         // Spawn the message processing task
         let task_component_id = component_id.clone();
         let handle = tokio::spawn(async move {
-            let poll_interval = std::time::Duration::from_millis(10);
-
             loop {
                 tokio::select! {
                     _ = cancel_token.cancelled() => {
                         break;
                     }
-                    _ = tokio::time::sleep(poll_interval) => {
+                    _ = notify.notified() => {
                         // Try to get a message from the queue
                         let msg = pending_messages.write().await.pop_front();
 
