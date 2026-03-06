@@ -15,14 +15,14 @@ use bindings::{
         },
         config::store::get_all,
         http::{
-            outgoing_handler::{handle, OutgoingRequest, RequestOptions},
+            outgoing_handler::{OutgoingRequest, RequestOptions, handle},
             types::{
                 Fields, IncomingRequest, Method, OutgoingBody, OutgoingResponse, ResponseOutparam,
                 Scheme,
             },
         },
         keyvalue::{atomics::increment, store::open},
-        logging::logging::{log, Level},
+        logging::logging::{Level, log},
     },
 };
 
@@ -36,7 +36,11 @@ impl Guest for Component {
     fn handle(_request: IncomingRequest, response_out: ResponseOutparam) {
         match handle_request() {
             Ok(count) => {
-                log(Level::Info, "", &format!("Successfully processed request, count: {count}"));
+                log(
+                    Level::Info,
+                    "",
+                    &format!("Successfully processed request, count: {count}"),
+                );
                 let response = OutgoingResponse::new(Fields::new());
                 response.set_status_code(200).unwrap();
                 let body = response.body().unwrap();
@@ -56,7 +60,9 @@ impl Guest for Component {
 
                 let error_msg = format!("Internal server error: {e}");
                 let stream = body.write().unwrap();
-                stream.blocking_write_and_flush(error_msg.as_bytes()).unwrap();
+                stream
+                    .blocking_write_and_flush(error_msg.as_bytes())
+                    .unwrap();
                 drop(stream);
                 OutgoingBody::finish(body, None).unwrap();
             }
@@ -91,19 +97,27 @@ fn log_runtime_config() -> Result<()> {
             }
         }
         Err(e) => {
-            log(Level::Warn, "", &format!("Failed to retrieve runtime configuration: {e:?}"));
+            log(
+                Level::Warn,
+                "",
+                &format!("Failed to retrieve runtime configuration: {e:?}"),
+            );
         }
     }
     Ok(())
 }
 
 fn make_outgoing_request() -> Result<String> {
-    log(Level::Info, "", "Making outgoing HTTP request to https://example.com");
+    log(
+        Level::Info,
+        "",
+        "Making outgoing HTTP request to http://example.com",
+    );
 
     let request = OutgoingRequest::new(Fields::new());
     request
-        .set_scheme(Some(&Scheme::Https))
-        .map_err(|_| anyhow::anyhow!("Failed to set HTTPS scheme"))?;
+        .set_scheme(Some(&Scheme::Http))
+        .map_err(|_| anyhow::anyhow!("Failed to set HTTP scheme"))?;
     request
         .set_authority(Some("example.com"))
         .map_err(|_| anyhow::anyhow!("Failed to set authority"))?;
@@ -127,10 +141,18 @@ fn make_outgoing_request() -> Result<String> {
         .map_err(|e| anyhow::anyhow!("Request failed: {e:?}"))??;
 
     let status = incoming_response.status();
-    log(Level::Info, "", &format!("Received response with status: {status}"));
+    log(
+        Level::Info,
+        "",
+        &format!("Received response with status: {status}"),
+    );
 
     if status < 200 || status >= 300 {
-        log(Level::Warn, "", &format!("Non-success status code received: {status}"));
+        log(
+            Level::Warn,
+            "",
+            &format!("Non-success status code received: {status}"),
+        );
     }
 
     let body_stream = incoming_response
@@ -155,21 +177,37 @@ fn make_outgoing_request() -> Result<String> {
     }
 
     let body_string = String::from_utf8_lossy(&body_data).to_string();
-    log(Level::Info, "", &format!("Retrieved {} bytes from example.com", body_data.len()));
+    log(
+        Level::Info,
+        "",
+        &format!("Retrieved {} bytes from example.com", body_data.len()),
+    );
 
     Ok(body_string)
 }
 
 fn store_response_in_blobstore(response_body: &str) -> Result<()> {
-    log(Level::Info, "", &format!("Storing response in blobstore container: {CONTAINER_NAME}"));
+    log(
+        Level::Info,
+        "",
+        &format!("Storing response in blobstore container: {CONTAINER_NAME}"),
+    );
 
     let container = match get_container(CONTAINER_NAME) {
         Ok(container) => {
-            log(Level::Info, "", &format!("Using existing container: {CONTAINER_NAME}"));
+            log(
+                Level::Info,
+                "",
+                &format!("Using existing container: {CONTAINER_NAME}"),
+            );
             container
         }
         Err(_) => {
-            log(Level::Info, "", &format!("Creating new container: {CONTAINER_NAME}"));
+            log(
+                Level::Info,
+                "",
+                &format!("Creating new container: {CONTAINER_NAME}"),
+            );
             create_container(CONTAINER_NAME)
                 .map_err(|e| anyhow::anyhow!("Failed to create blobstore container: {e}"))?
         }
@@ -193,7 +231,14 @@ fn store_response_in_blobstore(response_body: &str) -> Result<()> {
 
     OutgoingValue::finish(outgoing_value).ok();
 
-    log(Level::Info, "", &format!("Successfully stored {} bytes in object: {OBJECT_KEY}", response_bytes.len()));
+    log(
+        Level::Info,
+        "",
+        &format!(
+            "Successfully stored {} bytes in object: {OBJECT_KEY}",
+            response_bytes.len()
+        ),
+    );
 
     Ok(())
 }
@@ -205,7 +250,11 @@ fn increment_counter() -> Result<u64> {
 
     let new_count = increment(&bucket, COUNTER_KEY, 1).context("Failed to increment counter")?;
 
-    log(Level::Info, "", &format!("Request count incremented to: {new_count}"));
+    log(
+        Level::Info,
+        "",
+        &format!("Request count incremented to: {new_count}"),
+    );
 
     Ok(new_count)
 }

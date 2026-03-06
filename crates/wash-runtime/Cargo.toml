@@ -15,14 +15,22 @@ path = "src/lib.rs"
 workspace = true
 
 [features]
-default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "washlet"]
+default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "wasmcloud-postgres", "washlet", "wasi-otel"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
+wasi-otel = []
 washlet = ["oci"]
 wasi-config = []
 wasi-logging = []
 wasi-blobstore = []
 wasi-keyvalue = []
 wasi-webgpu = ["dep:wasi-webgpu-wasmtime", "dep:wasi-graphics-context-wasmtime"]
+wasmcloud-postgres = [
+    "dep:tokio-postgres", "dep:tokio-postgres-rustls",
+    "dep:deadpool-postgres", "dep:postgres-types",
+    "dep:bigdecimal", "dep:pg_bigdecimal",
+    "dep:bit-vec", "dep:cidr", "dep:geo-types",
+    "dep:ulid", "dep:webpki-roots",
+]
 
 [dependencies]
 anyhow = { workspace = true }
@@ -35,6 +43,7 @@ hostname = { workspace = true }
 hyper = { workspace = true, features = ["server", "http1"] }
 moka = { workspace = true, features = ["sync"]}
 names = { workspace = true }
+redis = { workspace = true }
 semver = { workspace = true }
 sysinfo = { workspace = true }
 uuid = { workspace = true, features = ["v4"] }
@@ -45,6 +54,10 @@ wasmtime = { workspace = true, features = ["component-model", "component-model-a
 wasmtime-wasi = { workspace = true }
 wasmtime-wasi-io = { workspace = true }
 wasmtime-wasi-http = { workspace = true, features = ["default-send-request"] }
+cap-net-ext = { workspace = true }
+cap-std = { workspace = true }
+io-lifetimes = { workspace = true }
+rustix = { workspace = true }
 rustls = { workspace = true, features = ["std", "tls12"] }
 rustls-pemfile = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
@@ -67,9 +80,11 @@ prost = { workspace = true, default-features = true }
 tonic-prost = { workspace = true, default-features = true }
 opentelemetry = { workspace = true, features = ["trace", "metrics", "logs"] }
 opentelemetry-appender-tracing = { workspace = true }
-opentelemetry_sdk = { workspace = true }
+opentelemetry_sdk = { workspace = true, features = ["logs"] }
 opentelemetry-http = { workspace = true }
-opentelemetry-otlp = { workspace = true, features = ["grpc-tonic", "trace", "logs"] }
+
+# Otel dependencies (optional, behind 'wasi-otel' feature)
+opentelemetry-otlp = { workspace = true, features = ["grpc-tonic","http-proto", "trace", "logs"] }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "067d92d0eabd264e15486b9cecbb9f7020257b7b", optional = true }
 wasi-webgpu-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "067d92d0eabd264e15486b9cecbb9f7020257b7b", optional = true }
@@ -80,6 +95,20 @@ oci-client = { workspace = true, optional = true, features = ["rustls-tls", "rus
 oci-wasm = { workspace = true, optional = true, features = ["rustls-tls"] }
 sha2 = { workspace = true, optional = true }
 wit-component = { workspace = true, optional = true }
+
+# PostgreSQL dependencies (optional, behind 'wasmcloud-postgres' feature)
+bigdecimal = { optional = true, workspace = true }
+bit-vec = { optional = true, workspace = true }
+cidr = { optional = true, workspace = true, features = ["std"] }
+deadpool-postgres = { optional = true, workspace = true, features = ["rt_tokio_1"] }
+geo-types = { optional = true, workspace = true }
+pg_bigdecimal = { optional = true, workspace = true }
+postgres-types = { optional = true, workspace = true, features = ["derive", "with-serde_json-1", "with-chrono-0_4", "with-uuid-1", "with-geo-types-0_7", "with-bit-vec-0_6", "with-cidr-0_2", "array-impls"] }
+tokio-postgres = { optional = true, workspace = true, features = [ "runtime", "with-serde_json-1", "with-chrono-0_4", "with-geo-types-0_7", "array-impls", "with-bit-vec-0_6", "with-uuid-1" ] }
+tokio-postgres-rustls = { optional = true, workspace = true }
+ulid = { optional = true, workspace = true, features = ["std"] }
+url = { workspace = true }
+webpki-roots = { optional = true, workspace = true }
 
 [build-dependencies]
 anyhow = { workspace = true, default-features = true }
