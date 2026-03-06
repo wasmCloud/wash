@@ -6730,7 +6730,6 @@ dependencies = [
  "futures",
  "gag",
  "geo-types",
- "hex",
  "hostname",
  "hyper",
  "io-lifetimes",

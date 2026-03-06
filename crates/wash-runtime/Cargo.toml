@@ -17,7 +17,7 @@ workspace = true
 [features]
 default = ["wasi-config", "wasi-logging", "wasi-blobstore", "wasi-keyvalue", "wasmcloud-postgres", "washlet", "wasi-otel"]
 oci = ["dep:oci-client", "dep:oci-wasm", "dep:docker_credential", "dep:sha2", "dep:wit-component"]
-wasi-otel = ["dep:hex"]
+wasi-otel = []
 washlet = ["oci"]
 wasi-config = []
 wasi-logging = []
@@ -84,8 +84,6 @@ opentelemetry_sdk = { workspace = true, features = ["logs"] }
 opentelemetry-http = { workspace = true }
 
 # Otel dependencies (optional, behind 'wasi-otel' feature)
-hex = {version = "0.4", optional = true }
-
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic","http-proto", "trace", "logs"] }
 opentelemetry-semantic-conventions = { workspace = true, features = ["semconv_experimental"] }
 wasi-graphics-context-wasmtime = { git = "https://github.com/wasi-gfx/wasi-gfx-runtime.git", rev = "067d92d0eabd264e15486b9cecbb9f7020257b7b", optional = true }
