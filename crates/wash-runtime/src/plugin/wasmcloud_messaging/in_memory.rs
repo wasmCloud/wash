@@ -132,9 +132,7 @@ impl<'a> Host for ActiveCtx<'a> {
 
         if !queue_full {
             notify.notify_one();
-        }
-
-        if queue_full {
+        } else {
             let mut req_lock = pending_requests.write().await;
             req_lock.remove(&reply_to);
             return Ok(Err("message queue full".to_string()));
