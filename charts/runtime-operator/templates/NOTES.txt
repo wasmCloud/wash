@@ -1,4 +1,0 @@
-The wasmCloud runtime-operator is installed.
-
-To verify your deployment:
-  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }} -n {{ .Release.Namespace }}
