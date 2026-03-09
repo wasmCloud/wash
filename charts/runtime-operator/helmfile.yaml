@@ -1,3 +1,0 @@
-releases:
-  - name: runtime-operator
-    chart: .
